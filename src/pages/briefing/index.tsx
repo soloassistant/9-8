@@ -6,6 +6,7 @@ import classnames from 'classnames';
 import VoiceButton, { VoiceResult } from '@/components/VoiceButton';
 import EmptyState from '@/components/EmptyState';
 import { apiGetBriefing, apiChat } from '@/services/api';
+import { locateCity } from '@/services/location';
 import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { getGreeting, formatEventTime } from '@/utils/date';
@@ -96,6 +97,21 @@ function BriefingPage() {
       Taro.showToast({ title: t('briefing.loadFailed'), icon: 'none' });
     }
   }, [t]);
+
+  // 定位授权（用户点击触发）：定位 → 换城市 → 存 storage → 刷新晨报天气
+  const [locating, setLocating] = useState(false);
+  const handleLocate = async () => {
+    if (locating) return;
+    setLocating(true);
+    const city = await locateCity();
+    setLocating(false);
+    if (city) {
+      Taro.showToast({ title: t('briefing.located') + city, icon: 'none' });
+      loadBriefing();
+    } else {
+      Taro.showToast({ title: t('briefing.locateDenied'), icon: 'none' });
+    }
+  };
 
   useEffect(() => {
     init();
@@ -443,7 +459,14 @@ function BriefingPage() {
               </View>
               {briefing.intel.weather ? (
                 <View className={styles.digestItem}>
-                  <Text className={styles.digestText}>🌤 {briefing.intel.weather.text}</Text>
+                  <View className={styles.weatherRow}>
+                    <Text className={styles.digestText}>🌤 {briefing.intel.weather.text}</Text>
+                    {!isWeapp ? (
+                      <Text className={styles.locateBtn} onClick={handleLocate}>
+                        {locating ? t('briefing.locating') : t('briefing.locateBtn')}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
               ) : null}
               {briefing.intel.intelItems.map((item, i) => (

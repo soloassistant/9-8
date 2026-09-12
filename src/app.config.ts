@@ -18,8 +18,16 @@ export default defineAppConfig({
     'pages/history/index',
     'pages/shopping/index',
     'pages/learn/index',
-    'pages/learnDetail/index'
+    'pages/learnDetail/index',
+    'pages/learnCommunity/index'
   ],
+  // 定位权限（weapp 生效，H5 忽略）：晨报天气城市自动定位
+  permission: {
+    'scope.userLocation': {
+      desc: '用于获取你所在城市的天气和晨报，坐标不存储'
+    }
+  },
+  requiredPrivateInfos: ['getLocation'],
   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#FFF3EC',

@@ -206,6 +206,83 @@
   flex-shrink: 0;
 }
 
+/* 个性化学习路径推荐 */
+.recCard {
+  margin: $spacing-md $page-padding 0;
+  padding: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.recHeader {
+  display: flex;
+  align-items: baseline;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+}
+
+.recTitle {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.recHint {
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+}
+
+.recStep {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-md;
+  margin-bottom: $spacing-sm;
+  border-radius: $radius-md;
+  background: $color-bg-page;
+  transition: transform $transition-fast;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+}
+
+.recBadge {
+  flex-shrink: 0;
+  padding: 6rpx 16rpx;
+  border-radius: $radius-round;
+  font-size: $font-size-xs;
+  color: #fff;
+}
+
+.recBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.recCourse {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.recReason {
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+}
+
+.recGo {
+  flex-shrink: 0;
+  font-size: $font-size-sm;
+  color: $color-text-disabled;
+}
+
 /* 页脚 */
 .footer {
   margin-top: $spacing-xl;
@@ -215,4 +292,39 @@
 .footerText {
   font-size: $font-size-xs;
   color: $color-text-disabled;
+}
+
+/* 社区与成就入口 */
+.communityEntry {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  margin: 0 $page-padding $spacing-lg;
+  padding: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  text-align: left;
+}
+
+.communityIcon {
+  font-size: 48rpx;
+}
+
+.communityTextWrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.communityTitle {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.communityDesc {
+  display: block;
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
 }

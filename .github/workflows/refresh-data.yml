@@ -1,0 +1,46 @@
+# 定时刷新 GitHub Pages 静态热点数据：RSS 聚合 → gh-pages 分支 api/hotspot.json
+# 前端（H5 线上）按相对路径 ./api/hotspot.json 读取，真实数据替代 mock；本机部署脚本同样会生成该文件
+name: refresh-hotspot-data
+
+on:
+  schedule:
+    - cron: '*/30 * * * *' # 每 30 分钟；GitHub 挂起期间可能延迟，前端有 stale 标注兜底
+  workflow_dispatch: {} # 支持手动触发
+
+permissions:
+  contents: write # 推送 gh-pages 分支需要
+
+concurrency:
+  group: refresh-hotspot
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # main：含 .tools/fetch-data.js
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages-out
+
+      - name: Fetch real hotspot data
+        run: node .tools/fetch-data.js --out gh-pages-out/api/hotspot.json
+
+      - name: Commit & push
+        working-directory: gh-pages-out
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add api/hotspot.json
+          if git diff --cached --quiet; then
+            echo "no change, skip commit"
+          else
+            git commit -m "chore: refresh hotspot data"
+            git push
+          fi

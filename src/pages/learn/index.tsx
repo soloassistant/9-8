@@ -10,6 +10,7 @@ import {
   getCourseProgress,
   setActiveLang,
   readLearnStore,
+  getRecommendedPath,
   LearnStore
 } from '@/utils/learn';
 import { useT } from '@/store/language';
@@ -37,6 +38,13 @@ function LearnPage() {
 
   const lang = LEARN_LANGS.find((l) => l.id === langId) || LEARN_LANGS[0];
   const stats = getLangStats(langId);
+  // 个性化学习路径：随进度/打卡状态实时刷新
+  const path = getRecommendedPath(langId);
+  const recBadgeLabel: Record<string, string> = {
+    continue: t('learn.recContinue'),
+    next: t('learn.recNext'),
+    review: t('learn.recReview')
+  };
 
   const handleLangChange = (id: LearnLangId) => {
     setLangId(id);
@@ -47,6 +55,17 @@ function LearnPage() {
     Taro.navigateTo({ url: `/pages/learnDetail/index?courseId=${course.id}` }).catch((err) =>
       console.warn('[LearnPage] navigate failed:', err)
     );
+  };
+
+  /** 推荐路径步骤点击：按 courseId 找到课程后跳转 */
+  const openCourseById = (courseId: string) => {
+    for (const l of lang.levels) {
+      const c = l.courses.find((it) => it.id === courseId);
+      if (c) {
+        openCourse(c);
+        return;
+      }
+    }
   };
 
   return (
@@ -95,6 +114,32 @@ function LearnPage() {
         {t('learn.progressHint', { percent: stats.percent, done: stats.coursesDone, total: stats.coursesTotal })}
       </Text>
 
+      {/* 个性化学习路径推荐 */}
+      {path.length > 0 ? (
+        <View className={styles.recCard}>
+          <View className={styles.recHeader}>
+            <Text className={styles.recTitle}>✨ {t('learn.recommendTitle')}</Text>
+            <Text className={styles.recHint}>{t('learn.recommendHint')}</Text>
+          </View>
+          {path.map((step, idx) => (
+            <View
+              key={step.courseId + step.type}
+              className={styles.recStep}
+              onClick={() => openCourseById(step.courseId)}
+            >
+              <Text className={styles.recBadge} style={{ background: lang.accent, opacity: 1 - idx * 0.18 }}>
+                {recBadgeLabel[step.type]}
+              </Text>
+              <View className={styles.recBody}>
+                <Text className={styles.recCourse}>{step.title}</Text>
+                <Text className={styles.recReason}>{step.reason}</Text>
+              </View>
+              <Text className={styles.recGo}>›</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       {/* 分级课程 */}
       {lang.levels.map((level) => (
         <View key={level.id} className={styles.levelBlock}>
@@ -134,6 +179,14 @@ function LearnPage() {
       ))}
 
       <View className={styles.footer}>
+        <View className={styles.communityEntry} onClick={() => Taro.navigateTo({ url: '/pages/learnCommunity/index' })}>
+          <Text className={styles.communityIcon}>🏅</Text>
+          <View className={styles.communityTextWrap}>
+            <Text className={styles.communityTitle}>{t('community.entryTitle')}</Text>
+            <Text className={styles.communityDesc}>{t('community.entryDesc')}</Text>
+          </View>
+          <Text className={styles.courseArrow}>›</Text>
+        </View>
         <Text className={styles.footerText}>{t('learn.moreComing')}</Text>
       </View>
     </View>

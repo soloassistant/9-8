@@ -1,9 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import AiAssistant from '@/components/AiAssistant';
+import Splash from '@/components/Splash';
 import { useLanguageStore, dict } from '@/store/language';
+import { initCloudSync } from '@/services/cloudSync';
 // 全局样式
 import './app.scss';
+
+// 用户数据轻云同步（仅 H5）：必须在任何页面读取 storage 之前完成云端恢复，故模块加载即执行
+initCloudSync();
 
 /** TabBar 文案：语言切换时同步更新（index 与 app.config.ts tabBar list 顺序一致） */
 const TAB_KEYS = ['tab.briefing', 'tab.inbox', 'tab.hotspot', 'tab.calendar', 'tab.mine'] as const;
@@ -68,6 +73,8 @@ function App(props) {
       {props.children}
       {/* 晨报页有常驻输入栏（含快捷指令条），AI 悬浮球需额外抬升避让 */}
       <AiAssistant context={context} offset={context === 'briefing' ? 240 : 40} />
+      {/* 开屏动画：每次冷启动展示，点击可跳过 */}
+      <Splash />
     </React.Fragment>
   );
 }

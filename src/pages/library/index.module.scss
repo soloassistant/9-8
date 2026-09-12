@@ -87,6 +87,16 @@
   @include text-ellipsis;
 }
 
+/* 数据来源与更新时间标注（真实数据元信息，mock 时隐藏） */
+.dataMetaBar {
+  margin: 0 $page-padding $spacing-sm;
+}
+
+.dataMetaText {
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+}
+
 .hotspot {
   margin-bottom: $spacing-sm;
 }

@@ -6,6 +6,7 @@ import classnames from 'classnames';
 import TagChip from '@/components/TagChip';
 import EmptyState from '@/components/EmptyState';
 import { apiGetLibrary, apiGetHotspot, apiNewsSearch } from '@/services/api';
+import { getHotspotMeta } from '@/services/cloud';
 import { useUserStore } from '@/store/user';
 import { fromNow } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
@@ -63,6 +64,7 @@ function LibraryPage() {
   const t = useT();
   const [items, setItems] = useState<CollectionItem[]>([]);
   const [news, setNews] = useState<HotspotNews[]>([]);
+  const [hotMeta, setHotMeta] = useState<ReturnType<typeof getHotspotMeta>>(null);
   const [activeNewsTag, setActiveNewsTag] = useState('全部');
   // F29 全网搜索：回车触发；真机走 webSearch 云函数（Bing News RSS），H5 预览/云端空结果走本地过滤兜底
   const [searchMode, setSearchMode] = useState(false);
@@ -79,6 +81,8 @@ function LibraryPage() {
       .then(([lib, hotspot]) => {
         setItems(lib);
         setNews(hotspot);
+        // 数据来源元信息（mock/真机 webSearch 路径为 null，不显示来源栏）
+        setHotMeta(getHotspotMeta());
         refreshUsage();
       })
       .catch((err) => {
@@ -226,6 +230,17 @@ function LibraryPage() {
             </Text>
             <Text className={styles.sectionBarHint}>{searchMode ? t('library.searchOnlineHint') : t('library.hotHint')}</Text>
           </View>
+          {!searchMode && hotMeta ? (
+            <View className={styles.dataMetaBar}>
+              <Text className={styles.dataMetaText}>
+                {t('library.dataUpdated')} {dayjs(hotMeta.updatedAt || Date.now()).format('HH:mm')}
+                {hotMeta.stale ? ` · ${t('library.dataStale')}` : ''}
+                {hotMeta.sources.length
+                  ? ` · ${t('library.dataSources')}${hotMeta.sources.filter((s) => s.ok).map((s) => s.name).join('/')}`
+                  : ''}
+              </Text>
+            </View>
+          ) : null}
           {!searchMode && newsTags.length > 2 ? (
             <View className={styles.filterBar}>
               <ScrollView scrollX className={styles.chipScroll}>

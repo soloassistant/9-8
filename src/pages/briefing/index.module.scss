@@ -271,6 +271,23 @@
   }
 }
 
+/* 天气行：文字 + 定位授权按钮（H5 浏览器授权，weapp 走 wx.getLocation） */
+.weatherRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+}
+
+.locateBtn {
+  flex-shrink: 0;
+  padding: 6rpx 16rpx;
+  font-size: $font-size-xs;
+  color: $color-primary;
+  background: rgba(255, 122, 69, 0.12); // 品牌色 12% 底（主题色为 CSS 变量，scss 用固定近似值）
+  border-radius: $radius-round;
+}
+
 .digestText {
   font-size: $font-size-sm;
   color: $color-text-secondary;

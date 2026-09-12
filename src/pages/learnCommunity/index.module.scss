@@ -1,0 +1,236 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding: $spacing-md 0 80rpx;
+}
+
+/* 头部身份卡 */
+.headCard {
+  margin: 0 $page-padding;
+  padding: $spacing-lg;
+  border-radius: $radius-lg;
+  color: #fff;
+}
+
+.headRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.headName {
+  font-size: 36rpx;
+  font-weight: $font-weight-semibold;
+  color: #fff;
+}
+
+.nameInput {
+  width: 240rpx;
+  min-height: 56rpx;
+  padding: 8rpx 16rpx;
+  border-radius: $radius-md;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 28rpx;
+}
+
+.headStreak {
+  font-size: $font-size-md;
+  color: #fff;
+}
+
+.headSub {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-sm;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+/* 区块卡 */
+.sectionCard {
+  margin: $spacing-md $page-padding 0;
+  padding: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.sectionTitle {
+  display: block;
+  margin-bottom: $spacing-md;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+/* 成就徽章墙 */
+.badgeGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-md;
+}
+
+.badge {
+  width: calc((100% - #{$spacing-md} * 3) / 4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+  padding: $spacing-md 0;
+  border-radius: $radius-md;
+  background: $color-bg-page;
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
+.badgeOn {
+  filter: none;
+  opacity: 1;
+  background: rgba(255, 122, 69, 0.1);
+}
+
+.badgeIcon {
+  font-size: 44rpx;
+  line-height: 1.1;
+}
+
+.badgeName {
+  font-size: $font-size-xs;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.badgeDesc {
+  font-size: 20rpx;
+  color: $color-text-disabled;
+}
+
+/* 打卡墙 */
+.postInput {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 120rpx;
+  padding: $spacing-md;
+  border-radius: $radius-md;
+  background: $color-bg-page;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.postActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: $spacing-sm;
+}
+
+.postLangTag {
+  padding: 4rpx 20rpx;
+  border: 2rpx solid;
+  border-radius: $radius-round;
+  font-size: $font-size-xs;
+}
+
+.postButton {
+  margin: 0;
+  padding: 0 40rpx;
+  height: 60rpx;
+  line-height: 60rpx;
+  border-radius: $radius-round;
+  background: #ff7a45;
+  color: #fff;
+  font-size: $font-size-sm;
+
+  &::after {
+    border: none;
+  }
+}
+
+.postItem {
+  display: flex;
+  gap: $spacing-md;
+  padding: $spacing-md 0;
+  border-bottom: 2rpx solid $color-border;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.postAvatar {
+  flex-shrink: 0;
+  width: 64rpx;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $radius-round;
+  background: $color-bg-page;
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+}
+
+.postBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.postMeta {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+}
+
+.postName {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.postLang,
+.postTime {
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+}
+
+.postText {
+  display: block;
+  margin-top: 6rpx;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  line-height: 1.5;
+}
+
+.likeRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6rpx;
+  margin-top: 8rpx;
+  padding: 4rpx 16rpx;
+  border-radius: $radius-round;
+  background: $color-bg-page;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+}
+
+.likeOn {
+  background: rgba(232, 99, 111, 0.12);
+  color: #e8636f;
+}
+
+.likeCount {
+  font-size: $font-size-xs;
+}
+
+/* 页脚 */
+.footer {
+  margin-top: $spacing-xl;
+  text-align: center;
+}
+
+.footerText {
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+}

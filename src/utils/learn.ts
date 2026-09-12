@@ -123,6 +123,80 @@ export function getLangStats(langId: LearnLangId): { learned: number; total: num
   return { learned, total, percent: total ? Math.round((learned / total) * 100) : 0, coursesDone, coursesTotal };
 }
 
+/** 推荐路径步骤类型：continue=续学未完成课 / next=开启新课 / review=隔天复习 */
+export interface PathStep {
+  type: 'continue' | 'next' | 'review';
+  courseId: string;
+  title: string;
+  /** 推荐理由 */
+  reason: string;
+}
+
+/**
+ * 个性化学习路径推荐（规则引擎，零成本）：按语种分析进度，
+ * 优先级 续学未完成课 > 隔 ≥3 天复习已学课 > 开启下一门新课 > 零基础起步。
+ */
+export function getRecommendedPath(langId: LearnLangId): PathStep[] {
+  const lang = LEARN_LANGS.find((l) => l.id === langId);
+  if (!lang) return [];
+  const store = readLearnStore();
+  const steps: PathStep[] = [];
+  const flat = lang.levels.flatMap((lv) => lv.courses);
+  const now = Date.now();
+
+  // 1) 续学：进度过半但未完成的课
+  const unfinished = flat.filter((c) => {
+    const p = store.progress[c.id];
+    return p && p.learned.length > 0 && p.learned.length < c.words.length;
+  });
+  if (unfinished.length > 0) {
+    const c = unfinished[0];
+    const p = store.progress[c.id];
+    steps.push({
+      type: 'continue',
+      courseId: c.id,
+      title: c.title,
+      reason: `已掌握 ${p!.learned.length}/${c.words.length} 词，接着学完这课`
+    });
+  }
+
+  // 2) 复习：已学但超过 3 天没碰的课（间隔复习记忆更牢）
+  const stale = flat
+    .filter((c) => {
+      const p = store.progress[c.id];
+      if (!p || p.learned.length === 0) return false;
+      if (unfinished.some((u) => u.id === c.id)) return false;
+      if (!p.lastAt) return false;
+      return now - new Date(p.lastAt).getTime() > 3 * 24 * 3600 * 1000;
+    })
+    .sort((a, b) => (store.progress[a.id]!.lastAt || '').localeCompare(store.progress[b.id]!.lastAt || ''));
+  if (stale.length > 0) {
+    const c = stale[0];
+    const days = Math.floor((now - new Date(store.progress[c.id]!.lastAt!).getTime()) / (24 * 3600 * 1000));
+    steps.push({
+      type: 'review',
+      courseId: c.id,
+      title: c.title,
+      reason: `隔了 ${days} 天没复习，巩固 ${store.progress[c.id]!.learned.length} 个词`
+    });
+  }
+
+  // 3) 新课：第一门未开始的课
+  const nextCourse = flat.find((c) => !store.progress[c.id] || store.progress[c.id].learned.length === 0);
+  if (nextCourse && steps.length < 3) {
+    steps.push({
+      type: 'next',
+      courseId: nextCourse.id,
+      title: nextCourse.title,
+      reason: store.progress && flat.some((c) => (store.progress[c.id]?.learned.length || 0) > 0)
+        ? '当前级别推进下一课，循序渐进'
+        : '零基础从这里开口，先迈出第一步'
+    });
+  }
+
+  return steps.slice(0, 3);
+}
+
 /** 全语种总词库规模 */
 export function getTotalWordCount(): number {
   return LEARN_LANGS.reduce(
