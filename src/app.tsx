@@ -52,8 +52,9 @@ function App(props) {
     // 云开发初始化：仅微信小程序平台启用（H5/其他平台走 mock 数据）
     if (process.env.TARO_ENV === 'weapp') {
       if (Taro.cloud) {
-        Taro.cloud.init({ env: '', traceUser: true });
-        console.info('[App] cloud init done');
+        // 云环境 ID：config/index.ts defineConstants 编译期注入（系统环境变量 TARO_APP_CLOUD_ENV，或直接填值）；空串 = 默认环境
+        Taro.cloud.init({ env: TARO_APP_CLOUD_ENV || '', traceUser: true });
+        console.info('[App] cloud init done, env =', TARO_APP_CLOUD_ENV || '(default)');
       } else {
         console.error('[App] Taro.cloud is unavailable, please check base library version');
       }

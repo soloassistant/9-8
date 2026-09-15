@@ -184,6 +184,174 @@
   border-top: 1rpx solid $color-bg-page;
 }
 
+/* AI 精选面板（手动触发，结果只增不改） */
+.aiPanel {
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-md $spacing-lg;
+  border-radius: $radius-lg;
+  background: var(--brand-soft, rgba(0, 0, 0, 0.04));
+}
+
+.aiHead {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.aiHeadIcon {
+  font-size: 30rpx;
+}
+
+.aiHeadTitle {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.aiHeadHint {
+  flex: 1;
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+  @include text-ellipsis;
+}
+
+.aiEditBtn {
+  flex-shrink: 0;
+  padding: 4rpx 18rpx;
+  border-radius: $radius-round;
+  background: $color-bg-card;
+  color: var(--brand, $color-secondary);
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+}
+
+.aiEditor {
+  margin-top: $spacing-md;
+}
+
+.aiChips {
+  white-space: nowrap;
+
+  /* TagChip 行内换行展示 */
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
+.aiCustomInput {
+  margin-top: $spacing-md;
+  height: $button-height-md;
+  padding: 0 $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-button;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.aiSaveBtn {
+  display: inline-block;
+  margin-top: $spacing-md;
+  padding: 10rpx 40rpx;
+  border-radius: $radius-round;
+  background: var(--brand, $color-secondary);
+  color: #fff;
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.aiTipRow {
+  margin-top: $spacing-md;
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+}
+
+.aiTipText {
+  flex: 1;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.aiGoBtn {
+  flex-shrink: 0;
+  padding: 10rpx 30rpx;
+  border-radius: $radius-round;
+  background: var(--brand, $color-secondary);
+  color: #fff;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.aiResult {
+  margin-top: $spacing-md;
+}
+
+.aiSummary {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  margin-bottom: $spacing-sm;
+}
+
+.aiLabel {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+  text-align: center;
+}
+
+.aiAgainBtn {
+  display: block;
+  margin: $spacing-sm auto 0;
+  width: fit-content;
+  padding: 8rpx 30rpx;
+  border-radius: $radius-round;
+  background: $color-bg-card;
+  color: var(--brand, $color-secondary);
+  font-size: $font-size-sm;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+/* AI 精选卡片内的筛选理由行 */
+.aiReasonRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin-top: $spacing-sm;
+  padding: 6rpx $spacing-sm;
+  border-radius: $radius-xs;
+  background: var(--brand-soft, rgba(0, 0, 0, 0.04));
+}
+
+.aiReasonTag {
+  flex-shrink: 0;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  color: #fff;
+  background: var(--brand, $color-secondary);
+  border-radius: $radius-xs;
+  padding: 0 8rpx;
+}
+
+.aiReasonText {
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  @include text-ellipsis;
+}
+
+
 .feedbackBtn {
   font-size: $font-size-sm;
   color: $color-text-tertiary;

@@ -1,8 +1,8 @@
 {
-  "name": "taro_template",
-  "version": "1.0.0",
+  "name": "morning-brief",
+  "version": "1.1.0",
   "private": true,
-  "description": "taro_template",
+  "description": "私人晨报助理：会议/机票/待办转给 AI，聚成一份能对话的晨报",
   "templateInfo": {
     "name": "react",
     "typescript": true,
@@ -57,8 +57,6 @@
   },
   "devDependencies": {
     "miniprogram-ci": "^2.1.26",
-    "tt-ide-cli": "^0.1.31",
-    "minidev": "^2.2.5",
     "@babel/preset-react": "^7.24.1",
     "@babel/plugin-proposal-class-properties": "7.14.5",
     "@babel/core": "^7.8.0",

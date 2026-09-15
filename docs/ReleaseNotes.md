@@ -16,6 +16,12 @@
 - ✨ **开屏动画**：品牌橙全屏 Splash（logo 缩放淡入 + 标题上滑），1.6s 自动淡出，点击可跳过，双端通用
 
 ## 修复（v1.1）
+- 🐛 **真机联调硬伤集中修（2026-09-14 外部审查发现，全部修复并双端构建验证）**：
+  - 返回协议统一：`callFunction` 兼容 `{ code, data }` 全包体（webSearch/shopping/deleteAccount）与裸业务体（login/extract/getBriefing/chat/getUsage 等 9 个），真机不再「初始化失败」
+  - getBriefing 云函数补 `computeAdaptive`（F21 自适应信号内联版，原生 Date 无 dayjs 依赖，与前端同口径）
+  - 7:30 定时推送入口：`exports.main` 识别 `event.Type === 'Timer'` 分流批量晨报（定时器不触发 `exports.scheduled`，且定时上下文无 OPENID）
+  - 目的地天气打通：`attachIntel(openid, tripCity)` 透传 webSearch
+  - 云环境 ID 编译期注入（defineConstants `TARO_APP_CLOUD_ENV`）；`deleteAccount` 拿掉强制 mock 特判；`package.json` 改名 `morning-brief@1.1.0`
 - 🐛 **H5 白屏根治**：Taro 路由动画屏外隐藏机制存在竞态（快速导航/弱环境整页白屏），关闭 H5 路由动画并全局样式兜底
 - 🐛 H5 端 callFunction 动态导入不存在的 mock 导致运行时错误
 - 🐛 工作助手 workAction 未传给 LLM 导致真机退化为普通聊天

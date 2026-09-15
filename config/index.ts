@@ -18,7 +18,11 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
     sourceRoot: 'src',
     outputRoot: process.env.TARO_OUTPUT_DIR || 'dist',
     plugins: ['@tarojs/plugin-html'],
-    defineConstants: {},
+    // 云环境 ID 编译期注入：设系统环境变量 TARO_APP_CLOUD_ENV 后构建，或直接在此填
+    // （不用 config.env 字段——Taro 4.1.9 webpack5-runner 对其处理有坑，会破坏 taro-loader entry 分析）
+    defineConstants: {
+      TARO_APP_CLOUD_ENV: JSON.stringify(process.env.TARO_APP_CLOUD_ENV || ''),
+    },
     copy: {
       patterns: [
         // TabBar PNG（微信 tabBar 仅支持 PNG，F30）+ 品牌 Logo/分享封面：H5 端 config 引用不会被自动打包，需显式拷贝
@@ -43,7 +47,7 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
         pxtransform: {
           enable: true,
           config: {
-            selectorBlackList: ['nut-'],
+            selectorBlackList: ['nut-', 'splash'],
           },
         },
         cssModules: {
@@ -92,7 +96,7 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
         pxtransform: {
           enable: true,
           config: {
-            selectorBlackList: ['body'],
+            selectorBlackList: ['body', 'splash'],
             baseFontSize: 37.5,
             unitPrecision: 5,
           },

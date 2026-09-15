@@ -51,12 +51,34 @@ async function loadWeather(city: string): Promise<{ text: string; updateTime: st
   return fetchWeatherDirect(city)
 }
 
+/** H5 真实 AI：转发到本地 llm-proxy（8138）。chat → POST /，extract → POST /extract；失败返回 null 由调用方降级 */
+const LLM_PROXY_BASE = 'http://localhost:8138'
+async function callLocalAI<T>(name: string, data?: Record<string, any>): Promise<T | null> {
+  try {
+    const isExtract = name === 'extract'
+    const url = isExtract ? `${LLM_PROXY_BASE}/extract` : `${LLM_PROXY_BASE}/`
+    const body = isExtract
+      ? { content: data?.content, images: data?.images }
+      : { message: data?.message, deep: data?.deep, mode: data?.mode, workAction: data?.workAction }
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+    if (!res.ok) return null
+    return (await res.json()) as T
+  } catch (err) {
+    console.warn('[Cloud] local AI proxy error:', err)
+    return null
+  }
+}
+
 export async function callFunction<T = any>(
   name: string,
   data?: Record<string, any>
 ): Promise<T> {
-  if (!isWeapp || name === 'deleteAccount') {
-    // H5 预览或注销云函数未部署前：双端先用本地 mock（前端清 storage）
+  if (!isWeapp) {
+    // H5 预览：双端先用本地 mock（前端清 storage）
     if (name === 'getHotspot') {
       // 真实数据优先：同源聚合接口（本地预览）/ Pages 静态聚合（Actions 定时刷新），失败降级本地 mock
       const payload = await loadHotspotPayload()
@@ -91,6 +113,13 @@ export async function callFunction<T = any>(
       }
       return briefing as T
     }
+    // AI 能力接真 DeepSeek：本地 LLM 代理（node .tools/llm-proxy.js，端口 8138，
+    // key 只存在本地服务端不进前端产物）；代理未启动时降级本地规则 mock
+    if (name === 'chat' || name === 'extract') {
+      const ai = await callLocalAI<T>(name, data)
+      if (ai) return ai
+      console.warn(`[Cloud] local AI proxy unavailable, fallback to mock: ${name}`)
+    }
     const mockModule = await import(`../data/${name}`)
     return mockModule.default(data) as T
   }
@@ -105,10 +134,41 @@ export async function callFunction<T = any>(
     }
   }
   const res = await Taro.cloud.callFunction({ name, data })
-  const result = res.result as { code: number; message: string; data: T }
-  if (result.code !== 0) {
-    console.error(`[Cloud] ${name} failed:`, result.message)
-    throw new Error(result.message || '请求失败')
+  const result = res.result as any
+  // 返回协议兼容：webSearch/shopping/deleteAccount 全包 { code, message, data }；
+  // login/extract/getBriefing/chat/getUsage 等为裸业务体——统一归一后再校验
+  if (result && typeof result === 'object' && 'code' in result) {
+    if (result.code !== 0) {
+      console.error(`[Cloud] ${name} failed:`, result.message)
+      throw new Error(result.message || '请求失败')
+    }
+    return result.data as T
   }
-  return result.data
+  return result as T
+}
+
+/** 资讯 AI 精选（手动触发；H5 同源 /api/news/ai-filter → DeepSeek 筛选，2h 缓存）
+ *  weapp 或接口失败返回 null，调用方自行提示兜底；不阻塞原始资讯列表 */
+export async function apiAiNewsFilter(
+  interests: string[],
+  custom: string,
+  signals: string[]
+): Promise<{ items: import('../types').HotspotNews[]; summary: string } | null> {
+  if (!isWeapp) {
+    try {
+      const res = await fetch('/api/news/ai-filter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interests, custom, signals })
+      })
+      if (!res.ok) return null
+      const payload = await res.json()
+      if (!payload || !Array.isArray(payload.items)) return null
+      return { items: payload.items as import('../types').HotspotNews[], summary: String(payload.summary || '') }
+    } catch (err) {
+      console.warn('[Cloud] aiNewsFilter failed:', err)
+      return null
+    }
+  }
+  return null
 }

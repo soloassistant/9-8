@@ -1,24 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { View, Image, Text } from '@tarojs/components';
 import styles from './index.module.scss';
 
 /**
- * 开屏动画（双端通用）：品牌色全屏 Splash，logo 缩放淡入 + 标题上滑，
- * 1.6s 后整体淡出卸载；点击任意处立即跳过。每次冷启动展示一次。
+ * 开屏封面（双端通用）：品牌色全屏 Splash，logo 缩放淡入 + 标题上滑。
+ * 不自动关闭——等用户点击封面任意处才淡出进入应用（450ms 过渡后卸载）。
  */
-const HOLD_MS = 1600; // 主展示时长（淡出时长在样式中 450ms，两处需保持节奏一致）
-
 function Splash() {
   const [phase, setPhase] = useState<'in' | 'out' | 'gone'>('in');
 
-  useEffect(() => {
-    const t1 = setTimeout(() => setPhase('out'), HOLD_MS);
-    return () => clearTimeout(t1);
-  }, []);
-
   if (phase === 'gone') return null;
 
-  const dismiss = () => setPhase('out');
   const onFaded = () => {
     if (phase === 'out') setPhase('gone');
   };
@@ -26,7 +18,7 @@ function Splash() {
   return (
     <View
       className={`${styles.splash} ${phase === 'out' ? styles.fadeOut : ''}`}
-      onClick={dismiss}
+      onClick={() => setPhase('out')}
       onTransitionEnd={onFaded}
     >
       <View className={styles.inner}>

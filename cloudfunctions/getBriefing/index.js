@@ -17,18 +17,80 @@ function greetingByHour(hour) {
   return '晚上好，为明天做好准备';
 }
 
+// ---------- 自适应信号（F21，前端 src/utils/adaptive.ts 的云函数内联版） ----------
+// 云函数环境无 dayjs，用原生 Date 保持同一排序口径：mock 与真机晨报一致
+const TRAVEL_KEYWORDS = /(机场|航班|飞机|高铁|火车|动车|出差|出发)/;
+const URGENT_KEYWORDS = /(尽快|急|务必|今天必须|上午要)/;
+const DEFAULT_EVENT_MINUTES = 60;
+
+function sameDay(a, b) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function computeAdaptive(events, todos) {
+  const now = new Date();
+
+  // 1) 日程爆满（≥4 项或总时长 ≥5h）→ 日程区前置
+  const todayEvents = events.filter((e) => {
+    const s = new Date(e.startTime);
+    return !isNaN(s) && sameDay(s, now);
+  });
+  const busyMinutes = todayEvents.reduce((sum, e) => {
+    let mins = DEFAULT_EVENT_MINUTES;
+    if (e.endTime) {
+      const diff = (new Date(e.endTime) - new Date(e.startTime)) / 60000;
+      if (diff > 0) mins = diff;
+    }
+    return sum + mins;
+  }, 0);
+  const busyDay = todayEvents.length >= 4 || busyMinutes >= 300;
+
+  // 2) 次日外地行程 → 提取目的地城市（情报切目的地天气）
+  const tomorrow = new Date(now.getTime() + 86400000);
+  const tripEvent = events.find((e) => {
+    const s = new Date(e.startTime);
+    if (isNaN(s) || !sameDay(s, tomorrow)) return false;
+    return TRAVEL_KEYWORDS.test(`${e.title || ''} ${e.location || ''} ${e.source || ''}`);
+  });
+  let tripCity = null;
+  if (tripEvent) {
+    const text = `${tripEvent.title || ''} ${tripEvent.location || ''}`;
+    const m = text.match(/(?:去|到|飞|抵达|前往)\s*([\u4e00-\u9fa5]{2,6})/);
+    tripCity = m ? m[1] : (tripEvent.location || '').replace(/\s/g, '').slice(0, 6) || null;
+  }
+
+  // 3) 高优待办：今天 12:00 前到期或含紧急词，取最早一条
+  const focus = todos
+    .filter((t) => t.status !== 'done' && t.dueDate)
+    .filter((t) => {
+      const d = new Date(t.dueDate);
+      return !isNaN(d) && sameDay(d, now) && (d.getHours() < 12 || URGENT_KEYWORDS.test(t.title || ''));
+    })
+    .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
+
+  return { busyDay, tripCity, focusTodo: focus ? focus.title : null };
+}
+
 /**
  * 订阅用户追加「今日情报」（webSearch 云函数：天气+偏好RSS+LLM摘要，订阅专属）。
+ * tripCity：次日外地行程目的地（adaptive 计算），透传 webSearch 切目的地天气。
  * 懒加载策略：不在定时触发器里调 LLM（逐用户串行会超 cron 时长），而是用户首次
  * 打开晨报时补充并落库，之后直接随缓存晨报返回；任何失败降级为 null，不阻塞晨报。
  */
-async function attachIntel(openid) {
+async function attachIntel(openid, tripCity) {
   try {
     const userRes = await db.collection('users').where({ openid }).limit(1).get();
     const user = userRes.data[0];
     const subscribed = !!(user && user.subscribed && user.expiredAt && new Date(user.expiredAt) > new Date());
     if (!subscribed) return null;
-    const res = await cloud.callFunction({ name: 'webSearch', data: { action: 'briefing', openid } });
+    const res = await cloud.callFunction({
+      name: 'webSearch',
+      data: { action: 'briefing', openid, tripCity: tripCity || undefined }
+    });
     const payload = res && res.result;
     if (payload && payload.code === 0 && payload.data) return payload.data;
     console.warn('[getBriefing] attachIntel bad payload:', payload && payload.message);
@@ -79,7 +141,47 @@ async function aggregate(openid) {
   };
 }
 
-exports.main = async (event) => {
+/**
+ * 定时批量晨报 + 订阅消息推送。
+ * 云开发定时触发器默认触发 exports.main（event.Type='Timer'），故 main 内路由；
+ * 保留 exports.scheduled 以兼容控制台显式指定 handler 的旧触发器配置。
+ * 订阅消息模板 ID 通过环境变量 SUBSCRIBE_TEMPLATE_ID 注入。
+ */
+async function runScheduled() {
+  const templateId = process.env.SUBSCRIBE_TEMPLATE_ID;
+  const usersRes = await db.collection('users').limit(1000).get();
+  for (const user of usersRes.data) {
+    try {
+      const briefing = await aggregate(user.openid);
+      const dup = await db
+        .collection('briefings')
+        .where({ openid: user.openid, date: todayStr() })
+        .limit(1)
+        .get();
+      if (dup.data.length === 0) {
+        await db.collection('briefings').add({ data: { openid: user.openid, ...briefing } });
+      }
+      if (templateId && user.subscribeAccepted) {
+        await cloud.openapi.subscribeMessage.send({
+          touser: user.openid,
+          templateId,
+          page: 'pages/briefing/index',
+          data: {
+            thing1: { value: `你有 ${briefing.events.length} 个日程、${briefing.todos.length} 项待办` },
+            time2: { value: user.briefingTime || '07:30' }
+          }
+        });
+      }
+    } catch (err) {
+      console.error('[getBriefing.scheduled] user failed:', user.openid, err && err.errMsg);
+    }
+  }
+}
+
+exports.main = async (event = {}) => {
+  // 定时触发器无 OPENID（getWXContext 为空），必须先于用户路径分流
+  if (event.Type === 'Timer' || event.TriggerName) return runScheduled();
+
   const { OPENID } = cloud.getWXContext();
   const today = todayStr();
 
@@ -109,38 +211,5 @@ exports.main = async (event) => {
   return briefing;
 };
 
-/**
- * 定时触发器入口（云开发控制台配置触发器，cron: 0 30 7 * * * *）：
- * config.json 已声明 triggers，为每个用户生成晨报并发送订阅消息。
- * 订阅消息模板 ID 通过环境变量 SUBSCRIBE_TEMPLATE_ID 注入。
- */
-exports.scheduled = async () => {
-  const templateId = process.env.SUBSCRIBE_TEMPLATE_ID;
-  const usersRes = await db.collection('users').limit(1000).get();
-  for (const user of usersRes.data) {
-    try {
-      const briefing = await aggregate(user.openid);
-      const dup = await db
-        .collection('briefings')
-        .where({ openid: user.openid, date: todayStr() })
-        .limit(1)
-        .get();
-      if (dup.data.length === 0) {
-        await db.collection('briefings').add({ data: { openid: user.openid, ...briefing } });
-      }
-      if (templateId && user.subscribeAccepted) {
-        await cloud.openapi.subscribeMessage.send({
-          touser: user.openid,
-          templateId,
-          page: 'pages/briefing/index',
-          data: {
-            thing1: { value: `你有 ${briefing.events.length} 个日程、${briefing.todos.length} 项待办` },
-            time2: { value: user.briefingTime || '07:30' }
-          }
-        });
-      }
-    } catch (err) {
-      console.error('[getBriefing.scheduled] user failed:', user.openid, err && err.errMsg);
-    }
-  }
-};
+// 兼容旧触发器显式指定的 handler
+exports.scheduled = runScheduled;

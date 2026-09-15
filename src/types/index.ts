@@ -146,6 +146,8 @@ export interface HotspotNews {
   image?: string;
   tags: string[];
   createTime: string;
+  /** AI 精选筛选理由（仅 AI 精选结果携带；合规要求标注 AI 生成） */
+  aiReason?: string;
 }
 
 /** 浏览历史条目（v2.0） */

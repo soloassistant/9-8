@@ -1,6 +1,8 @@
 @use '@/styles/variables.scss' as *;
 
-/* 开屏动画：品牌橙全屏遮罩，层级压过一切页面内容 */
+/* 开屏动画：品牌橙全屏遮罩，层级压过一切页面内容。
+   尺寸全部使用 clamp()+vmin 自适应（类名含 splash，已在 pxtransform 黑名单，
+   不参与 375 设计稿等比缩放）——手机竖屏、平板、桌面宽屏均完整显示不巨大化 */
 .splash {
   position: fixed;
   inset: 0;
@@ -40,32 +42,34 @@
   }
 }
 
-.logo {
-  width: 160rpx;
-  height: 160rpx;
-  border-radius: 36rpx;
-  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.18);
+/* 嵌套 .splash 使全部选择器命中 pxtransform 黑名单（selector 含 splash），
+   clamp 内 px 原样保留，小屏保底/大屏封顶语义精确 */
+.splash .logo {
+  width: clamp(84px, 24vmin, 150px);
+  height: clamp(84px, 24vmin, 150px);
+  border-radius: clamp(20px, 5.5vmin, 34px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
 }
 
-.title {
-  margin-top: 32rpx;
-  font-size: 40rpx;
+.splash .title {
+  margin-top: clamp(18px, 4.5vmin, 30px);
+  font-size: clamp(22px, 5.6vmin, 34px);
   font-weight: $font-weight-semibold;
   color: #fff;
-  letter-spacing: 4rpx;
+  letter-spacing: 3px;
   animation: splash-rise 600ms 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.slogan {
-  margin-top: 12rpx;
-  font-size: $font-size-sm;
+.splash .slogan {
+  margin-top: clamp(8px, 2vmin, 13px);
+  font-size: clamp(13px, 3.2vmin, 16px);
   color: rgba(255, 255, 255, 0.9);
   animation: splash-rise 600ms 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes splash-rise {
   0% {
-    transform: translateY(24rpx);
+    transform: translateY(2.4vmin);
     opacity: 0;
   }
   100% {
@@ -74,12 +78,13 @@
   }
 }
 
-.skip {
+/* 嵌套进 .splash 使选择器命中 pxtransform 黑名单，skip 尺寸同样不参与等比缩放 */
+.splash .skip {
   position: absolute;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 60rpx);
-  font-size: $font-size-xs;
+  bottom: clamp(28px, 8vmin, 60px);
+  font-size: clamp(12px, 2.8vmin, 14px);
   color: rgba(255, 255, 255, 0.75);
-  animation: splash-blink 2s ease-in-out 1s infinite;
+  animation: splash-blink 2s ease-in-out infinite;
 }
 
 @keyframes splash-blink {

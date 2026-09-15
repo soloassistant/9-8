@@ -6,7 +6,7 @@ import classnames from 'classnames';
 import TagChip from '@/components/TagChip';
 import EmptyState from '@/components/EmptyState';
 import { apiGetLibrary, apiGetHotspot, apiNewsSearch } from '@/services/api';
-import { getHotspotMeta } from '@/services/cloud';
+import { getHotspotMeta, apiAiNewsFilter } from '@/services/cloud';
 import { useUserStore } from '@/store/user';
 import { fromNow } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
@@ -23,6 +23,11 @@ const TYPE_ICONS: Record<CollectionItem['sourceType'], string> = {
 const HISTORY_KEY = 'browseHistory';
 const HISTORY_LIMIT = 50;
 const NEWS_FEEDBACK_KEY = 'newsFeedback';
+
+/** AI 精选：兴趣标签存储与预设（手动触发筛选，画像上云随 cloudSync 同步） */
+const INTERESTS_KEY = 'news-interests';
+const INTERESTS_CUSTOM_KEY = 'news-interests-custom';
+const AI_PRESET_INTERESTS = ['AI', '数码', '职场', '财经', '健康', '出行', '国际', '教育'];
 
 /** 读取本地资讯反馈记录 */
 function readNewsFeedback(): Record<string, 'up' | 'down'> {
@@ -75,6 +80,72 @@ function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, 'up' | 'down'>>(() => readNewsFeedback());
   const { refreshUsage } = useUserStore();
+
+  // AI 精选（手动触发）：兴趣画像 = 手动标签 + 自定义关键词；结果只增不改，不阻塞原始列表
+  const [aiInterests, setAiInterests] = useState<string[]>(() => {
+    try {
+      return Taro.getStorageSync(INTERESTS_KEY) || [];
+    } catch {
+      return [];
+    }
+  });
+  const [aiCustom, setAiCustom] = useState<string>(() => {
+    try {
+      return Taro.getStorageSync(INTERESTS_CUSTOM_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
+  const [aiEditing, setAiEditing] = useState(false);
+  const [aiPicks, setAiPicks] = useState<HotspotNews[] | null>(null);
+  const [aiSummary, setAiSummary] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const toggleInterest = (tag: string) =>
+    setAiInterests((prev) =>
+      prev.includes(tag) ? prev.filter((x) => x !== tag) : [...prev, tag].slice(0, 8)
+    );
+
+  const saveInterests = () => {
+    const custom = aiCustom.trim();
+    setAiCustom(custom);
+    setAiEditing(false);
+    try {
+      Taro.setStorageSync(INTERESTS_KEY, aiInterests);
+      Taro.setStorageSync(INTERESTS_CUSTOM_KEY, custom);
+    } catch (err) {
+      console.warn('[LibraryPage] save interests failed:', err);
+    }
+    Taro.showToast({ title: t('library.aiSaved'), icon: 'none', duration: 1200 });
+  };
+
+  /** 兴趣画像信号：👍 反馈过的资讯标题 + 最近浏览标题（随请求带给 AI 参考，不展示） */
+  const readSignals = (): string[] => {
+    const upTitles = Object.entries(feedbackMap)
+      .filter(([, v]) => v === 'up')
+      .map(([id]) => news.find((n) => n.id === id)?.title || '');
+    let history: { title: string }[] = [];
+    try {
+      history = Taro.getStorageSync(HISTORY_KEY) || [];
+    } catch {
+      /* 忽略 */
+    }
+    return [...upTitles, ...history.map((h) => h.title)].filter(Boolean).slice(0, 8);
+  };
+
+  const handleAiFilter = async () => {
+    if (aiLoading) return;
+    setAiLoading(true);
+    const res = await apiAiNewsFilter(aiInterests, aiCustom.trim(), readSignals());
+    setAiLoading(false);
+    if (!res) {
+      Taro.showToast({ title: t('library.aiFail'), icon: 'none' });
+      return;
+    }
+    setAiPicks(res.items);
+    setAiSummary(res.summary);
+    if (res.items.length) logActivity('✨', `AI 精选资讯 ${res.items.length} 条`);
+  };
 
   useEffect(() => {
     Promise.all([apiGetLibrary(), apiGetHotspot().catch(() => [])])
@@ -197,6 +268,53 @@ function LibraryPage() {
     }
   };
 
+  /** 资讯卡片（原始列表与 AI 精选共用；showReason 时显示 AI 筛选理由） */
+  const renderNewsCard = (item: HotspotNews, showReason: boolean) => {
+    const fb = feedbackMap[item.id];
+    return (
+      <View key={item.id} className={styles.newsCard} onClick={() => handleNewsTap(item)}>
+        {item.image ? (
+          <Image
+            src={item.image}
+            mode='aspectFill'
+            lazyLoad
+            className={styles.newsImage}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleNewsImageTap(item);
+            }}
+          />
+        ) : null}
+        <Text className={styles.newsTitle}>{item.title}</Text>
+        <Text className={styles.newsSummary}>{item.summary}</Text>
+        {showReason && item.aiReason ? (
+          <View className={styles.aiReasonRow}>
+            <Text className={styles.aiReasonTag}>AI</Text>
+            <Text className={styles.aiReasonText}>{item.aiReason}</Text>
+          </View>
+        ) : null}
+        <View className={styles.newsMeta}>
+          <Text className={styles.newsSource}>来源 · {item.source}</Text>
+          <Text className={styles.newsTime}>{fromNow(item.createTime)}</Text>
+        </View>
+        <View className={styles.feedbackRow} onClick={(e) => e.stopPropagation()}>
+          <Text
+            className={classnames(styles.feedbackBtn, fb === 'up' && styles.feedbackActive)}
+            onClick={() => handleNewsFeedback(item, 'up')}
+          >
+            👍 {t('library.feedbackUp')}
+          </Text>
+          <Text
+            className={classnames(styles.feedbackBtn, fb === 'down' && styles.feedbackActive)}
+            onClick={() => handleNewsFeedback(item, 'down')}
+          >
+            👎 {t('library.feedbackDown')}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <View className={styles.page}>
       <View className={styles.searchBar}>
@@ -241,6 +359,68 @@ function LibraryPage() {
               </Text>
             </View>
           ) : null}
+          {!searchMode ? (
+            <View className={styles.aiPanel}>
+              <View className={styles.aiHead}>
+                <Text className={styles.aiHeadIcon}>✨</Text>
+                <Text className={styles.aiHeadTitle}>{t('library.aiTitle')}</Text>
+                <Text className={styles.aiHeadHint}>{t('library.aiHint')}</Text>
+                <Text className={styles.aiEditBtn} onClick={() => setAiEditing(!aiEditing)}>
+                  {aiEditing ? t('library.aiHide') : t('library.aiEdit')}
+                </Text>
+              </View>
+              {aiEditing ? (
+                <View className={styles.aiEditor}>
+                  <View className={styles.aiChips}>
+                    {AI_PRESET_INTERESTS.map((tag) => (
+                      <TagChip
+                        key={tag}
+                        label={tag}
+                        active={aiInterests.includes(tag)}
+                        onClick={() => toggleInterest(tag)}
+                      />
+                    ))}
+                  </View>
+                  <Input
+                    className={styles.aiCustomInput}
+                    value={aiCustom}
+                    placeholder={t('library.aiCustomPlaceholder')}
+                    onInput={(e) => setAiCustom(e.detail.value)}
+                  />
+                  <Text className={styles.aiSaveBtn} onClick={saveInterests}>
+                    {t('library.aiSave')}
+                  </Text>
+                </View>
+              ) : null}
+              {aiLoading ? (
+                <View className={styles.aiTipRow}>
+                  <Text className={styles.aiTipText}>{t('library.aiLoading')}</Text>
+                </View>
+              ) : null}
+              {!aiLoading && !aiPicks ? (
+                <View className={styles.aiTipRow}>
+                  <Text className={styles.aiTipText}>{t('library.aiEmpty')}</Text>
+                  <Text className={styles.aiGoBtn} onClick={handleAiFilter}>
+                    {t('library.aiGenerate')}
+                  </Text>
+                </View>
+              ) : null}
+              {!aiLoading && aiPicks ? (
+                <View className={styles.aiResult}>
+                  {aiSummary ? <Text className={styles.aiSummary}>{aiSummary}</Text> : null}
+                  {aiPicks.length ? (
+                    aiPicks.map((item) => renderNewsCard(item, true))
+                  ) : (
+                    <Text className={styles.aiTipText}>{t('library.aiNone')}</Text>
+                  )}
+                  <Text className={styles.aiLabel}>{t('library.aiLabel')}</Text>
+                  <Text className={styles.aiAgainBtn} onClick={handleAiFilter}>
+                    {t('library.aiRegenerate')}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
           {!searchMode && newsTags.length > 2 ? (
             <View className={styles.filterBar}>
               <ScrollView scrollX className={styles.chipScroll}>
@@ -260,45 +440,7 @@ function LibraryPage() {
               <Text className={styles.searchingText}>{t('library.searchSearching')}</Text>
             </View>
           ) : null}
-          {(searchMode ? searchResults : newsFiltered).map((item) => {
-            const fb = feedbackMap[item.id];
-            return (
-              <View key={item.id} className={styles.newsCard} onClick={() => handleNewsTap(item)}>
-                {item.image ? (
-                  <Image
-                    src={item.image}
-                    mode='aspectFill'
-                    lazyLoad
-                    className={styles.newsImage}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleNewsImageTap(item);
-                    }}
-                  />
-                ) : null}
-                <Text className={styles.newsTitle}>{item.title}</Text>
-                <Text className={styles.newsSummary}>{item.summary}</Text>
-                <View className={styles.newsMeta}>
-                  <Text className={styles.newsSource}>来源 · {item.source}</Text>
-                  <Text className={styles.newsTime}>{fromNow(item.createTime)}</Text>
-                </View>
-                <View className={styles.feedbackRow} onClick={(e) => e.stopPropagation()}>
-                  <Text
-                    className={classnames(styles.feedbackBtn, fb === 'up' && styles.feedbackActive)}
-                    onClick={() => handleNewsFeedback(item, 'up')}
-                  >
-                    👍 {t('library.feedbackUp')}
-                  </Text>
-                  <Text
-                    className={classnames(styles.feedbackBtn, fb === 'down' && styles.feedbackActive)}
-                    onClick={() => handleNewsFeedback(item, 'down')}
-                  >
-                    👎 {t('library.feedbackDown')}
-                  </Text>
-                </View>
-              </View>
-            );
-          })}
+          {(searchMode ? searchResults : newsFiltered).map((item) => renderNewsCard(item, false))}
           {searchMode && !searching && searchResults.length === 0 ? (
             <EmptyState
               icon='🔎'

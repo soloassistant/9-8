@@ -21,6 +21,8 @@ const SYNC_KEYS = [
   'dailyPlanStore',   // 日程/待办
   'browseHistory',    // 浏览历史
   'newsFeedback',     // 资讯反馈
+  'news-interests',        // AI 精选兴趣标签
+  'news-interests-custom', // AI 精选自定义关键词
   'activity-log',     // 活动记录
   'learnStore',       // 学习进度
   'ai-memory',        // AI 记忆

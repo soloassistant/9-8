@@ -43,8 +43,9 @@ export default defineAppConfig({
       {
         pagePath: 'pages/briefing/index',
         text: '晨报',
-        iconPath: 'assets/tabbar/briefing.svg',
-        selectedIconPath: 'assets/tabbar/briefing-selected.svg'
+        // 微信 tabBar 仅支持 png（svg 真机不显示），统一用 tabbar-png
+        iconPath: 'assets/tabbar-png/briefing.png',
+        selectedIconPath: 'assets/tabbar-png/briefing-selected.png'
       },
       {
         pagePath: 'pages/inbox/index',
@@ -61,14 +62,14 @@ export default defineAppConfig({
       {
         pagePath: 'pages/calendar/index',
         text: '日历',
-        iconPath: 'assets/tabbar/calendar.svg',
-        selectedIconPath: 'assets/tabbar/calendar-selected.svg'
+        iconPath: 'assets/tabbar-png/calendar.png',
+        selectedIconPath: 'assets/tabbar-png/calendar-selected.png'
       },
       {
         pagePath: 'pages/mine/index',
         text: '我的',
-        iconPath: 'assets/tabbar/mine.svg',
-        selectedIconPath: 'assets/tabbar/mine-selected.svg'
+        iconPath: 'assets/tabbar-png/mine.png',
+        selectedIconPath: 'assets/tabbar-png/mine-selected.png'
       }
     ]
   }
