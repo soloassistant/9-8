@@ -39,3 +39,7 @@ static-server.log*
 .codefix/
 
 dist-weapp/
+dist-learning/
+dist-typecheck/
+packages/*/lib/
+*.tsbuildinfo

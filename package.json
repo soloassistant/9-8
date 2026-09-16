@@ -2,6 +2,11 @@
   "name": "morning-brief",
   "version": "1.1.0",
   "private": true,
+  "packageManager": "yarn@1.22.22",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "description": "私人晨报助理：会议/机票/待办转给 AI，聚成一份能对话的晨报",
   "templateInfo": {
     "name": "react",
@@ -10,15 +15,18 @@
     "framework": "React"
   },
   "scripts": {
-    "build:weapp": "taro build --type weapp && node .tools/copy-assets.js dist",
+    "build:weapp": "taro build --type weapp",
     "build:swan": "taro build --type swan",
     "build:alipay": "taro build --type alipay",
     "build:tt": "taro build --type tt",
-    "build:h5": "taro build --type h5 && node .tools/copy-assets.js dist",
+    "build:h5": "taro build --type h5",
     "build:rn": "taro build --type rn",
     "build:qq": "taro build --type qq",
     "build:jd": "taro build --type jd",
     "build:quickapp": "taro build --type quickapp",
+    "check:learning-boundary": "node scripts/check-learning-boundary.js",
+    "typecheck:learning": "tsc -b tsconfig.projects.json --pretty false",
+    "build:learning": "corepack yarn workspace @learning/web build",
     "dev:weapp": "npm run build:weapp -- --watch",
     "dev:swan": "npm run build:swan -- --watch",
     "dev:alipay": "npm run build:alipay -- --watch",

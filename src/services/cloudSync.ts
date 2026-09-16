@@ -9,6 +9,7 @@
  * 仅 H5 生效：weapp 走微信 openid + 云数据库，不进本模块。
  */
 import Taro from '@tarojs/taro';
+import { LEARNING_SYNC_KEYS } from '@/features/learning/host-sync';
 
 const USER_ID_KEY = 'cloud-user-id';
 const META_KEY = 'cloud-sync-meta'; // { [storageKey]: ts } 本地各 key 最后一次确认同步的时间
@@ -24,7 +25,7 @@ const SYNC_KEYS = [
   'news-interests',        // AI 精选兴趣标签
   'news-interests-custom', // AI 精选自定义关键词
   'activity-log',     // 活动记录
-  'learnStore',       // 学习进度
+  ...LEARNING_SYNC_KEYS, // 学习平台进度
   'ai-memory',        // AI 记忆
   'user-settings',    // 我的页设置
   'user-city',        // 城市

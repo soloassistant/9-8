@@ -8,6 +8,7 @@ import { useUiScaleStore, UI_SCALE_PRESETS } from '@/store/uiScale';
 import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiCreateOrder, apiDeleteAccount } from '@/services/api';
+import { LEARNING_ROUTES } from '@/pages/learn/routes.host';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { fromNow } from '@/utils/date';
 import { getActivityLogs } from '@/utils/activityLog';
@@ -650,7 +651,7 @@ function MinePage() {
 
       {/* 其他入口 */}
       <View className={styles.settingCard}>
-        <View className={styles.settingRow} onClick={() => Taro.navigateTo({ url: '/pages/learn/index' })}>
+        <View className={styles.settingRow} onClick={() => Taro.navigateTo({ url: LEARNING_ROUTES.home })}>
           <Text className={styles.settingLabel}>{t('mine.learn')}</Text>
           <View className={styles.settingValue}>
             <Text>{t('mine.learnDesc')}</Text>

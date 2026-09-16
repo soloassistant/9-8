@@ -1,8 +1,29 @@
 import { defineConfig, type UserConfigExport } from '@tarojs/cli';
+import path from 'node:path';
 import TsconfigPathsPlugin from 'tsconfig-paths-webpack-plugin';
 import devConfig from './dev';
 import prodConfig from './prod';
 import vitePluginImp from 'vite-plugin-imp';
+
+/**
+ * 学习平台核心以源码形式被 src/features/learning/data.ts 复用（workspace 包 @learning/core 的
+ * main/types 指向 packages/learning-core/src/index.ts）。
+ *
+ * Taro 的 script 规则默认白名单只有 sourceRoot（src）和 node_modules 下带 taro 的包，
+ * 因此 packages/ 下的 .ts 会落到默认 JS 解析器，构建报
+ * "Module parse failed: Unexpected token"。
+ *
+ * 这里在 webpack-chain 上给 script 规则追加 include，使 learning-core 与 src 共用同一条
+ * babel-preset-taro 转译链。用 include.add()（追加语义），不覆盖 Taro 自己的白名单。
+ * 顶层 compile.include 虽然是 runner 读取的字段，但会先被 Taro 配置 schema 校验丢弃，故不采用。
+ */
+const LEARNING_CORE_SRC = path.resolve(__dirname, '..', 'packages/learning-core/src');
+
+function includeLearningCore(chain: {
+  module: { rule: (name: string) => { include: { add: (value: string) => unknown } } };
+}) {
+  chain.module.rule('script').include.add(LEARNING_CORE_SRC);
+}
 // https://taro-docs.jd.com/docs/next/config#defineconfig-辅助函数
 export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
   const baseConfig: UserConfigExport<'webpack5'> = {
@@ -60,6 +81,7 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
       },
       webpackChain(chain) {
         chain.resolve.plugin('tsconfig-paths').use(TsconfigPathsPlugin);
+        includeLearningCore(chain);
       },
     },
     h5: {
@@ -104,6 +126,7 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
       },
       webpackChain(chain) {
         chain.resolve.plugin('tsconfig-paths').use(TsconfigPathsPlugin);
+        includeLearningCore(chain);
         // 所有 JS chunk 合并为单文件：消除「旧 html 引用已删除的懒加载 chunk → 白屏」问题
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         chain.plugin('limit-chunk-count').use(require('webpack').optimize.LimitChunkCountPlugin, [{ maxChunks: 1 }]);

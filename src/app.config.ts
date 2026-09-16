@@ -1,3 +1,5 @@
+import { LEARNING_PAGE_PATHS } from './pages/learn/routes.host';
+
 export default defineAppConfig({
   plugins: {
     // 微信同声传译（语音转写 ASR，F05）：需在小程序后台「设置-第三方设置-插件管理」
@@ -17,9 +19,7 @@ export default defineAppConfig({
     'pages/search/index',
     'pages/history/index',
     'pages/shopping/index',
-    'pages/learn/index',
-    'pages/learnDetail/index',
-    'pages/learnCommunity/index'
+    ...LEARNING_PAGE_PATHS
   ],
   // 定位权限（weapp 生效，H5 忽略）：晨报天气城市自动定位
   permission: {

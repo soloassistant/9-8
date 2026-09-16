@@ -1,0 +1,7 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/learning-core" },
+    { "path": "./apps/learning-web" }
+  ]
+}

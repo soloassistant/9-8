@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "buildCommand": "corepack yarn workspace @learning/web build",
+  "installCommand": "corepack yarn install --frozen-lockfile",
+  "outputDirectory": "dist-learning",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
