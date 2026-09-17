@@ -18,7 +18,13 @@
       ]
     },
     {
-      "source": "/index.html",
+      "source": "/robots.txt",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+      ]
+    },
+    {
+      "source": "/(.*).html",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache" }
       ]

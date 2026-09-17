@@ -1,5 +1,10 @@
-# Cloudflare Pages 响应头配置。
-# 该文件必须位于构建产物根目录（Vite 会把 public/ 原样复制到 dist-learning/）。
+# 学习平台 Web 展示版响应头。
+# 该文件由静态服务（scripts/learning-web-server.js）或 Cloudflare Pages 读取，
+# 必须位于构建产物根目录。
+#
+# 注意：这里显式声明 Cache-Control，不要让托管方按文件扩展名套用默认策略。
+# 曾经出现的问题：robots.txt 以 HTML 形式被 Cloudflare 边缘缓存 max-age=14400，
+# 源站更新后边缘仍返回旧副本近 4 小时，导致索引控制暂时失效。
 
 /*
   X-Content-Type-Options: nosniff
@@ -8,7 +13,15 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   # 测试站点：响应头层面的 noindex，覆盖非 HTML 资源（meta 标签管不到它们）
   X-Robots-Tag: noindex, nofollow, noarchive
-  # SPA 入口不缓存，避免旧 html 引用已删除的哈希 chunk
+  Cache-Control: no-cache
+
+# 索引与部署控制文件：必须始终取源站，不允许任何中间层缓存
+/robots.txt
+  Cache-Control: no-store, max-age=0
+  Content-Type: text/plain; charset=utf-8
+
+# HTML 入口：不缓存，避免旧 html 引用已删除的哈希 chunk
+/*.html
   Cache-Control: no-cache
 
 # 文件名带内容哈希，可长期强缓存
