@@ -98,19 +98,33 @@ Invoke-Remote 'hostname' | Out-Null
 
 $remoteRelease = "$RemoteRoot/releases/$ReleaseId"
 Write-Step "prepare remote release $ReleaseId"
-Invoke-Remote "mkdir -p '$remoteRelease/assets'"
 
-# 5. upload content first; switch the symlink last so the site never serves a half release
+# Releases are immutable: refuse to write into an existing one, otherwise a
+# partial upload could mix files from two builds. Use -ReleaseId to override.
+$exists = Invoke-Remote "test -e '$remoteRelease' && echo yes || echo no"
+if ($exists -match 'yes') {
+  throw "remote release already exists: $remoteRelease - pass a different -ReleaseId (or remove it) so releases stay immutable"
+}
+
+# Upload into a staging directory, then rename into place so the release only
+# ever appears complete.
+$remoteStaging = "$RemoteRoot/.staging-$ReleaseId"
+Invoke-Remote "rm -rf '$remoteStaging'; mkdir -p '$remoteStaging/assets'"
+
+# 5. upload first; switch the symlink last so the site never serves a half release
 Write-Step 'upload artifacts'
 foreach ($f in @('index.html', 'robots.txt', '_headers', 'logo.png', 'share-cover.png')) {
   $p = Join-Path $dist $f
-  if (Test-Path $p) { Copy-ToRemote $p "$remoteRelease/$f" }
+  if (Test-Path $p) { Copy-ToRemote $p "$remoteStaging/$f" }
 }
 Get-ChildItem (Join-Path $dist 'assets') -File | ForEach-Object {
-  Copy-ToRemote $_.FullName "$remoteRelease/assets/$($_.Name)"
+  Copy-ToRemote $_.FullName "$remoteStaging/assets/$($_.Name)"
 }
 Write-Step 'sync static server'
 Copy-ToRemote (Join-Path $ScriptDir 'scripts\learning-web-server.js') "$RemoteRoot/server.js"
+
+Write-Step "publish staging -> releases/$ReleaseId"
+Invoke-Remote "mv -T '$remoteStaging' '$remoteRelease'; ls '$remoteRelease' | tr '\n' ' '; echo"
 
 # 6. atomic symlink flip (mv -T replaces the link itself)
 Write-Step "switch current -> releases/$ReleaseId"
@@ -136,9 +150,11 @@ try {
   if (-not ($rb.Headers['Content-Type'] -like 'text/plain*')) { Write-Note 'robots.txt is not text/plain' }
   if ($rb.Content -notmatch 'Disallow:\s*/') { Write-Note 'public robots.txt content is wrong' }
 
-  $home = Invoke-WebRequest -Uri $PublicUrl -TimeoutSec 30 -UseBasicParsing
+  # NOTE: do not name this $home - PowerShell variables are case-insensitive and
+  # $HOME is a read-only automatic variable, which makes assignment fail.
+  $homePage = Invoke-WebRequest -Uri $PublicUrl -TimeoutSec 30 -UseBasicParsing
   $live = ''
-  if ($home.Content -match 'assets/([A-Za-z0-9._-]+\.js)') { $live = $Matches[1] }
+  if ($homePage.Content -match 'assets/([A-Za-z0-9._-]+\.js)') { $live = $Matches[1] }
   Write-Host ("    live bundle = {0}" -f $live)
   Write-Host ("    local bundle = {0}" -f $bundle.Name)
   if ($live -and $live -ne $bundle.Name) {
