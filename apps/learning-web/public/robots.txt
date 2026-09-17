@@ -1,0 +1,18 @@
+# 测试站点：明确拒绝所有搜索引擎收录。
+# 该文件必须作为真实静态文件存在；若缺失，SPA 的 catch-all 回退会返回 index.html，
+# 爬虫将把它当作 200 的页面继续抓取。
+User-agent: *
+Disallow: /
+
+# 主要中文搜索引擎显式声明（部分爬虫不完全遵循通配规则）
+User-agent: Baiduspider
+Disallow: /
+
+User-agent: Sogou web spider
+Disallow: /
+
+User-agent: 360Spider
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /

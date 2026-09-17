@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { BrowserRouter, Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import { HashRouter, Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { LocalLearningRepository, type LearningRepository } from '@learning/core';
 import { CommunityPage } from '../pages/CommunityPage';
 import { CoursePage } from '../pages/CoursePage';
@@ -60,7 +60,12 @@ export default function App() {
 
   return (
     <LearningContext.Provider value={context}>
-      <BrowserRouter>
+      {/*
+        使用 HashRouter 而非 BrowserRouter：本应用部署在独立静态托管的域名根下，
+        没有服务端 rewrite 也能保证任意深链接刷新可用（例：#/course/en-a1-1）。
+        代价是 URL 带 #；若后续改用 history 模式，需同时配置托管侧 SPA 回退并移除本注释。
+      */}
+      <HashRouter>
         <Layout>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -69,7 +74,7 @@ export default function App() {
             <Route path="*" element={<HomePage />} />
           </Routes>
         </Layout>
-      </BrowserRouter>
+      </HashRouter>
     </LearningContext.Provider>
   );
 }

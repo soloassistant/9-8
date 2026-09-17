@@ -1,0 +1,16 @@
+# Cloudflare Pages 响应头配置。
+# 该文件必须位于构建产物根目录（Vite 会把 public/ 原样复制到 dist-learning/）。
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  # 测试站点：响应头层面的 noindex，覆盖非 HTML 资源（meta 标签管不到它们）
+  X-Robots-Tag: noindex, nofollow, noarchive
+  # SPA 入口不缓存，避免旧 html 引用已删除的哈希 chunk
+  Cache-Control: no-cache
+
+# 文件名带内容哈希，可长期强缓存
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
