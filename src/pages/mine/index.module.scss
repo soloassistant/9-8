@@ -535,3 +535,298 @@
   color: $color-text-tertiary;
   line-height: $line-height-loose;
 }
+
+// ===== v1.2 · B-01 订阅锁价 / B-02 调价通知 =====
+// 锁价文案：常驻于「价格下方、支付按钮上方」
+.lockBlock {
+  margin-top: $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: rgba(0, 0, 0, 0.14);
+  border-radius: $radius-md;
+}
+
+.lockHead {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-xs;
+}
+
+.lockTitle {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-gold;
+}
+
+.lockPrice {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-white;
+}
+
+.lockBody {
+  display: block;
+  font-size: $font-size-xs;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: $line-height-normal;
+}
+
+.lockLose {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: $line-height-normal;
+}
+
+.subButtonRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: $spacing-md;
+}
+
+// 调价站内信
+.noticeItem {
+  padding: $spacing-md 0;
+  border-bottom: 1rpx solid $color-divider;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.noticeTitle {
+  display: block;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-xs;
+}
+
+.noticeBody {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+}
+
+.noticeActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: $spacing-sm;
+}
+
+// ===== v1.2 · M-01 / M-02 记忆管理 =====
+.memoryBlock {
+  border-bottom: 1rpx solid $color-divider;
+
+  .row {
+    border-bottom: none;
+  }
+}
+
+// 常驻说明条：明示「开关 ≠ 删除」
+.noticeBar {
+  padding: $spacing-sm $spacing-md;
+  background: $color-bg-page;
+  border-radius: $radius-sm;
+}
+
+.noticeBarText {
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+// 记忆列表与删除按钮：与上方开关保持 ≥12px（24rpx）间距，防误触
+.memoryList {
+  margin-top: $spacing-md;
+}
+
+.memoryItem {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-sm 0;
+  border-bottom: 1rpx solid $color-divider;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.memoryText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  line-height: $line-height-normal;
+}
+
+// P1-E 溯源：文字列占满宽度，meta 次行灰字（时间 + 来源短语）
+.memoryMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.memoryMeta {
+  display: block;
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+// 删除按钮：红色文字，与开关视觉明确区分
+.memoryDelete {
+  flex-shrink: 0;
+  padding: $spacing-xs 0 $spacing-xs $spacing-sm;
+  font-size: $font-size-sm;
+  color: #E5484D;
+  font-weight: $font-weight-medium;
+}
+
+.memoryEmpty {
+  display: block;
+  margin-top: $spacing-md;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.memoryActions {
+  display: flex;
+  justify-content: flex-end;
+  // ≥12px（24rpx）间距，避免与上方删除按钮误触
+  margin-top: $spacing-md;
+  padding-bottom: $spacing-sm;
+}
+
+// ===== v1.2 · N-03 资讯偏好 =====
+.subSection {
+  padding-top: $spacing-sm;
+}
+
+.subSectionTitle {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+  font-weight: $font-weight-medium;
+  padding: $spacing-xs 0;
+}
+
+.blockItem {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm 0;
+  border-bottom: 1rpx solid $color-divider;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.blockDim {
+  flex-shrink: 0;
+  padding: 2rpx $spacing-sm;
+  border-radius: $radius-xs;
+  background: $color-bg-hover;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.blockValue {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// ===== v1.2 · C-04 注销不可逆提示 =====
+.deleteWarn {
+  display: block;
+  padding: $spacing-sm 0;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-loose;
+}
+
+// V-05 / V-07 微信端降级提示（PRD Q2）
+.platformHint {
+  display: block;
+  padding: $spacing-sm 0;
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+  line-height: $line-height-normal;
+}
+
+// ===== v2.1 · 习惯守护 =====
+.habitHint {
+  display: block;
+  padding: $spacing-sm 0;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+// ===== 竞品分析本轮 · L4 记忆隐私声明（次级色小字，纯声明不可交互） =====
+.memoryPrivacy {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+}
+
+// X3 免打扰起止之间的连字符
+.dndSep {
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+  align-self: center;
+}
+
+// ===== X11 家长密码弹层 =====
+.pinHint {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-loose;
+  text-align: center;
+}
+
+.pinInput {
+  height: $button-height-md;
+  padding: 0 $spacing-md;
+  border: 1rpx solid $color-divider;
+  border-radius: $radius-button;
+  font-size: $font-size-lg;
+  text-align: center;
+  letter-spacing: 8rpx;
+}
+
+.pinActions {
+  display: flex;
+  gap: $spacing-md;
+}
+
+.pinCancel {
+  @include button-reset;
+  flex: 1;
+  height: $button-height-md;
+  border-radius: $radius-button;
+  background: $color-bg-hover;
+  color: $color-text-secondary;
+  font-size: $font-size-md;
+  line-height: $button-height-md;
+}

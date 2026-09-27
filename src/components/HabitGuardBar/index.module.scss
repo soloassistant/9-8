@@ -1,0 +1,53 @@
+@use '@/styles/variables.scss' as *;
+
+.bar {
+  margin: $spacing-md $page-padding 0;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $radius-md;
+  background: $color-event-bg;
+  border: 1rpx solid $color-divider;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.icon {
+  font-size: $font-size-md;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.more {
+  font-size: $font-size-xs;
+  color: var(--brand, $color-primary);
+}
+
+.body {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-lg;
+  margin-top: $spacing-xs;
+}
+
+.link {
+  font-size: $font-size-sm;
+  color: var(--brand, $color-primary);
+  font-weight: $font-weight-medium;
+}

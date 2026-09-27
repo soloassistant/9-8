@@ -106,6 +106,61 @@
   color: $color-text-tertiary;
 }
 
+/* 冻结卡 + 补签工具栏（L-01 / L-02） */
+.streakToolbar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin: $spacing-sm $page-padding 0;
+}
+
+.freezeBadge {
+  padding: 8rpx 20rpx;
+  border-radius: $radius-round;
+  background: rgba(22, 119, 255, 0.1);
+  border: 1rpx solid rgba(22, 119, 255, 0.25);
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.98);
+  }
+}
+
+.freezeText {
+  font-size: $font-size-xs;
+  color: #1677ff;
+}
+
+.makeupBtn {
+  padding: 8rpx 20rpx;
+  border-radius: $radius-round;
+  background: var(--brand, $color-secondary);
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.98);
+    opacity: 0.9;
+  }
+}
+
+.makeupDisabled {
+  background: $color-text-disabled;
+  pointer-events: none;
+}
+
+.makeupText {
+  font-size: $font-size-xs;
+  color: $color-text-white;
+}
+
+.ruleText {
+  display: block;
+  margin: $spacing-xs $page-padding 0;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
 /* 分级课程 */
 .levelBlock {
   margin-top: $spacing-lg;

@@ -104,6 +104,55 @@
   border-radius: $radius-xs;
 }
 
+/* v2.1 晨报连续阅读：页头打卡徽标（今日未读=呼吸态，已读=实心高亮） */
+.readStreak {
+  display: inline-flex;
+  align-items: center;
+  gap: 4rpx;
+  padding: 0 $spacing-sm;
+  height: 36rpx;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  background: rgba(232, 93, 42, 0.1);
+  border-radius: $radius-xs;
+}
+
+.readStreakDone {
+  color: #fff;
+  background: var(--brand, #{$color-secondary});
+}
+
+.readStreakFlame {
+  font-size: 22rpx;
+}
+
+.readStreakText {
+  font-size: $font-size-xs;
+}
+
+/* v2.1 达成门槛提示条：今日未达成「有效阅读」时展示 */
+.readHintBar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: rgba(232, 93, 42, 0.08);
+  border-radius: $radius-md;
+}
+
+.readHintIcon {
+  font-size: 26rpx;
+  flex-shrink: 0;
+}
+
+.readHintText {
+  flex: 1;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
 /* F21 晨报自适应横幅：爆满前置 / 次日行程 / 高优待办点名 */
 .adaptiveBanner {
   display: flex;
@@ -124,6 +173,85 @@
   flex: 1;
   font-size: $font-size-sm;
   color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* X6 周末轻量版横幅：仅生成侧标记 + 用户未关闭周末版时展示 */
+.weekendBanner {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: rgba(247, 186, 30, 0.12);
+  border-radius: $radius-md;
+}
+
+.weekendIcon {
+  font-size: 26rpx;
+  flex-shrink: 0;
+}
+
+.weekendText {
+  flex: 1;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* X8 连读徽章：连续打开晨报页 ≥2 天时出现在页头日期行 */
+.streakBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 $spacing-sm;
+  height: 36rpx;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  background: rgba(247, 186, 30, 0.15);
+  border-radius: $radius-xs;
+}
+
+/* X2 栏目署名：早报员人设挂在情报区块标题下方 */
+.curatorTag {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+/* X7 收尾冷知识：页面底部（免责页脚上方）小卡 */
+.triviaCard {
+  margin: $spacing-md $page-padding 0;
+  padding: $spacing-md $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.triviaTitle {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-xs;
+}
+
+.triviaText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+}
+
+/* L3 免责页脚：合规要求常驻（次级色小字） */
+.disclaimerFooter {
+  margin: $spacing-md $page-padding 0;
+  padding-bottom: $spacing-sm;
+  text-align: center;
+}
+
+.disclaimerText {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
   line-height: $line-height-normal;
 }
 
@@ -156,6 +284,103 @@
   font-size: $font-size-xs;
   color: $color-text-tertiary;
   margin-left: auto;
+}
+
+/* 负载条：今日日程负载可视化（busyMinutes 由 adaptive 透出，旧数据缺失不渲染）
+   三档配色：绿=宽松(<150min)、橙=偏满(150-299min)、红=爆满(≥300min 或 ≥4 项，与 busyDay 同口径) */
+.loadBar {
+  margin-bottom: $spacing-lg;
+}
+
+.loadLabel {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  margin-bottom: $spacing-xs;
+}
+
+.loadTrack {
+  height: 8rpx;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4rpx;
+  overflow: hidden;
+}
+
+.loadFill {
+  height: 100%;
+  border-radius: 4rpx;
+}
+
+.loadFillLow {
+  background: #34c777;
+}
+
+.loadFillMid {
+  background: #f7a417;
+}
+
+.loadFillHigh {
+  background: #e85d2a;
+}
+
+/* P1-G 本周复盘：过去 7 天计数 + 高频关键词 chips（weeklyReview 缺失/全 0 时整卡不渲染） */
+.weekCard {
+  margin-bottom: $spacing-lg;
+  padding: $spacing-md;
+  background: var(--brand-soft, rgba(0, 0, 0, 0.04));
+  border-radius: $radius-md;
+}
+
+.weekTitle {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-xs;
+}
+
+.weekStat {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.weekKeywordRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-top: $spacing-sm;
+}
+
+.weekKeywordLabel {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  flex-shrink: 0;
+}
+
+.weekChips {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.weekChip {
+  padding: 4rpx 16rpx;
+  font-size: $font-size-xs;
+  color: var(--brand, $color-primary);
+  background: rgba(255, 122, 69, 0.12);
+  border-radius: $radius-round;
+}
+
+/* v2.1 习惯守护：「设为习惯」入口（今日日程区块右上） */
+.habitAdd {
+  font-size: $font-size-xs;
+  color: var(--brand, $color-primary);
+  margin-left: $spacing-sm;
+  flex-shrink: 0;
 }
 
 .eventItem {
@@ -288,6 +513,35 @@
   border-radius: $radius-round;
 }
 
+/* C-02 位置权限降级提示条：多次拒绝后常驻，附「去设置开启」 */
+.locDeniedBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  margin-top: $spacing-xs;
+  padding: 8rpx 16rpx;
+  background: rgba(255, 122, 69, 0.08);
+  border-radius: $radius-sm;
+}
+
+.locDeniedText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+.locDeniedAction {
+  flex-shrink: 0;
+  padding: 4rpx 12rpx;
+  font-size: $font-size-xs;
+  color: $color-primary;
+  border: 1rpx solid rgba(255, 122, 69, 0.4);
+  border-radius: $radius-round;
+}
+
 .digestText {
   font-size: $font-size-sm;
   color: $color-text-secondary;
@@ -306,6 +560,14 @@
 .intelNote {
   display: block;
   margin-top: 8rpx;
+  font-size: $font-size-xs;
+  color: #999;
+}
+
+/* 增量 2：分组导语为 AI 生成内容的显式标识（挂在分组卡片之后、降级说明之前） */
+.intelLeadTag {
+  display: block;
+  margin-top: 4rpx;
   font-size: $font-size-xs;
   color: #999;
 }
@@ -689,3 +951,67 @@
     opacity: 0.9;
   }
 }
+
+/* v2.1 高风险习惯调整方案：容器与提示 */
+.habitProposalWrap {
+  margin: $spacing-md $page-padding 0;
+}
+
+.habitProposalHint {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* v2.1 习惯自动挪动 toast：贴安全区上方，5 秒内可撤销 */
+.habitToast {
+  position: fixed;
+  left: $page-padding;
+  right: $page-padding;
+  bottom: 320rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  background: rgba(255, 122, 69, 0.12);
+  border: 1rpx solid rgba(255, 122, 69, 0.28);
+  border-radius: $radius-md;
+  box-shadow: $shadow-float;
+  z-index: 900;
+}
+
+.habitToastText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  line-height: $line-height-normal;
+  @include text-ellipsis;
+}
+
+.habitToastUndo {
+  flex-shrink: 0;
+  padding: 4rpx 20rpx;
+  border-radius: $radius-round;
+  background: var(--brand, $color-primary);
+  color: $color-text-white;
+  font-size: $font-size-xs;
+}
+
+/* U-01 骨架屏后真实内容淡入（≤200ms） */
+.contentFade {
+  animation: briefing-content-fade 200ms ease-out both;
+}
+
+@keyframes briefing-content-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+

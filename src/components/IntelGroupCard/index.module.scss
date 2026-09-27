@@ -1,0 +1,73 @@
+@use '@/styles/variables.scss' as *;
+
+/* 情报主题分组卡片：主题名 + AI 导语（内联引用）+ 组内条目 */
+.card {
+  padding: $spacing-md 0;
+  border-bottom: 1rpx solid $color-divider;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  margin-bottom: $spacing-xs;
+}
+
+.title {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+/* AI 导语：分段渲染，行内引用为嵌套 <Text>，需允许换行 */
+.lead {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+  margin-bottom: $spacing-sm;
+}
+
+/* 内联引用标记 [n]：品牌色高亮，可点击定位来源 */
+.cite {
+  color: $color-primary;
+  font-weight: $font-weight-medium;
+  padding: 0 2rpx;
+
+  &:active {
+    opacity: 0.7;
+  }
+}
+
+.items {
+  display: flex;
+  flex-direction: column;
+}
+
+.item {
+  padding: $spacing-xs 0;
+}
+
+/* 条目正文 + 前置序号（与导语内 [n] 一一对应） */
+.itemText {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+}
+
+.itemIndex {
+  color: $color-primary;
+  font-weight: $font-weight-medium;
+}
+
+/* 来源标注：合规要求来源必须可见 */
+.itemSource {
+  display: block;
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}

@@ -190,3 +190,358 @@
   gap: $spacing-lg;
   margin-top: $spacing-lg;
 }
+
+/* ============ 四模式 Tab 栏 ============ */
+.modeBar {
+  display: flex;
+  gap: $spacing-sm;
+  margin: $spacing-md $page-padding $spacing-lg;
+}
+
+.modeTab {
+  flex: 1;
+  padding: 14rpx 0;
+  text-align: center;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  background: $color-bg-card;
+  border: 2rpx solid transparent;
+  border-radius: $radius-round;
+  box-shadow: $shadow-card;
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.96);
+  }
+}
+
+.modeTabActive {
+  font-weight: $font-weight-semibold;
+}
+
+/* U-02 模式切换过渡：内容区 160ms 淡入 + 轻微上浮（key=mode 重挂载时触发） */
+.modeContent {
+  animation: mode-fade-in 160ms ease-out both;
+}
+
+@keyframes mode-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============ 练习公共（语法/听力/口语） ============ */
+.drillWrap {
+  padding: 0 $page-padding;
+}
+
+.drillProgress {
+  height: 8rpx;
+  margin-bottom: $spacing-md;
+  border-radius: $radius-round;
+  background: $color-bg-card;
+  overflow: hidden;
+}
+
+.drillProgressFill {
+  height: 100%;
+  border-radius: $radius-round;
+  transition: width $transition-base;
+}
+
+.drillHint {
+  display: block;
+  margin-bottom: $spacing-md;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  text-align: center;
+}
+
+.drillCard,
+.listenCard,
+.speakCard {
+  background: $color-bg-card;
+  border-radius: $radius-xl;
+  box-shadow: $shadow-card;
+}
+
+.drillCard {
+  padding: $spacing-xl $spacing-lg;
+}
+
+.stem {
+  font-size: $font-size-lg;
+  line-height: $line-height-loose;
+  color: $color-text-primary;
+  word-break: break-all;
+}
+
+.blank {
+  font-weight: $font-weight-bold;
+  padding: 0 8rpx;
+}
+
+.optionList {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  margin-top: $spacing-lg;
+}
+
+.option {
+  padding: 22rpx 28rpx;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  background: $color-bg-card;
+  border: 2rpx solid transparent;
+  border-radius: $radius-button;
+  box-shadow: $shadow-card;
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.98);
+  }
+}
+
+.optionCorrect {
+  background: rgba(76, 175, 80, 0.12);
+}
+
+.optionWrong {
+  background: rgba(244, 67, 54, 0.1);
+  opacity: 0.8;
+}
+
+.revealBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-top: $spacing-lg;
+  padding: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-xl;
+  box-shadow: $shadow-card;
+}
+
+.revealMeaning {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  text-align: center;
+}
+
+.revealCn {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+  text-align: center;
+  line-height: $line-height-loose;
+}
+
+.revealWord {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.btnPrimary {
+  display: inline-block;
+  padding: 14rpx 48rpx;
+  border-radius: $radius-button;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: #fff;
+  text-align: center;
+
+  &:active {
+    transform: scale(0.96);
+  }
+}
+
+.btnGhost {
+  display: inline-block;
+  padding: 14rpx 48rpx;
+  border-radius: $radius-button;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  background: $color-bg-page;
+  text-align: center;
+
+  &:active {
+    transform: scale(0.96);
+  }
+}
+
+/* ============ 听力 ============ */
+.listenCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-xl $spacing-lg;
+}
+
+.playBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  width: 176rpx;
+  height: 176rpx;
+  border: 4rpx solid;
+  border-radius: 50%;
+
+  &:active {
+    transform: scale(0.94);
+  }
+}
+
+.playBtnOn {
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+.playIcon {
+  font-size: 56rpx;
+}
+
+.playLabel {
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+}
+
+.slowBtn {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  padding: 8rpx 20rpx;
+
+  &:active {
+    opacity: 0.7;
+  }
+}
+
+/* ============ 口语 ============ */
+.speakCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-lg $spacing-lg $spacing-md;
+}
+
+.speakTerm {
+  font-size: 44rpx;
+  font-weight: $font-weight-bold;
+}
+
+.speakReading {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.speakExample {
+  margin-top: $spacing-xs;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  line-height: $line-height-loose;
+  text-align: center;
+}
+
+.speakExampleCn {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+  text-align: center;
+}
+
+.playRow {
+  display: flex;
+  gap: $spacing-lg;
+  margin-top: $spacing-xs;
+}
+
+.ttsNote {
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+}
+
+.speakActionBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-md;
+  margin-top: $spacing-lg;
+}
+
+.speakYourTurn {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.selfRow {
+  display: flex;
+  gap: $spacing-lg;
+  margin-top: $spacing-xs;
+}
+
+.scoreNum {
+  font-size: $font-size-xl;
+  font-weight: $font-weight-bold;
+}
+
+/* ============ 练习完成态 ============ */
+.drillFinish {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-sm;
+  margin: 80rpx $page-padding 0;
+  padding: $spacing-xl $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-xl;
+  box-shadow: $shadow-card;
+  /* U-02：结算卡出现带轻微上浮淡入 */
+  animation: finish-rise-in 200ms ease-out both;
+}
+
+@keyframes finish-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(16rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.finishScore {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-bold;
+}
+
+.finishBest {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.drillActions {
+  display: flex;
+  gap: $spacing-lg;
+  margin-top: $spacing-md;
+}

@@ -1,0 +1,66 @@
+@use '@/styles/variables.scss' as *;
+
+/* 骨架条：shimmer 流光动画 */
+.line {
+  height: 28rpx;
+  border-radius: $radius-xs;
+  background: linear-gradient(90deg, $color-bg-hover 25%, #e9ebef 37%, $color-bg-hover 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+
+  & + .line {
+    margin-top: $spacing-sm;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* ---------- 晨报骨架（briefing） ---------- */
+.briefing {
+  padding: $spacing-sm 0;
+}
+
+.title {
+  width: 40%;
+  height: 40rpx;
+  margin: 0 $page-padding $spacing-lg;
+}
+
+.card {
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.head {
+  width: 32%;
+  margin-bottom: $spacing-md;
+}
+
+.short {
+  width: 58%;
+}
+
+/* ---------- 资讯卡骨架（library） ---------- */
+.newsCard {
+  padding: $spacing-lg;
+  margin: 0 $page-padding $spacing-md;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.meta {
+  width: 44%;
+  height: 22rpx;
+  margin-top: $spacing-md;
+}

@@ -1,0 +1,272 @@
+@use '@/styles/variables.scss' as *;
+
+/* 排班方案卡片（S-01~S-03）：逐项勾选 + 就地候选面板 + 批准 */
+
+.card {
+  margin: $spacing-md 0 0;
+  padding: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  border: 1rpx solid rgba(255, 122, 69, 0.18);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.hint {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+/* P1-F：无缓冲回退提示（低调一行） */
+.noBufferNote {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+.list {
+  max-height: 720rpx;
+  margin-top: $spacing-md;
+}
+
+/* 单条方案 */
+.item {
+  padding: $spacing-md 0;
+  border-bottom: 1rpx solid $color-divider;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.itemMain {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+}
+
+.check {
+  flex-shrink: 0;
+  width: 40rpx;
+  height: 40rpx;
+  margin-top: 4rpx;
+  border-radius: $radius-xs;
+  border: 2rpx solid $color-border;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all $transition-fast;
+
+  &.checked {
+    background: var(--brand, $color-secondary);
+    border-color: var(--brand, $color-secondary);
+  }
+}
+
+.checkIcon {
+  font-size: $font-size-xs;
+  color: $color-text-white;
+  line-height: 1;
+}
+
+.itemBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.itemTitle {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+  @include text-ellipsis;
+}
+
+/* 原时间 → 新时间 */
+.timeRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4rpx;
+  margin-top: 6rpx;
+}
+
+.timeOld {
+  font-size: $font-size-sm;
+  color: $color-text-disabled;
+  text-decoration: line-through;
+}
+
+.timeNewAdd {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.arrow {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.timeNew {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: var(--brand, $color-secondary);
+}
+
+.conflictBadge {
+  margin-left: $spacing-xs;
+  font-size: $font-size-xs;
+  color: #d4380d;
+}
+
+.okBadge {
+  margin-left: $spacing-xs;
+  font-size: $font-size-xs;
+}
+
+/* 候选面板 */
+.candWrap {
+  margin-top: $spacing-sm;
+}
+
+.candToggle {
+  display: inline-block;
+  font-size: $font-size-xs;
+  color: var(--brand, $color-secondary);
+  padding: 4rpx 0;
+}
+
+.candList {
+  margin-top: $spacing-xs;
+  padding: $spacing-xs;
+  background: $color-bg-page;
+  border-radius: $radius-md;
+}
+
+.cand {
+  padding: $spacing-sm;
+  margin-bottom: $spacing-xs;
+  border-radius: $radius-sm;
+  border: 1rpx solid transparent;
+  background: $color-bg-card;
+  transition: all $transition-fast;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  &:active {
+    transform: scale(0.99);
+  }
+
+  &.candActive {
+    border-color: var(--brand, $color-secondary);
+  }
+}
+
+.candTime {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.candTag {
+  display: inline-block;
+  margin-top: 4rpx;
+  margin-right: $spacing-xs;
+  padding: 2rpx 12rpx;
+  border-radius: $radius-round;
+  font-size: $font-size-xs;
+}
+
+.tagFree {
+  background: rgba(82, 196, 26, 0.12);
+  color: #389e0d;
+}
+
+.tagClash {
+  background: rgba(212, 56, 13, 0.1);
+  color: #d4380d;
+}
+
+.tagCrowded {
+  background: rgba(250, 173, 20, 0.14);
+  color: #d48806;
+}
+
+.candReason {
+  display: inline-block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+/* 操作区 */
+.actions {
+  margin-top: $spacing-lg;
+}
+
+.abandonBtn {
+  align-self: flex-start;
+  padding: $spacing-xs 0;
+  margin-bottom: $spacing-sm;
+}
+
+.abandonText {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+  text-decoration: underline;
+}
+
+.approveBtns {
+  display: flex;
+  gap: $spacing-sm;
+}
+
+.approveBtn {
+  flex: 1;
+  height: $button-height-md;
+  @include flex-center;
+  border-radius: $radius-button;
+  background: var(--brand, $color-secondary);
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.98);
+    opacity: 0.9;
+  }
+}
+
+.approveSec {
+  background: var(--brand-soft, rgba(255, 122, 69, 0.12));
+}
+
+.approveSec .approveText {
+  color: var(--brand, $color-secondary);
+}
+
+.approveText {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-white;
+}
+
+.approveDisabled {
+  opacity: 0.45;
+  pointer-events: none;
+}

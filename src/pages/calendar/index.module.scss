@@ -230,12 +230,96 @@
   }
 }
 
+/* 手动快速添加日程 */
+.quickAdd {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-md;
+}
+
+.qaTitle {
+  flex: 1;
+  min-width: 0;
+  background: $color-bg-page;
+  border-radius: $radius-sm;
+  padding: 10rpx 20rpx;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+}
+
+.qaTime {
+  width: 120rpx;
+  text-align: center;
+  background: $color-bg-page;
+  border-radius: $radius-sm;
+  padding: 10rpx 8rpx;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+}
+
+.qaBtn {
+  @include button-reset;
+  background: var(--brand);
+  color: #fff;
+  border-radius: $radius-sm;
+  padding: 10rpx 26rpx;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  white-space: nowrap;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
 .eventRow {
   display: flex;
   align-items: flex-start;
   gap: $spacing-md;
   padding: $spacing-md 0;
   border-bottom: 1rpx solid $color-divider;
+}
+
+/* 冲突条 + 一键重排（项目无 danger 语义色变量，用琥珀警示色） */
+.conflictBar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $radius-md;
+  background: rgba(217, 119, 6, 0.12);
+}
+
+.conflictText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-medium;
+  color: #b45309;
+}
+
+.rescheduleBtn {
+  @include button-reset;
+  flex-shrink: 0;
+  padding: 8rpx 22rpx;
+  border-radius: $radius-round;
+  background: #d97706;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.rescheduleBtnText {
+  color: $color-text-white;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-medium;
+}
+
+.rescheduleWrap {
+  margin-bottom: $spacing-md;
 }
 
 .timeTag {

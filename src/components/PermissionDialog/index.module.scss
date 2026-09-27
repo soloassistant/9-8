@@ -1,0 +1,105 @@
+@use '@/styles/variables.scss' as *;
+
+.mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 $page-padding;
+  background: rgba(0, 0, 0, 0.45);
+  animation: perm-mask-in 0.2s ease-out;
+}
+
+.panel {
+  width: 100%;
+  max-width: $max-content-width;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg $spacing-lg $spacing-md;
+  box-shadow: $shadow-popup;
+  animation: perm-panel-in 0.24s ease-out;
+}
+
+.title {
+  display: block;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  line-height: $line-height-tight;
+}
+
+.desc {
+  display: block;
+  margin-top: $spacing-md;
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: $spacing-sm;
+  margin-top: $spacing-lg;
+}
+
+.btn {
+  min-width: 220rpx;
+  height: $button-height-md;
+  padding: 0 $spacing-lg;
+  border-radius: $radius-button;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.98);
+    opacity: 0.9;
+  }
+}
+
+.btnGhost {
+  background: $color-bg-page;
+}
+
+.btnGhostText {
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+}
+
+.btnPrimary {
+  background: var(--brand, #{$color-primary-dark});
+}
+
+.btnPrimaryText {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-white;
+}
+
+@keyframes perm-mask-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes perm-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(12rpx);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

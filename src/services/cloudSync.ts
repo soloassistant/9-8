@@ -28,6 +28,8 @@ const SYNC_KEYS = [
   'ai-memory',        // AI 记忆
   'user-settings',    // 我的页设置
   'user-city',        // 城市
+  'collectionStore',  // 收藏库（收件箱确认入库）
+  'usage-voice',      // 语音用量月度计数
   'briefingChatLog',  // 晨报 AI 对话（限长 60）
   'aiAssistantLog',   // 悬浮球 AI 对话（限长 60）
   'brand-theme',      // 主题

@@ -7,7 +7,8 @@ import EmptyState from '@/components/EmptyState';
 import { apiExtract, apiConfirmItem, apiGetBriefing, apiChat, type WorkAction } from '@/services/api';
 import { useUserStore } from '@/store/user';
 import { fromNow } from '@/utils/date';
-import { detectConflicts, type ConflictInfo } from '@/utils/schedule';
+import { detectConflicts, buildPlanProposal, type ConflictInfo, type PlanProposal, type PlanProposalRaw, type PlanApplyEvent } from '@/utils/schedule';
+import PlanProposalCard from '@/components/PlanProposalCard';
 import type { Briefing, ExtractResult } from '@/types';
 import { useT } from '@/store/language';
 import styles from './index.module.scss';
@@ -57,6 +58,8 @@ function InboxPage() {
   const [note, setNote] = useState<string>('');
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
+  /** 冲突升级出的排班方案（S-01~S-03）：非空时用方案卡片替代旧冲突条 */
+  const [conflictPlan, setConflictPlan] = useState<PlanProposal | null>(null);
   const [images, setImages] = useState<string[]>([]);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [mode, setMode] = useState<'extract' | 'work'>('extract');
@@ -290,6 +293,40 @@ function InboxPage() {
     Taro.showToast({ title: `已改到 ${dayjs(time).format('HH:mm')}`, icon: 'none' });
   };
 
+  /** 冲突 → 排班方案卡片（S-01~S-03）：由冲突条目构建提案，用户点选候选时段 */
+  const buildConflictProposal = (list: ConflictInfo[]): PlanProposal | null => {
+    if (list.length === 0) return null;
+    // 按 draftKey 去重（同一草稿可能与多个日程冲突），保留首条冲突
+    const seen = new Set<string>();
+    const raw: PlanProposalRaw[] = [];
+    list.forEach((c) => {
+      if (seen.has(c.draftKey)) return;
+      seen.add(c.draftKey);
+      const draft = drafts.find((d) => d.key === c.draftKey);
+      raw.push({
+        title: c.title,
+        toTime: c.startTime,
+        endTime: draft ? (draft.origin as ExtractResult['events'][number]).endTime : c.endTime
+      });
+    });
+    return raw.length > 0 ? buildPlanProposal(raw, briefing?.events || []) : null;
+  };
+
+  /** 批准方案：把选中的新时段写回对应草稿时间，然后由既有「确认入库」链路落库 */
+  const handleApproveConflictPlan = (events: PlanApplyEvent[], proposal: PlanProposal) => {
+    // 方案条目与冲突条目按标题 + 顺序对应，回写草稿时间
+    const byTitle = new Map<string, string>();
+    proposal.items.forEach((item) => {
+      if (item.checked && item.toTime) byTitle.set(item.title, item.toTime);
+    });
+    setDrafts((prev) =>
+      prev.map((d) => (byTitle.has(d.title) ? { ...d, time: byTitle.get(d.title) as string } : d))
+    );
+    setConflicts([]);
+    setConflictPlan(null);
+    Taro.showToast({ title: t('plan.savedToast', { n: events.length }), icon: 'none' });
+  };
+
   const handleConfirm = async () => {
     const checked = drafts.filter((d) => d.checked);
     if (checked.length === 0) {
@@ -329,6 +366,7 @@ function InboxPage() {
       ]);
       setDrafts([]);
       setConflicts([]);
+      setConflictPlan(null);
       setNote('');
       setContent('');
       setImages([]);
@@ -460,7 +498,18 @@ function InboxPage() {
             <Text className={styles.resultTitle}>{t('inbox.resultTitle')}</Text>
             <Text className={styles.resultMeta}>{t('inbox.resultMeta')}</Text>
           </View>
-          {conflicts.length > 0 ? (
+          {/* P0-2 合规显式标识：提取结果由 AI 生成整理，须显著标注 */}
+          <Text className={styles.resultAiLabel}>{t('ai.labelExtract')}</Text>
+          {/* 冲突区：优先渲染排班方案卡片（S-01~S-03，带候选时段分级） */}
+          {conflictPlan ? (
+            <PlanProposalCard
+              proposal={conflictPlan}
+              existing={briefing?.events || []}
+              showAbandon={false}
+              onApprove={handleApproveConflictPlan}
+              onAbandon={() => setConflictPlan(null)}
+            />
+          ) : conflicts.length > 0 ? (
             <View className={styles.conflictCard}>
               <Text className={styles.conflictTitle}>{t('inbox.conflictTitle')}</Text>
               {conflicts.map((c) => (
@@ -477,6 +526,10 @@ function InboxPage() {
                   </View>
                 </View>
               ))}
+              {/* 升级为方案卡片：给候选时段分级（空闲/冲突/拥挤 + 理由） */}
+              <View className={styles.suggestChip} onClick={() => setConflictPlan(buildConflictProposal(conflicts))}>
+                {t('plan.cardTitle', { n: conflicts.length })}
+              </View>
             </View>
           ) : null}
           {drafts.map((draft) => (

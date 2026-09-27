@@ -42,9 +42,11 @@ export interface CollectionItem {
   createTime: string;
 }
 
-/** 今日情报（F15，订阅专属）：天气 + 偏好资讯，LLM 摘要，失败降级 */
+/** 今日情报（F15）：天气 + 偏好资讯。
+ *  免费档：RSS 原始 3 条（零 LLM，不做 AI 提炼）；订阅档：LLM 摘要 + 主题分组（日限额 10 次）。
+ *  任一步失败均降级，绝不阻塞晨报。 */
 export interface BriefingIntel {
-  /** 是否订阅用户（非订阅时 intelItems 为空） */
+  /** 是否订阅用户（决定档位；非订阅用户同样会拿到 intelItems，只是为 RSS 原始条目） */
   subscribed: boolean;
   /** 今日限额已满（10 次/日），此时 intelItems 为原始资讯降级 */
   limited?: boolean;
@@ -64,6 +66,20 @@ export interface BriefingAdaptive {
   tripCity: string | null;
   /** 高优待办标题 */
   focusTodo: string | null;
+  /** 当日日程总分钟数（负载条用；endTime 缺省按 1h 估算。旧数据缺失时负载条不渲染） */
+  busyMinutes?: number;
+  /** 当日日程数 */
+  todayCount?: number;
+}
+
+/** 本周复盘统计（P1-G：过去 7 天含今天的确定性统计，不调 LLM） */
+export interface WeeklyReview {
+  /** 窗口内 done 状态的待办数 */
+  todosDone: number;
+  /** 窗口内日程数 */
+  eventCount: number;
+  /** 标题高频关键词 top5（出现 ≥2 次才保留，可为空数组） */
+  keywords: string[];
 }
 
 /** 晨报 */
@@ -79,6 +95,12 @@ export interface Briefing {
   intel?: BriefingIntel | null;
   /** 自适应信号（F21；旧数据缺失时前端可按 events/todos 现算） */
   adaptive?: BriefingAdaptive;
+  /** 本周复盘（P1-G；旧缓存/云函数降级缺失时整卡不渲染） */
+  weeklyReview?: WeeklyReview;
+  /** 收尾冷知识（P2-X7；缺失不渲染） */
+  trivia?: string;
+  /** 周末轻量版标记（P1-X6；周末生成时置 true，资讯减量） */
+  weekendEdition?: boolean;
   /** 已读标记 */
   read: boolean;
 }
@@ -148,6 +170,8 @@ export interface HotspotNews {
   createTime: string;
   /** AI 精选筛选理由（仅 AI 精选结果携带；合规要求标注 AI 生成） */
   aiReason?: string;
+  /** Why it matters（P1-X1：为什么值得看，AI 过滤时生成，≤30 字；缺失不显示） */
+  whyItMatters?: string;
 }
 
 /** 浏览历史条目（v2.0） */

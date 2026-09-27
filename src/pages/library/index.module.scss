@@ -324,33 +324,6 @@
   }
 }
 
-/* AI 精选卡片内的筛选理由行 */
-.aiReasonRow {
-  display: flex;
-  align-items: center;
-  gap: $spacing-xs;
-  margin-top: $spacing-sm;
-  padding: 6rpx $spacing-sm;
-  border-radius: $radius-xs;
-  background: var(--brand-soft, rgba(0, 0, 0, 0.04));
-}
-
-.aiReasonTag {
-  flex-shrink: 0;
-  font-size: $font-size-xs;
-  font-weight: $font-weight-semibold;
-  color: #fff;
-  background: var(--brand, $color-secondary);
-  border-radius: $radius-xs;
-  padding: 0 8rpx;
-}
-
-.aiReasonText {
-  font-size: $font-size-xs;
-  color: $color-text-secondary;
-  @include text-ellipsis;
-}
-
 
 .feedbackBtn {
   font-size: $font-size-sm;
@@ -432,4 +405,399 @@
   display: flex;
   flex-wrap: wrap;
   margin-top: $spacing-sm;
+}
+
+/* ==========================================================
+   v1.2 N-01 / N-02 / C-03：反馈条 · 已选态 · 屏蔽选择器 · 个性化入口
+   ========================================================== */
+
+/* 已选态：填充品牌橙 #E85D2A + 1.1→1.0 回弹（PRD 4.3 ≤200ms 内可感知） */
+.feedbackSelected {
+  color: $color-text-white;
+  background: var(--brand-deep, $color-primary-dark);
+  font-weight: $font-weight-medium;
+  animation: feedbackPop 150ms ease-out;
+}
+
+@keyframes feedbackPop {
+  0% {
+    transform: scale(1);
+  }
+
+  60% {
+    transform: scale(1.1);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* 反馈条：120ms 高度展开（PRD 4.3） */
+.feedbackBar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-top: $spacing-sm;
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $radius-md;
+  background: var(--brand-soft, $color-voice-bg);
+  overflow: hidden;
+  animation: feedbackBarExpand 120ms ease-out;
+}
+
+@keyframes feedbackBarExpand {
+  0% {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-8rpx);
+  }
+
+  100% {
+    max-height: 120rpx;
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.feedbackBarText {
+  flex: 1;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: var(--brand-deep, $color-primary-dark);
+  @include text-ellipsis;
+}
+
+.feedbackBarActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  flex-shrink: 0;
+}
+
+.feedbackBarUndo {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  text-decoration: underline;
+
+  &:active {
+    opacity: 0.7;
+  }
+}
+
+.feedbackBarBlock {
+  font-size: $font-size-sm;
+  color: var(--brand-deep, $color-primary-dark);
+  font-weight: $font-weight-medium;
+
+  &:active {
+    opacity: 0.7;
+  }
+}
+
+/* C-03 内容侧：热点区右上角常驻「关闭个性化推荐」入口 */
+.personalRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 0 $page-padding $spacing-sm;
+}
+
+.personalOffEntry {
+  padding: 4rpx $spacing-sm;
+  border-radius: $radius-round;
+  background: $color-bg-card;
+  border: 1rpx solid $color-border;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+
+  &:active {
+    opacity: 0.7;
+  }
+}
+
+/* 竞品分析 X11：未成年人模式低调横幅 */
+.minorBanner {
+  margin: $spacing-md $page-padding 0;
+  padding: $spacing-xs $spacing-md;
+  border-radius: $radius-md;
+  background: $color-bg-card;
+  border: 1rpx solid $color-border;
+}
+
+.minorBannerText {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+/* ==========================================================
+   竞品分析资讯页簇：L1 角标 / X1 Why it matters / X5 推荐理由 / X2 署名 / L3 免责页脚 / X9 分享
+   ========================================================== */
+
+/* L1：标题行（标题 + AI 角标同排） */
+.newsTitleRow {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-xs;
+}
+
+/* L1：「AI」小胶囊角标 */
+.aiBadge {
+  flex-shrink: 0;
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  color: #fff;
+  background: var(--brand, $color-secondary);
+  border-radius: $radius-xs;
+  padding: 2rpx 10rpx;
+  line-height: 1.4;
+}
+
+/* X1：Why it matters（次级色小字，缺失不渲染不占位） */
+.whyItMatters {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* X5：为什么推荐给你（可点击展开，默认收起） */
+.aiReasonWrap {
+  margin-top: $spacing-sm;
+}
+
+.whyToggle {
+  font-size: $font-size-xs;
+  color: var(--brand, $color-secondary);
+  font-weight: $font-weight-medium;
+
+  &:active {
+    opacity: 0.7;
+  }
+}
+
+.whyReasonText {
+  display: block;
+  margin-top: $spacing-xs;
+  padding: 6rpx $spacing-sm;
+  border-radius: $radius-xs;
+  background: var(--brand-soft, rgba(0, 0, 0, 0.04));
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* X2：栏目署名（AI 精选顶部，小标题感） */
+.curatorLine {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+/* L1：AI 筛选说明行 */
+.aiNoteLine {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+/* L3：资讯列表免责页脚（次级色、小号、居中） */
+.disclaimerFooter {
+  margin: $spacing-sm $page-padding $spacing-md;
+}
+
+.disclaimerText {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+  text-align: center;
+  line-height: $line-height-normal;
+}
+
+/* X9：分享按钮（weapp 用 Button 重置样式，H5 用 Text） */
+.shareBtn {
+  margin-left: auto;
+  padding: 0 $spacing-sm;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+  background: transparent;
+  border: none;
+  line-height: normal;
+
+  /* 重置 weapp Button 默认样式 */
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    transform: scale(0.94);
+  }
+}
+
+/* N-02 半屏屏蔽选择器 */
+.blockMask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.blockSheet {
+  background: $color-bg-card;
+  border-radius: $radius-xl $radius-xl 0 0;
+  padding: $spacing-lg $page-padding calc(#{$spacing-lg} + env(safe-area-inset-bottom));
+  /* N-02 半屏：父容器为全屏 fixed，故 50% 即半屏；上下限保护小屏与大屏 */
+  height: 50%;
+  min-height: 560rpx;
+  max-height: 900rpx;
+  display: flex;
+  flex-direction: column;
+  box-shadow: $shadow-popup;
+  animation: blockSheetUp 200ms ease-out;
+}
+
+@keyframes blockSheetUp {
+  0% {
+    transform: translateY(100%);
+  }
+
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.blockSheetHead {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+}
+
+.blockSheetTitle {
+  flex: 1;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.blockSheetClose {
+  flex-shrink: 0;
+  width: 48rpx;
+  height: 48rpx;
+  line-height: 48rpx;
+  text-align: center;
+  font-size: $font-size-lg;
+  color: $color-text-tertiary;
+}
+
+/* 微信小程序 scroll-view 需要确定高度，故显式给出上限 */
+.blockBody {
+  flex: 1;
+  max-height: 620rpx;
+  overflow-y: auto;
+}
+
+.blockGroupTitle {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-secondary;
+  margin: $spacing-sm 0;
+}
+
+.blockOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+}
+
+.blockOption {
+  padding: 10rpx $spacing-md;
+  border-radius: $radius-round;
+  background: $color-bg-page;
+  border: 1rpx solid transparent;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  transition: all $transition-fast;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.blockOptionActive {
+  background: var(--brand-soft, $color-voice-bg);
+  border-color: var(--brand-deep, $color-primary-dark);
+  color: var(--brand-deep, $color-primary-dark);
+  font-weight: $font-weight-medium;
+}
+
+.blockEmpty {
+  font-size: $font-size-sm;
+  color: $color-text-disabled;
+  margin-bottom: $spacing-md;
+}
+
+.blockFoot {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  margin-top: $spacing-sm;
+}
+
+.blockBtn {
+  flex: 1;
+  height: $button-height-md;
+  line-height: $button-height-md;
+  text-align: center;
+  border-radius: $radius-button;
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+}
+
+.blockCancelBtn {
+  background: $color-bg-page;
+  color: $color-text-secondary;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.blockConfirmBtn {
+  background: var(--brand-deep, $color-primary-dark);
+  color: $color-text-white;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.blockConfirmDisabled {
+  background: $color-bg-hover;
+  color: $color-text-disabled;
+}
+
+/* U-01 骨架屏后真实内容淡入（≤200ms） */
+.contentFade {
+  animation: hotspot-content-fade 200ms ease-out both;
+}
+
+@keyframes hotspot-content-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }

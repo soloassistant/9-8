@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Input, Image } from '@tarojs/components';
+import type { ITouchEvent } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
-import { apiChat } from '@/services/api';
+import { apiChat, apiChatStream, apiApplyPlan, apiGetBriefing } from '@/services/api';
 import { useT } from '@/store/language';
 import { loadChatLog, saveChatLog } from '@/utils/chatLog';
+import { buildPlanProposal, type PlanProposal, type PlanProposalRaw, type PlanApplyEvent } from '@/utils/schedule';
+import { readMemory, writeMemory, undoMemory, memoryToast, MEMORY_UNDO_WINDOW_MS, type MemoryItem } from '@/utils/memory';
+import type { ScheduleEvent } from '@/types';
+import PlanProposalCard from '@/components/PlanProposalCard';
 import styles from './index.module.scss';
 
 const isH5 = process.env.TARO_ENV === 'h5';
@@ -53,7 +58,19 @@ interface AssistantMsg {
   content: string;
   /** AI 附带图片（F25：热点封面等真实内容图） */
   image?: string;
+  /** 排班方案（S-01：AI 只提议，勾选后由 apiApplyPlan 落库） */
+  proposal?: PlanProposal;
+  /** P1-E 记忆溯源：本次随请求发送的记忆条数（仅在携带排班提案的回复上记录） */
+  memoryCount?: number;
+  /** P1-E 记忆溯源：本次发送的记忆明细（footnote 展开面板逐条展示） */
+  memoryItems?: MemoryItem[];
   createTime: string;
+}
+
+/** 记忆写入 toast 状态（M-03：底部 toast + 5s 撤销） */
+interface MemoryToastState {
+  text: string;
+  ids: string[];
 }
 
 function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps) {
@@ -64,6 +81,12 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
   const [messages, setMessages] = useState<AssistantMsg[]>(() => loadChatLog<AssistantMsg>(AI_LOG_KEY));
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  // 记忆写入 toast（M-03）：底部展示 + 5s 内可撤销
+  const [memoryToastState, setMemoryToastState] = useState<MemoryToastState | null>(null);
+  // P1-E 记忆溯源：展开明细面板的消息 id（null = 全部收起）
+  const [memoryPanelMsgId, setMemoryPanelMsgId] = useState<string | null>(null);
+  // 现有日程：方案卡片换时段时重跑冲突检测用（S-02）
+  const existingEventsRef = useRef<ScheduleEvent[]>([]);
   // 消息 id 计数器以恢复的历史长度为起点，避免与持久化消息 id 冲突
   const msgIdRef = useRef(messages.length);
 
@@ -101,13 +124,93 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
     return () => clearTimeout(timer);
   }, [hintVisible]);
 
-  const push = useCallback((role: AssistantMsg['role'], content: string, image?: string) => {
-    msgIdRef.current += 1;
-    setMessages((prev) => [
-      ...prev,
-      { id: `ai-msg-${msgIdRef.current}`, role, content, image, createTime: dayjs().toISOString() }
-    ]);
+  /** P1-E 记忆溯源附加字段（仅在携带排班提案的回复上带） */
+  interface MemoryTrace {
+    memoryCount: number;
+    memoryItems: MemoryItem[];
+  }
+
+  const push = useCallback(
+    (
+      role: AssistantMsg['role'],
+      content: string,
+      image?: string,
+      proposal?: PlanProposal,
+      memory?: MemoryTrace
+    ): string => {
+      msgIdRef.current += 1;
+      const id = `ai-msg-${msgIdRef.current}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id,
+          role,
+          content,
+          image,
+          proposal,
+          memoryCount: memory?.memoryCount,
+          memoryItems: memory?.memoryItems,
+          createTime: dayjs().toISOString()
+        }
+      ]);
+      return id;
+    },
+    []
+  );
+
+  /** F-03 流式打字机追加 / done 校正 / 失败移除 */
+  const appendMsg = useCallback((id: string, chunk: string) => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + chunk } : m)));
   }, []);
+  const setMsgContent = useCallback((id: string, content: string) => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content } : m)));
+  }, []);
+  /** 局部更新消息字段（P1-E：流式完成后补记 memoryCount/memoryItems） */
+  const patchMsg = useCallback((id: string, patch: Partial<AssistantMsg>) => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }, []);
+  const removeMsg = useCallback((id: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+  }, []);
+
+  /** 加载现有日程（方案卡片换时段时重跑冲突检测用）；失败静默降级为空数组 */
+  const loadExistingEvents = useCallback(async () => {
+    try {
+      const briefing = await apiGetBriefing();
+      existingEventsRef.current = briefing?.events || [];
+    } catch (err) {
+      console.warn('[AiAssistant] load briefing for conflict check failed:', err);
+      existingEventsRef.current = [];
+    }
+  }, []);
+
+  /** 记忆写入 toast + 5s 撤销（M-03 / M-04）：撤销后写入抑制列表，本轮不再重复写入 */
+  const memoryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showMemoryToast = useCallback((items: MemoryItem[]) => {
+    if (items.length === 0) return;
+    const toast = memoryToast(items);
+    const text = t(toast.key, toast.params);
+    const ids = items.map((item) => item.id);
+    setMemoryToastState({ text, ids });
+    if (memoryTimerRef.current) clearTimeout(memoryTimerRef.current);
+    memoryTimerRef.current = setTimeout(() => setMemoryToastState(null), MEMORY_UNDO_WINDOW_MS);
+  }, [t]);
+
+  const handleUndoMemory = useCallback(() => {
+    if (!memoryToastState) return;
+    undoMemory(memoryToastState.ids);
+    if (memoryTimerRef.current) clearTimeout(memoryTimerRef.current);
+    setMemoryToastState(null);
+    Taro.showToast({ title: t('memory.undone'), icon: 'none' });
+  }, [memoryToastState, t]);
+
+  // 卸载时清理 toast 定时器
+  useEffect(
+    () => () => {
+      if (memoryTimerRef.current) clearTimeout(memoryTimerRef.current);
+    },
+    []
+  );
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -115,9 +218,47 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
       if (!content || sending) return;
       setSending(true);
       push('user', content);
+      // 记忆回灌：发消息时读取用户长期记忆（开关关闭/读取失败则空数组），随请求带给模型
+      const memStore = readMemory();
+      // P1-E：保留明细（content/createdAt/source）供溯源 footnote；发送侧只取 content
+      const memItems = memStore.enabled ? memStore.items.slice(0, 20) : [];
+      const memories = memItems.map((m) => m.content);
+      const memoryTrace: MemoryTrace | undefined = memItems.length > 0 ? { memoryCount: memItems.length, memoryItems: memItems } : undefined;
       try {
-        const res = await apiChat(content, 'text');
-        push('assistant', res.reply, res.image);
+        let res: { reply: string; action: string; image?: string; proposals?: PlanProposalRaw[]; memories?: string[] } | null =
+          null;
+        if (isH5) {
+          // F-03 H5 流式：空气泡打字机追加；失败移除空气泡降级整段 apiChat
+          const streamId = push('assistant', '');
+          const streamed = await apiChatStream(content, false, (chunk) => appendMsg(streamId, chunk), memories);
+          if (streamed) {
+            setMsgContent(streamId, streamed.reply);
+            // P1-E：流式完成后与降级路径汇合——action='plan'（即排班提案回复）时补记记忆溯源
+            if (streamed.action === 'plan' && memoryTrace) {
+              patchMsg(streamId, memoryTrace);
+            }
+            res = streamed;
+          } else {
+            removeMsg(streamId);
+          }
+        }
+        if (!res) {
+          res = await apiChat(content, 'text', false, undefined, memories);
+
+          // S-01：AI 返回排班提案时，前端补齐候选时段与冲突标记（云函数不写库）
+          let proposal: PlanProposal | undefined;
+          if (res.action === 'plan' && Array.isArray(res.proposals) && res.proposals.length > 0) {
+            if (existingEventsRef.current.length === 0) await loadExistingEvents();
+            proposal = buildPlanProposal(res.proposals, existingEventsRef.current);
+          }
+          // P1-E：仅携带排班提案的回复记录记忆溯源，普通回复不显示 footnote
+          push('assistant', res.reply, res.image, proposal, proposal ? memoryTrace : undefined);
+
+          // M-03：云函数返回记忆条目时写入并展示 toast（P1-E：附带当前对话原文作溯源短语）
+          if (Array.isArray(res.memories) && res.memories.length > 0) {
+            showMemoryToast(writeMemory(res.memories, 'chat', content));
+          }
+        }
       } catch (err) {
         console.error('[AiAssistant] chat failed:', err);
         push('assistant', '抱歉，我刚刚走神了，请再说一次。');
@@ -125,7 +266,41 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
         setSending(false);
       }
     },
-    [sending, push]
+    [sending, push, appendMsg, setMsgContent, patchMsg, removeMsg, loadExistingEvents, showMemoryToast]
+  );
+
+  /** 批准方案：透传 apiApplyPlan 落库（S-01），成功后 toast 并从消息中移除卡片 */
+  const handleApprovePlan = useCallback(
+    async (events: PlanApplyEvent[], src: PlanProposal, msgId: string) => {
+      if (events.length === 0) return;
+      const result = await apiApplyPlan({ events, proposalId: src.id, count: events.length });
+      if (result.ok) {
+        Taro.showToast({ title: t('plan.savedToast', { n: result.saved }), icon: 'success' });
+        // 落库成功后移除卡片，日历页立即可见（PRD 4.2）
+        setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, proposal: undefined } : m)));
+        // 日程已变更，刷新本地缓存供后续冲突检测
+        await loadExistingEvents();
+      } else {
+        Taro.showToast({ title: '暂时无法写入，请稍后再试', icon: 'none' });
+      }
+    },
+    [t, loadExistingEvents]
+  );
+
+  /** 放弃方案：二次确认后移除卡片，不写库、不残留草稿（PRD 4.2） */
+  const handleAbandonPlan = useCallback(
+    (msgId: string) => {
+      Taro.showModal({
+        title: t('plan.abandonTitle'),
+        content: t('plan.abandonBody'),
+        confirmText: t('plan.abandonTitle').slice(0, 4),
+        success: (res) => {
+          if (!res.confirm) return;
+          setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, proposal: undefined } : m)));
+        }
+      });
+    },
+    [t]
   );
 
   /** 全屏预览 AI 附图（F25）；失败静默 */
@@ -147,7 +322,7 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
 
   /** 悬浮球拖动位置（px，视口坐标）；null = 默认右下角。拖动状态存在 ref 中避免拖动中额外重渲染 */
   const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null);
-  const fabRef = useRef<any>(null);
+  const fabRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<{
     startX: number;
     startY: number;
@@ -212,14 +387,14 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
   }, []);
 
   /** 触屏按下（weapp 路径；H5 走下方原生绑定）：move/end 由 onTouchMove/onTouchEnd props 提供
-   *  参数用 any 以兼容 Taro ViewProps 的 CommonEventFunction（实际只读 touches[0] 坐标） */
-  const handleFabTouchStart = (e: any) => {
+   *  参数用 Taro 的 ITouchEvent（实际只读 touches[0] 坐标） */
+  const handleFabTouchStart = (e: ITouchEvent) => {
     const p0 = e.touches?.[0];
     if (!p0 || isH5) return;
     beginDrag(p0.clientX, p0.clientY);
   };
 
-  const handleFabTouchMove = (e: any) => {
+  const handleFabTouchMove = (e: ITouchEvent) => {
     const p0 = e.touches?.[0];
     if (p0) updateDrag(p0.clientX, p0.clientY);
   };
@@ -341,10 +516,57 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
                       onClick={() => previewImage(m.image)}
                     />
                   ) : null}
+                  {/* 排班方案卡片（S-01~S-03）：勾选后由 apiApplyPlan 落库 */}
+                  {m.proposal ? (
+                    <PlanProposalCard
+                      proposal={m.proposal}
+                      existing={existingEventsRef.current}
+                      onApprove={(events, src) => handleApprovePlan(events, src, m.id)}
+                      onAbandon={() => handleAbandonPlan(m.id)}
+                    />
+                  ) : null}
+                  {/* P0-2 合规显式标识：AI 回复气泡底部标注「AI 生成内容」（用户消息不标） */}
+                  {m.role === 'assistant' ? (
+                    <Text className={styles.msgLabel}>{t('ai.labelText')}</Text>
+                  ) : null}
+                  {/* P1-E 记忆溯源：仅携带排班提案的回复显示；点击展开/收起本次发送的记忆明细 */}
+                  {m.role === 'assistant' && m.memoryCount && m.memoryItems && m.memoryItems.length > 0 ? (
+                    <View className={styles.memoryFootnote}>
+                      <Text
+                        className={styles.memoryFootnoteText}
+                        onClick={() => setMemoryPanelMsgId(memoryPanelMsgId === m.id ? null : m.id)}
+                      >
+                        {memoryPanelMsgId === m.id ? '▾ ' : '▸ '}
+                        {t('ai.memoryUsed', { n: m.memoryCount })}
+                      </Text>
+                      {memoryPanelMsgId === m.id ? (
+                        <View className={styles.memoryPanel}>
+                          {m.memoryItems.map((item) => (
+                            <View key={item.id} className={styles.memoryPanelRow}>
+                              <Text className={styles.memoryPanelContent}>{item.content}</Text>
+                              <Text className={styles.memoryPanelMeta}>
+                                {dayjs(item.createdAt).format('MM-DD HH:mm')} · {item.source === 'seed' ? '初始' : '对话'}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
               </View>
             ))}
           </ScrollView>
+
+          {/* 记忆写入 toast + 5s 撤销（M-03 / M-04） */}
+          {memoryToastState ? (
+            <View className={styles.memoryToast}>
+              <Text className={styles.memoryToastText}>💭 {memoryToastState.text}</Text>
+              <View className={styles.memoryUndo} onClick={handleUndoMemory}>
+                <Text className={styles.memoryUndoText}>{t('memory.undo')}</Text>
+              </View>
+            </View>
+          ) : null}
 
           <View className={styles.inputRow}>
             <Input

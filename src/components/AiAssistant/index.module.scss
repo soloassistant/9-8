@@ -197,6 +197,14 @@
   border-radius: $radius-md;
 }
 
+/* P0-2 合规显式标识：AI 回复气泡底部的「AI 生成内容」角标 */
+.msgLabel {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
 .inputRow {
   display: flex;
   align-items: center;
@@ -242,4 +250,83 @@
 
 .sendBtnDisabled {
   opacity: 0.6;
+}
+
+/* 记忆写入 toast + 撤销（M-03 / M-04）：贴输入栏上方 */
+.memoryToast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  margin: 0 $page-padding $spacing-xs;
+  padding: $spacing-sm $spacing-lg;
+  background: rgba(255, 122, 69, 0.1);
+  border: 1rpx solid rgba(255, 122, 69, 0.25);
+  border-radius: $radius-md;
+  animation: ai-fade-in 0.25s ease-out;
+}
+
+.memoryToastText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  line-height: $line-height-normal;
+  @include text-ellipsis;
+}
+
+.memoryUndo {
+  flex-shrink: 0;
+  padding: 4rpx 16rpx;
+  border-radius: $radius-round;
+  background: var(--brand, $color-secondary);
+}
+
+.memoryUndoText {
+  font-size: $font-size-xs;
+  color: $color-text-white;
+}
+
+/* P1-E 记忆溯源：提案回复气泡底部的低调 footnote + 可展开的明细面板 */
+.memoryFootnote {
+  margin-top: $spacing-xs;
+  padding-top: $spacing-xs;
+  border-top: 1rpx solid $color-divider;
+}
+
+.memoryFootnoteText {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+.memoryPanel {
+  margin-top: $spacing-xs;
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $radius-md;
+  background: $color-bg-page;
+}
+
+.memoryPanelRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+  padding: $spacing-xs 0;
+
+  & + .memoryPanelRow {
+    border-top: 1rpx solid $color-divider;
+  }
+}
+
+.memoryPanelContent {
+  font-size: $font-size-xs;
+  color: $color-text-primary;
+  line-height: $line-height-normal;
+  word-break: break-all;
+}
+
+.memoryPanelMeta {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
 }

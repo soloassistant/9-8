@@ -1,5 +1,8 @@
 @use '@/styles/variables.scss' as *;
 
+// P-03：推广区块与 AI 推荐区的最小间隔（48rpx = 24px，满足 ≥16px 要求）
+$ad-section-gap: 48rpx;
+
 .page {
   min-height: 100vh;
   background: linear-gradient(180deg, var(--brand-soft, #{$color-bg-header}) 0%, $color-bg-page 480rpx);
@@ -117,10 +120,55 @@
 }
 
 .target {
-  display: inline-block;
-  margin-top: $spacing-xs;
+  flex-shrink: 0;
   font-size: $font-size-xs;
   color: $color-text-tertiary;
+}
+
+/* 心理价位行：标签 + 可点改的值 + 清除（P-01） */
+.targetRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-top: $spacing-sm;
+  padding-top: $spacing-sm;
+  border-top: 1rpx dashed $color-divider;
+}
+
+.targetValue {
+  flex: 1;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  padding: 0 $spacing-md;
+  border-radius: $radius-sm;
+  background: $color-bg-page;
+  font-size: $font-size-sm;
+  color: var(--brand-deep, #{$color-primary-dark});
+  font-weight: $font-weight-medium;
+  transition: all $transition-fast;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.targetClearBtn {
+  flex-shrink: 0;
+  height: 56rpx;
+  padding: 0 $spacing-md;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $radius-sm;
+  background: $color-bg-page;
+  color: $color-text-tertiary;
+  font-size: $font-size-sm;
+  transition: all $transition-fast;
+
+  &:active {
+    background: $color-divider;
+  }
 }
 
 .priceRow {
@@ -187,4 +235,61 @@
   &:active {
     background: $color-divider;
   }
+}
+
+/* ---------- P-03 广告与推荐分离（当前版本无广告位，样式预留） ---------- */
+.adSection {
+  margin-top: $ad-section-gap;
+  padding-top: $ad-section-gap;
+  border-top: 1rpx solid $color-divider;
+}
+
+.adDividerText {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-disabled;
+  margin-bottom: $spacing-sm;
+}
+
+.adBlock {
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  padding: $spacing-lg;
+  box-shadow: $shadow-card;
+}
+
+.adLabelRow {
+  display: flex;
+  margin-bottom: $spacing-sm;
+}
+
+.adLabel {
+  display: inline-block;
+  padding: 2rpx $spacing-sm;
+  border-radius: $radius-xs;
+  background: $color-divider;
+  color: $color-text-tertiary;
+  font-size: $font-size-xs;
+}
+
+.adCard {
+  padding: $spacing-sm 0;
+
+  & + & {
+    border-top: 1rpx solid $color-divider;
+  }
+}
+
+.adTitle {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.adDesc {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
 }

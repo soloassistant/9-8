@@ -10,9 +10,50 @@ import {
   apiShoppingToggleBought,
   apiShoppingRemove,
   apiShoppingAddPrice,
+  apiShoppingSetTargetPrice,
+  apiShoppingClearTargetPrice,
   type ShoppingItem
 } from '@/services/api';
+import {
+  evaluatePriceAlerts,
+  formatAlert,
+  markNotified,
+  clearNotified,
+  type PricedItem
+} from '@/utils/price';
 import styles from './index.module.scss';
+
+/** 记价弹窗的输入示例（格式：平台 价格） */
+const PRICE_INPUT_SAMPLE = '例：京东 2599';
+/** 平台 + 价格（支持千分位）提取正则 */
+const PRICE_PATTERN = /([一-龥A-Za-z]+)\s*([\d.,]+)/;
+/** 降价提醒 toast 停留时长（ms） */
+const ALERT_TOAST_MS = 3000;
+
+/** 结果区条目（P-03：isAd 区分 AI 推荐与推广内容，两者不得混排在同一张卡片内） */
+interface ResultEntry {
+  id: string;
+  title: string;
+  desc: string;
+  isAd: boolean;
+}
+
+/**
+ * 结果区内容源：当前版本无广告位，维持「无广告」状态（空数组）；
+ * 接入推广时在此追加 isAd: true 的条目，页面会自动以「广告」区块独立渲染。
+ */
+const RESULT_ENTRIES: ResultEntry[] = [];
+
+/** 购物清单 → 比价最小字段集（交给 utils/price.ts 做纯逻辑比对） */
+function toPricedItem(item: ShoppingItem): PricedItem {
+  return {
+    id: item.id,
+    name: item.name,
+    targetPrice: item.targetPrice,
+    prices: item.prices,
+    lastNotifiedPrice: item.lastNotifiedPrice
+  };
+}
 
 function ShoppingPage() {
   const t = useT();
@@ -36,6 +77,24 @@ function ShoppingPage() {
   useDidShow(() => {
     load();
   });
+
+  /**
+   * 时机① 手动更新价格后的即时比对（P-01）：命中则弹降价提醒并记录已提醒价，
+   * 未命中返回 false，调用方继续走原来的「已记录比价」提示。
+   */
+  const runPriceCheck = useCallback((item: ShoppingItem): boolean => {
+    const alerts = evaluatePriceAlerts([toPricedItem(item)]);
+    if (alerts.length === 0) return false;
+    alerts.forEach((alert) => markNotified(alert.itemId, alert.price));
+    setList((prev) =>
+      prev.map((it) => {
+        const hit = alerts.find((alert) => alert.itemId === it.id);
+        return hit ? { ...it, lastNotifiedPrice: hit.price } : it;
+      })
+    );
+    Taro.showToast({ title: formatAlert(alerts[0], t), icon: 'none', duration: ALERT_TOAST_MS });
+    return true;
+  }, [t]);
 
   const addItem = async () => {
     const n = name.trim();
@@ -74,7 +133,7 @@ function ShoppingPage() {
     });
   };
 
-  /** 记多平台价格（手动比价记录，对应 PRD F23 兜底形态） */
+  /** 记多平台价格（手动比价记录，对应 PRD F23 兜底形态）；记完立即比对心理价位 */
   const addPrice = (id: string) => {
     const item = list.find((it) => it.id === id);
     if (!item) return;
@@ -82,11 +141,11 @@ function ShoppingPage() {
     Taro.showModal({
       title: `给「${item.name}」记价格`,
       editable: true,
-      placeholderText: '例：京东 2599',
+      placeholderText: PRICE_INPUT_SAMPLE,
       success: async (res) => {
         const input = (res as unknown as { content?: string }).content;
         if (!input) return;
-        const m = input.match(/([一-龥A-Za-z]+)\s*([\d.,]+)/);
+        const m = input.match(PRICE_PATTERN);
         if (!m) {
           Taro.showToast({ title: '格式：平台 价格', icon: 'none' });
           return;
@@ -95,11 +154,45 @@ function ShoppingPage() {
         if (!Number.isFinite(price)) return;
         const done = await apiShoppingAddPrice(id, m[1], price);
         if (done) {
+          const next: ShoppingItem = { ...item, prices: done.prices };
           setList((prev) => prev.map((it) => (it.id === id ? { ...it, prices: done.prices } : it)));
-          Taro.showToast({ title: '已记录比价', icon: 'success' });
+          if (!runPriceCheck(next)) {
+            Taro.showToast({ title: '已记录比价', icon: 'success' });
+          }
         }
       }
     } as unknown as Taro.showModal.Option);
+  };
+
+  /** 设置 / 修改心理价位（P-01：数字输入，单位元，可随时修改） */
+  const editTargetPrice = (item: ShoppingItem) => {
+    // 同 addPrice：editable 为微信扩展能力，Taro 类型滞后，断言绕过
+    Taro.showModal({
+      title: t('shopping.targetSet'),
+      editable: true,
+      placeholderText: t('shopping.targetPlaceholder'),
+      success: async (res) => {
+        const input = (res as unknown as { content?: string }).content;
+        if (!res.confirm || !input) return;
+        const price = Number(String(input).replace(/[^\d.]/g, ''));
+        if (!Number.isFinite(price) || price <= 0) return;
+        const done = await apiShoppingSetTargetPrice(item.id, price);
+        if (!done) return;
+        const next: ShoppingItem = { ...item, targetPrice: done.targetPrice };
+        setList((prev) => prev.map((it) => (it.id === item.id ? { ...it, targetPrice: done.targetPrice } : it)));
+        runPriceCheck(next);
+      }
+    } as unknown as Taro.showModal.Option);
+  };
+
+  /** 清除心理价位（P-01）：同时清掉该商品的已提醒价，避免残留去重记录 */
+  const clearTargetPrice = async (item: ShoppingItem) => {
+    const done = await apiShoppingClearTargetPrice(item.id);
+    if (!done) return;
+    clearNotified(item.id);
+    setList((prev) =>
+      prev.map((it) => (it.id === item.id ? { ...it, targetPrice: undefined, lastNotifiedPrice: undefined } : it))
+    );
   };
 
   const summary = useMemo(() => {
@@ -107,6 +200,9 @@ function ShoppingPage() {
     const bought = list.filter((it) => it.bought).length;
     return { total, bought };
   }, [list]);
+
+  // P-03：推广内容与 AI 推荐分离，只取 isAd 的条目进广告区块
+  const adEntries = RESULT_ENTRIES.filter((entry) => entry.isAd);
 
   const bestPrice = (prices: { price: number }[]) =>
     prices.length ? `￥${Math.min(...prices.map((p) => p.price)).toLocaleString()}` : null;
@@ -156,9 +252,6 @@ function ShoppingPage() {
                       <Text className={styles.cheapest}>最低 {cheapest}</Text>
                     ) : null}
                   </View>
-                  {item.targetPrice ? (
-                    <Text className={styles.target}>目标预算 · ￥{item.targetPrice.toLocaleString()}</Text>
-                  ) : null}
                   {item.prices.length > 0 ? (
                     <View className={styles.priceRow}>
                       {item.prices.map((p, i) => (
@@ -170,6 +263,20 @@ function ShoppingPage() {
                   ) : null}
                   <Text className={styles.hint}>{t('shopping.hint')}</Text>
                 </View>
+
+                {/* 心理价位：可设 / 可改 / 可清除 */}
+                <View className={styles.targetRow}>
+                  <Text className={styles.target}>{t('shopping.targetSet')}</Text>
+                  <View className={styles.targetValue} onClick={() => editTargetPrice(item)}>
+                    {item.targetPrice ? `￥${item.targetPrice.toLocaleString()}` : t('shopping.targetPlaceholder')}
+                  </View>
+                  {item.targetPrice ? (
+                    <View className={styles.targetClearBtn} onClick={() => clearTargetPrice(item)}>
+                      {t('shopping.targetClear')}
+                    </View>
+                  ) : null}
+                </View>
+
                 <View className={styles.actions}>
                   <View className={styles.actionBtn} onClick={() => toggleBought(item.id)}>
                     {item.bought ? t('shopping.unbought') : t('shopping.bought')}
@@ -182,6 +289,24 @@ function ShoppingPage() {
             );
           })
         )}
+
+        {/* P-03：推广区块独立渲染 —— 分割线 + ≥16px 间隔 + 顶部「广告」灰底标签，不与推荐混排 */}
+        {adEntries.length > 0 ? (
+          <View className={styles.adSection}>
+            <Text className={styles.adDividerText}>{t('library.adDivider')}</Text>
+            <View className={styles.adBlock}>
+              <View className={styles.adLabelRow}>
+                <Text className={styles.adLabel}>{t('library.adLabel')}</Text>
+              </View>
+              {adEntries.map((ad) => (
+                <View key={ad.id} className={styles.adCard}>
+                  <Text className={styles.adTitle}>{ad.title}</Text>
+                  <Text className={styles.adDesc}>{ad.desc}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );

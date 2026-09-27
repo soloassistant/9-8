@@ -1,0 +1,64 @@
+sequenceDiagram
+  %% ===== 增量 1：晨报 streak 阅读会话计时与结算 =====
+  participant P as briefing/index.tsx
+  participant RS as utils/readStreak.ts
+  participant ST as storage(readStreakStore)
+
+  P->>RS: settleReadStreakOnOpen() 惰性补算
+  RS->>ST: readStore
+  RS-->>P: {frozenDates, grantedCards, changed}
+  P->>RS: beginReadSession()
+  RS-->>P: ReadSession(activeSeconds=0, sections={})
+  loop 前台心跳 (每5s / visibilitychange)
+    P->>RS: tickReadSession(session)
+    RS-->>P: session(activeSeconds += Δ, lastTick=now)
+  end
+  P->>RS: markSectionSeen(session, 'schedule'|'todo'|'fav'|'intel')
+  Note over P: 区块滚动过 50% 时触发，按 kind 去重
+  P->>RS: useDidHide -> settleReadOnHide(session)
+  alt seconds>=30 && sections>=2 && 今日未打卡
+    RS->>ST: writeStore(days += {date,seconds,sections})
+    RS-->>P: {checkedIn:true} -> toast 晨报连续 N 天
+  else 未达阈值 / 已打卡
+    RS-->>P: {checkedIn:false}
+  end
+
+  %% ===== 增量 3：习惯自动守护 =====
+  participant H as utils/habit.ts
+  participant S as utils/schedule.ts
+  participant API as services/api.ts
+
+  P->>H: guardHabitsOnOpen(existingEvents)  (useDidShow)
+  loop 每个 autoGuard 习惯
+    H->>S: suggestSlotCandidates(preferred, dur, existing)
+    S-->>H: SlotCandidate[]
+    alt 首位 busyness=free && isSlotInWindow && 当日不跨天 && 满足首次策略
+      H->>API: apiApplyPlan([{eventId, startTime, toTime}])
+      H->>H: writeHabitGuardRecord(auto=true, undoUntil=+24h)
+      H->>H: pushHabitNotice(独立 key mb_habit_notices)
+      H-->>P: autoMoved=[record]
+    else 高风险 (全 clash/crowded 或需扩窗/跨天)
+      H-->>P: proposals=[PlanProposalRaw]
+      P->>S: buildPlanProposal(raw, existing)
+      Note over P: 渲染 PlanProposalCard，用户勾选后 apiApplyPlan (既有 S-01~S-04 链路)
+    end
+  end
+  P->>P: 渲染 HabitGuardBar(可撤销) / toast 5s 内撤销
+
+  %% ===== 增量 2：情报分组渲染数据流（简） =====
+  participant WS as cloudfunctions/webSearch (briefing)
+  participant GB as cloudfunctions/getBriefing
+  participant IG as utils/intelGroups.ts
+
+  GB->>WS: callFunction briefing(openid, tripCity)
+  WS-->>GB: data {subscribed, weather, intelItems, groups?, degraded}
+  GB-->>P: briefing.intel (groups 透传落库)
+  P->>IG: normalizeIntelGroups(intel)
+  alt 有 groups
+    IG-->>P: IntelGroupsPayload(groups)
+  else 无 groups (旧数据/降级)
+    IG->>IG: groupIntelLocally(intelItems)
+    IG-->>P: 本地兜底分组 + degraded
+  end
+  P->>IG: splitLeadSegments(lead)
+  IG-->>P: [{text}|{cite,index}] -> 嵌套 <Text> 渲染

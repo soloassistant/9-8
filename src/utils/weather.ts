@@ -5,13 +5,24 @@
 
 const FETCH_TIMEOUT = 8000;
 
-function fetchJson(url: string): Promise<any> {
+/** Open-Meteo geocoding 返回（只声明实际用到的字段） */
+interface GeoResponse {
+  results?: Array<{ name: string; latitude: number; longitude: number }>;
+}
+
+/** Open-Meteo forecast 返回（只声明实际用到的字段） */
+interface ForecastResponse {
+  current_weather?: { temperature: number; weathercode: number };
+  daily?: { temperature_2m_min?: number[]; temperature_2m_max?: number[] };
+}
+
+function fetchJson<T>(url: string): Promise<T> {
   return Promise.race([
     fetch(url).then((r) => {
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
+      return r.json() as Promise<T>;
     }),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), FETCH_TIMEOUT))
+    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), FETCH_TIMEOUT))
   ]);
 }
 
@@ -33,23 +44,24 @@ export interface WeatherNow {
 /** 城市名 → 现况天气；失败返回 null（调用方保持降级，不阻塞晨报） */
 export async function fetchWeatherDirect(city: string): Promise<WeatherNow | null> {
   try {
-    const geo = await fetchJson(
+    const geo = await fetchJson<GeoResponse>(
       `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=zh`
     );
     const loc = (geo.results || [])[0];
     if (!loc) return null;
 
-    const fc = await fetchJson(
+    const fc = await fetchJson<ForecastResponse>(
       `https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}` +
         '&current_weather=true&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto&forecast_days=1'
     );
     const cw = fc.current_weather;
     if (!cw) return null;
 
-    const daily = fc.daily || {};
     const desc = WMO_TEXT[cw.weathercode] || '多云';
-    const min = daily.temperature_2m_min ? Math.round(daily.temperature_2m_min[0]) : '?';
-    const max = daily.temperature_2m_max ? Math.round(daily.temperature_2m_max[0]) : '?';
+    const dailyMin = fc.daily?.temperature_2m_min;
+    const dailyMax = fc.daily?.temperature_2m_max;
+    const min = dailyMin && dailyMin.length > 0 ? Math.round(dailyMin[0]) : '?';
+    const max = dailyMax && dailyMax.length > 0 ? Math.round(dailyMax[0]) : '?';
     return {
       text: `${loc.name} ${desc}，当前 ${Math.round(cw.temperature)}°C，今日 ${min}~${max}°C`,
       updateTime: new Date().toISOString()

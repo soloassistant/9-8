@@ -15,6 +15,8 @@ interface MockShoppingItem {
   bought: boolean;
   createdAt: string;
   prices: MockPrice[];
+  /** 上次已提醒的价格（P-01 降价提醒去重；清除心理价位时同步清掉） */
+  lastNotifiedPrice?: number;
 }
 
 function load(): MockShoppingItem[] {
@@ -78,6 +80,28 @@ export default function shopping(data?: { action?: string; id?: string; name?: s
     const prices = [...item.prices, { platform, price }];
     save(list.map((it) => (it.id === data?.id ? { ...it, prices } : it)));
     return { id: data?.id, prices };
+  }
+
+  // P-01：设置 / 修改心理价位（与真机云函数同签名：{ action, id, price }）
+  if (action === 'setTargetPrice') {
+    const item = list.find((it) => it.id === data?.id);
+    if (!item) return null;
+    const price = Number(data?.price);
+    if (!Number.isFinite(price) || price <= 0) return null;
+    save(list.map((it) => (it.id === data?.id ? { ...it, targetPrice: price } : it)));
+    return { id: data?.id, targetPrice: price };
+  }
+
+  // P-01：清除心理价位（同时清掉已提醒价，避免残留去重记录）
+  if (action === 'clearTargetPrice') {
+    const item = list.find((it) => it.id === data?.id);
+    if (!item) return null;
+    save(
+      list.map((it) =>
+        it.id === data?.id ? { ...it, targetPrice: undefined, lastNotifiedPrice: undefined } : it
+      )
+    );
+    return { id: data?.id };
   }
 
   return null;

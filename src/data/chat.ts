@@ -102,10 +102,14 @@ export default async function chat(data?: {
   // F24 批量/周期排班：固定每周会议、一句话多条日程（优先于单条排班建议）
   if (matchBatchSchedule(msg)) reply = handleBatchSchedule(msg);
   else if (/帮我安排|排一下|帮我约|重新排|排班/.test(msg))
-    reply =
-      '我对照了你的日程：周五 14:00-16:00 有「和设计师对齐视觉稿」，你说的会建议排到 16:30-17:30，刚好留出缓冲。\n回复「确认」我就写入日程，或告诉我别的时段。';
-  else if (/确认|就这么排/.test(msg)) reply = '已写入日程：本周五 16:30-17:30，晨报会同步更新。';
-  else if (/取消|算了/.test(msg)) reply = '已取消该操作。';
+    // 兜底模式下如实说明：不虚构用户日程，引导给出事项+时间
+    reply = readPlan().events.length
+      ? '告诉我事项和时间（如「周五下午4点开会」），我对照你已有的日程帮你排。'
+      : '告诉我事项和时间（如「周五下午4点开会」），我直接帮你排进日程。';
+  else if (/确认|就这么排/.test(msg))
+    // 兜底模式没有待确认的写入上下文，不假称「已写入」
+    reply = '想写入日程请说「把XX加进日程」，例如「把周五16:30开会加进日程」，我马上帮你排上。';
+  else if (/取消|算了/.test(msg)) reply = '好的，先不动日程。';
   // AI 发图：热点/资讯类查询附真实资讯封面图（F25）
   else if (/热点|新闻|资讯|热搜/.test(msg)) {
     const newsRes = handleNewsQuery();
@@ -449,8 +453,8 @@ function handleShoppingList(msg: string): string {
 }
 
 /**
- * 购物分析（模拟「联网查价对比」）：
- * 真实联网需接入搜索 API + 部署云函数，当前预览端用示例形态演示。
+ * 购物分析（离线兜底形态）：
+ * 真实联网比价需搜索 API + 云函数，当前为常识层参考估算；合规要求：绝不冒充实时报价。
  */
 function shoppingAnalyze(msg: string): string {
   const item = (msg.match(/买[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()]{2,12})/) || [])[1] || '该商品';
@@ -466,12 +470,12 @@ function shoppingAnalyze(msg: string): string {
     return p(a[1]) < p(b[1]) ? a : b;
   });
   const lines = [
-    `🔍 正在联网对比「${item}」各大平台价格与口碑…`,
+    `🔍 帮你从常识层面梳理「${item}」的选购思路（离线参考，非实时报价）…`,
     '',
-    '📊 平台对比（模拟示例数据）',
+    '📊 平台对比（参考价 · 非实时，以下单页面实际价格为准）',
     ...rows.map((r) => `${r[0]}  ${r[1]}  ${r[2]}  ${r[3]}`),
     '',
-    `✅ 分析结论：当前最低价是 ${cheapest[0]}（${cheapest[1]}），适合预算敏感的入手。`
+    `✅ 参考结论：示例价位中 ${cheapest[0]} 最低（${cheapest[1]}），适合预算敏感的入手。`
   ];
   if (budget) {
     const b = Number(budget);
@@ -479,7 +483,7 @@ function shoppingAnalyze(msg: string): string {
   }
   lines.push(
     '\n💡 需要的话我可以：1) 把它加进购物清单跟进降价  2) 换个价格区间继续比。',
-    '（提示：预览端为参考估算；真机端已支持联网实时查价）'
+    '（提示：以上为参考估算，非实时报价；下单前请以平台实际价格为准。）'
   );
   return lines.join('\n');
 }

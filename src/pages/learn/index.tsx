@@ -11,6 +11,10 @@ import {
   setActiveLang,
   readLearnStore,
   getRecommendedPath,
+  settleStreakOnOpen,
+  getFreezeCards,
+  canMakeup,
+  makeupMissed,
   LearnStore
 } from '@/utils/learn';
 import { useT } from '@/store/language';
@@ -24,17 +28,47 @@ function LearnPage() {
   const [, setStore] = useState<LearnStore>(() => readLearnStore());
   const [streak, setStreak] = useState(0);
   const [checkedIn, setCheckedIn] = useState(false);
+  const [freezeCards, setFreezeCards] = useState(0);
+  const [makeup, setMakeup] = useState<{ ok: boolean; date: string | null; reason: string }>({
+    ok: false,
+    date: null,
+    reason: 'none'
+  });
+  const [ruleOpen, setRuleOpen] = useState(false);
 
   const refresh = () => {
     setStore(readLearnStore());
     setStreak(getStreak());
     setCheckedIn(isTodayCheckedIn());
+    setFreezeCards(getFreezeCards());
+    setMakeup(canMakeup());
   };
 
   useEffect(refresh, []);
 
-  // 从课程页返回后刷新进度
-  useDidShow(refresh);
+  // 从课程页返回后刷新进度；同时做惰性结算（补算漏打卡 + 发冻结卡，PRD Q5）
+  useDidShow(() => {
+    const settled = settleStreakOnOpen();
+    if (settled.frozenDates.length > 0) {
+      Taro.showToast({ title: t('learn.freezeUsed'), icon: 'none', duration: 2500 });
+    } else if (settled.grantedCards > 0) {
+      Taro.showToast({ title: t('learn.freezeGain'), icon: 'none', duration: 2500 });
+    }
+    refresh();
+  });
+
+  /** 补签最近漏打卡日（每月 1 次） */
+  const handleMakeup = () => {
+    if (!makeup.ok) {
+      Taro.showToast({ title: t('learn.makeupExhausted'), icon: 'none' });
+      return;
+    }
+    const res = makeupMissed();
+    if (res.ok) {
+      Taro.showToast({ title: t('learn.makeupToast', { n: res.streak }), icon: 'success' });
+      refresh();
+    }
+  };
 
   const lang = LEARN_LANGS.find((l) => l.id === langId) || LEARN_LANGS[0];
   const stats = getLangStats(langId);
@@ -107,12 +141,32 @@ function LearnPage() {
           <Text className={styles.statLabel}>{checkedIn ? t('learn.checkedIn') : t('learn.notCheckedIn')}</Text>
         </View>
       </View>
+      {/* v2.1：主 streak 已改挂「每日读晨报」，此处明示学习连续为已归档口径，避免用户误以为数据丢失 */}
+      <Text className={styles.progressHint}>{t('learn.streakArchived')}</Text>
       <View className={styles.progressTrack}>
         <View className={styles.progressFill} style={{ width: `${stats.percent}%`, background: lang.accent }} />
       </View>
       <Text className={styles.progressHint}>
         {t('learn.progressHint', { percent: stats.percent, done: stats.coursesDone, total: stats.coursesTotal })}
       </Text>
+
+      {/* 冻结卡 + 补签（L-01 / L-02） */}
+      <View className={styles.streakToolbar}>
+        <View className={styles.freezeBadge} onClick={() => setRuleOpen((v) => !v)}>
+          <Text className={styles.freezeText}>{t('learn.freezeLabel', { n: freezeCards })}</Text>
+        </View>
+        {makeup.ok || makeup.reason === 'exhausted' ? (
+          <View
+            className={classnames(styles.makeupBtn, !makeup.ok && styles.makeupDisabled)}
+            onClick={handleMakeup}
+          >
+            <Text className={styles.makeupText}>
+              {makeup.ok ? t('learn.makeupBtn') : t('learn.makeupExhausted')}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      {ruleOpen ? <Text className={styles.ruleText}>{t('learn.freezeRule')}{'\n'}{t('learn.makeupRule')}</Text> : null}
 
       {/* 个性化学习路径推荐 */}
       {path.length > 0 ? (

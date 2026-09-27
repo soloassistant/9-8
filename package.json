@@ -10,6 +10,8 @@
     "framework": "React"
   },
   "scripts": {
+    "typecheck": "tsc --noEmit",
+    "deploy:cloud": "node .tools/deploy-cloud.mjs",
     "build:weapp": "taro build --type weapp && node .tools/copy-assets.js dist",
     "build:swan": "taro build --type swan",
     "build:alipay": "taro build --type alipay",

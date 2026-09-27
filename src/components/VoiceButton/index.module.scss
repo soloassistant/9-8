@@ -27,6 +27,15 @@
 .recording {
   background: var(--brand, #{$color-primary});
   border-color: var(--brand, #{$color-primary});
+  transform: scale(1.02);
+}
+
+/* 处理中（TailCapture / AutoStop）：按钮态收拢，提示「已收到，正在转写」 */
+.processing {
+  background: var(--brand-deep, #{$color-primary-dark});
+  border-color: var(--brand-deep, #{$color-primary-dark});
+  transform: scale(0.98);
+  opacity: 0.9;
 }
 
 .compact.button {
@@ -54,7 +63,8 @@
   color: $color-primary-dark;
 }
 
-.recording .label {
+.recording .label,
+.processing .label {
   color: $color-text-white;
 }
 
@@ -74,6 +84,21 @@
   border-radius: $radius-xl;
 }
 
+/* 波形行：取消态在波形左侧出现 🗑 图标 */
+.waveRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  height: 120rpx;
+}
+
+.trash {
+  font-size: 44rpx;
+  line-height: 1;
+}
+
 .wave {
   width: 120rpx;
   height: 120rpx;
@@ -82,8 +107,18 @@
   animation: pulse 1s ease-in-out infinite;
 }
 
+/* 取消态：波形变红并停住动画，明确「松手即丢弃」 */
 .waveCancel {
   background: $color-error;
+  animation: none;
+  transform: scale(0.92);
+}
+
+/* 处理中：波形置灰停止跳动 */
+.waveTail {
+  background: $color-text-disabled;
+  animation: none;
+  transform: scale(0.9);
 }
 
 @keyframes pulse {
@@ -104,5 +139,45 @@
 .overlayText {
   margin-top: $spacing-md;
   font-size: $font-size-sm;
+  color: $color-text-white;
+}
+
+.overlayTextCancel {
+  color: $color-error;
+}
+
+/* C-01：≥3 次拒绝后的轻量提示条 +「去设置开启」 */
+.guideBar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-xs;
+  padding: $spacing-sm $spacing-md;
+  background: $color-voice-bg;
+  border-radius: $radius-md;
+  box-sizing: border-box;
+}
+
+.guideText {
+  flex: 1;
+  font-size: $font-size-sm;
+  color: $color-primary-dark;
+  line-height: $line-height-normal;
+}
+
+.guideAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-xs $spacing-sm;
+  background: var(--brand, #{$color-primary});
+  border-radius: $radius-sm;
+}
+
+.guideActionText {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
   color: $color-text-white;
 }

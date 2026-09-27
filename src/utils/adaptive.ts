@@ -50,6 +50,9 @@ export function computeAdaptive(events: ScheduleEvent[], todos: TodoItem[]): Bri
   return {
     busyDay,
     tripCity,
-    focusTodo: focus ? focus.title : null
+    focusTodo: focus ? focus.title : null,
+    // 负载条透出：busyMinutes 数值本身（busyDay 只保留布尔结论），todayCount 当日日程数
+    busyMinutes,
+    todayCount: todayEvents.length
   };
 }

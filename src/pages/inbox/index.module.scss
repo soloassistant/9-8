@@ -350,6 +350,14 @@
   color: $color-text-tertiary;
 }
 
+/* P0-2 合规显式标识：提取结果的「AI 生成」角标 */
+.resultAiLabel {
+  display: block;
+  margin-bottom: $spacing-md;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
 .itemRow {
   display: flex;
   align-items: flex-start;

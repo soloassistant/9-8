@@ -149,11 +149,6 @@ export function getAchievements(): Achievement[] {
   return result;
 }
 
-/** 已解锁数量（learn 页头部摘要用） */
-export function getUnlockedCount(): number {
-  return getAchievements().filter((a) => a.unlockedAt).length;
-}
-
 /** 供社区动态展示的当前昵称（可后续接登录体系） */
 export function getLearnerName(): string {
   try {
