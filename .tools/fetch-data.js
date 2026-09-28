@@ -33,8 +33,10 @@ function clean(s) {
     .trim();
 }
 
-/** 极简 RSS 解析（无依赖） */
-function parseRss(xml, source, limit) {
+/** 极简 RSS 解析（无依赖）。tag / pubDate 口径与 static-server.js 的 parseRss 完全一致：
+ *  · tag 落到条目 tags —— 前端「资讯类目筛选」依赖它；本文件此前恒为 []，线上站点因此没有类目
+ *  · pubDate 只供新鲜度闸门使用，**不进响应契约**（HotspotNews 无该字段） */
+function parseRss(xml, source, limit, tag) {
   const out = [];
   const blocks = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
   for (const b of blocks.slice(0, limit)) {
@@ -42,26 +44,72 @@ function parseRss(xml, source, limit) {
     const link = clean((b.match(/<link>([\s\S]*?)<\/link>/) || [])[1]);
     const desc = clean((b.match(/<description>([\s\S]*?)<\/description>/) || [])[1]);
     if (!title) continue;
+    const pubRaw = clean((b.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1]);
+    const pubMs = pubRaw ? Date.parse(pubRaw) : NaN;
     out.push({
       id: 'rss_' + hash(source + title),
       title,
       summary: (desc || title).slice(0, 80),
       source,
       url: link,
-      tags: []
+      tags: tag ? [tag] : [],
+      pubDate: Number.isFinite(pubMs) ? pubMs : null
     });
   }
   return out;
 }
 
-// 资讯源注册表：与 static-server.js HOTSPOT_SOURCES 保持一致（2026-09-11 实测可用源）
+// 资讯源清单：**唯一事实源 = cloudfunctions/webSearch/index.js 的 RSS_SOURCES**。
+//
+// 为什么不再在这里手抄一份（2026-09-28 修）：本文件是历史上**第三份**源清单。
+// static-server.js 早在 2026-09-24 就因「两份清单各自维护必然发散」改为运行时解析云函数清单；
+// 而本文件漏改，后果是 pages 线上站点长期跑的是退化版：
+//   · 还带着**已实测冻结的「人民网」**（全部无 pubDate、内容停留 2022 年）
+//   · 只有 6 个 RSS 源、没有类目 tag → 线上没有类目筛选，也没有后来新增的游戏/汽车/教育/开发者等类目
+//   · 没有新鲜度闸门 → 冻结源的内容会照样展示
+// 现改为与 static-server.js 同款：运行时解析云函数源清单；解析失败才回退下面的兜底清单，且**必须告警**。
+const CLOUD_WEBSEARCH = path.join(__dirname, '..', 'cloudfunctions', 'webSearch', 'index.js');
+const RSS_PER_SOURCE = 10;
+/** 条目新鲜度闸门（天）：与云函数 STALE_SOURCE_DAYS、static-server STALE_ITEM_DAYS 对齐 */
+const STALE_ITEM_DAYS = 7;
+
+function loadRssSourcesFromCloud() {
+  try {
+    const code = fs.readFileSync(CLOUD_WEBSEARCH, 'utf8');
+    const block = code.match(/const RSS_SOURCES = \[([\s\S]*?)\n\];/);
+    if (!block) throw new Error('未找到 RSS_SOURCES 数组');
+    const out = [];
+    const re = /\{\s*name:\s*'([^']+)'\s*,\s*url:\s*'([^']+)'\s*,\s*tag:\s*'([^']+)'\s*\}/g;
+    let m;
+    while ((m = re.exec(block[1]))) out.push({ name: m[1], url: m[2], tag: m[3] });
+    if (!out.length) throw new Error('解析到 0 个源');
+    return { list: out, err: null };
+  } catch (e) {
+    return { list: null, err: e.message };
+  }
+}
+
+const FALLBACK_RSS = [
+  { name: '少数派', url: 'https://sspai.com/feed', tag: '数字生活' },
+  { name: '爱范儿', url: 'https://www.ifanr.com/feed', tag: '科技' },
+  { name: 'IT之家', url: 'https://www.ithome.com/rss', tag: '科技' },
+  { name: '钛媒体', url: 'https://www.tmtpost.com/rss', tag: '商业' }
+];
+
+const SHARED_RSS = loadRssSourcesFromCloud();
+const RSS_SOURCES = SHARED_RSS.list || FALLBACK_RSS;
+if (SHARED_RSS.err) {
+  console.warn('[fetch-data] 无法从云函数解析 RSS_SOURCES（' + SHARED_RSS.err + '）→ 已回退兜底清单，两份清单可能再次发散，请尽快修复');
+}
+
+// 热榜板块**不在此处**：它们经本机 DailyHotApi(127.0.0.1:6688) 取数，而本脚本跑在 GitHub Actions
+// runner 上，够不到本机服务。故 pages 线上版只有 RSS 侧内容（16 源 / 12 类目），
+// 完整版（含 9 个热榜板块）需在本机或带后端的部署里跑。这是已知差异，不要靠造假数据抹平。
 const HOTSPOT_SOURCES = [
-  { name: 'IT之家', fetch: () => fetchText('https://www.ithome.com/rss/').then((x) => parseRss(x, 'IT之家', 12)) },
-  { name: '少数派', fetch: () => fetchText('https://sspai.com/feed').then((x) => parseRss(x, '少数派', 10)) },
-  { name: '人民网', fetch: () => fetchText('https://www.people.com.cn/rss/politics.xml').then((x) => parseRss(x, '人民网', 10)) },
-  { name: '爱范儿', fetch: () => fetchText('https://www.ifanr.com/feed').then((x) => parseRss(x, '爱范儿', 8)) },
-  { name: '极客公园', fetch: () => fetchText('https://www.geekpark.net/rss').then((x) => parseRss(x, '极客公园', 8)) },
-  { name: '钛媒体', fetch: () => fetchText('https://www.tmtpost.com/feed/').then((x) => parseRss(x, '钛媒体', 8)) },
+  ...RSS_SOURCES.map((s) => ({
+    name: s.name,
+    fetch: () => fetchText(s.url).then((x) => parseRss(x, s.name, RSS_PER_SOURCE, s.tag))
+  })),
   {
     name: '知乎日报',
     fetch: () =>
@@ -80,18 +128,34 @@ const HOTSPOT_SOURCES = [
   }
 ];
 
-/** 聚合全部源 → { items, meta }；跨源轮询交错去重 */
+/** 聚合全部源 → { items, meta }；跨源轮询交错去重 + 新鲜度闸门 */
 async function fetchHotspot() {
   const groups = [];
   const srcStatus = [];
+  const now = Date.now();
+  const staleMaxAge = STALE_ITEM_DAYS * 24 * 60 * 60 * 1000;
+  const dropped = { undated: 0, stale: 0 };
+
   await Promise.all(
     HOTSPOT_SOURCES.map(async (s) => {
       let ok = false;
       try {
         const g = await s.fetch();
-        if (g.length) { ok = true; groups.push(g); }
+        // 新鲜度闸门：只作用于 RSS 源（只有 parseRss 的条目带 pubDate）。
+        // 热榜/知乎日报不带时间戳 —— 不为它们伪造日期，也不因无日期而过滤掉。
+        // 这道闸门正是「人民网」这类冻结源的分界线：它 100 条全部无 pubDate，会被整源丢弃。
+        if (g.length) {
+          const fresh = [];
+          for (const it of g) {
+            if (!('pubDate' in it)) { fresh.push(it); continue; }
+            if (it.pubDate == null) { dropped.undated += 1; continue; }
+            if (now - it.pubDate > staleMaxAge) { dropped.stale += 1; continue; }
+            fresh.push(it);
+          }
+          if (fresh.length) { ok = true; groups.push(fresh); }
+        }
       } catch {}
-      srcStatus.push({ name: s.name, count: ok ? 0 : 0, ok });
+      srcStatus.push({ name: s.name, count: 0, ok });
     })
   );
   for (const st of srcStatus) {
@@ -99,18 +163,23 @@ async function fetchHotspot() {
   }
 
   const seen = new Set();
-  const items = [];
+  const merged = [];
   const maxLen = Math.max(0, ...groups.map((g) => g.length));
   for (let i = 0; i < maxLen; i++) {
     for (const g of groups) {
       const it = g[i];
       if (!it) continue;
       const k = it.title.slice(0, 24);
-      if (!seen.has(k)) { seen.add(k); items.push(it); }
+      if (!seen.has(k)) { seen.add(k); merged.push(it); }
     }
   }
 
-  return { items, meta: { updatedAt: new Date().toISOString(), stale: false, sources: srcStatus } };
+  // 剥离内部字段：pubDate 只用于上面的新鲜度闸门，不进入响应契约（与 static-server.js 同口径）
+  const items = merged.map(({ pubDate, ...rest }) => rest);
+  return {
+    items,
+    meta: { updatedAt: new Date().toISOString(), stale: false, sources: srcStatus, dropped }
+  };
 }
 
 async function main() {
