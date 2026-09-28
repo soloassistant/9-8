@@ -14,6 +14,7 @@
     "vet:sources": "node .tools/vet-feeds.js",
     "verify:boards": "node .tools/verify-boards.js",
     "verify:intel": "node .tools/analyze-intel.js",
+    "verify:dedupe": "node .tools/dedupe-eval.js",
     "deploy:cloud": "node .tools/deploy-cloud.mjs",
     "build:weapp": "taro build --type weapp && node .tools/copy-assets.js dist",
     "build:swan": "taro build --type swan",

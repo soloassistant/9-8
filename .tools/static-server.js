@@ -36,6 +36,63 @@ const KEYWORD_RATIO_MIN = 0.9; // 重叠率下限：shared / min(|A|, |B|)。用
 const KEYWORD_MIN_LEN = 8; // 关键词通道的长度门槛：两侧归一化长度都须 ≥ 此值才做判定。
 //   调低 → 短标题（信息量少、偶然重叠概率高）也参与，误合并风险上升；调高 → 短标题的真实重复漏掉。
 
+// ---------- 跨源同事件合并（聚类）阈值：完全包含通道（2026-09-28 新增，见 isFullContainDuplicate） ----------
+// 依据：.tools/dedupe-golden.json（96 对标注基准集）+ .tools/dedupe-eval.js 的实测结果。
+// 关键词通道要求 shared/min ≥ 0.9，抓不到「热点话题标签 vs 具体报道」这类**缩略**形态：
+// 微博热搜《华为mate90》与《华为Mate90系列正面高清渲染图曝光》的 shared/min 恒为 1.0（短侧只 2 个内容单元，
+// 全部被长侧覆盖），但 shared=2 < KEYWORD_SHARED_MIN=4 被绝对门槛挡掉。实测该通道 precision 不变、recall 提升。
+const CONTAIN_MIN_LEN = 6; // 完全包含通道的长度门槛：**较短一方**归一化长度须 ≥ 此值。
+//   调松到 4 → 极短标题（如「中国队夺金」）也参与，偶然全包含概率上升，误合并风险上升；
+//   调紧到 8 → 与关键词通道同宽，会漏掉「华为mate90」这类 8 字以内的热点短标签（该通道的主要收益来源）。
+const CONTAIN_MIN_SHARED = 2; // 完全包含通道的**短侧**内容单元数下限（完全包含时 shared ≡ min(|A|,|B|)）。
+//   调松到 1 → 只剩 1 个内容单元的标题（如纯数字/单个词）只要被长标题覆盖就判同，与「个别偶然 bigram 重合」无法区分；
+//     且会让触发条件落到基准集候选口径之外（候选集要求 shared ≥ 2），即**无法被基准集度量**。
+//   调紧到 3/4 → 更保守，「华为mate90」（短侧 2 个内容单元）被排除，实测该通道收益归零。
+
+// 两个**派生**门槛（不单独调，跟着上面两组常量走）：
+// 倒排索引的「收录长度门槛」与「预筛共享数门槛」都必须取两条通道里**较松**的那个，
+// 否则预筛会比 isSameEvent 的判定范围更严 —— 判定范围被预筛悄悄收窄，
+// 表现为「评估工具说能合，真实聚合却不合」，是最难查的一类偏差。
+const TOKEN_MIN_LEN = Math.min(KEYWORD_MIN_LEN, CONTAIN_MIN_LEN);
+const VOTE_SHARED_MIN = Math.min(KEYWORD_SHARED_MIN, CONTAIN_MIN_SHARED);
+
+// ---------- 跨源同事件合并（聚类）阈值：稀有共享实体通道（2026-09-28 新增，见 isRareEntityDuplicate） ----------
+// 假设：同一事件的跨源标题几乎必然共享一个「稀有」实体名（专名/型号/赛事），
+// 而「词面重叠率」会被大量通用词稀释（实测同一事件对的 ratio 低至 0.25）。
+//
+// ★★ 实测结论：该通道**评估未通过，刻意不接入 isSameEvent**（实现保留，供评估器复现与后人重测）。
+//    依据 .tools/dedupe-eval.js + .tools/dedupe-golden.json（96 对人工标注）的实测（DF 口径=线上真实）：
+//      基线（现有三通道）        TP=10 FP=0  FN=33 TN=53  P=1.000 R=0.233 F1=0.377
+//      任务建议档 N=3/DF=4/TOK=3 TP=25 FP=21 FN=18 TN=32  P=0.543 R=0.581
+//      112 档网格中 FP=0 的 36 档，**TP 全部恒等于基线 10 —— 一条都没多合**（即 precision 不降时零增益）；
+//      一旦有任何增益，能达到的最高 precision 也只有 0.944（N=3/DF=8/TOK=5/MIN_LEN=8，仍有 1 条 FP）。
+//    → 结论：不存在「precision 不掉、召回上升」的档位。
+//    根因不是阈值没调好，而是信号本身无法区分三件事：
+//      (1) 专名 vs 恰好低频的通用词 —— 「发布会」「技能包」「如何评价」「全省中小学」都满足 DF 稀有；
+//      (2) 同一专名的不同事件 —— 「孔子诞辰」（北京孔庙 vs 台湾孔庙）、「特斯拉」（中国降价 vs 德国涨价）、
+//          「鸿蒙智行智界R7」（焕新款上市 vs 累计交付破12万）；
+//      (3) 同人物的不同新闻 —— 「王楚钦」「阿拉米扬」各出自不同场次/不同角度。
+//    连任务点名的锚点负例也会被误合并：《苹果发布新款手机》/《苹果发布新款手表》(ratio 0.857)
+//      → 共享的「苹果发布新款手」是低频串，本通道直接判同。词面规则防不住的对撞，DF 同样防不住。
+//    DF 只度量「出现次数少」，不含「是否为实体」「是否指同一事件」的语义，故精度天花板就在这里。
+//
+// ⚠️ DF 口径陷阱（踩过一次，勿再踩）：DF 的语料必须是**本次快照的全部条目，含被比较的两条条目本身**。
+//    线上两条被判定条目都在这份语料里，故共享实体的 DF 恒 ≥2；若用「不含条目的外部语料」算 DF，
+//    构造型负例（标题不在语料里）会因 DF=0 而漏触发，precision 被虚高成 1.000 的假象：
+//    实测 TOK_MIN≥5 时 corpus 口径看似 48 个「零 FP」档，把条目本身算进 DF 后立刻出现 FP
+//    （《Flutter 列表性能优化》vs《Flutter 多窗口重要优化合并…》共享稀有词 flutter）。
+const RARE_ENTITY_DF_MAX = 4; // 共享实体的文档频次上限：DF ≤ 此值才视为「稀有」。
+//   调松（调大）→ 更多中频串被当成实体，误合并上升；调紧（调小到 1）→ 线上**永不触发**：
+//   被比较的两条标题都含该实体，DF 恒 ≥2，故有效下界是 2（取 1 等价于关闭本通道）。
+const RARE_ENTITY_MIN_LEN = 8; // 长度门槛：两侧归一化长度都须 ≥ 此值才做判定（与关键词通道同宽）。
+//   调松到 6 → 短标题（信息量少、偶然共享概率高）也参与，误合并上升；调紧 → 更难触发，召回更低。
+const RARE_ENTITY_TOKEN_MIN_LEN = 3; // 共享稀有候选里**最长者**的长度下限。
+//   调到 ≥5 时本通道退化为「共享的稀有拉丁/数字词」（中文 n-gram 恒等于 RARE_ENTITY_NGRAM 长），
+//   看着 precision 干净，但那只是上面 DF 口径陷阱造成的假象，不是真的安全。
+const RARE_ENTITY_NGRAM = 3; // 中文实体候选的 n-gram 长度（3 = 在 contentTokens 的 bigram 之上再拼一阶）。
+//   调大到 4 → 候选更长更具体，但「中国队」「发布会」这类 3 字串全部失效，召回下降；
+//   调小到 2 → 与 contentTokens 的 bigram 重复，且 2 字词大多高频，误合并大幅上升。
+
 function fetchText(url) {
   return Promise.race([
     fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then((r) => {
@@ -390,12 +447,86 @@ function isKeywordDuplicate(aTokens, bTokens, aLen, bLen) {
   return shared / minSize >= KEYWORD_RATIO_MIN;
 }
 
-/** 同事件判定的**唯一入口**：归一化相等 / 互为子串 / 关键词重叠，三选一。
+/** 完全包含判定（第三条通道，2026-09-28 新增）：较短一方的**全部**内容单元都出现在较长一方
+ *  （即 shared === min(|A|,|B|)）且较短一方归一化长度 ≥ CONTAIN_MIN_LEN。
+ *  与 isKeywordDuplicate 的分工：关键词通道用「重叠率 ≥ 0.9」近似「短侧几乎被覆盖」，
+ *  但它带 shared ≥ KEYWORD_SHARED_MIN 的绝对门槛，且两侧长度都要 ≥ 8，
+ *  于是「热点短标签 vs 具体报道」（微博《华为mate90》/《华为Mate90系列正面高清渲染图曝光》）被挡在门外；
+ *  完全包含通道专门补这一类：短侧内容单元**全部**被长侧覆盖才算，判定反而比 0.9 更严（要求 1.0 且是全量覆盖）。
+ *  实测（.tools/dedupe-eval.js，96 对基准集）：precision 1.000 → 1.000 不变，recall 0.209 → 0.233，F1 +0.031。
+ *  刻意**不**改成「只比 CJK bigram」：那样会丢掉起区分作用的拉丁/数字词 —— 实测把
+ *  《iQOO16新品发布会》与《派早报：小米召开秋季新品发布会…》误合并（iQOO16 vs 小米），precision 掉到 0.917，故否决。
+ *  CONTAIN_MIN_LEN 调松/调紧的影响见常量处注释。 */
+function isFullContainDuplicate(aTokens, bTokens, aLen, bLen) {
+  if (Math.min(aLen, bLen) < CONTAIN_MIN_LEN) return false;
+  const minSize = Math.min(aTokens.size, bTokens.size);
+  if (minSize < CONTAIN_MIN_SHARED) return false;
+  let shared = 0;
+  for (const t of aTokens) if (bTokens.has(t)) shared += 1;
+  return shared === minSize;
+}
+
+/** 同事件判定的**唯一入口**：归一化相等 / 互为子串 / 关键词重叠 / 完全包含，四选一。
  *  fetchHotspot 内的候选判定必须走这里 —— 单测是从本文件抽取函数源码再 eval，
  *  若在生产里另写一份组合逻辑，抽取到的判定就与真实行为发散。 */
 function isSameEvent(aKey, bKey, aTokens, bTokens) {
   if (isNearDuplicate(aKey, bKey)) return true;
-  return isKeywordDuplicate(aTokens, bTokens, aKey.length, bKey.length);
+  if (isKeywordDuplicate(aTokens, bTokens, aKey.length, bKey.length)) return true;
+  return isFullContainDuplicate(aTokens, bTokens, aKey.length, bKey.length);
+}
+
+/** 稀有实体通道的实体候选抽取：中文连续 n-gram（n = RARE_ENTITY_NGRAM）+ 长度 ≥3 的拉丁/数字词。
+ *  入参必须是 normalizeTitle() **之后**的字符串（与 contentTokens 同口径）。
+ *  与 contentTokens 的差别只有两处：中文多带一阶（3-gram）、拉丁词门槛由 ≥2 提到 ≥3。
+ *  刻意复用 CJK_CHAR_RE / LATIN_DIGIT_RE，避免两套断链规则悄悄发散。 */
+function rareEntityTokens(s, n = RARE_ENTITY_NGRAM) {
+  const out = new Set();
+  if (!s) return out;
+  const str = String(s);
+  let run = '';
+  const flush = () => {
+    for (let i = 0; i + n <= run.length; i++) out.add(run.slice(i, i + n));
+    run = '';
+  };
+  for (const ch of str) { if (CJK_CHAR_RE.test(ch)) run += ch; else flush(); }
+  flush();
+  for (const w of (str.match(LATIN_DIGIT_RE) || [])) if (w.length >= 3) out.add(w);
+  return out;
+}
+
+/** 构建「实体候选 → 文档频次（DF）」索引，供 isRareEntityDuplicate 使用。
+ *  items 必须是**本次快照的全部条目**（标题字符串，或含 title 字段的条目对象）——
+ *  含即将被比较的两条条目本身，否则 DF 会被系统性低估（见上方常量处的「DF 口径陷阱」）。
+ *  返回 Map<string, number>；入参为空则返回空 Map（调用方据此退化为「不判定」）。 */
+function buildRareEntityDf(items) {
+  const df = new Map();
+  for (const it of items || []) {
+    const key = typeof it === 'string' ? it : normalizeTitle(it && it.title);
+    if (!key) continue;
+    for (const e of rareEntityTokens(key)) df.set(e, (df.get(e) || 0) + 1);
+  }
+  return df;
+}
+
+/** 稀有共享实体通道（**刻意未接入 isSameEvent**，实测结论见上方常量处注释）。
+ *  判定：两侧归一化长度都 ≥ RARE_ENTITY_MIN_LEN，且存在共享实体候选 e 满足
+ *  1 ≤ DF(e) ≤ RARE_ENTITY_DF_MAX，且这些共享稀有候选中最长者的长度 ≥ RARE_ENTITY_TOKEN_MIN_LEN。
+ *  ctx 形如 { df: Map<string, number> }；缺少 ctx 或 ctx 为空时返回 false（不判定，绝不误伤）。 */
+function isRareEntityDuplicate(aKey, bKey, ctx) {
+  if (!aKey || !bKey) return false;
+  if (Math.min(aKey.length, bKey.length) < RARE_ENTITY_MIN_LEN) return false;
+  const df = ctx && ctx.df;
+  if (!df || !df.size) return false;
+  const aSet = rareEntityTokens(aKey);
+  if (!aSet.size) return false;
+  const bSet = rareEntityTokens(bKey);
+  let best = 0;
+  for (const e of aSet) {
+    if (e.length <= best || !bSet.has(e)) continue;
+    const d = df.get(e) || 0;
+    if (d >= 1 && d <= RARE_ENTITY_DF_MAX) best = e.length;
+  }
+  return best >= RARE_ENTITY_TOKEN_MIN_LEN;
 }
 
 /** 返回 { items, meta }；meta: { updatedAt, stale, sources: [{name,count,ok}] } */
@@ -466,8 +597,11 @@ async function fetchHotspot() {
   // 同事件跨源合并统计：merged=被合并掉的条数，groups=发生过合并的主条目组数
   const clustered = { merged: 0, groups: 0 };
   const clusterGroups = new Set(); // 产生过合并的主条目下标（同一主条目多次合并只计一组）
-  // 关键词通道的辅助结构。只有归一化长度 ≥ KEYWORD_MIN_LEN 的主条目才收录 ——
-  // 更短的主条目永远过不了 isKeywordDuplicate 的长度门槛，收进来只会白占内存、白算 bigram。
+  // 关键词/完全包含通道的辅助结构。收录门槛取两条通道长度门槛的**较小者** ——
+  // 更短的主条目两条通道都过不了，收进来只会白占内存、白算 bigram。
+  // （2026-09-28：原为 KEYWORD_MIN_LEN=8，完全包含通道的 CONTAIN_MIN_LEN=6 更松，
+  //  若沿用 8，长度 6~7 的条目既进不了倒排索引、也算不出 tokens，等价于该通道对它们天然失效 ——
+  //  这正是「声明的判定范围」与「实际可达范围」不一致的经典错法，故取 min。）
   const mainKeys = []; // 主条目下标 → 归一化标题（tokenIndex 里的下标回查用得着）
   const mainTokens = new Map(); // 主条目下标 → contentTokens 结果（候选命中后复核用）
   const tokenIndex = new Map(); // bigram/词 → 主条目下标数组（倒排索引，天然升序）
@@ -479,8 +613,8 @@ async function fetchHotspot() {
       const it = g[i];
       if (!it) continue;
       const key = normalizeTitle(it.title);
-      // 长度不够的条目在关键词通道里必然不通过，连 bigram 都不用算（省的是热榜主循环里最贵的一步）
-      const tokens = key.length >= KEYWORD_MIN_LEN ? contentTokens(key) : null;
+      // 长度不够的条目在两条通道里都必然不通过，连 bigram 都不用算（省的是热榜主循环里最贵的一步）
+      const tokens = key.length >= TOKEN_MIN_LEN ? contentTokens(key) : null;
       let hit = -1;
       if (key) {
         if (seen.has(key)) hit = seen.get(key);
@@ -502,7 +636,11 @@ async function fetchHotspot() {
             let best = -1;
             let bestShared = 0;
             for (const [idx, n] of votes) {
-              if (n < KEYWORD_SHARED_MIN) continue; // 绝对门槛先行，省掉无谓的集合求交
+              // 绝对门槛先行，省掉无谓的集合求交。取两条通道共享数门槛的**较小者**：
+              // 完全包含通道允许 shared 小到 CONTAIN_MIN_SHARED（如《华为mate90》shared=2），
+              // 若沿用 KEYWORD_SHARED_MIN=4，该通道在真实聚合里会被这个预筛**静默筛掉**，
+              // 于是「评估通过、生产不生效」——故取 min。
+              if (n < VOTE_SHARED_MIN) continue;
               if (n > bestShared) { best = idx; bestShared = n; }
               else if (n === bestShared && (best < 0 || idx < best)) best = idx;
             }

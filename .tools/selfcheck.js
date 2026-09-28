@@ -374,6 +374,35 @@ check('跨源合并：关键词通道在位且长度门槛存在', '多元化扩
     : { pass: false, detail: 'fn=' + fnOk + ' consts=' + constOk };
 });
 
+/* ---------- 22. 跨源去重：基准集与评估入口（2026-09-28 第四轮） ---------- */
+// 为什么把「基准集存在且锚点齐全」也纳进自检：去重规则是**唯一会因为「看起来更聪明」而被后人调松**的地方。
+// 上一轮实测已证明：任何词面放宽都会立刻打穿精确率（112 档阈值全扫，无一阵同时满足 FP=0 且有增益）。
+// 因此这里守住两件事：① 规则不许被悄悄改弱；② 基准集里的锚点正负例必须在位，否则评估就失去判据。
+// 不在这里直接跑评估器：本项目环境 spawn 子进程会 EBUSY（见 tsc 检查的 SKIP），故只做静态断言，
+// 真正的 F1 评估走 `npm run verify:dedupe`。
+check('跨源去重：基准集锚点齐全 + 评估入口已注册', '多元化扩源', () => {
+  const golden = read('.tools/dedupe-golden.json');
+  const evalTool = exists('.tools/dedupe-eval.js');
+  const pkg = read('package.json');
+  if (!golden) return { pass: false, detail: '.tools/dedupe-golden.json 不存在' };
+  if (!pkg) return { pass: false, detail: 'package.json 不存在' };
+  const scriptOk = /"verify:dedupe"\s*:/.test(pkg);
+  let g;
+  try { g = JSON.parse(golden); } catch (e) { return { pass: false, detail: '基准集不是合法 JSON：' + e.message }; }
+  const cases = Array.isArray(g.cases) ? g.cases : [];
+  const same = cases.filter((c) => c.label === 'same').length;
+  const diff = cases.filter((c) => c.label === 'different').length;
+  const has = (frag) => cases.some((c) => String(c.a).indexOf(frag) >= 0 || String(c.b).indexOf(frag) >= 0);
+  // 锚点：三个必须先「不同事件」的负例 + 一个必须命中的正例
+  const anchors = ['苹果发布新款手机', '特斯拉宣布在中国市场降价', '阿拉米扬教练', '林诗栋4比3林昀儒'];
+  const missing = anchors.filter((a) => !has(a));
+  const sizeOk = cases.length >= 80 && same >= 30 && diff >= 30;
+  const ok = sizeOk && missing.length === 0 && scriptOk && evalTool;
+  return ok
+    ? { pass: true, detail: cases.length + ' 对（same ' + same + ' / different ' + diff + '），4 个锚点齐全，verify:dedupe 已注册' }
+    : { pass: false, detail: '规模=' + sizeOk + '(' + cases.length + '/' + same + '/' + diff + ') 缺锚点=' + (missing.join(',') || '无') + ' script=' + scriptOk + ' evalTool=' + evalTool };
+});
+
 /* ---------- 主流程 ---------- */
 // 退出码：0 = 全部 PASS；1 = 有 FAIL；2 = 无 FAIL 但有 SKIP（需人工补验）
 (async () => {

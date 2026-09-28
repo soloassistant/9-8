@@ -26,6 +26,7 @@ import {
 import {
   pickAffinityArm,
   recordAffinityImpression,
+  recordAffinityExposure,
   recordAffinityOutcome,
   getAffinityExperimentSummary,
   resetAffinityExperiment,
@@ -305,6 +306,14 @@ function LibraryPage() {
     setAiPicks(res.items);
     setAiSummary(res.summary);
     if (res.items.length) logActivity('✨', `AI 精选资讯 ${res.items.length} 条`);
+    // A/B 归因（条目级曝光）：记下本次**实际展示了哪些条目**，让后续点击能按条目确证而非只看类目。
+    // id 缺失/非字符串的脏条目不进存储（recordAffinityExposure 内部还会再收窄一次）。
+    recordAffinityExposure(
+      arm,
+      res.items
+        .filter((it) => !!it && typeof it.id === 'string' && it.id.length > 0)
+        .map((it) => ({ id: it.id, category: categoryOf(it.tags) }))
+    );
   };
 
   /** 清除类目偏好：清存储 → 立即清空面板那一行（局部态）→ 同步清云端摘要 → toast */
@@ -453,8 +462,9 @@ function LibraryPage() {
     // 类目偏好学习（点击 = 弱信号）；存下来的类目会在 handleAiFilter 里回灌给 AI 精选
     const category = categoryOf(item.tags);
     recordCategorySignal(category, 'tap');
-    // A/B 归因：命中「最近一次精选请求的学习集合」且未超归因窗口时，才为当次所属臂记 hit
-    recordAffinityOutcome(category);
+    // A/B 归因：优先按条目归因（itemId ∈ 本次曝光 ids → 确认「展示过且被点了」），
+    // 不在曝光内时退回类目级判据；两条路径都受归因窗口约束
+    recordAffinityOutcome(category, item.id);
     syncAffinity();
     syncAb();
     // 云同步：防抖合并，避免每次点击都打云函数
