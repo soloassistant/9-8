@@ -283,13 +283,23 @@ check('类目透传：parseRss tag → 条目 tags → 候选串', '多元化扩
     : { pass: false, detail: 'sig=' + sig + ' tagsField=' + tagsField + ' callPass=' + callPass + ' candCat=' + candCat };
 });
 
-check('AI 精选类目多样性规则在位', '多元化扩源', () => {
+check('AI 精选多样性：提示词规则 + 确定性兜底', '多元化扩源', () => {
   const proxy = read('.tools/llm-proxy.mjs');
+  const server = read('.tools/static-server.js');
   if (!proxy) return { pass: false, detail: 'llm-proxy.mjs 不存在' };
-  const ok = /类目多样性/.test(proxy) && /同一类目最多选 2 条/.test(proxy) && /不少于 5 个不同类目/.test(proxy);
+  if (!server) return { pass: false, detail: 'static-server.js 不存在' };
+  // 提示词层
+  const promptOk = /类目多样性/.test(proxy) && /同一类目最多给 2 条/.test(proxy);
+  // 代理侧必须给够 20 条，否则下游去重后凑不满 10 条
+  const quotaOk = /AI_FILTER_PICKS_MAX = 20/.test(proxy);
+  // ★ 确定性兜底层：提示词不可靠（实测模型让教育占 4/10），必须在下游硬约束
+  const guardOk = /AI_PICK_PER_CATEGORY_MAX = 2/.test(server) && /categoryOfItem/.test(server);
+  // 可观测层：类目数要下发，否则回退只能靠人肉看页面发现
+  const obsOk = /categories: perCat\.size/.test(server);
+  const ok = promptOk && quotaOk && guardOk && obsOk;
   return ok
-    ? { pass: true, detail: '同类目≤2 / 条数≥6 时覆盖 ≥5 类目的规则在 /filter 提示词' }
-    : { pass: false, detail: '多样性规则缺失' };
+    ? { pass: true, detail: '提示词规则 + 代理给 20 条 + 下游每类 ≤2 硬约束 + 类目数可观测' }
+    : { pass: false, detail: 'prompt=' + promptOk + ' quota20=' + quotaOk + ' guard=' + guardOk + ' obs=' + obsOk };
 });
 
 /* ---------- 主流程 ---------- */

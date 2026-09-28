@@ -280,11 +280,17 @@ function LibraryPage() {
     [items, activeTag, keyword]
   );
 
-  /** 资讯分类频道（F29）：全部 + 出现过的标签，超 8 个截断（X11：基于门控后列表） */
-  const newsTags = useMemo(
-    () => ['全部', ...Array.from(new Set(minorVisibleNews.flatMap((n) => n.tags))).slice(0, 8)],
-    [minorVisibleNews]
-  );
+  /** 资讯分类频道（F29）：全部 + 出现过的类目（X11：基于门控后列表）。
+   *  两处刻意的改动（2026-09-28 扩源后）：
+   *  1) **按条目数降序**，不再是插入序 —— 插入序取决于抓取返回顺序，等于「最先遇到的 8 个」，
+   *     而不是「最有内容的 8 个」；源清单扩容后这个偏差会直接暴露给用户。
+   *  2) **去掉 slice(0, 8)** —— 类目从 9 个扩到 18 个后，截断 8 个意味着有 10 个类目在界面上
+   *     完全点不到，「多元化」在 UI 上等于没做。chip 行本就是横向 ScrollView，不做任意上限。 */
+  const newsTags = useMemo(() => {
+    const cnt = new Map<string, number>();
+    for (const n of minorVisibleNews) for (const tg of n.tags) cnt.set(tg, (cnt.get(tg) || 0) + 1);
+    return ['全部', ...[...cnt.entries()].sort((a, b) => b[1] - a[1]).map(([tg]) => tg)];
+  }, [minorVisibleNews]);
 
   const newsFiltered = useMemo(
     () =>

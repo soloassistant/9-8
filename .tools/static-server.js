@@ -109,6 +109,16 @@ function diskWrite(name, data) {
 // 持久化到 cache/source-health.json：重启后仍保留冷却，避免刚启动就再打坏源
 const sourceHealth = new Map(); // name -> { failStreak, cooldownUntil }
 const SOURCE_COOLDOWN = 30 * 60 * 1000;
+/** 连接级瞬时失败（socket hang up / ECONNRESET 等）的重试次数与退避。
+ *  口径与云函数 cloudfunctions/webSearch/index.js 的 shouldRetry 对齐：**仅此类失败重试一次**；
+ *  timeout 不重试（代价 2×FETCH_TIMEOUT，会拖慢整个聚合，而它本就不是超时能解决的问题）、
+ *  HTTP 4xx/5xx 不重试（重试无意义）。
+ *  为什么值得做：源连续失败 2 次即进 30 分钟冷却，且聚合结果又被缓存 30 分钟 ——
+ *  一次瞬时抖动会被**放大成「该源接下来近一小时完全不可见」**，而不是丢一条。
+ *  源清单扩容到 31 个源之后，抖动命中概率同步上升，故补上这一层。 */
+const CONN_RETRY_TIMES = 2;
+const CONN_RETRY_BACKOFF_MS = 300;
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function loadSourceHealth() {
   const d = diskRead('source-health.json');
@@ -149,6 +159,20 @@ const USER_DIR = path.join(CACHE_DIR, 'userdata');
 const syncLimiter = new Map(); // IP -> 时间戳数组，防滥用（正常用户 30 秒一推，限额绰绰有余）
 const aiFilterLimiter = new Map(); // /api/news/ai-filter 限流（手动触发，正常点击远低于限额）
 const aiFilterCache = { key: '', at: 0, payload: null }; // 单槽缓存：同画像+同新闻 2 小时内不重复调 LLM
+/** AI 精选的展示条数与**同类目硬上限**。
+ *  为什么需要硬上限：提示词里写了「同类目最多 2 条」，但 2026-09-28 实测证明模型并不可靠遵守 ——
+ *  一次真实调用里「教育」一个类目占了 4/10 = 40%，反而比扩源前的最大占比（32.5%）更差。
+ *  只靠提示词 = 把产品指标交给概率，故改为在下游做确定性约束。
+ *  算术上的好处：取 10 条且同类目 ≤2 ⟹ **必然覆盖 ≥5 个类目**，不需要再单独校验类目数。 */
+const AI_PICK_MAX = 10;
+const AI_PICK_PER_CATEGORY_MAX = 2;
+/** 条目类目：优先取非「热榜」的标签（垂类榜是 ['热榜','开源']）；综合榜归为一类，
+ *  顺带把 5 个综合榜的时政不可控敞口也压到 ≤2 条。 */
+function categoryOfItem(it) {
+  const t = Array.isArray(it.tags) ? it.tags : [];
+  const c = t.filter((x) => x !== '热榜');
+  return c.length ? c[0] : (t.includes('热榜') ? '综合热榜' : '未分类');
+}
 
 const hotspotCache = { at: 0, items: [], meta: null };
 
@@ -294,11 +318,13 @@ async function fetchHotspot() {
   await Promise.all(
     HOTSPOT_SOURCES.filter((s) => canFetch(s.name)).map(async (s) => {
       let ok = false;
-      try {
-        let g = await s.fetch();
-        // 新鲜度闸门：**只作用于 RSS 源**（只有 parseRss 的条目带 pubDate 字段）。
-        // 热榜源 / 知乎日报 API 本身不带时间戳 —— 不为它们伪造日期，也不因无日期而过滤掉。
-        if (g.length) {
+      let reason = '';
+      for (let attempt = 1; attempt <= CONN_RETRY_TIMES; attempt++) {
+        try {
+          const g = await s.fetch();
+          // 新鲜度闸门：**只作用于 RSS 源**（只有 parseRss 的条目带 pubDate 字段）。
+          // 热榜源 / 知乎日报 API 本身不带时间戳 —— 不为它们伪造日期，也不因无日期而过滤掉。
+          if (!g.length) { reason = 'empty'; break; }
           const fresh = [];
           for (const it of g) {
             if (!('pubDate' in it)) { fresh.push(it); continue; } // 非 RSS 源：原样放行
@@ -306,13 +332,34 @@ async function fetchHotspot() {
             if (now - it.pubDate > staleMaxAge) { dropped.stale += 1; continue; } // 陈旧：丢弃
             fresh.push(it);
           }
-          g = fresh;
-          if (g.length) { ok = true; groups.push(g); }
+          // 全源条目都被闸门丢弃 → 视同该源不健康（与云函数「整源排除」口径一致）。
+          // 注意：这种情况**不重试** —— 内容陈旧不是瞬时故障，重试只会白等一轮。
+          if (!fresh.length) { reason = 'stale'; break; }
+          ok = true;
+          groups.push(fresh);
+          break;
+        } catch (e) {
+          const msg = String((e && e.message) || e);
+          // 区分失败类型：只有连接级瞬时失败值得重试
+          reason = /timeout/i.test(msg) ? 'timeout' : (/^HTTP \d+$/.test(msg) ? 'http-' + msg.slice(5) : 'fetch-error');
+          if (reason === 'fetch-error' && attempt < CONN_RETRY_TIMES) {
+            await sleepMs(CONN_RETRY_BACKOFF_MS * attempt);
+            continue;
+          }
+          break;
         }
-      } catch {}
-      // 全源条目都被判陈旧时 g 为空 → 视同该源不健康（与云函数「整源排除」口径一致）
-      if (ok) markSourceOk(s.name); else markSourceFail(s.name);
-      srcStatus.push({ name: s.name, count: 0, ok });
+      }
+      if (ok) markSourceOk(s.name);
+      else {
+        markSourceFail(s.name);
+        // 不再静默：失败原因必须能被外部看到（原实现是 catch {} 后只记 ok=false，
+        // 源为什么消失完全不可查，只能靠猜。云函数侧本就记录了 reason，这里补齐。）
+        const h = sourceHealth.get(s.name) || {};
+        console.warn('[hotspot] 源失败 ' + s.name + '：' + (reason || 'unknown')
+          + '（连续失败 ' + (h.failStreak || 0) + ' 次'
+          + (h.cooldownUntil > Date.now() ? '，冷却至 ' + new Date(h.cooldownUntil).toISOString() : '') + '）');
+      }
+      srcStatus.push({ name: s.name, count: 0, ok, reason: reason || '' });
     })
   );
   // count 需要真实条数：重新按组统计（groups 与成功源顺序无关，用 source 字段兜底）
@@ -629,11 +676,32 @@ http.createServer(async (req, res) => {
                       return { ...it, aiReason: String(p.reason || ''), ...(why ? { whyItMatters: why } : {}) };
                     })
                     .filter(Boolean);
+                  // 确定性多样性兜底：按模型给的相关度顺序贪心取，同类目超过上限则跳过（留作备用但不展示）。
+                  // 提示词不可靠（实测教育占 4/10），这里是唯一能保证结果的地方。
+                  const perCat = new Map();
+                  const diverseItems = [];
+                  let trimmed = 0;
+                  for (const it of pickedItems) {
+                    const c = categoryOfItem(it);
+                    const used = perCat.get(c) || 0;
+                    if (used < AI_PICK_PER_CATEGORY_MAX && diverseItems.length < AI_PICK_MAX) {
+                      perCat.set(c, used + 1);
+                      diverseItems.push(it);
+                    } else trimmed += 1;
+                  }
+                  if (trimmed) {
+                    console.warn('[ai-filter] 同类目去重：模型给 ' + pickedItems.length + ' 条，按每类 ≤'
+                      + AI_PICK_PER_CATEGORY_MAX + ' 截到 ' + diverseItems.length + ' 条（丢弃 ' + trimmed + ' 条备用）');
+                  }
                   const out = {
-                    items: pickedItems,
+                    items: diverseItems,
                     summary: String(parsed.summary || ''),
                     updatedAt: meta?.updatedAt || null,
-                    aiFiltered: true
+                    aiFiltered: true,
+                    // 可观测：把「实际覆盖了几个类目」下发出去。不下发就等于没测 ——
+                    // 否则多样性回退只能靠人肉看页面发现（这次的 4/10 就是这么发现的）。
+                    categories: perCat.size,
+                    trimmedByCategory: trimmed
                   };
                   aiFilterCache.key = fingerprint;
                   aiFilterCache.at = now;

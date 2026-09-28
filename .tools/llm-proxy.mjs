@@ -168,14 +168,14 @@ if (req.url === '/extract') {
         if (!candidates.length) { res.writeHead(400); res.end(JSON.stringify({ error: 'candidates required' })); return; }
 
         const systemContent =
-          '你是新闻筛选助手。根据用户兴趣画像，从候选新闻中挑出最值得看的条目（最多10条，按相关度排序）。' +
-          '规则：1) 只挑与兴趣相关或与近期关注相近的条目；若整体相关度都低，也要挑出相对最相关的3条；' +
+          '你是新闻筛选助手。根据用户兴趣画像，从候选新闻中挑出最值得看的条目，按相关度从高到低排序，最多输出 20 条。' +
+          '规则：1) 只挑与兴趣相关或与近期关注相近的条目；若整体相关度都低，也要挑出相对最相关的 6 条；' +
           '2) 合规降权（优先级最高，覆盖第1条）：时政/外交/军事/突发事件监管类内容不得入选 picks；财经类最多 1 条；优先科技/数字生活/健康/教育等生活建设性议题；' +
           // 多样性规则：源清单扩到 12 类之后，若仍只按相关度挑，同类目会占满整屏，用户感知不到多元化。
           // 类目从候选串自带的 [来源·类目] 读取，不在此硬编码映射表（否则改源清单就会失真）。
-          '3) 类目多样性（优先级仅次于合规，覆盖第1条）：候选条目格式为「编号. [来源·类目] 标题」，' +
-          '请据此判断每条的类目；同一类目最多选 2 条；最终条数≥6 时应覆盖不少于 5 个不同类目；' +
-          '宁可少选一条，也不要用同一类目凑满 10 条 —— 用户要的是广度，不是某一类的深度；' +
+          '3) 类目多样性（优先级仅次于合规）：候选条目格式为「编号. [来源·类目] 标题」，请据此判断每条的类目；' +
+          '同一类目最多给 2 条；请把不同类目的条目都排进这 20 条里 —— 给出 20 条是为了让下游按类目去重后仍能凑满 10 条，' +
+          '所以同类目的备用条目请排在后面，不要用同一类目占满靠前的位置；' +
           '4) reason 用不超过16字说明「为什么推荐给这位用户」，不要复述标题；' +
           '5) 对每个选中条目额外输出 why 字段：不超过30字的中文，回答「为什么这条值得**这个用户**看」，必须结合其 interests/custom 画像给出个人化理由（不是通用新闻价值）；' +
           '6) summary 以早报员「小晨」的口吻写（克制友好、少废话），不超过20字；' +
@@ -193,7 +193,8 @@ if (req.url === '/extract') {
           body: JSON.stringify({
             model: MODEL,
             temperature: 0.3,
-            max_tokens: 1200,
+            // 20 条 picks（每条含 reason+why）远超原先 10 条的 token 量，1200 会把 JSON 截断成不可解析
+            max_tokens: 2600,
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: systemContent },
@@ -213,10 +214,14 @@ if (req.url === '/extract') {
         const llmData = await llmRes.json();
         const content = llmData.choices?.[0]?.message?.content || '';
         const parsed = safeParse(content);
+        // 20 而不是 10：下游 static-server 会按类目做**硬去重**（同类目 ≤2）后取前 10 条展示，
+        // 若这里只给 10 条，去重后必然凑不满 10 条、类目数也会塌回 4 类左右。
+        // 多给的这 10 条是「同类目备用」，用来在去重后补位。
+        const AI_FILTER_PICKS_MAX = 20;
         const picks = Array.isArray(parsed?.picks)
           ? parsed.picks
               .filter((p) => p && Number.isInteger(Number(p.n)) && Number(p.n) >= 1 && Number(p.n) <= candidates.length)
-              .slice(0, 10)
+              .slice(0, AI_FILTER_PICKS_MAX)
               .map((p) => ({
                 n: Number(p.n),
                 reason: String(p.reason || '').slice(0, 30),
