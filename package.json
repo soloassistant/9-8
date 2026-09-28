@@ -11,6 +11,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "selfcheck": "node .tools/selfcheck.js",
     "vet:sources": "node .tools/vet-feeds.js",
     "verify:boards": "node .tools/verify-boards.js",
     "verify:intel": "node .tools/analyze-intel.js",

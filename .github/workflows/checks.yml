@@ -1,0 +1,70 @@
+# 离线检查：把 selfcheck（25 项）与两个回归入口接到 push / PR 上。
+#
+# 为什么存在：这些检查原本只能在本地手动跑 —— 项目是 Taro 小程序 + H5、没有独立的测试阶段，
+# 一旦有人改坏（最容易出事的是「去重规则被后人调松」和「类目 i18n 漏键」），没有任何自动拦截。
+# 这与 lingxi-class 仓库把 1796 项断言接进 CI 是同一个动机。
+#
+# 只跑**不依赖外网**的检查：
+#   · typecheck      tsc --noEmit（全仓 0 错误）
+#   · selfcheck      25 项验收断言。CI 里 spawn 可用，所以 tsc 那一项会真跑而不是 SKIP
+#   · verify:dedupe  96 对人工标注基准集上的 P/R/F1 回归（纯离线、确定性）
+#   · verify:intel   用仓库内的冻结夹具做条数/类目数/最大类目占比阈值回归（纯离线）
+#
+# **故意不放进这里**（与 lingxi-class 的取舍一致：联网的东西会让 CI 在 fork/PR 上不可靠）：
+#   · npm run vet:sources     要联网实测 16 个 RSS 源；外网抖动会让 CI 变红且结论不可信
+#   · npm run verify:boards   要联网，且需要本机 DailyHotApi 起在 6688
+#   · refresh-hotspot-data    已有独立 workflow（refresh-data.yml）
+# 这两个联网检查请在改动源清单/板块时**手动**跑，而不是塞进 CI。
+
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 与 refresh-data.yml 保持一致
+          node-version: 20
+          cache: yarn
+
+      - name: 安装依赖
+        # 用 yarn：仓库里只有 yarn.lock（没有 package-lock.json）。
+        # frozen-lockfile 可用性已核对过：45 个依赖全部被锁文件覆盖。
+        run: yarn install --frozen-lockfile
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 自检（25 项）
+        run: |
+          set +e
+          node .tools/selfcheck.js
+          code=$?
+          # 退出码约定：0 = 全部 PASS，1 = 有 FAIL，2 = 无 FAIL 但有 SKIP
+          # （SKIP 是「受限环境下跑不了」，不等于失败；但在 CI 里正常应当为 0）
+          if [ "$code" -eq 2 ]; then
+            echo "::warning::自检存在 SKIP 项（非失败），请人工确认跳过原因"
+            exit 0
+          fi
+          exit "$code"
+
+      - name: 去重规则回归（96 对基准集）
+        # 这条同时是「去重规则不许被悄悄调松」的守门人：
+        # 词面放宽会立刻打穿精确率（已有 112 档阈值扫描为证），基准集会当场变红。
+        run: npm run verify:dedupe
+
+      - name: 资讯阈值回归（离线夹具）
+        # 用仓库内的冻结夹具，而不是 .tools/cache/hotspot.json —— 后者是 gitignore 的本机缓存，CI 里不存在。
+        run: node .tools/analyze-intel.js .tools/fixtures/hotspot-sample.json
