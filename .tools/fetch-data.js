@@ -75,6 +75,15 @@ const RSS_PER_SOURCE = 10;
 /** 条目新鲜度闸门（天）：与云函数 STALE_SOURCE_DAYS、static-server STALE_ITEM_DAYS 对齐 */
 const STALE_ITEM_DAYS = 7;
 
+/** 连接级瞬时失败的重试次数与退避 —— 与 static-server.js 的 CONN_RETRY_TIMES / CONN_BACKOFF_MS 同口径。
+ *  为什么线上抓取也需要它（2026-09-29 复检实测）：整夜 20 次刷新的历史里，
+ *  芥末堆 / 掘金 / 经济观察报 / 车东西 / 小众软件 / 机核 / InfoQ中文 都出现过间歇失败，
+ *  条目数因此在 **143~220** 之间波动（±35%）。一次瞬时抖动就让整批内容消失，
+ *  与「源连续失败即被整源丢弃」叠加后放大成用户可见的内容缺失。 */
+const CONN_RETRY_TIMES = 2;
+const CONN_BACKOFF_MS = 300;
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
 function loadRssSourcesFromCloud() {
   try {
     const code = fs.readFileSync(CLOUD_WEBSEARCH, 'utf8');
@@ -141,12 +150,14 @@ async function fetchHotspot() {
   await Promise.all(
     HOTSPOT_SOURCES.map(async (s) => {
       let ok = false;
-      try {
-        const g = await s.fetch();
-        // 新鲜度闸门：只作用于 RSS 源（只有 parseRss 的条目带 pubDate）。
-        // 热榜/知乎日报不带时间戳 —— 不为它们伪造日期，也不因无日期而过滤掉。
-        // 这道闸门正是「人民网」这类冻结源的分界线：它 100 条全部无 pubDate，会被整源丢弃。
-        if (g.length) {
+      let reason = '';
+      for (let attempt = 1; attempt <= CONN_RETRY_TIMES; attempt++) {
+        try {
+          const g = await s.fetch();
+          if (!g.length) { reason = 'empty'; break; }
+          // 新鲜度闸门：只作用于 RSS 源（只有 parseRss 的条目带 pubDate）。
+          // 热榜/知乎日报不带时间戳 —— 不为它们伪造日期，也不因无日期而过滤掉。
+          // 这道闸门正是「人民网」这类冻结源的分界线：它 100 条全部无 pubDate，会被整源丢弃。
           const fresh = [];
           for (const it of g) {
             if (!('pubDate' in it)) { fresh.push(it); continue; }
@@ -154,10 +165,25 @@ async function fetchHotspot() {
             if (now - it.pubDate > staleMaxAge) { dropped.stale += 1; continue; }
             fresh.push(it);
           }
-          if (fresh.length) { ok = true; groups.push(fresh); }
+          // 整源条目都被闸门丢掉 → 视同不健康（与云函数「整源排除」口径一致）；内容陈旧不是瞬时故障，不重试
+          if (!fresh.length) { reason = 'stale'; break; }
+          ok = true;
+          groups.push(fresh);
+          break;
+        } catch (e) {
+          const msg = String((e && e.message) || e);
+          reason = /timeout/i.test(msg) ? 'timeout' : (/^HTTP \d+$/.test(msg) ? 'http-' + msg.slice(5) : 'network');
+          // 仅连接级瞬时失败重试一次（与 static-server.js 同口径）：timeout / HTTP 错误重试无意义
+          if (reason === 'network' && attempt < CONN_RETRY_TIMES) { await sleepMs(CONN_BACKOFF_MS * attempt); continue; }
+          break;
         }
-      } catch {}
-      srcStatus.push({ name: s.name, count: 0, ok });
+      }
+      // 不再静默：失败原因必须能被外部看到。
+      // 修因（2026-09-29 复检）：本文件此前是 `catch {}` + 只记 ok，导致整夜 20 次刷新里
+      // 「知乎日报 20/20 失败、芥末堆/掘金/经济观察报等间歇失败」全部呈现为 reason=undefined，
+      // 无法归因 —— 同一缺陷早已在 static-server.js 修过，这里漏改。
+      if (!ok) console.warn('[fetch-data] 源失败 ' + s.name + '：' + (reason || 'unknown'));
+      srcStatus.push({ name: s.name, count: 0, ok, reason: reason || '' });
     })
   );
   // 热榜板块：走仓库自带的零依赖实现（.tools/boards-core.js），**不依赖本机 DailyHotApi 服务** ——
