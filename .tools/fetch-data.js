@@ -3,6 +3,8 @@
 // 用法：node fetch-data.js --out <path>   （默认输出 stdout）
 const fs = require('fs');
 const path = require('path');
+// 热榜板块的零依赖取数实现（自带 6 个板块：4 个垂类 + 2 个综合榜）
+const { fetchAllBoards } = require('./boards-core.js');
 
 const FETCH_TIMEOUT = 8000;
 
@@ -158,6 +160,29 @@ async function fetchHotspot() {
       srcStatus.push({ name: s.name, count: 0, ok });
     })
   );
+  // 热榜板块：走仓库自带的零依赖实现（.tools/boards-core.js），**不依赖本机 DailyHotApi 服务** ——
+  // 本脚本跑在 GitHub Actions runner 上，够不到 127.0.0.1:6688，这正是线上长期没有热榜的原因。
+  // 覆盖 6 个板块（含全部 4 个垂类）；微博/知乎/抖音 需 cookie，服务器环境取不到，仍在注释里记明。
+  const boards = { total: 0, ok: 0, items: 0, skipped: [] };
+  try {
+    const r = await fetchAllBoards({ limitPerBoard: RSS_PER_SOURCE });
+    boards.total = r.statuses.length;
+    boards.ok = r.statuses.filter((s) => s.ok).length;
+    boards.items = r.items.length;
+    for (const s of r.statuses) {
+      srcStatus.push({ name: s.label, count: 0, ok: s.ok, reason: s.reason || '' });
+      if (!s.ok) boards.skipped.push(s.label + '(' + (s.reason || 'unknown') + ')');
+    }
+    // 每个板块作为独立 group 入组 → 沿用跨源轮询交错，避免单一板块霸占前列（与 static-server 同口径）
+    for (const label of new Set(r.items.map((it) => it.source))) {
+      const g = r.items.filter((it) => it.source === label);
+      if (g.length) groups.push(g);
+    }
+  } catch (e) {
+    boards.error = String((e && e.message) || e);
+    console.warn('[fetch-data] 热榜板块整体失败（不影响 RSS 部分）：' + boards.error);
+  }
+
   for (const st of srcStatus) {
     st.count = st.ok ? groups.reduce((n, g) => n + g.filter((it) => it.source === st.name).length, 0) : 0;
   }
@@ -178,7 +203,7 @@ async function fetchHotspot() {
   const items = merged.map(({ pubDate, ...rest }) => rest);
   return {
     items,
-    meta: { updatedAt: new Date().toISOString(), stale: false, sources: srcStatus, dropped }
+    meta: { updatedAt: new Date().toISOString(), stale: false, sources: srcStatus, dropped, boards }
   };
 }
 
