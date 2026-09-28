@@ -318,6 +318,62 @@ check('资讯质量回归入口已注册（vet:sources / verify:boards / verify:
     : { pass: false, detail: (missingScripts.length ? '缺 script：' + missingScripts.join(', ') + '；' : '') + (missingFiles.length ? '缺文件：' + missingFiles.join(', ') : '') };
 });
 
+/* ---------- 21. 类目偏好：A/B 度量 + 云同步 + 跨源合并关键词通道（2026-09-28 第三轮） ---------- */
+
+// 只验证了「链路通」不等于验证了「有用」。A/B 的存在意义就是别凭信念上线 ——
+// 而整个实验成立的前提是**对照组真的不带学习结果**，所以这里专门断言它。
+check('偏好学习 A/B 度量在位（对照组不带学习结果）', '偏好学习效果', () => {
+  const exp = read('src/utils/affinityExperiment.ts');
+  const page = read('src/pages/library/index.tsx');
+  if (!exp) return { pass: false, detail: 'affinityExperiment.ts 不存在' };
+  if (!page) return { pass: false, detail: 'library/index.tsx 不存在' };
+  const apiOk = /export function pickAffinityArm/.test(exp)
+    && /export function recordAffinityImpression/.test(exp)
+    && /export function recordAffinityOutcome/.test(exp)
+    && /export function getAffinityExperimentSummary/.test(exp);
+  // 分臂函数唯一实现点：control 分支必须直接返回手选、不掺入 learned
+  const controlOk = /function buildAiInterests\(arm[\s\S]{0,240}?arm === 'control'[\s\S]{0,80}?return manual\.slice\(0,\s*8\)/.test(page);
+  const wiredOk = /pickAffinityArm\(\)/.test(page)
+    && /recordAffinityImpression\(arm, learned\)/.test(page)
+    && /recordAffinityOutcome\(/.test(page);
+  const ok = apiOk && controlOk && wiredOk;
+  return ok
+    ? { pass: true, detail: '分臂/记录/汇总齐备；control 分支只返回手选类目；impression 与 outcome 均已接线' }
+    : { pass: false, detail: 'api=' + apiOk + ' control分支=' + controlOk + ' 接线=' + wiredOk };
+});
+
+check('偏好云同步在位（且不覆盖本地新行为）', '偏好学习效果', () => {
+  const cf = read('cloudfunctions/chat/index.js');
+  const cloud = read('src/services/cloud.ts');
+  const aff = read('src/utils/categoryAffinity.ts');
+  if (!cf || !cloud || !aff) return { pass: false, detail: '文件缺失' };
+  const serverOk = /function sanitizeAffinity/.test(cf) && /'saveAffinity'/.test(cf) && /'getAffinity'/.test(cf);
+  // 服务端必须只收摘要：清洗函数里出现 category/score 且有条数上限
+  const pruneOk = /AFFINITY_ITEMS_MAX/.test(cf) && /AFFINITY_CATEGORY_MAX/.test(cf);
+  const clientOk = /apiSaveAffinity/.test(cloud) && /apiGetAffinity/.test(cloud);
+  const utilOk = /export function exportAffinityForSync/.test(aff) && /export function mergeRemoteAffinity/.test(aff);
+  // 合并策略：本地有有效记录就短路返回，绝不写 —— 这是防止远端旧摘要抹掉本地新行为的关键一行
+  const noClobber = /function mergeRemoteAffinity[\s\S]{0,400}?readRecords\(\)\.length > 0[\s\S]{0,40}?return false/.test(aff);
+  const ok = serverOk && pruneOk && clientOk && utilOk && noClobber;
+  return ok
+    ? { pass: true, detail: '云函数 save/getAffinity + 白名单清洗 + 客户端接口 + 摘要导出；本地非空不覆盖' }
+    : { pass: false, detail: 'server=' + serverOk + ' prune=' + pruneOk + ' client=' + clientOk + ' util=' + utilOk + ' noClobber=' + noClobber };
+});
+
+check('跨源合并：关键词通道在位且长度门槛存在', '多元化扩源', () => {
+  const server = read('.tools/static-server.js');
+  if (!server) return { pass: false, detail: 'static-server.js 不存在' };
+  const fnOk = /function contentTokens/.test(server) && /function isKeywordDuplicate/.test(server) && /function isSameEvent/.test(server);
+  // 三个阈值必须都是具名常量（便于按误合并率调参），且长度门槛不能丢
+  const constOk = /KEYWORD_SHARED_MIN = \d+/.test(server)
+    && /KEYWORD_RATIO_MIN = [\d.]+/.test(server)
+    && /KEYWORD_MIN_LEN = \d+/.test(server);
+  const ok = fnOk && constOk;
+  return ok
+    ? { pass: true, detail: 'contentTokens / isKeywordDuplicate / isSameEvent 均在，三个阈值具名可调' }
+    : { pass: false, detail: 'fn=' + fnOk + ' consts=' + constOk };
+});
+
 /* ---------- 主流程 ---------- */
 // 退出码：0 = 全部 PASS；1 = 有 FAIL；2 = 无 FAIL 但有 SKIP（需人工补验）
 (async () => {

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Input, Image, Button } from '@tarojs/components';
-import Taro, { useShareAppMessage } from '@tarojs/taro';
+import Taro, { useShareAppMessage, useDidHide } from '@tarojs/taro';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
 import TagChip from '@/components/TagChip';
 import EmptyState from '@/components/EmptyState';
 import { NewsCardSkeleton } from '@/components/Skeleton';
 import { apiGetLibrary, apiGetHotspot, apiNewsSearch } from '@/services/api';
-import { getHotspotMeta, apiAiNewsFilter } from '@/services/cloud';
+import { getHotspotMeta, apiAiNewsFilter, apiGetAffinity, apiSaveAffinity } from '@/services/cloud';
 import { useUserStore } from '@/store/user';
 import { fromNow } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
@@ -16,7 +16,22 @@ import { useT } from '@/store/language';
 import { readPrefs } from '@/utils/prefs';
 import { getPersonalization, setPersonalization } from '@/utils/permission';
 import { categoryOf, categoryLabel } from '@/utils/categoryLabel';
-import { getTopCategories, recordCategorySignal, resetAffinity } from '@/utils/categoryAffinity';
+import {
+  getTopCategories,
+  recordCategorySignal,
+  resetAffinity,
+  exportAffinityForSync,
+  mergeRemoteAffinity
+} from '@/utils/categoryAffinity';
+import {
+  pickAffinityArm,
+  recordAffinityImpression,
+  recordAffinityOutcome,
+  getAffinityExperimentSummary,
+  resetAffinityExperiment,
+  type AffinityArm,
+  type AffinityExperimentSummary
+} from '@/utils/affinityExperiment';
 import {
   readBlockRules,
   addBlockRules,
@@ -55,6 +70,29 @@ const MINOR_BLOCK_KEYWORDS = ['财经', '股票', '投资', '社会'];
 const INTERESTS_KEY = 'news-interests';
 const INTERESTS_CUSTOM_KEY = 'news-interests-custom';
 const AI_PRESET_INTERESTS = ['AI', '数码', '职场', '财经', '健康', '出行', '国际', '教育'];
+
+/** 类目偏好摘要上云：防抖窗口（ms）。连读多条时不需要每次点击都打云函数，攒一批再传 */
+const AFFINITY_SYNC_DEBOUNCE_MS = 8000;
+
+/**
+ * 【A/B 实验口径】构造本次「AI 精选」请求的 interests。
+ * - `treatment`（开启学习）：手选类目在前 + 学到的类目去重补在后 → 整体 slice(0, 8)
+ *   （手选永不被学习结果挤掉；8 是服务端 interests 上限）；
+ * - `control`（对照组）：**只有手选类目，绝不带上 learned**。
+ *
+ * 两臂除 interests 外完全一致，唯一变量就是「有没有把学习结果回灌给 AI」——
+ * 若两臂发送内容相同，整个实验就是假的。
+ *
+ * 抽成顶层纯函数（不做 IO、不依赖 Taro），使实验口径可被单独抽出源码验证。
+ */
+function buildAiInterests(arm: AffinityArm, manual: string[], learned: string[]): string[] {
+  if (arm === 'control') return manual.slice(0, 8);
+  const merged = [...manual];
+  for (const cat of learned) {
+    if (!merged.includes(cat)) merged.push(cat);
+  }
+  return merged.slice(0, 8);
+}
 
 /** 资讯反馈取值（👍 正向 / 👎 负向） */
 type FeedbackValue = 'up' | 'down';
@@ -140,6 +178,8 @@ function LibraryPage() {
   const [feedbackBars, setFeedbackBars] = useState<Record<string, FeedbackBar>>(initialFeedback.bars);
   /** 每条反馈的「撤销窗口」定时器，页面卸载时统一清理，避免内存泄漏 */
   const undoTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  /** 类目偏好上云的防抖定时器：连续浏览时合并成一次上报 */
+  const affinitySyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // N-02：屏蔽规则（来源 + 话题标签）与半屏选择器状态
   const [blockRules, setBlockRules] = useState<BlockRule[]>(() => readBlockRules());
@@ -177,6 +217,10 @@ function LibraryPage() {
   const [aiLoading, setAiLoading] = useState(false);
   // 类目偏好闭环的展示态：与 storage 同源，学到新偏好后立即反映到 AI 精选面板
   const [affinityCats, setAffinityCats] = useState<string[]>(() => getTopCategories(3));
+  // 偏好学习 A/B 效果：与统计存储同源，记一次 impression/hit 后刷新即可让面板那行立即更新
+  const [abSummary, setAbSummary] = useState<AffinityExperimentSummary>(() =>
+    getAffinityExperimentSummary()
+  );
 
   const toggleInterest = (tag: string) =>
     setAiInterests((prev) =>
@@ -199,6 +243,31 @@ function LibraryPage() {
   /** 记录信号后同步展示态，保证「面板上显示的偏好」与「回灌给 AI 的偏好」始终一致 */
   const syncAffinity = () => setAffinityCats(getTopCategories(3));
 
+  /** 记录 A/B 结果后同步展示态（impression / hit 变化后那一行立即刷新） */
+  const syncAb = () => setAbSummary(getAffinityExperimentSummary());
+
+  /**
+   * 上报类目偏好摘要到云端。隐私最小化：只传 exportAffinityForSync() 的「类目名 + 分数」
+   * 摘要，逐条原始行为记录不出本机。**失败静默降级**（apiSaveAffinity 内部已吞异常并返回
+   * false），云同步不可用不影响任何本地行为与 UI。H5 无云函数通道时是 no-op。
+   */
+  const pushAffinity = () => {
+    const items = exportAffinityForSync();
+    if (!items.length) return;
+    apiSaveAffinity(items).catch(() => {
+      /* 静默：上云失败不影响本地偏好 */
+    });
+  };
+
+  /** 防抖上报：连续点击/反馈只在停下来 AFFINITY_SYNC_DEBOUNCE_MS 后打一次云函数 */
+  const scheduleAffinitySync = () => {
+    if (affinitySyncTimer.current) clearTimeout(affinitySyncTimer.current);
+    affinitySyncTimer.current = setTimeout(() => {
+      affinitySyncTimer.current = null;
+      pushAffinity();
+    }, AFFINITY_SYNC_DEBOUNCE_MS);
+  };
+
   /** 兴趣画像信号：👍 反馈过的资讯标题 + 最近浏览标题（随请求带给 AI 参考，不展示） */
   const readSignals = (): string[] => {
     const upTitles = Object.entries(feedbackMap)
@@ -216,16 +285,17 @@ function LibraryPage() {
   const handleAiFilter = async () => {
     if (aiLoading) return;
     setAiLoading(true);
-    // 【类目偏好闭环的消费点】学习到的类目必须真的回灌给 AI，否则就是「只存不用」。
-    // 合并规则：用户手选(aiInterests)在前 → 学到的类目补在后（过滤掉已选项去重）
-    //           → 整体 slice(0, 8)（服务端 interests 上限就是 8）。
-    // 因此学习结果永远不会覆盖/挤掉用户的显式选择。
+    // 【类目偏好闭环的消费点 + A/B 实验点】学习到的类目是否回灌给 AI，由当日分臂决定：
+    //   treatment = 手选 + 学习结果（见 buildAiInterests），control = 只有手选。
+    // 两臂其余参数（custom、signals）完全一致，唯一变量就是「有没有回灌学习结果」。
+    const arm = pickAffinityArm();
     const learned = getTopCategories(3);
-    const interests = [
-      ...aiInterests,
-      ...learned.filter((c) => !aiInterests.includes(c))
-    ].slice(0, 8);
+    const interests = buildAiInterests(arm, aiInterests, learned);
+    // 无论哪一臂都要记 impression：对照组也要记下「若启用学习会是哪些类目」，
+    // 否则两臂没有同一个命中率口径，实验无法比较。
+    recordAffinityImpression(arm, learned);
     setAffinityCats(learned);
+    syncAb();
     const res = await apiAiNewsFilter(interests, aiCustom.trim(), readSignals());
     setAiLoading(false);
     if (!res) {
@@ -237,12 +307,57 @@ function LibraryPage() {
     if (res.items.length) logActivity('✨', `AI 精选资讯 ${res.items.length} 条`);
   };
 
-  /** 清除类目偏好：清存储 → 立即清空面板那一行（局部态）→ toast */
+  /** 清除类目偏好：清存储 → 立即清空面板那一行（局部态）→ 同步清云端摘要 → toast */
   const handleResetAffinity = () => {
     resetAffinity();
     setAffinityCats([]);
+    // 必须同时清掉云端摘要：否则本地清空后「本地为空」正好满足合并条件，
+    // 下次启动会把云端旧摘要合并回来，让「清除」看起来失效。空数组即清空信号。
+    if (affinitySyncTimer.current) {
+      clearTimeout(affinitySyncTimer.current);
+      affinitySyncTimer.current = null;
+    }
+    apiSaveAffinity([]).catch(() => {
+      /* 静默：云端清不掉也不影响本地已清除的状态 */
+    });
     Taro.showToast({ title: t('library.affinityResetDone'), icon: 'none' });
   };
+
+  /** 重置 A/B 统计：清统计计数 → 刷新该行（样本归零后自动回到「样本不足」）→ toast */
+  const handleResetAb = () => {
+    resetAffinityExperiment();
+    syncAb();
+    Taro.showToast({ title: t('library.abResetDone'), icon: 'none' });
+  };
+
+  /**
+   * 挂载时拉取云端偏好摘要并合并：只有本地完全没有记录时才采用远端（换设备/重装恢复），
+   * 本地有记录一律保留本地（远端可能是旧快照，不能覆盖刚产生的行为）。
+   * 失败静默降级（apiGetAffinity 返回 null），不影响本地任何状态。
+   */
+  useEffect(() => {
+    let alive = true;
+    apiGetAffinity()
+      .then((remote) => {
+        if (!alive || remote === null) return;
+        if (mergeRemoteAffinity(remote)) syncAffinity();
+      })
+      .catch(() => {
+        /* 静默：云同步不可用不影响本地偏好 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /** 页面隐藏时补一次上报：兜住「上了云但还没到防抖窗口就切走」的情况 */
+  useDidHide(() => {
+    if (affinitySyncTimer.current) {
+      clearTimeout(affinitySyncTimer.current);
+      affinitySyncTimer.current = null;
+    }
+    pushAffinity();
+  });
 
   useEffect(() => {
     // 竞品分析 X9：转发回跳预填搜索关键词（?kw=），用户可直接再点「搜索」复现该条资讯
@@ -336,8 +451,14 @@ function LibraryPage() {
   const handleNewsTap = (item: HotspotNews) => {
     recordBrowseHistory({ id: item.id, title: item.title, source: item.source });
     // 类目偏好学习（点击 = 弱信号）；存下来的类目会在 handleAiFilter 里回灌给 AI 精选
-    recordCategorySignal(categoryOf(item.tags), 'tap');
+    const category = categoryOf(item.tags);
+    recordCategorySignal(category, 'tap');
+    // A/B 归因：命中「最近一次精选请求的学习集合」且未超归因窗口时，才为当次所属臂记 hit
+    recordAffinityOutcome(category);
     syncAffinity();
+    syncAb();
+    // 云同步：防抖合并，避免每次点击都打云函数
+    scheduleAffinitySync();
     logActivity('🔥', `浏览热点：${item.title.slice(0, 14)}`);
     Taro.showToast({ title: `来源：${item.source}`, icon: 'none', duration: 1500 });
   };
@@ -454,6 +575,7 @@ function LibraryPage() {
       // 所以只在 next 有值时记一次；取消（next === undefined）时不记，避免「点两次 = 双倍负分」。
       recordCategorySignal(categoryOf(item.tags), next);
       syncAffinity();
+      scheduleAffinitySync();
       logActivity(next === 'up' ? '👍' : '👎', `资讯反馈：${item.title.slice(0, 14)}`);
       Taro.showToast({ title: t('library.feedbackSaved'), icon: 'none', duration: 1200 });
       // 云端落库（真机生效；取消反馈只改本地，云端按最新一条聚合）
@@ -833,6 +955,22 @@ function LibraryPage() {
                     {t('library.affinityReset')}
                   </Text>
                 ) : null}
+              </View>
+              {/* 偏好学习效果（A/B）：按天切换开关学习的一天 vs 不开关的一天，比两臂命中率。
+                  样本不足时只提示「样本还太少」，不给结论（小样本下百分比没有意义）。 */}
+              <View className={styles.aiTipRow}>
+                <Text className={styles.aiTipText}>
+                  {abSummary.enough
+                    ? `${t('library.abTitle')} · ${t('library.abLine', {
+                        a: Math.round(abSummary.treatment.rate * 100),
+                        b: Math.round(abSummary.control.rate * 100),
+                        n: abSummary.samples
+                      })}`
+                    : `${t('library.abTitle')} · ${t('library.abInsufficient')}`}
+                </Text>
+                <Text className={styles.aiEditBtn} onClick={handleResetAb}>
+                  {t('library.abReset')}
+                </Text>
               </View>
               {aiEditing ? (
                 <View className={styles.aiEditor}>

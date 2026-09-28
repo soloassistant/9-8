@@ -166,3 +166,68 @@ export function resetAffinity(): void {
 export function getAffinitySize(): number {
   return readRecords().length;
 }
+
+/** 上云摘要条数上限（与云端 sanitizeAffinity 的 AFFINITY_ITEMS_MAX 对齐） */
+const SYNC_ITEMS_MAX = 10;
+/** 上云分数封顶（与云端 sanitizeAffinity 的 AFFINITY_SCORE_MAX 对齐） */
+const SYNC_SCORE_MAX = 100;
+/** 远端分数绝对值上限（防御异常大值撑爆重建循环） */
+const REMOTE_SCORE_MAX = 100;
+
+/**
+ * 导出「可上云的偏好摘要」：只出正分、按分数降序、取整并封顶 100、最多 10 条。
+ *
+ * 刻意**不导出原始记录数组**（readRecords 的逐条 {c,k,at}）：那是本机行为日志，
+ * 上云只上「哪些类目、各多少分」的聚合摘要，与服务端 sanitizeAffinity 同一口径
+ * （服务端会再清洗一次兜底）。
+ */
+export function exportAffinityForSync(): Array<{ category: string; score: number }> {
+  return getAffinityScores()
+    .slice(0, SYNC_ITEMS_MAX)
+    .map((it) => ({
+      category: it.category,
+      score: Math.min(SYNC_SCORE_MAX, Math.round(it.score))
+    }));
+}
+
+/**
+ * 合并远端偏好摘要（换设备 / 重装后恢复本机偏好）。
+ *
+ * 【方向很关键】**只有本地没有任何有效记录时才采用远端**；本地非空一律原样保留。
+ * 理由：远端摘要是某次上报的快照，很可能是几天前的旧数据，而本地记录是用户刚刚
+ * 产生的行为。若让远端覆盖本地，用户在新设备上刚点出来的偏好会被旧摘要抹掉，
+ * 表现为「刚学到的偏好一会儿又没了」——这是明确要避免的回归。
+ *
+ * 远端结构不可信（可能是旧版本或异常响应），逐字段收窄：
+ * 非数组 / 条目非对象 / category 非字符串或 trim 后为空 / score 非有限数值 → 丢弃。
+ * 采用时按「tap 权重 = 1」把分数重建成等量记录，从而在不改存储格式、不加新字段的
+ * 前提下让 getAffinityScores() 复现远端排序；单类目仍受 MAX_CATEGORY_SCORE 封顶。
+ *
+ * @returns 本地是否因此改变（true = 已用远端重建，false = 保持本地不变）
+ */
+export function mergeRemoteAffinity(remote: unknown): boolean {
+  // 本地已有有效记录 → 保持本地不变（远端可能是旧快照，不能覆盖新行为）
+  if (readRecords().length > 0) return false;
+  if (!Array.isArray(remote)) return false;
+
+  const rebuilt: AffinityRecord[] = [];
+  for (const item of remote) {
+    if (rebuilt.length >= MAX_RECORDS) break;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const rec = item as { category?: unknown; score?: unknown };
+    if (typeof rec.category !== 'string') continue;
+    const name = rec.category.trim().slice(0, MAX_CATEGORY_LENGTH);
+    if (!name) continue;
+    if (typeof rec.score !== 'number' || !Number.isFinite(rec.score)) continue;
+    const score = Math.min(REMOTE_SCORE_MAX, Math.round(rec.score));
+    if (score <= 0) continue; // 只重建正分（与读取侧口径一致）
+    const count = Math.min(score, MAX_CATEGORY_SCORE);
+    for (let i = 0; i < count && rebuilt.length < MAX_RECORDS; i++) {
+      rebuilt.push({ c: name, k: 'tap', at: Date.now() });
+    }
+  }
+
+  if (rebuilt.length === 0) return false;
+  writeRecords(rebuilt);
+  return true;
+}

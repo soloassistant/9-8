@@ -122,6 +122,45 @@ function sanitizePrefs(raw) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+/** user_affinity 集合（openid 主键 upsert）：只存「类目名 + 分数」的聚合摘要 */
+const AFFINITY_COLLECTION = 'user_affinity';
+/** 服务端摘要条数上限（与客户端 exportAffinityForSync 的 10 条口径一致） */
+const AFFINITY_ITEMS_MAX = 10;
+/** 单条类目名长度上限（与前端 categoryAffinity 的 MAX_CATEGORY_LENGTH 对齐） */
+const AFFINITY_CATEGORY_MAX = 16;
+/** 分数封顶（与前端封顶口径对齐） */
+const AFFINITY_SCORE_MAX = 100;
+
+/**
+ * 类目偏好摘要防御清洗（**隐私最小化**）。
+ *
+ * 只接受 `[{ category: string, score: number }]` 这种**聚合摘要**：绝不接收、也绝不存储
+ * 逐条的原始行为日志（哪一条资讯被点了几次、什么时候点的）。原始记录是本机行为数据，
+ * 留在客户端 'mb-cat-affinity' 键里就够了，上云只上「哪些类目、各多少分」。
+ *
+ * 白名单规则（照 sanitizePrefs 的做法）：
+ * - 整体不是数组 → 视为空（返回 []，不抛错）；
+ * - category：非字符串丢弃；截断 ≤16 字；trim 后为空丢弃；
+ * - score：必须是有限数值，裁剪到 [0, 100] 后取整；
+ * - 最多保留 10 条（超出直接丢弃）。
+ * 返回清洗后的数组（可能为空数组，语义上与 null 区分：空 = 上报了但没有有效条目）。
+ */
+function sanitizeAffinity(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw) {
+    if (out.length >= AFFINITY_ITEMS_MAX) break;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    if (typeof item.category !== 'string') continue;
+    const category = item.category.trim().slice(0, AFFINITY_CATEGORY_MAX);
+    if (!category) continue;
+    if (typeof item.score !== 'number' || !Number.isFinite(item.score)) continue;
+    const score = Math.round(Math.min(AFFINITY_SCORE_MAX, Math.max(0, item.score)));
+    out.push({ category, score });
+  }
+  return out;
+}
+
 /** 资讯/热点类联网检索提示词：带来源要点，禁止编造 */
 const WEB_NEWS_SYSTEM_PROMPT =
   '你是资讯检索助手。基于联网检索结果回答用户问题：用要点形式输出，每条要点标注来源（媒体名或链接）；禁止编造；检索不到可靠信息时明确写「未能检索到相关资讯」，不要凭训练记忆编造时效性内容。';
@@ -528,6 +567,37 @@ exports.main = async (event) => {
     const existing = await db.collection(PREFS_COLLECTION).where({ openid: OPENID }).limit(1).get();
     if (existing.data.length === 0) return { prefs: null };
     return { prefs: sanitizePrefs(existing.data[0]) };
+  }
+
+  // 类目偏好摘要上报：event.affinity 白名单清洗后按 openid 主键 upsert 到 user_affinity 集合。
+  // 【隐私最小化】只存「类目名 + 分数」的聚合摘要，逐条原始行为日志一律不接收、不存储
+  // （见 sanitizeAffinity 的说明）。独立分流：不消耗语音额度、不需要 message。
+  // 与 savePrefs 的差别：非数组直接判为无效请求；是数组（哪怕清洗后为空）都照常落库。
+  if (action === 'saveAffinity') {
+    if (!Array.isArray(event && event.affinity)) return { saved: false, error: 'invalid affinity' };
+    const affinity = sanitizeAffinity(event.affinity);
+    const now = new Date().toISOString();
+    const existing = await db.collection(AFFINITY_COLLECTION).where({ openid: OPENID }).limit(1).get();
+    if (existing.data.length > 0) {
+      await db
+        .collection(AFFINITY_COLLECTION)
+        .doc(existing.data[0]._id)
+        .update({ data: { affinity, updatedAt: now } });
+    } else {
+      await db
+        .collection(AFFINITY_COLLECTION)
+        .add({ data: { openid: OPENID, affinity, createdAt: now, updatedAt: now } });
+    }
+    return { saved: true, count: affinity.length };
+  }
+
+  // 类目偏好摘要读取：返回该 openid 的摘要。与 getPrefs 同理，用 sanitizeAffinity 再清洗一次
+  // （剔除 openid/_id/createdAt/updatedAt 等非 affinity 字段与脏数据）；从未上报返回 { affinity: null }。
+  if (action === 'getAffinity') {
+    const existing = await db.collection(AFFINITY_COLLECTION).where({ openid: OPENID }).limit(1).get();
+    if (existing.data.length === 0) return { affinity: null };
+    const affinity = sanitizeAffinity(existing.data[0].affinity);
+    return { affinity: affinity.length > 0 ? affinity : null };
   }
 
   if (!message) throw new Error('message is required');

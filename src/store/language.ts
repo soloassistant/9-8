@@ -549,7 +549,14 @@ const zh = {
   'library.affinityReset': '清除',
   'library.affinityResetDone': '已清除类目偏好',
   // 跨源同事件合并后的来源数标注
-  'library.multiSource': '{n} 个来源'
+  'library.multiSource': '{n} 个来源',
+
+  // 偏好学习效果（小样本 A/B：开启学习 vs 未开启，比“命中率”）
+  'library.abTitle': '偏好学习效果',
+  'library.abLine': '开启学习 {a}% · 未开启 {b}%（{n} 次样本）',
+  'library.abInsufficient': '样本还太少，先用一阵子我再告诉你有没有用',
+  'library.abReset': '重置统计',
+  'library.abResetDone': '已重置效果统计'
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -1086,7 +1093,13 @@ const en: Record<keyof typeof zh, string> = {
   'library.affinityEmpty': 'Browse a few more items and I\'ll learn what you like',
   'library.affinityReset': 'Clear',
   'library.affinityResetDone': 'Category preferences cleared',
-  'library.multiSource': '{n} sources'
+  'library.multiSource': '{n} sources',
+
+  'library.abTitle': 'Preference learning effect',
+  'library.abLine': 'With learning {a}% · without {b}% ({n} samples)',
+  'library.abInsufficient': 'Not enough samples yet — keep using it and I\'ll tell you whether it helps',
+  'library.abReset': 'Reset stats',
+  'library.abResetDone': 'Stats reset'
 };
 
 export type LangKey = keyof typeof zh;

@@ -174,6 +174,41 @@ export async function apiGetPrefs(): Promise<UserPrefs | null> {
   }
 }
 
+/** 类目偏好摘要（上云口径：只有类目名 + 分数，逐条原始行为记录不上云，服务端白名单会再清洗一次） */
+export interface AffinitySyncItem {
+  category: string
+  score: number
+}
+
+/**
+ * 类目偏好摘要上报（weapp 走 chat 云函数 saveAffinity）；H5 无云函数通道返回 false 不阻塞。
+ * 与 apiSavePrefs 同一约定：任何失败都吞掉并返回 false，调用方无需 try/catch。
+ */
+export async function apiSaveAffinity(items: Array<AffinitySyncItem>): Promise<boolean> {
+  if (!isWeapp) return false
+  try {
+    const res = await callFunction<{ saved?: boolean }>('chat', { action: 'saveAffinity', affinity: items })
+    return !!(res && res.saved)
+  } catch (err) {
+    console.warn('[Cloud] apiSaveAffinity failed:', err)
+    return false
+  }
+}
+
+/** 类目偏好摘要读取（weapp 走 chat 云函数 getAffinity）；从未上报/失败返回 null，由调用方保留本地值 */
+export async function apiGetAffinity(): Promise<Array<AffinitySyncItem> | null> {
+  if (!isWeapp) return null
+  try {
+    const res = await callFunction<{ affinity?: Array<AffinitySyncItem> | null }>('chat', {
+      action: 'getAffinity'
+    })
+    return res && Array.isArray(res.affinity) ? res.affinity : null
+  } catch (err) {
+    console.warn('[Cloud] apiGetAffinity failed:', err)
+    return null
+  }
+}
+
 export async function callFunction<T = unknown>(
   name: string,
   data?: Record<string, unknown>

@@ -24,6 +24,18 @@ const MIME = {
 const FETCH_TIMEOUT = 8000;
 const CACHE_TTL = 30 * 60 * 1000; // 30 分钟内存缓存，避免高频打外部源
 
+// ---------- 跨源同事件合并（聚类）阈值：关键词重叠通道 ----------
+// 只作用于「归一化后既非完全相等、也不互为子串」的标题对，见 isKeywordDuplicate。
+// 三个阈值都调松 → 更多重复被压掉，但误合并（把两件不同的事合成一条，用户本该看到的新闻直接消失）风险上升；
+// 调紧 → 更保守，重复留得多（用户滑过去即可，代价低）。误合并不可逆且用户无从察觉，故整体取向是「宁可漏合并」。
+const KEYWORD_SHARED_MIN = 4; // 两条标题共享的内容单元（中文 bigram / 拉丁词）个数下限。
+//   调低 → 更短的标题也能凑够门槛，误合并风险上升；调高 → 抓不到「短标题 + 长标题补语」这类真实同事件。
+const KEYWORD_RATIO_MIN = 0.9; // 重叠率下限：shared / min(|A|, |B|)。用 min 作分母 = 「较短那条几乎被较长那条覆盖」。
+//   调低到 0.6 会让「苹果发布新款手机 / 苹果发布新款手表」这类共享 6 个 bigram、只差一个词的**不同事件**被误合并；
+//   调高到 1.0 则要求完全覆盖，会漏掉真实同事件中的轻微措辞差异。
+const KEYWORD_MIN_LEN = 8; // 关键词通道的长度门槛：两侧归一化长度都须 ≥ 此值才做判定。
+//   调低 → 短标题（信息量少、偶然重叠概率高）也参与，误合并风险上升；调高 → 短标题的真实重复漏掉。
+
 function fetchText(url) {
   return Promise.race([
     fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then((r) => {
@@ -330,6 +342,62 @@ function isNearDuplicate(a, b) {
   return a.length >= 10 && b.length >= 10 && (a.includes(b) || b.includes(a));
 }
 
+/** CJK 文字范围（中日韩 + 假名 + 朝鲜文；含扩展 A 与兼容表意区）。
+ *  用显式码点区间而非 \p{Script=Han}：后者会把日文汉字/朝鲜文汉字算作 Han，
+ *  但两者都要走 bigram 通道，区间并集更直观也更快。 */
+const CJK_CHAR_RE = /[\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF]/;
+const LATIN_DIGIT_RE = /[a-z0-9]+/g;
+
+/** 内容单元抽取：入参必须是 normalizeTitle() **之后**的字符串（已小写、已去空白与标点符号）。
+ *  中文没有分词器，用相邻字符的**二元组 bigram** 做稳妥近似（「林诗栋」→ 林诗 / 诗栋）——
+ *  bigram 不依赖词典，不会因 OOV 把同一事件切成不同单元，代价只是颗粒度粗。
+ *  拉丁字母/数字按词切分，只取长度 ≥2 的词（单字母/单数字是噪声，不参与）。
+ *  返回去重后的 Set；刻意不返回数组 —— 判定只需要集合交的大小。 */
+function contentTokens(s) {
+  const out = new Set();
+  if (!s) return out;
+  const str = String(s);
+  // 相邻 CJK 字符的 bigram：遇到非 CJK 字符（数字、拉丁词、残留符号）即断链，
+  // 避免把「4」「3」这类分隔符两侧的字跨接成假 bigram。
+  let run = '';
+  for (const ch of str) {
+    if (CJK_CHAR_RE.test(ch)) run += ch;
+    else {
+      for (let i = 0; i + 1 < run.length; i++) out.add(run.slice(i, i + 2));
+      run = '';
+    }
+  }
+  for (let i = 0; i + 1 < run.length; i++) out.add(run.slice(i, i + 2));
+  for (const w of (str.match(LATIN_DIGIT_RE) || [])) if (w.length >= 2) out.add(w);
+  return out;
+}
+
+/** 关键词重叠判定：isNearDuplicate 之外**更宽松但有门槛**的一条通道，
+ *  用于抓「同一事件、措辞不同、且不是互为子串」的跨源重复
+ *  （实测目标：微博「林诗栋4比3林昀儒」vs 抖音「林诗栋4比3逆转林昀儒挺进决赛」）。
+ *  三个条件**同时**成立才判近重复：
+ *    shared >= KEYWORD_SHARED_MIN   绝对重叠数下限，挡住两个短标题因个别偶然 bigram 重合被合并
+ *    shared / min(|A|,|B|) >= KEYWORD_RATIO_MIN   用 min 作分母 = 较短那条几乎被较长那条覆盖
+ *    aLen / bLen 都 >= KEYWORD_MIN_LEN   短标题信息量太少，不参与
+ *  保守性：任一条不满足即不合并。 */
+function isKeywordDuplicate(aTokens, bTokens, aLen, bLen) {
+  if (aLen < KEYWORD_MIN_LEN || bLen < KEYWORD_MIN_LEN) return false;
+  const minSize = Math.min(aTokens.size, bTokens.size);
+  if (!minSize) return false;
+  let shared = 0;
+  for (const t of aTokens) if (bTokens.has(t)) shared += 1;
+  if (shared < KEYWORD_SHARED_MIN) return false;
+  return shared / minSize >= KEYWORD_RATIO_MIN;
+}
+
+/** 同事件判定的**唯一入口**：归一化相等 / 互为子串 / 关键词重叠，三选一。
+ *  fetchHotspot 内的候选判定必须走这里 —— 单测是从本文件抽取函数源码再 eval，
+ *  若在生产里另写一份组合逻辑，抽取到的判定就与真实行为发散。 */
+function isSameEvent(aKey, bKey, aTokens, bTokens) {
+  if (isNearDuplicate(aKey, bKey)) return true;
+  return isKeywordDuplicate(aTokens, bTokens, aKey.length, bKey.length);
+}
+
 /** 返回 { items, meta }；meta: { updatedAt, stale, sources: [{name,count,ok}] } */
 async function fetchHotspot() {
   const now = Date.now();
@@ -398,6 +466,12 @@ async function fetchHotspot() {
   // 同事件跨源合并统计：merged=被合并掉的条数，groups=发生过合并的主条目组数
   const clustered = { merged: 0, groups: 0 };
   const clusterGroups = new Set(); // 产生过合并的主条目下标（同一主条目多次合并只计一组）
+  // 关键词通道的辅助结构。只有归一化长度 ≥ KEYWORD_MIN_LEN 的主条目才收录 ——
+  // 更短的主条目永远过不了 isKeywordDuplicate 的长度门槛，收进来只会白占内存、白算 bigram。
+  const mainKeys = []; // 主条目下标 → 归一化标题（tokenIndex 里的下标回查用得着）
+  const mainTokens = new Map(); // 主条目下标 → contentTokens 结果（候选命中后复核用）
+  const tokenIndex = new Map(); // bigram/词 → 主条目下标数组（倒排索引，天然升序）
+  const clusterT0 = Date.now();
   // 跨源轮询交错：避免单一来源霸占前列（合规与多样性都更好）—— 顺序保持原样，不改成时间倒序
   const maxLen = Math.max(0, ...groups.map((g) => g.length));
   for (let i = 0; i < maxLen; i++) {
@@ -405,6 +479,8 @@ async function fetchHotspot() {
       const it = g[i];
       if (!it) continue;
       const key = normalizeTitle(it.title);
+      // 长度不够的条目在关键词通道里必然不通过，连 bigram 都不用算（省的是热榜主循环里最贵的一步）
+      const tokens = key.length >= KEYWORD_MIN_LEN ? contentTokens(key) : null;
       let hit = -1;
       if (key) {
         if (seen.has(key)) hit = seen.get(key);
@@ -412,11 +488,42 @@ async function fetchHotspot() {
           for (const [k, idx] of seen) {
             if (isNearDuplicate(k, key)) { hit = idx; break; }
           }
+          // 关键词通道：先用倒排索引把候选缩到「至少共享一个 token 的主条目」，
+          // 避免与全部主条目做集合求交（条目数约 260 时朴素全表也叫不慢，但这是可预期的增长项）。
+          if (hit < 0 && tokens && tokens.size) {
+            const votes = new Map(); // 主条目下标 → 与该条目共享的 token 数
+            for (const t of tokens) {
+              const idxs = tokenIndex.get(t);
+              if (!idxs) continue;
+              for (const idx of idxs) votes.set(idx, (votes.get(idx) || 0) + 1);
+            }
+            // 择优：共享数最多者；并列取更小下标 = 更早出现的主条目（与「先出现者为主」口径一致）。
+            // 相对顺序不影响结果（比较的是数值而非遍历次序），因此与朴素遍历等价。
+            let best = -1;
+            let bestShared = 0;
+            for (const [idx, n] of votes) {
+              if (n < KEYWORD_SHARED_MIN) continue; // 绝对门槛先行，省掉无谓的集合求交
+              if (n > bestShared) { best = idx; bestShared = n; }
+              else if (n === bestShared && (best < 0 || idx < best)) best = idx;
+            }
+            if (best >= 0 && isSameEvent(key, mainKeys[best], tokens, mainTokens.get(best))) hit = best;
+          }
         }
       }
       if (hit < 0) {
         // 未命中 → 作为新主条目。先出现者保留为主条目（交错顺序已保证来源分散，不偏爱任何源）
-        if (key) seen.set(key, merged.length);
+        if (key) {
+          seen.set(key, merged.length);
+          if (tokens && tokens.size) {
+            mainTokens.set(merged.length, tokens);
+            for (const t of tokens) {
+              const arr = tokenIndex.get(t);
+              if (arr) arr.push(merged.length);
+              else tokenIndex.set(t, [merged.length]);
+            }
+          }
+        }
+        mainKeys[merged.length] = key;
         merged.push(it);
         continue;
       }
@@ -433,6 +540,9 @@ async function fetchHotspot() {
     }
   }
   clustered.groups = clusterGroups.size;
+  // 聚类耗时（可观测）：只在真正拉取真源的这一轮打印，命中缓存不打印
+  console.log('[hotspot] 聚类耗时 ' + (Date.now() - clusterT0) + 'ms / 主条目 ' + merged.length
+    + ' / 合并 ' + clustered.merged + ' 条（' + clustered.groups + ' 组）');
   // 剥离内部字段：pubDate 只用于上面的新鲜度闸门，不进入响应契约（HotspotNews 无该字段）。
   // 只挑 pubDate 丢、不做白名单裁剪 —— alsoFrom 属于响应契约，必须原样保留。
   const items = merged.map(({ pubDate, ...rest }) => rest);
