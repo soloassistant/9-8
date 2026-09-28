@@ -243,7 +243,6 @@ const FALLBACK_RSS = [
   { name: '少数派', url: 'https://sspai.com/feed', tag: '数字生活' }, // [audit] 数字生活，时政占比≈0，保留
   { name: '爱范儿', url: 'https://www.ifanr.com/feed', tag: '科技' }, // [audit] 科技，时政占比≈0，保留
   { name: 'IT之家', url: 'https://www.ithome.com/rss', tag: '科技' }, // [audit] 科技，时政占比低（偶涉行业政策），保留
-  { name: '极客公园', url: 'https://www.geekpark.net/rss', tag: '科技' }, // [audit] 科技，时政占比低，保留
   { name: '钛媒体', url: 'https://www.tmtpost.com/rss', tag: '商业' }, // [audit] 财经/商业，时政占比低-中（宏观政策），观察保留
   // 2026-09-28 多元化扩源：兜底清单必须与唯一事实源保持同口径，否则一旦解析失败回退，类目又会缩回 7 类
   { name: '机核', url: 'https://www.gcores.com/rss', tag: '游戏' },
@@ -293,6 +292,11 @@ const HOTSPOT_SOURCES = [
   // 验证方式：不起服务、不占端口，直接 import 各 route 的 handleRoute 并给假 ListContext，
   // 即「等价于请求该端点」但不引入常驻进程 —— 见 .tmp-verify/diverse-intel/verify-boards.ts 的做法。
   // 全部实测通过且**耗时都在 fetchText 的 8s 上限内**（这是只在条数之外还必须量的一项）。
+  // 极客公园走板块而非 RSS：其 RSS 响应体 540–595KB（内嵌全文），实测 8.6s/16.3s/20.0s，
+  // 稳定超过 fetchText 的 8s 上限 → 作为 RSS 源等于「挂着但取不到数」。
+  // 该板块上游是 mainssl.geekpark.net/api/v2 的 JSON 接口，实测 2173ms / 20 条。
+  // 代价（已知并接受）：板块条目不带 pubDate，因此不再走新鲜度闸门；其新鲜度由 DailyHotApi 的缓存 TTL 兜底。
+  hotBoard('geekpark', '极客公园', 10, '科技'), // [audit] 科技，≈0% · 实测 20 条 / 2.17s
   hotBoard('hellogithub', 'HelloGitHub', 10, '开源'), // [audit] 开源项目，≈0% · 实测 20 条 / 4.5s
   hotBoard('guokr', '果壳', 10, '科学'), // [audit] 科学科普，≈0% · 实测 30 条 / 0.23s
   hotBoard('dgtle', '数字尾巴', 10, '数码'), // [audit] 数码消费，≈0% · 实测 20 条 / 0.5s
@@ -303,6 +307,28 @@ const HOTSPOT_SOURCES = [
   //   coolapk（酷安）：上游 403（需签名）。
   //   lol / v2ex / miyoushe（电竞/开发者社区/二次元）：上游连接失败（curl http=000）。
 ];
+
+/** 标题归一化：只收敛「同一事件的不同书写」，**绝不做分词、绝不做改写**。
+ *  小写 → 去所有空白（含全角空格 U+3000）→ 去标点与符号类字符。
+ *  \p{P} 覆盖 ·、，。！？：；""''（）【】《》-—_|/.,!?:;'"()[]<> 等标点，
+ *  \p{S} 覆盖 emoji 与 # * ~ + = % 等符号类字符（含货币/数学/修饰符号）。
+ *  保守的根因见下方聚类处的注释：误合并＝用户本该看到的新闻直接消失，代价高于重复。 */
+function normalizeTitle(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[\s\u3000]+/g, '')
+    .replace(/[\p{P}\p{S}]/gu, '');
+}
+
+/** 近重复判定（保守）：归一化后完全相等，或两者归一化长度**都 ≥ 10**且互为子串
+ *  （用于「标题带来源后缀」这类同事件不同措辞）。
+ *  刻意**不做分词 / 相似度打分 / 模糊阈值匹配**：少合并只是多留一条重复（用户滑过去即可），
+ *  误合并则是把用户本该看到的另一件事凭空抹掉，不可逆且用户无从察觉。宁可漏合并，不可错合并。 */
+function isNearDuplicate(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return a.length >= 10 && b.length >= 10 && (a.includes(b) || b.includes(a));
+}
 
 /** 返回 { items, meta }；meta: { updatedAt, stale, sources: [{name,count,ok}] } */
 async function fetchHotspot() {
@@ -367,20 +393,48 @@ async function fetchHotspot() {
     st.count = st.ok ? groups.reduce((n, g) => n + g.filter((it) => it.source === st.name).length, 0) : 0;
   }
 
-  const seen = new Set();
+  const seen = new Map(); // 归一化标题 → 主条目在 merged 中的下标
   const merged = [];
-  // 跨源轮询交错：避免单一来源霸占前列（合规与多样性都更好）
+  // 同事件跨源合并统计：merged=被合并掉的条数，groups=发生过合并的主条目组数
+  const clustered = { merged: 0, groups: 0 };
+  const clusterGroups = new Set(); // 产生过合并的主条目下标（同一主条目多次合并只计一组）
+  // 跨源轮询交错：避免单一来源霸占前列（合规与多样性都更好）—— 顺序保持原样，不改成时间倒序
   const maxLen = Math.max(0, ...groups.map((g) => g.length));
   for (let i = 0; i < maxLen; i++) {
     for (const g of groups) {
       const it = g[i];
       if (!it) continue;
-      const k = it.title.slice(0, 24);
-      if (!seen.has(k)) { seen.add(k); merged.push(it); }
+      const key = normalizeTitle(it.title);
+      let hit = -1;
+      if (key) {
+        if (seen.has(key)) hit = seen.get(key);
+        else {
+          for (const [k, idx] of seen) {
+            if (isNearDuplicate(k, key)) { hit = idx; break; }
+          }
+        }
+      }
+      if (hit < 0) {
+        // 未命中 → 作为新主条目。先出现者保留为主条目（交错顺序已保证来源分散，不偏爱任何源）
+        if (key) seen.set(key, merged.length);
+        merged.push(it);
+        continue;
+      }
+      // 命中 → 并入主条目。只带走「来源」和（主条目缺摘要时的）摘要，标题/链接/图片一律以主条目为准
+      const main = merged[hit];
+      clusterGroups.add(hit);
+      if (it.source && it.source !== main.source) {
+        // alsoFrom 延迟创建：合并 0 条时不产出空数组，不给响应契约塞无意义字段
+        if (!main.alsoFrom) main.alsoFrom = [];
+        if (main.alsoFrom.length < 8 && !main.alsoFrom.includes(it.source)) main.alsoFrom.push(it.source);
+      }
+      if (!main.summary && it.summary) main.summary = it.summary;
+      clustered.merged += 1;
     }
   }
-  // 剥离内部字段：pubDate 只用于上面的新鲜度闸门，不进入响应契约
-  // （src/types/index.ts 的 HotspotNews 无该字段，且该文件已冻结）
+  clustered.groups = clusterGroups.size;
+  // 剥离内部字段：pubDate 只用于上面的新鲜度闸门，不进入响应契约（HotspotNews 无该字段）。
+  // 只挑 pubDate 丢、不做白名单裁剪 —— alsoFrom 属于响应契约，必须原样保留。
   const items = merged.map(({ pubDate, ...rest }) => rest);
 
   const meta = {
@@ -388,7 +442,9 @@ async function fetchHotspot() {
     stale: false,
     sources: srcStatus,
     // 新鲜度闸门丢弃数（可观测）：undated=无 pubDate，stale=早于 STALE_ITEM_DAYS 天
-    dropped
+    dropped,
+    // 同事件跨源合并数（可观测）：merged=被合并掉的条数，groups=发生过合并的主条目组数
+    clustered
   };
   if (items.length) {
     hotspotCache.at = now;
@@ -504,7 +560,9 @@ http.createServer(async (req, res) => {
           stale: !!meta?.stale,
           sources: meta?.sources || [],
           // 新鲜度闸门丢弃数：不下发就等于没算 —— 「源冻住了」必须能被外部看到，否则又是一个静默失败
-          dropped: meta?.dropped || { undated: 0, stale: 0 }
+          dropped: meta?.dropped || { undated: 0, stale: 0 },
+          // 同事件跨源合并数：与 dropped 同口径下发 —— 合并到底有没有发生，必须能被外部观测到
+          clustered: meta?.clustered || { merged: 0, groups: 0 }
         }));
       })
       .catch(() => {

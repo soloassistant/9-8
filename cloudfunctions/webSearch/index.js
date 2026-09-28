@@ -72,8 +72,12 @@ const RSS_SOURCES = [
   { name: '爱范儿', url: 'https://www.ifanr.com/feed', tag: '科技' },
   // [audit] 科技 · 时政占比低（<5%，偶涉行业政策/监管新闻） · 保留，观察
   { name: 'IT之家', url: 'https://www.ithome.com/rss', tag: '科技' },
-  // [audit] 科技 · 低（<5%） · 保留，低风险
-  { name: '极客公园', url: 'https://www.geekpark.net/rss', tag: '科技' },
+  // ⚠️ 极客公园（https://www.geekpark.net/rss）已于 2026-09-28 **移出 RSS 清单**：
+  //    实测响应体 540–595KB（内嵌全文），单次耗时 8.6s / 16.3s / 20.0s —— 稳定超过本函数的
+  //    FETCH_TIMEOUT_MS=6000 与预览侧的 8000ms，等于「挂着但取不到数」还会占用一次超时预算。
+  //    预览侧热点链路已改走 DailyHotApi 的 /geekpark 板块（其上游是 mainssl.geekpark.net/api/v2
+  //    的 JSON 接口，实测 2173ms / 20 条），见 .tools/static-server.js 的 hotBoard 注册处。
+  //    若要在此恢复该源，必须先确认它能在 6s 内返回，否则不要回填。
   // [audit] 科技/AI · ≈0% · 保留，低风险
   { name: '量子位', url: 'https://www.qbitai.com/feed', tag: 'AI' },
   // [audit] 财经/商业 · 低-中（10%~20%，宏观政策解读） · 观察保留；AI 精选层可对「政策解读」类降权

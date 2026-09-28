@@ -15,6 +15,8 @@ import type { CollectionItem, HotspotNews } from '@/types';
 import { useT } from '@/store/language';
 import { readPrefs } from '@/utils/prefs';
 import { getPersonalization, setPersonalization } from '@/utils/permission';
+import { categoryOf, categoryLabel } from '@/utils/categoryLabel';
+import { getTopCategories, recordCategorySignal, resetAffinity } from '@/utils/categoryAffinity';
 import {
   readBlockRules,
   addBlockRules,
@@ -173,6 +175,8 @@ function LibraryPage() {
   const [aiPicks, setAiPicks] = useState<HotspotNews[] | null>(null);
   const [aiSummary, setAiSummary] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  // 类目偏好闭环的展示态：与 storage 同源，学到新偏好后立即反映到 AI 精选面板
+  const [affinityCats, setAffinityCats] = useState<string[]>(() => getTopCategories(3));
 
   const toggleInterest = (tag: string) =>
     setAiInterests((prev) =>
@@ -192,6 +196,9 @@ function LibraryPage() {
     Taro.showToast({ title: t('library.aiSaved'), icon: 'none', duration: 1200 });
   };
 
+  /** 记录信号后同步展示态，保证「面板上显示的偏好」与「回灌给 AI 的偏好」始终一致 */
+  const syncAffinity = () => setAffinityCats(getTopCategories(3));
+
   /** 兴趣画像信号：👍 反馈过的资讯标题 + 最近浏览标题（随请求带给 AI 参考，不展示） */
   const readSignals = (): string[] => {
     const upTitles = Object.entries(feedbackMap)
@@ -209,7 +216,17 @@ function LibraryPage() {
   const handleAiFilter = async () => {
     if (aiLoading) return;
     setAiLoading(true);
-    const res = await apiAiNewsFilter(aiInterests, aiCustom.trim(), readSignals());
+    // 【类目偏好闭环的消费点】学习到的类目必须真的回灌给 AI，否则就是「只存不用」。
+    // 合并规则：用户手选(aiInterests)在前 → 学到的类目补在后（过滤掉已选项去重）
+    //           → 整体 slice(0, 8)（服务端 interests 上限就是 8）。
+    // 因此学习结果永远不会覆盖/挤掉用户的显式选择。
+    const learned = getTopCategories(3);
+    const interests = [
+      ...aiInterests,
+      ...learned.filter((c) => !aiInterests.includes(c))
+    ].slice(0, 8);
+    setAffinityCats(learned);
+    const res = await apiAiNewsFilter(interests, aiCustom.trim(), readSignals());
     setAiLoading(false);
     if (!res) {
       Taro.showToast({ title: t('library.aiFail'), icon: 'none' });
@@ -218,6 +235,13 @@ function LibraryPage() {
     setAiPicks(res.items);
     setAiSummary(res.summary);
     if (res.items.length) logActivity('✨', `AI 精选资讯 ${res.items.length} 条`);
+  };
+
+  /** 清除类目偏好：清存储 → 立即清空面板那一行（局部态）→ toast */
+  const handleResetAffinity = () => {
+    resetAffinity();
+    setAffinityCats([]);
+    Taro.showToast({ title: t('library.affinityResetDone'), icon: 'none' });
   };
 
   useEffect(() => {
@@ -311,6 +335,9 @@ function LibraryPage() {
 
   const handleNewsTap = (item: HotspotNews) => {
     recordBrowseHistory({ id: item.id, title: item.title, source: item.source });
+    // 类目偏好学习（点击 = 弱信号）；存下来的类目会在 handleAiFilter 里回灌给 AI 精选
+    recordCategorySignal(categoryOf(item.tags), 'tap');
+    syncAffinity();
     logActivity('🔥', `浏览热点：${item.title.slice(0, 14)}`);
     Taro.showToast({ title: `来源：${item.source}`, icon: 'none', duration: 1500 });
   };
@@ -423,6 +450,10 @@ function LibraryPage() {
     }
 
     if (next) {
+      // 反馈是强于点击的信号（👍 加权 / 👎 抵消）。本函数是**切换语义**（再点一次 = 取消），
+      // 所以只在 next 有值时记一次；取消（next === undefined）时不记，避免「点两次 = 双倍负分」。
+      recordCategorySignal(categoryOf(item.tags), next);
+      syncAffinity();
       logActivity(next === 'up' ? '👍' : '👎', `资讯反馈：${item.title.slice(0, 14)}`);
       Taro.showToast({ title: t('library.feedbackSaved'), icon: 'none', duration: 1200 });
       // 云端落库（真机生效；取消反馈只改本地，云端按最新一条聚合）
@@ -617,6 +648,10 @@ function LibraryPage() {
     const fb = feedbackMap[item.id];
     const showAiBadge = showReason || !!item.aiReason;
     const reasonExpanded = !!expandedReasons[item.id];
+    // 跨源同事件合并（服务端可选字段 alsoFrom）：类型可能尚未声明该字段，
+    // 且运行时可能缺失或非数组 —— 用 unknown + Array.isArray 收窄，不做任何假设。
+    const alsoFrom = (item as { alsoFrom?: unknown }).alsoFrom;
+    const multiSourceCount = Array.isArray(alsoFrom) ? alsoFrom.length : 0;
     return (
       <View key={item.id} className={styles.newsCard} onClick={() => handleNewsTap(item)}>
         {item.image ? (
@@ -661,6 +696,12 @@ function LibraryPage() {
         ) : null}
         <View className={styles.newsMeta}>
           <Text className={styles.newsSource}>来源 · {item.source}</Text>
+          {/* 同事件多来源标注：仅在 alsoFrom 非空时显示（n = 其他来源数 + 1 个本来源） */}
+          {multiSourceCount > 0 ? (
+            <Text className={styles.newsSource}>
+              {t('library.multiSource', { n: multiSourceCount + 1 })}
+            </Text>
+          ) : null}
           <Text className={styles.newsTime}>{fromNow(item.createTime)}</Text>
         </View>
         <View className={styles.feedbackRow} onClick={(e) => e.stopPropagation()}>
@@ -777,6 +818,22 @@ function LibraryPage() {
                   {aiEditing ? t('library.aiHide') : t('library.aiEdit')}
                 </Text>
               </View>
+              {/* 类目偏好闭环：把「学到了什么」摆在明面上（可一键清除）。
+                  学习结果同时会经 handleAiFilter 回灌给 AI，界面与实际生效口径一致。 */}
+              <View className={styles.aiTipRow}>
+                <Text className={styles.aiTipText}>
+                  {affinityCats.length
+                    ? `${t('library.affinityTitle')} · ${t('library.affinityDesc', {
+                        cats: affinityCats.map((c) => categoryLabel(c, t)).join('、')
+                      })}`
+                    : t('library.affinityEmpty')}
+                </Text>
+                {affinityCats.length ? (
+                  <Text className={styles.aiEditBtn} onClick={handleResetAffinity}>
+                    {t('library.affinityReset')}
+                  </Text>
+                ) : null}
+              </View>
               {aiEditing ? (
                 <View className={styles.aiEditor}>
                   <View className={styles.aiChips}>
@@ -842,7 +899,7 @@ function LibraryPage() {
                 {newsTags.map((tag) => (
                   <TagChip
                     key={tag}
-                    label={tag}
+                    label={categoryLabel(tag, t)}
                     active={tag === activeNewsTag}
                     onClick={() => setActiveNewsTag(tag)}
                   />
@@ -879,7 +936,12 @@ function LibraryPage() {
       <View className={styles.filterBar}>
         <ScrollView scrollX className={styles.chipScroll}>
           {tags.map((tag) => (
-            <TagChip key={tag} label={tag} active={tag === activeTag} onClick={() => setActiveTag(tag)} />
+            <TagChip
+              key={tag}
+              label={categoryLabel(tag, t)}
+              active={tag === activeTag}
+              onClick={() => setActiveTag(tag)}
+            />
           ))}
         </ScrollView>
       </View>
@@ -894,8 +956,8 @@ function LibraryPage() {
             </View>
             <Text className={styles.summary}>{item.summary}</Text>
             <View className={styles.tagRow}>
-              {item.tags.map((t) => (
-                <TagChip key={t} label={t} />
+              {item.tags.map((tg) => (
+                <TagChip key={tg} label={categoryLabel(tg, t)} />
               ))}
             </View>
           </View>

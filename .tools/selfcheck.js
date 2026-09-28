@@ -302,6 +302,22 @@ check('AI 精选多样性：提示词规则 + 确定性兜底', '多元化扩源
     : { pass: false, detail: 'prompt=' + promptOk + ' quota20=' + quotaOk + ' guard=' + guardOk + ' obs=' + obsOk };
 });
 
+/* ---------- 21. 资讯质量回归入口已注册（2026-09-28 固化） ---------- */
+// 为什么检查这个：类目多元化/源健康/板块可用性的验证手段此前是一次性脚本（散落在 .tmp-verify/，
+// 不纳入版本控制、随时被清），下次没人知道怎么跑、也无法回归。这里守住「入口已注册且脚本在位」，
+// 让 `npm run verify:intel / vet:sources / verify:boards` 永远可复跑。
+check('资讯质量回归入口已注册（vet:sources / verify:boards / verify:intel）', '多元化扩源', () => {
+  const pkg = read('package.json');
+  if (!pkg) return { pass: false, detail: 'package.json 不存在' };
+  let scripts = {};
+  try { scripts = JSON.parse(pkg).scripts || {}; } catch (e) { return { pass: false, detail: 'package.json 解析失败：' + e.message }; }
+  const missingScripts = ['vet:sources', 'verify:boards', 'verify:intel'].filter((k) => !scripts[k]);
+  const missingFiles = ['.tools/analyze-intel.js', '.tools/verify-boards.js', '.tools/board-probe.ts'].filter((f) => !exists(f));
+  return missingScripts.length === 0 && missingFiles.length === 0
+    ? { pass: true, detail: '3 条 script 已注册，3 个脚本文件均在' }
+    : { pass: false, detail: (missingScripts.length ? '缺 script：' + missingScripts.join(', ') + '；' : '') + (missingFiles.length ? '缺文件：' + missingFiles.join(', ') : '') };
+});
+
 /* ---------- 主流程 ---------- */
 // 退出码：0 = 全部 PASS；1 = 有 FAIL；2 = 无 FAIL 但有 SKIP（需人工补验）
 (async () => {

@@ -518,7 +518,38 @@ const zh = {
   'learn.speakMatchRetry': '有点差距，再听一遍慢慢来',
   'learn.speakSkip': '跳过这句',
   'learn.speakProgress': '已跟读 {count}/{total} 句',
-  'learn.speakDone': '跟读完成！'
+  'learn.speakDone': '跟读完成！',
+
+  // 资讯类目的展示名（唯一来源见 src/utils/categoryLabel.ts）。
+  // 为什么要单独做一套键：类目 tag 是**数据层写入的中文串**（RSS 源的 tag / 垂类热榜的 tag），
+  // 直接渲染会导致 en 语言下混进中文，与整站双语不一致。
+  'cat.life': '数字生活',
+  'cat.tech': '科技',
+  'cat.ai': 'AI',
+  'cat.business': '商业',
+  'cat.finance': '财经',
+  'cat.society': '社会',
+  'cat.current': '时事',
+  'cat.game': '游戏',
+  'cat.auto': '汽车',
+  'cat.consumer': '消费',
+  'cat.education': '教育',
+  'cat.dev': '开发者',
+  'cat.opensource': '开源',
+  'cat.science': '科学',
+  'cat.digital': '数码',
+  'cat.film': '影视',
+  'cat.hotlist': '综合热榜',
+  'cat.unknown': '未分类',
+
+  // 类目偏好学习（闭环：记录行为 → 算出偏好 → 回灌 AI 精选）
+  'library.affinityTitle': '已记住你的类目偏好',
+  'library.affinityDesc': '根据你的点击与反馈，优先保留：{cats}',
+  'library.affinityEmpty': '多浏览几条，我会记住你偏好哪类资讯',
+  'library.affinityReset': '清除',
+  'library.affinityResetDone': '已清除类目偏好',
+  // 跨源同事件合并后的来源数标注
+  'library.multiSource': '{n} 个来源'
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -1029,7 +1060,33 @@ const en: Record<keyof typeof zh, string> = {
   'learn.speakMatchRetry': 'Not quite there — replay it and take it slow',
   'learn.speakSkip': 'Skip this line',
   'learn.speakProgress': '{count}/{total} lines repeated',
-  'learn.speakDone': 'Speaking complete!'
+  'learn.speakDone': 'Speaking complete!',
+
+  'cat.life': 'Digital life',
+  'cat.tech': 'Tech',
+  'cat.ai': 'AI',
+  'cat.business': 'Business',
+  'cat.finance': 'Finance',
+  'cat.society': 'Society',
+  'cat.current': 'Current affairs',
+  'cat.game': 'Gaming',
+  'cat.auto': 'Auto',
+  'cat.consumer': 'Shopping',
+  'cat.education': 'Education',
+  'cat.dev': 'Developer',
+  'cat.opensource': 'Open source',
+  'cat.science': 'Science',
+  'cat.digital': 'Gadgets',
+  'cat.film': 'Film & TV',
+  'cat.hotlist': 'Trending',
+  'cat.unknown': 'Other',
+
+  'library.affinityTitle': 'Your learned category preferences',
+  'library.affinityDesc': 'Based on your taps and feedback, keeping more of: {cats}',
+  'library.affinityEmpty': 'Browse a few more items and I\'ll learn what you like',
+  'library.affinityReset': 'Clear',
+  'library.affinityResetDone': 'Category preferences cleared',
+  'library.multiSource': '{n} sources'
 };
 
 export type LangKey = keyof typeof zh;

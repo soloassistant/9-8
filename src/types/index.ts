@@ -164,6 +164,8 @@ export interface HotspotNews {
   source: string;
   /** 原文链接（若有） */
   url?: string;
+  /** 同事件的其他来源媒体名（跨源合并时才有；不含本条自身 source，按出现顺序去重，上限 8） */
+  alsoFrom?: string[];
   /** 真实配图（RSS media/enclosure/正文首图；AI 发图来源） */
   image?: string;
   tags: string[];
