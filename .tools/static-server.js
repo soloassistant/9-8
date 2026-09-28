@@ -61,8 +61,11 @@ function clean(s) {
     .trim();
 }
 
-/** 极简 RSS 解析（无依赖，够用即可） */
-function parseRss(xml, source, limit) {
+/** 极简 RSS 解析（无依赖，够用即可）
+ *  tag：该源所属类目（来自 RSS_SOURCES），透传到条目 tags，供前端做类目分组/展示。
+ *  与云函数 webSearch/index.js 的 parseFeed(xml, sourceName, tag) 口径一致 —— 两侧都标注类目，
+ *  否则「多元化」只发生在数据里、用户在界面上看不见。 */
+function parseRss(xml, source, limit, tag) {
   const out = [];
   const blocks = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
   for (const b of blocks.slice(0, limit)) {
@@ -80,7 +83,7 @@ function parseRss(xml, source, limit) {
       summary: (desc || title).slice(0, 80),
       source,
       url: link,
-      tags: [],
+      tags: tag ? [tag] : [],
       pubDate: Number.isFinite(pubMs) ? pubMs : null
     });
   }
@@ -154,8 +157,11 @@ const hotspotCache = { at: 0, items: [], meta: null };
 // 2026-09-15 新增热榜源：经本地 DailyHotApi（6688 端口）统一取数，来源标注与 RSS 源同机制
 const HOT_API = 'http://127.0.0.1:6688';
 
-/** DailyHotApi 热榜 → 统一资讯条目（hot 为平台热度值，url 优先移动端链接） */
-function hotBoard(route, label, limit) {
+/** DailyHotApi 热榜 → 统一资讯条目（hot 为平台热度值，url 优先移动端链接）
+ *  tag：垂类板块的类目（如「开源」「科学」）。综合榜不传，保持 tags=['热榜'] 的既有语义。
+ *  两个标签都要留：'热榜' 是给用户看的形态标注（合规要求「热搜参考」而非新闻报道），
+ *  类目是给 AI 精选做多样性判断用的 —— 合成一个会丢信息。 */
+function hotBoard(route, label, limit, tag) {
   return {
     name: label,
     fetch: () =>
@@ -168,7 +174,7 @@ function hotBoard(route, label, limit) {
             summary: `${label} 第 ${i + 1} 位${it.hot ? ` · 热度 ${it.hot}` : ''}`,
             source: label,
             url: it.mobileUrl || it.url || '',
-            tags: ['热榜']
+            tags: tag ? ['热榜', tag] : ['热榜']
           }))
         )
   };
@@ -214,7 +220,15 @@ const FALLBACK_RSS = [
   { name: '爱范儿', url: 'https://www.ifanr.com/feed', tag: '科技' }, // [audit] 科技，时政占比≈0，保留
   { name: 'IT之家', url: 'https://www.ithome.com/rss', tag: '科技' }, // [audit] 科技，时政占比低（偶涉行业政策），保留
   { name: '极客公园', url: 'https://www.geekpark.net/rss', tag: '科技' }, // [audit] 科技，时政占比低，保留
-  { name: '钛媒体', url: 'https://www.tmtpost.com/rss', tag: '商业' } // [audit] 财经/商业，时政占比低-中（宏观政策），观察保留
+  { name: '钛媒体', url: 'https://www.tmtpost.com/rss', tag: '商业' }, // [audit] 财经/商业，时政占比低-中（宏观政策），观察保留
+  // 2026-09-28 多元化扩源：兜底清单必须与唯一事实源保持同口径，否则一旦解析失败回退，类目又会缩回 7 类
+  { name: '机核', url: 'https://www.gcores.com/rss', tag: '游戏' },
+  { name: '车东西', url: 'https://chedongxi.com/rss', tag: '汽车' },
+  { name: '什么值得买', url: 'https://post.smzdm.com/feed', tag: '消费' },
+  { name: '芥末堆', url: 'https://www.jiemodui.com/feed', tag: '教育' },
+  { name: 'InfoQ中文', url: 'https://www.infoq.cn/feed', tag: '开发者' },
+  { name: '掘金', url: 'https://juejin.cn/rss', tag: '开发者' },
+  { name: '小众软件', url: 'https://www.appinn.com/feed/', tag: '数字生活' }
 ];
 const RSS_SOURCES = SHARED_RSS.list || FALLBACK_RSS;
 if (SHARED_RSS.err) {
@@ -225,7 +239,8 @@ console.log('[hotspot] RSS 源（' + (SHARED_RSS.list ? '来自云函数 webSear
 const HOTSPOT_SOURCES = [
   ...RSS_SOURCES.map((s) => ({
     name: s.name,
-    fetch: () => fetchText(s.url).then((x) => parseRss(x, s.name, RSS_PER_SOURCE))
+    // tag 一并传入：类目要落到条目 tags 上，前端才能按类目分组展示（与云函数 toNews 口径一致）
+    fetch: () => fetchText(s.url).then((x) => parseRss(x, s.name, RSS_PER_SOURCE, s.tag))
   })),
   {
     name: '知乎日报',
@@ -249,7 +264,20 @@ const HOTSPOT_SOURCES = [
   hotBoard('zhihu', '知乎热榜', 10), // [audit] 综合，时政占比不可控（偏高）
   hotBoard('baidu', '百度热点', 10), // [audit] 综合，时政占比不可控（偏高）
   hotBoard('douyin', '抖音热点', 10), // [audit] 综合，时政占比不可控（偏高）
-  hotBoard('bilibili', 'B站热榜', 10) // [audit] 综合，时政占比不可控（中等）
+  hotBoard('bilibili', 'B站热榜', 10), // [audit] 综合，时政占比不可控（中等）
+  // ↓↓↓ 2026-09-28 多元化扩源：新增垂类板块（非综合榜，时政占比≈0，是合规上最安全的扩类目方式）↓↓↓
+  // 验证方式：不起服务、不占端口，直接 import 各 route 的 handleRoute 并给假 ListContext，
+  // 即「等价于请求该端点」但不引入常驻进程 —— 见 .tmp-verify/diverse-intel/verify-boards.ts 的做法。
+  // 全部实测通过且**耗时都在 fetchText 的 8s 上限内**（这是只在条数之外还必须量的一项）。
+  hotBoard('hellogithub', 'HelloGitHub', 10, '开源'), // [audit] 开源项目，≈0% · 实测 20 条 / 4.5s
+  hotBoard('guokr', '果壳', 10, '科学'), // [audit] 科学科普，≈0% · 实测 30 条 / 0.23s
+  hotBoard('dgtle', '数字尾巴', 10, '数码'), // [audit] 数码消费，≈0% · 实测 20 条 / 0.5s
+  hotBoard('douban-movie', '豆瓣电影', 10, '影视') // [audit] 影视榜单，≈0% · 实测 10 条 / 0.74s
+  // ⚠️ 以下板块已实测**不采纳**，勿再加：
+  //   github（开源趋势）：实测单次 11.8s > fetchText 的 8s 上限 → 上线即超时，连续失败进 30 分钟冷却，纯负资产；
+  //     且其 title 只取 repo 名（丢失 owner），标题形如「paperclip」可读性差。
+  //   coolapk（酷安）：上游 403（需签名）。
+  //   lol / v2ex / miyoushe（电竞/开发者社区/二次元）：上游连接失败（curl http=000）。
 ];
 
 /** 返回 { items, meta }；meta: { updatedAt, stale, sources: [{name,count,ok}] } */
@@ -570,7 +598,12 @@ http.createServer(async (req, res) => {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ ...aiFilterCache.payload, cached: true }));
           }
-          const candidates = items.slice(0, 110).map((it, i) => `${i + 1}. [${it.source}] ${it.title}`);
+          // 候选串带上 [来源·类目]：类目由数据自己带（RSS 源 tag / 垂类板块 tag），
+          // 而不是把「哪个源属于哪个类目」硬编码进上游提示词 —— 那样一改源清单就失真。
+          const candidates = items.slice(0, 110).map((it, i) => {
+            const tags = Array.isArray(it.tags) && it.tags.length ? '·' + it.tags.join('/') : '';
+            return `${i + 1}. [${it.source}${tags}] ${it.title}`;
+          });
           const fbody = JSON.stringify({ interests, custom, signals, candidates });
           const proxyReq = http.request(
             {

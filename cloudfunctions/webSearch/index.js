@@ -44,10 +44,26 @@ const INTEL_ITEM_TEXT_MAX = 80;
  *
  * ⚠️ 维护须知（2026-09 实测校准）：
  *  · 全部为 https，全部经 fetchText()（https.get + utf8）实跑验证可解析；
- *  · 类目覆盖：科技 / AI / 商业 / 财经 / 社会 / 时事 / 数字生活；
+ *  · 类目覆盖：科技 / AI / 商业 / 财经 / 社会 / 时事 / 数字生活 / 游戏 / 汽车 / 消费 / 教育 / 开发者；
  *  · 已淘汰的死源（勿再添加）：36氪（返回 HTML 非 RSS，静默 0 条）、虎嗅与澎湃镜像 feedx.net（10s 超时）、
  *    人民网（源冻结于 2025-06）、新华网（无 pubDate，内容停留 2022 年）、RSSHub 公共实例（超时）。
  *  · 新增源必须「能解析出带 pubDate 的条目」，否则会被下方 fetchOneSource() 健康检查判为 empty/undated/stale 并排除。
+ *
+ * ⚠️ 2026-09-28 多元化扩源实测记录（方法论见 .tools/vet-feeds.js + .tools/discover-feeds.js）：
+ *  · 先对 70 个候选站点做 RSS autodiscovery，仅 14 个（20%）存在 feed —— 中文垂直媒体已大面积下线 RSS，
+ *    因此「多元化」不能只靠加 RSS 源，必须同时扩热榜板块（见 .tools/static-server.js 的 hotBoard 注册处）。
+ *  · 本轮淘汰（勿回填）：
+ *      时光网      https://feed.mtime.com/comment.rss      源已死（连接失败）
+ *      环球科学     https://www.huanqiukexue.com/?feed=rss2 半月更，最新 12.7 天前 → 整源被 7 天闸门丢弃
+ *      SegmentFault https://segmentfault.com/feeds/questions 纯 Atom（只有 <entry>），预览侧 parseRss 恒 0 条
+ *     阮一峰博客   https://feeds.feedburner.com/ruanyifeng  第三方镜像 + 超时（合规与稳定性双不合）
+ *      爱搞机      https://www.igao7.com/feed              边缘：最新 3.7 天、存活 6/10，有踩闸门风险
+ *      异次元软件   https://feed.iplaysoft.com/              边缘：最新 3.4 天、存活 5/10
+ *  · 首页可达但**完全没有 feed**（不要再试）：果壳、丁香园、虎扑、懂球帝、新浪体育、网易体育、直播吧、
+ *    下厨房、马蜂窝、穷游、自然之友、中国环境报、健康时报、生命时报、科学网、科普中国、雅昌艺术网、
+ *    单向街、理想国、三联生活周刊、新周刊、读库、上海译文、译林、后浪、磨铁、界面新闻、深焦、壹心理、
+ *    健康界、医学界、开源中国、中国教育报、中国国家地理、42号车库、盖世汽车、数字尾巴、品玩。
+ *  · 需签名/反爬拒绝（403，不要再试）：酷安 api.coolapk.com。
  */
 const RSS_SOURCES = [
   // [audit] 生活/数字生活 · 时政占比 ≈0% · 保留，低风险
@@ -69,7 +85,23 @@ const RSS_SOURCES = [
   // [audit] 社会/时政 · 高（>50%，社会新闻大量涉突发事件报道） · 建议移除或降权（突发事件报道为许可红线，PM 决策）
   { name: '中新网-社会', url: 'https://www.chinanews.com.cn/rss/society.xml', tag: '社会' },
   // [audit] 时政 · 高（>70%，滚动时事） · 建议移除或降权（典型时政源，PM 决策）
-  { name: '中新网-即时', url: 'https://www.chinanews.com.cn/rss/scroll-news.xml', tag: '时事' }
+  { name: '中新网-即时', url: 'https://www.chinanews.com.cn/rss/scroll-news.xml', tag: '时事' },
+
+  // ↓↓↓ 2026-09-28 多元化扩源（全部经 .tools/vet-feeds.js 四层尽调 + 云函数侧兼容性实测通过）↓↓↓
+  // [audit] 游戏 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.02 天）
+  { name: '机核', url: 'https://www.gcores.com/rss', tag: '游戏' },
+  // [audit] 汽车/新能源 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.08 天）
+  { name: '车东西', url: 'https://chedongxi.com/rss', tag: '汽车' },
+  // [audit] 消费/导购 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.0 天）
+  { name: '什么值得买', url: 'https://post.smzdm.com/feed', tag: '消费' },
+  // [audit] 教育/职教 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.1 天）
+  { name: '芥末堆', url: 'https://www.jiemodui.com/feed', tag: '教育' },
+  // [audit] 开发者/企业技术 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.0 天）
+  { name: 'InfoQ中文', url: 'https://www.infoq.cn/feed', tag: '开发者' },
+  // [audit] 开发者/技术社区 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.0 天）
+  { name: '掘金', url: 'https://juejin.cn/rss', tag: '开发者' },
+  // [audit] 数字生活/软件工具 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.2 天）
+  { name: '小众软件', url: 'https://www.appinn.com/feed/', tag: '数字生活' }
 ];
 
 /* ---------------- 网络与解析工具 ---------------- */

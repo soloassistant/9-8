@@ -251,6 +251,47 @@ check('合规页脚 + AI 标识', '竞品合规项', () => {
     : { pass: false, detail: 'briefing页脚=' + briefing.includes('common.disclaimer') + ' library页脚=' + library.includes('common.disclaimer') + ' aiBadge=' + library.includes('aiBadge') };
 });
 
+/* ---------- 18. 资讯多元化：类目数与类目透传（2026-09-28 扩源） ---------- */
+// 为什么检查「类目数」而不是「源数」：源多了但都挤在同几个类目里，用户感知不到多元化
+// （实测教训：加源前 10 源只有 7 类，科技就占 3 个源）。类目数是这个需求的真正验收口径。
+check('资讯源类目数 ≥ 12（防回退）', '多元化扩源', () => {
+  const cloud = read('cloudfunctions/webSearch/index.js');
+  if (!cloud) return { pass: false, detail: 'webSearch/index.js 不存在' };
+  const block = cloud.match(/const RSS_SOURCES = \[([\s\S]*?)\n\];/);
+  if (!block) return { pass: false, detail: '未找到 RSS_SOURCES 数组' };
+  const re = /\{\s*name:\s*'[^']+'\s*,\s*url:\s*'[^']+'\s*,\s*tag:\s*'([^']+)'\s*\}/g;
+  const tags = new Map();
+  let m;
+  while ((m = re.exec(block[1]))) tags.set(m[1], (tags.get(m[1]) || 0) + 1);
+  const names = [...tags.keys()];
+  return tags.size >= 12
+    ? { pass: true, detail: names.length + ' 个类目：' + names.join('/') }
+    : { pass: false, detail: '仅 ' + tags.size + ' 个类目（要求 ≥12）：' + names.join('/') };
+});
+
+// 类目必须真的流到条目与候选串上 —— 否则模型无从判断类目，「多样性规则」是空话。
+check('类目透传：parseRss tag → 条目 tags → 候选串', '多元化扩源', () => {
+  const server = read('.tools/static-server.js');
+  if (!server) return { pass: false, detail: 'static-server.js 不存在' };
+  const sig = /function parseRss\(xml, source, limit, tag\)/.test(server);
+  const tagsField = /tags:\s*tag\s*\?\s*\[tag\]\s*:\s*\[\]/.test(server);
+  const callPass = /parseRss\(x, s\.name, RSS_PER_SOURCE, s\.tag\)/.test(server);
+  const candCat = /it\.tags\.join\('\/'\)/.test(server);
+  const ok = sig && tagsField && callPass && candCat;
+  return ok
+    ? { pass: true, detail: '签名带 tag + tags 落到条目 + 调用处传 tag + 候选串含类目' }
+    : { pass: false, detail: 'sig=' + sig + ' tagsField=' + tagsField + ' callPass=' + callPass + ' candCat=' + candCat };
+});
+
+check('AI 精选类目多样性规则在位', '多元化扩源', () => {
+  const proxy = read('.tools/llm-proxy.mjs');
+  if (!proxy) return { pass: false, detail: 'llm-proxy.mjs 不存在' };
+  const ok = /类目多样性/.test(proxy) && /同一类目最多选 2 条/.test(proxy) && /不少于 5 个不同类目/.test(proxy);
+  return ok
+    ? { pass: true, detail: '同类目≤2 / 条数≥6 时覆盖 ≥5 类目的规则在 /filter 提示词' }
+    : { pass: false, detail: '多样性规则缺失' };
+});
+
 /* ---------- 主流程 ---------- */
 // 退出码：0 = 全部 PASS；1 = 有 FAIL；2 = 无 FAIL 但有 SKIP（需人工补验）
 (async () => {
