@@ -17,16 +17,28 @@ export function getHotspotMeta(): HotspotMeta | null {
   return hotspotMeta
 }
 
-/** H5 热点数据源（真实数据分层）：① 同源 /api/hotspot（本地预览聚合接口）
- *  ② Pages 静态 api/hotspot.json（GitHub Actions 每 30 分钟抓 RSS 刷新，相对路径兼容 /9-8/ 子路径）
- *  ③ 全部失败返回 null，调用方自行 mock 兜底 */
+/** 线上实时热点 JSON（GitHub Actions 每 30 分钟刷新 gh-pages 上的这一份）。
+ *
+ *  为什么需要它（2026-09-29 发布正式版时发现）：**发布包与 gh-pages 是两份独立快照**。
+ *  发布时烘焙进 dist/api/hotspot.json 的数据会停在打包那一刻，不重新发布会一直是旧的 ——
+ *  对用户就是「刚上线就已经过期」。因此把线上那份**动态数据**提到同源烘焙文件之前：
+ *  优先取新鲜的，取不到才退回烘焙版（离网 / 被墙时页面仍不为空）。
+ *
+ *  GitHub Pages 对该文件返回 `Access-Control-Allow-Origin: *`（已实测），故可跨域直取。 */
+const LIVE_HOTSPOT_URL = 'https://soloassistant.github.io/9-8/api/hotspot.json'
+
+/** H5 热点数据源（真实数据分层，顺序即优先级）：
+ *  ① 同源 /api/hotspot（本地预览 / 带后端的部署，最新鲜）
+ *  ② 线上实时 JSON（每 30 分钟刷新，发布版靠它不过期）
+ *  ③ 同源烘焙 ./api/hotspot.json（相对路径兼容 /9-8/ 子路径；离线兜底）
+ *  ④ 全部失败返回 null，调用方自行 mock 兜底 */
 async function loadHotspotPayload(): Promise<{
   items: HotspotNews[]
   updatedAt: string | null
   stale: boolean
   sources: { name: string; count: number; ok: boolean }[]
 } | null> {
-  for (const url of ['/api/hotspot', './api/hotspot.json']) {
+  for (const url of ['/api/hotspot', LIVE_HOTSPOT_URL, './api/hotspot.json']) {
     try {
       const res = await fetch(url)
       const payload = await res.json()
