@@ -10,6 +10,15 @@
     <meta name="apple-web-app-status-bar-style" content="white" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
     <title>AI 晨报助理</title>
+    <!--
+      WorkBuddy 云服务 SDK（认证用）。
+      为什么用 CDN 而不是 npm 依赖：仓库用 yarn.lock + CI 的 `yarn install --frozen-lockfile`，
+      而本机没有 yarn；用 npm 装只会写 package-lock、不更新 yarn.lock，CI 会直接挂在 lockfile 校验上。
+      按 SDK 文档的降级路径改用 CDN IIFE（全局 WorkBuddyCloud），且不往 package.json 加依赖。
+      仅 H5/发布版需要：微信小程序侧不加载本脚本（微信身份直接登录）。
+      必须用 @dev 渠道（latest 尚未维护，指向旧构建）；不要改成固定版本号。
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
     <script>
       <%= htmlWebpackPlugin.options.script %>
     </script>

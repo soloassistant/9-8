@@ -1,0 +1,165 @@
+@use '@/styles/variables.scss' as *;
+
+// 门禁整屏：未登录时占满视口，应用内容不渲染 —— 视觉上不给「能进去」的暗示
+.screen {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 $page-padding;
+  background: $color-bg-page;
+  overflow-y: auto;
+}
+
+.checking {
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+}
+
+.card {
+  width: 100%;
+  max-width: $max-content-width;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-xl $spacing-lg $spacing-lg;
+  box-shadow: $shadow-card;
+}
+
+.brand {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-primary;
+  font-weight: $font-weight-medium;
+}
+
+.title {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xl;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  line-height: $line-height-tight;
+}
+
+.subtitle {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: $spacing-lg;
+  border-bottom: 1rpx solid $color-divider;
+}
+
+.tab {
+  padding: $spacing-sm $spacing-sm;
+  margin-right: $spacing-xs;
+}
+
+.tabActive {
+  border-bottom: 4rpx solid $color-primary;
+}
+
+.tabText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.tabTextActive {
+  font-size: $font-size-sm;
+  color: $color-primary;
+  font-weight: $font-weight-medium;
+}
+
+.field {
+  margin-top: $spacing-md;
+}
+
+.label {
+  display: block;
+  margin-bottom: $spacing-xs;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  height: $button-height-md;
+  padding: 0 $spacing-sm;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  background: $color-bg-page;
+  border: 1rpx solid $color-border;
+  border-radius: $radius-md;
+}
+
+.codeRow {
+  display: flex;
+  align-items: center;
+}
+
+.codeInput {
+  flex: 1;
+}
+
+.codeBtn {
+  flex-shrink: 0;
+  margin-left: $spacing-sm;
+  padding: 0 $spacing-md;
+  height: $button-height-md;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $radius-md;
+  border: 1rpx solid $color-primary;
+}
+
+.codeBtnText {
+  font-size: $font-size-sm;
+  color: $color-primary;
+}
+
+.btnDisabled {
+  opacity: 0.45;
+}
+
+.notice {
+  display: block;
+  margin-top: $spacing-md;
+  font-size: $font-size-sm;
+  color: $color-success;
+}
+
+.error {
+  display: block;
+  margin-top: $spacing-md;
+  font-size: $font-size-sm;
+  color: $color-error;
+}
+
+.submit {
+  margin-top: $spacing-lg;
+  height: $button-height-lg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: $color-primary;
+  border-radius: $radius-button;
+}
+
+.submitText {
+  font-size: $font-size-lg;
+  color: $color-text-white;
+  font-weight: $font-weight-medium;
+}

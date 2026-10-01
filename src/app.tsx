@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import AiAssistant from '@/components/AiAssistant';
 import Splash from '@/components/Splash';
+// 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
+import AuthGate from '@/components/AuthGate';
 import { useLanguageStore, dict } from '@/store/language';
 import { initCloudSync } from '@/services/cloudSync';
 // 全局样式
@@ -70,13 +72,13 @@ function App(props) {
   });
 
   return (
-    <React.Fragment>
+    <AuthGate>
       {props.children}
       {/* 晨报页有常驻输入栏（含快捷指令条），AI 悬浮球需额外抬升避让 */}
       <AiAssistant context={context} offset={context === 'briefing' ? 240 : 40} />
       {/* 开屏动画：每次冷启动展示，点击可跳过 */}
       <Splash />
-    </React.Fragment>
+    </AuthGate>
   );
 }
 

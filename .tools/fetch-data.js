@@ -233,6 +233,43 @@ async function fetchHotspot() {
   };
 }
 
+/** 防回退守卫：一次抖动抓到的「劣化快照」不得覆盖掉上一份好数据。
+ *
+ *  为什么需要（2026-09-29 实测）：本机一次抓取拿到 124 条、13/23 个源正常（10 个源超时），
+ *  而当天早些时候同一脚本拿到 203~222 条。原实现只在「抓到 0 条」时才不覆盖 ——
+ *  「抓到很少」照样会把好数据换成坏的，用户看到的就是内容忽然少一半、类目从 18 掉到 10。
+ *
+ *  规则：新份数 < 上一份 × REGRESS_RATIO，且上一份还「够新」（< REGRESS_FRESH_MS）→ 拒绝覆盖。
+ *  超过新鲜窗口就接受劣化数据：宁可内容少一点，也不要让一份陈旧快照被无限期钉住。
+ *  注意这是**宽度**守卫，不是质量守卫 —— 条数正常但内容错的快照它拦不住，别当成万能。 */
+const REGRESS_RATIO = 0.7;
+const REGRESS_FRESH_MS = 6 * 60 * 60 * 1000;
+
+/** 返回 null 表示允许写入；返回字符串表示拒绝写入的原因 */
+function guardRegression(outPath, newCount) {
+  if (!outPath) return null;
+  let prevRaw;
+  let prevStat;
+  try {
+    prevStat = fs.statSync(outPath);
+    prevRaw = fs.readFileSync(outPath, 'utf8');
+  } catch {
+    return null; // 首次写入 / 文件不存在
+  }
+  let prevCount = 0;
+  try {
+    const prev = JSON.parse(prevRaw);
+    prevCount = Array.isArray(prev.items) ? prev.items.length : 0;
+  } catch {
+    return null; // 上一份坏了就别拿它当基准
+  }
+  if (prevCount <= 0) return null;
+  const ageMs = Date.now() - prevStat.mtimeMs;
+  if (ageMs >= REGRESS_FRESH_MS) return null; // 上一份已不新鲜，接受当前结果
+  if (newCount >= prevCount * REGRESS_RATIO) return null;
+  return `新快照 ${newCount} 条 < 上一份 ${prevCount} 条的 ${Math.round(REGRESS_RATIO * 100)}%（上一份仅 ${Math.round(ageMs / 60000)} 分钟前）`;
+}
+
 async function main() {
   const argIdx = process.argv.indexOf('--out');
   const outPath = argIdx > -1 ? process.argv[argIdx + 1] : null;
@@ -242,6 +279,17 @@ async function main() {
     console.error('[fetch-data] all sources failed - keep existing output untouched');
     process.exit(1); // Actions 侧失败退出：不覆盖上一次的好数据
   }
+
+  const rejected = guardRegression(outPath, items.length);
+  if (rejected) {
+    // 不覆盖是**成功**（保住了好数据），故退出码 0：Actions 那步不会变红，
+    // 且 gh-pages 的「无变化则跳过提交」逻辑会自然生效。
+    console.warn('[fetch-data] 拒绝覆盖：' + rejected + ' → 保留上一份，本次不写入');
+    meta.dropped = { ...(meta.dropped || {}), regressionGuard: items.length };
+    if (!outPath) process.stdout.write(JSON.stringify({ items, ...meta }));
+    return;
+  }
+
   const json = JSON.stringify({ items, ...meta });
   if (outPath) {
     fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });

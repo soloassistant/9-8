@@ -556,7 +556,35 @@ const zh = {
   'library.abLine': '开启学习 {a}% · 未开启 {b}%（{n} 次样本）',
   'library.abInsufficient': '样本还太少，先用一阵子我再告诉你有没有用',
   'library.abReset': '重置统计',
-  'library.abResetDone': '已重置效果统计'
+  'library.abResetDone': '已重置效果统计',
+
+  // 进入门禁（登录）文案。Web 端只支持邮箱登录，故不出现手机号/微信登录字样。
+  'auth.checking': '正在校验登录状态…',
+  'auth.title': '需要登录',
+  'auth.subtitle': '这是一个私人应用，登录后才能进入。',
+  'auth.tabPassword': '密码登录',
+  'auth.tabOtp': '邮箱验证码',
+  'auth.tabSignup': '注册',
+  'auth.tabForgot': '忘记密码',
+  'auth.email': '邮箱',
+  'auth.emailPlaceholder': 'you@example.com',
+  'auth.password': '密码',
+  'auth.passwordPlaceholder': '至少 8 位',
+  'auth.newPassword': '新密码',
+  'auth.code': '验证码',
+  'auth.codePlaceholder': '邮件里的验证码',
+  'auth.sendCode': '获取验证码',
+  'auth.resend': '{s} 秒后可重发',
+  'auth.otpSent': '验证码已发送，请查收邮件',
+  'auth.login': '登录',
+  'auth.signup': '注册并登录',
+  'auth.resetSubmit': '重置密码',
+  'auth.forgotSent': '重置验证码已发送',
+  'auth.errEmail': '请输入有效的邮箱地址',
+  'auth.errPassword': '密码至少 8 位',
+  'auth.errCodeNeeded': '请先为当前邮箱获取验证码',
+  'auth.errWrongCredentials': '邮箱或密码不正确',
+  'auth.errGeneric': '操作失败，请稍后重试'
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -1099,7 +1127,34 @@ const en: Record<keyof typeof zh, string> = {
   'library.abLine': 'With learning {a}% · without {b}% ({n} samples)',
   'library.abInsufficient': 'Not enough samples yet — keep using it and I\'ll tell you whether it helps',
   'library.abReset': 'Reset stats',
-  'library.abResetDone': 'Stats reset'
+  'library.abResetDone': 'Stats reset',
+
+  'auth.checking': 'Checking your session…',
+  'auth.title': 'Sign in required',
+  'auth.subtitle': 'This is a private app. Please sign in to continue.',
+  'auth.tabPassword': 'Password',
+  'auth.tabOtp': 'Email code',
+  'auth.tabSignup': 'Sign up',
+  'auth.tabForgot': 'Forgot password',
+  'auth.email': 'Email',
+  'auth.emailPlaceholder': 'you@example.com',
+  'auth.password': 'Password',
+  'auth.passwordPlaceholder': 'At least 8 characters',
+  'auth.newPassword': 'New password',
+  'auth.code': 'Code',
+  'auth.codePlaceholder': 'Code from your email',
+  'auth.sendCode': 'Get code',
+  'auth.resend': 'Resend in {s}s',
+  'auth.otpSent': 'Code sent — check your inbox',
+  'auth.login': 'Sign in',
+  'auth.signup': 'Sign up',
+  'auth.resetSubmit': 'Reset password',
+  'auth.forgotSent': 'Reset code sent',
+  'auth.errEmail': 'Enter a valid email address',
+  'auth.errPassword': 'Password must be at least 8 characters',
+  'auth.errCodeNeeded': 'Get a code for this email first',
+  'auth.errWrongCredentials': 'Wrong email or password',
+  'auth.errGeneric': 'Something went wrong, please try again'
 };
 
 export type LangKey = keyof typeof zh;

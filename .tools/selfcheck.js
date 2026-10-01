@@ -403,6 +403,46 @@ check('跨源去重：基准集锚点齐全 + 评估入口已注册', '多元化
     : { pass: false, detail: '规模=' + sizeOk + '(' + cases.length + '/' + same + '/' + diff + ') 缺锚点=' + (missing.join(',') || '无') + ' script=' + scriptOk + ' evalTool=' + evalTool };
 });
 
+/* ---------- 23. 进入门禁（登录）：未登录不得进入（2026-10-01） ---------- */
+// 为什么必须守：门禁一旦被后人删掉或绕过，应用就重新变成「任何人拿到公开链接就能进」。
+// 这里同时守住「不得出现假身份兜底」—— SDK 文档明确禁止 mock session / 匿名登录 /
+// localStorage 假用户，出现任意一个就说明有人为了让数据"看起来能用"而绕开了认证。
+check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登录门禁', () => {
+  const gate = read('src/components/AuthGate/index.tsx');
+  const auth = read('src/services/cloudAuth.ts');
+  const app = read('src/app.tsx');
+  const html = read('src/index.html');
+  if (!gate) return { pass: false, detail: 'AuthGate 组件不存在' };
+  if (!auth) return { pass: false, detail: 'cloudAuth 服务不存在' };
+  if (!app) return { pass: false, detail: 'app.tsx 不存在' };
+  // 门禁真的拦在根组件上
+  const wrapped = /<AuthGate>/.test(app) && /props\.children/.test(app);
+  // 取不到会话就必须停在登录页（而不是放行）
+  const blocks = /getSession\(\)/.test(gate) && /setPhase\(s \? 'ready' : 'login'\)/.test(gate);
+  // 四条流程都要可达（SDK 默认登录 UI 契约：密码 / 验证码 / 注册带密码 / 忘记密码）
+  const flows = /signInWithPassword/.test(gate)
+    && /sendEmailCode/.test(gate)
+    && /verifyEmailCode/.test(gate)
+    && /requestPasswordReset/.test(gate);
+  // 提交时不得再次发码（SDK 契约：获取与提交是两个独立动作）
+  const submitNoResend = !/submitOtp[\s\S]{0,600}?sendEmailCode\(/.test(gate);
+  // 假身份兜底：一个都不许有。
+  // 注意必须先剥掉**块注释**再判断 —— 这两个文件里都写着"没有 mock session"这类说明文字，
+  // 直接对原文做正则会把注释当成违规代码，出现自伤式误报（本轮已踩过一次）。
+  const stripBlockComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
+  const noFake = !/signInAnonymously|mockSession/i.test(stripBlockComments(auth) + stripBlockComments(gate));
+  // SDK 由 H5 模板以 CDN 形式加载（本仓库无 yarn，npm 装会破坏 yarn.lock → CI 挂）
+  const sdkLoaded = /workbuddy-cloud-sdk@dev/.test(html || '');
+  const ok = wrapped && blocks && flows && submitNoResend && noFake && sdkLoaded;
+  return ok
+    ? { pass: true, detail: '根组件已包门禁；无会话即停登录页；四条流程齐备；无假身份兜底；H5 模板已加载 SDK' }
+    : {
+        pass: false,
+        detail: 'wrap=' + wrapped + ' block=' + blocks + ' flows=' + flows
+          + ' submitNoResend=' + submitNoResend + ' noFake=' + noFake + ' sdk=' + sdkLoaded
+      };
+});
+
 /* ---------- 主流程 ---------- */
 // 退出码：0 = 全部 PASS；1 = 有 FAIL；2 = 无 FAIL 但有 SKIP（需人工补验）
 (async () => {
