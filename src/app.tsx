@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import AiAssistant from '@/components/AiAssistant';
 import Splash from '@/components/Splash';
@@ -42,6 +42,15 @@ function routeToContext(route: string): string {
 
 function App(props) {
   const [context, setContext] = useState('');
+  // 当前路由：用于把**应用外壳**（AI 悬浮球、开屏动画）挡在登录页之外。
+  // 实测依据（2026-10-05 浏览器核对）：登录页上确实渲染了 🤖 悬浮球与「点击进入」开屏，
+  // 未登录用户会看到一个能用但点了没用的浮层 —— 属于状态泄漏。
+  // H5 首帧就同步读 hash，避免先渲染再卸载造成闪动。
+  const [route, setRoute] = useState(() => {
+    if (process.env.TARO_ENV === 'h5' && typeof window !== 'undefined') return window.location.hash || '';
+    return '';
+  });
+  const isLoginPage = route.indexOf('login') >= 0;
   const lang = useLanguageStore((s) => s.lang);
 
   // 语言变化（含恢复本地选择）时同步 TabBar 文案；延迟执行等 H5 TabBar 渲染就绪，否则刷新后仍为默认文案
@@ -68,6 +77,7 @@ function App(props) {
     const pages = Taro.getCurrentPages();
     const current = pages[pages.length - 1];
     const route = current ? current.route || '' : '';
+    setRoute(route);
     setContext(routeToContext(route));
     // 门禁：未登录且不在登录页 → 送回登录页。放在 useDidShow 是因为它覆盖
     // 「切 tab / 深链 / 冷启动」所有进入路径。
@@ -83,10 +93,15 @@ function App(props) {
   return (
     <>
       {props.children}
-      {/* 晨报页有常驻输入栏（含快捷指令条），AI 悬浮球需额外抬升避让 */}
-      <AiAssistant context={context} offset={context === 'briefing' ? 240 : 40} />
-      {/* 开屏动画：每次冷启动展示，点击可跳过 */}
-      <Splash />
+      {/* 应用外壳一律不进登录页：未登录时它既无用又泄漏"应用已就绪"的错觉 */}
+      {isLoginPage ? null : (
+        <React.Fragment>
+          {/* 晨报页有常驻输入栏（含快捷指令条），AI 悬浮球需额外抬升避让 */}
+          <AiAssistant context={context} offset={context === 'briefing' ? 240 : 40} />
+          {/* 开屏动画：每次冷启动展示，点击可跳过 */}
+          <Splash />
+        </React.Fragment>
+      )}
     </>
   );
 }
