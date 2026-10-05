@@ -3,6 +3,7 @@ import { View, Text, Input } from '@tarojs/components';
 import { useT } from '@/store/language';
 import {
   needsAuthGate,
+  isCloudReady,
   getSession,
   signInWithPassword,
   sendEmailCode,
@@ -60,6 +61,15 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!needsAuthGate) return;
     let alive = true;
+    // 先判「后端是否可达」：连不上就别让用户对着一个必然失败的表单空点
+    isCloudReady()
+      .then((ready) => {
+        if (!alive) return;
+        if (!ready) setError(t('auth.errSdkUnavailable'));
+      })
+      .catch(() => {
+        /* 由下面的 getSession 统一收口 */
+      });
     getSession()
       .then((s) => {
         if (!alive) return;

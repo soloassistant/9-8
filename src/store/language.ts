@@ -584,7 +584,8 @@ const zh = {
   'auth.errPassword': '密码至少 8 位',
   'auth.errCodeNeeded': '请先为当前邮箱获取验证码',
   'auth.errWrongCredentials': '邮箱或密码不正确',
-  'auth.errGeneric': '操作失败，请稍后重试'
+  'auth.errGeneric': '操作失败，请稍后重试',
+  'auth.errSdkUnavailable': '登录服务连不上（云服务未加载或网络不可达），请稍后重试'
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -1154,7 +1155,8 @@ const en: Record<keyof typeof zh, string> = {
   'auth.errPassword': 'Password must be at least 8 characters',
   'auth.errCodeNeeded': 'Get a code for this email first',
   'auth.errWrongCredentials': 'Wrong email or password',
-  'auth.errGeneric': 'Something went wrong, please try again'
+  'auth.errGeneric': 'Something went wrong, please try again',
+  'auth.errSdkUnavailable': 'Sign-in service unreachable — the cloud SDK failed to load or the network is blocked'
 };
 
 export type LangKey = keyof typeof zh;

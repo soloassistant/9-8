@@ -117,6 +117,14 @@ export async function getCloudClient(): Promise<CloudClient | null> {
 /** 是否需要在进入前拦截（仅 H5/发布版；微信小程序侧由微信身份直接登录，不走这里） */
 export const needsAuthGate = H5;
 
+/** SDK/云服务是否真的可用。
+ *  为什么要单独暴露：取不到会话有两种完全不同的原因 ——「未登录」和「后端根本连不上」。
+ *  若把后者也当成前者，用户会看到一个能填、点了却永远失败的登录表单（等于静默失败）。
+ *  上层据此给出明确提示。 */
+export async function isCloudReady(): Promise<boolean> {
+  return !!(await getCloudClient());
+}
+
 /** 取当前会话；未登录 / SDK 不可用都返回 null（调用方据此显示登录页） */
 export async function getSession(): Promise<CloudSession | null> {
   const c = await getCloudClient();
