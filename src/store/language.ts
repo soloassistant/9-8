@@ -585,7 +585,8 @@ const zh = {
   'auth.errCodeNeeded': '请先为当前邮箱获取验证码',
   'auth.errWrongCredentials': '邮箱或密码不正确',
   'auth.errGeneric': '操作失败，请稍后重试',
-  'auth.errSdkUnavailable': '登录服务连不上（云服务未加载或网络不可达），请稍后重试'
+  'auth.errSdkUnavailable': '登录服务连不上（云服务未加载或网络不可达），请稍后重试',
+  'auth.otpSentHint': '没收到？先看垃圾邮件箱，再确认邮箱地址没写错'
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -1156,7 +1157,8 @@ const en: Record<keyof typeof zh, string> = {
   'auth.errCodeNeeded': 'Get a code for this email first',
   'auth.errWrongCredentials': 'Wrong email or password',
   'auth.errGeneric': 'Something went wrong, please try again',
-  'auth.errSdkUnavailable': 'Sign-in service unreachable — the cloud SDK failed to load or the network is blocked'
+  'auth.errSdkUnavailable': 'Sign-in service unreachable — the cloud SDK failed to load or the network is blocked',
+  'auth.otpSentHint': 'Not seeing it? Check your spam folder first, then confirm the address is correct'
 };
 
 export type LangKey = keyof typeof zh;

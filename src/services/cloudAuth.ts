@@ -114,6 +114,27 @@ export async function getCloudClient(): Promise<CloudClient | null> {
   return client;
 }
 
+/** 统一收口所有 SDK 调用：**绝不让它 reject**。
+ *
+ *  为什么必须有（2026-10-05 真实故障）：SDK 在异常路径上可能 throw 而**不是**返回 `{ error }`。
+ *  一旦 throw，调用方的 `await` 会直接抛出；而登录页的处理函数里 `setBusy(false)` 在 await 之后，
+ *  于是**既不会显示任何错误、也不会解除禁用态** —— 用户看到的就是「点了没反应、验证码也收不到」，
+ *  按钮此后永久卡住。这是最糟的静默失败，单点收口即可根除，不必在每个使用点各自防御。 */
+async function safeAuth<T>(
+  fn: (c: CloudClient) => Promise<AuthResp<T>>,
+  fallback: T
+): Promise<AuthResp<T>> {
+  const c = await getCloudClient();
+  if (!c) {
+    return { data: fallback, error: { kind: 'backend-unavailable', message: 'cloud sdk unavailable' } };
+  }
+  try {
+    return await fn(c);
+  } catch (e) {
+    return { data: fallback, error: { kind: 'network', message: String((e && e.message) || e) } };
+  }
+}
+
 /** 是否需要在进入前拦截（仅 H5/发布版；微信小程序侧由微信身份直接登录，不走这里） */
 export const needsAuthGate = H5;
 
@@ -138,45 +159,37 @@ export async function getSession(): Promise<CloudSession | null> {
   }
 }
 
-export async function signInWithPassword(email: string, password: string): Promise<AuthResp<CloudSession>> {
-  const c = await getCloudClient();
-  if (!c) return { data: {} as CloudSession, error: { kind: 'backend-unavailable', message: 'SDK unavailable' } };
-  return c.auth.signInWithPassword({ email, password });
+export function signInWithPassword(email: string, password: string): Promise<AuthResp<CloudSession>> {
+  return safeAuth((c) => c.auth.signInWithPassword({ email, password }), {} as CloudSession);
 }
 
-export async function sendEmailCode(
+export function sendEmailCode(
   email: string
 ): Promise<AuthResp<{ verificationId: string; isExistingUser: boolean }>> {
-  const c = await getCloudClient();
-  if (!c) {
-    return { data: { verificationId: '', isExistingUser: false }, error: { kind: 'backend-unavailable', message: 'SDK unavailable' } };
-  }
-  return c.auth.sendOtp({ email });
+  return safeAuth((c) => c.auth.sendOtp({ email }), { verificationId: '', isExistingUser: false });
 }
 
-export async function verifyEmailCode(input: {
+export function verifyEmailCode(input: {
   email: string;
   verificationId: string;
   isExistingUser: boolean;
   token: string;
   password?: string;
 }): Promise<AuthResp<CloudSession>> {
-  const c = await getCloudClient();
-  if (!c) return { data: {} as CloudSession, error: { kind: 'backend-unavailable', message: 'SDK unavailable' } };
-  return c.auth.verifyOtp(input);
+  return safeAuth((c) => c.auth.verifyOtp(input), {} as CloudSession);
 }
 
-export async function requestPasswordReset(
+const NOOP_UPDATE_USER = {
+  updateUser: async (): Promise<AuthResp<CloudSession>> => ({
+    data: {} as CloudSession,
+    error: { kind: 'backend-unavailable', message: 'cloud sdk unavailable' }
+  })
+};
+
+export function requestPasswordReset(
   email: string
 ): Promise<AuthResp<{ updateUser(input: { nonce: string; password: string }): Promise<AuthResp<CloudSession>> }>> {
-  const c = await getCloudClient();
-  if (!c) {
-    return {
-      data: { updateUser: async () => ({ data: {} as CloudSession, error: { kind: 'backend-unavailable', message: 'SDK unavailable' } }) },
-      error: { kind: 'backend-unavailable', message: 'SDK unavailable' }
-    };
-  }
-  return c.auth.resetPasswordForEmail(email);
+  return safeAuth((c) => c.auth.resetPasswordForEmail(email), NOOP_UPDATE_USER);
 }
 
 export async function signOut(): Promise<void> {

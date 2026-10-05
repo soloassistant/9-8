@@ -368,6 +368,11 @@ export default function LoginPage() {
         ) : null}
 
         {notice ? <Text className={styles.notice}>{notice}</Text> : null}
+        {/* 用户报「收不到验证码」时，最常见的原因就是进了垃圾箱或地址写错 —— 直接给排查方向，
+            而不是让用户在"已发送"和"没收到"之间干等 */}
+        {notice && (tab === 'otp' || tab === 'signup') ? (
+          <Text className={styles.hint}>{t('auth.otpSentHint')}</Text>
+        ) : null}
         {error ? <Text className={styles.error}>{error}</Text> : null}
 
         <View className={`${styles.submit} ${busy ? styles.btnDisabled : ''}`} onClick={handleSubmit}>

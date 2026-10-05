@@ -141,6 +141,14 @@
   color: $color-success;
 }
 
+.hint {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
 .error {
   display: block;
   margin-top: $spacing-md;
