@@ -7,8 +7,8 @@ import {
   isCloudReady,
   getSession,
   signInWithPassword,
-  sendEmailCode,
-  verifyEmailCode,
+  sendLoginCode,
+  verifyLoginCode,
   requestPasswordReset
 } from '@/services/cloudAuth';
 import styles from './index.module.scss';
@@ -33,6 +33,11 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  *
  * 为什么要有它：发布版是公开链接，此前任何人拿到链接就能进入，而 H5 的数据隔离用的是
  * localStorage 里自生成的 UUID —— 等于没有身份。现在进入前必须通过云服务邮箱认证。
+ *
+ * ⚠️ 本页**只允许邮箱**（2026-10-05 按平台文档校正）：Web 应用不支持手机号/微信登录，
+ *   文档原文「A web app supports email login only … the provider is not available there,
+ *   so the UI would compile and then fail at runtime」。手机号须走微信小程序那条线
+ *   （且需已认证的非个人主体）。**不要把手机号选项加回这一页** —— 那是一个必然运行时失败的死选项。
  *
  * 平台差异（有意为之）：
  *   · H5 / 发布版：走云服务邮箱认证。未登录时**由 app.tsx 重定向到本页**（独立页面，
@@ -125,7 +130,7 @@ export default function LoginPage() {
     if (!ensureEmail()) return;
     clearMsg();
     setBusy(true);
-    const res = await sendEmailCode(email.trim());
+    const res = await sendLoginCode({ email: email.trim() });
     setBusy(false);
     if (res.error) {
       setError(res.error.message || t('auth.errGeneric'));
@@ -153,8 +158,8 @@ export default function LoginPage() {
     }
     clearMsg();
     setBusy(true);
-    const res = await verifyEmailCode({
-      email: pending.email,
+    const res = await verifyLoginCode({
+      id: { email: pending.email },
       verificationId: pending.verificationId,
       isExistingUser: pending.isExistingUser,
       token: code.trim(),
@@ -179,7 +184,7 @@ export default function LoginPage() {
     }
     clearMsg();
     setBusy(true);
-    const res = await signInWithPassword(email.trim(), password);
+    const res = await signInWithPassword({ email: email.trim() }, password);
     setBusy(false);
     if (res.error) {
       // 不区分「邮箱不存在」与「密码错」—— 避免暴露账号是否存在

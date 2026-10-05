@@ -115,8 +115,34 @@ function schedulePush(delay = DEBOUNCE) {
   }, delay);
 }
 
+/** 连续「硬失败」次数：404 / 501 = 路由不存在，属于**永久性**失败。
+ *
+ *  为什么需要它（2026-10-05 实测）：发布环境是静态文件网关，`/api/user/sync` 返回
+ *  501 Not Implemented，而原实现是 `if (!res.ok) return;` —— 既不记录也不停。
+ *  实测登录页上 172 秒内失败 9 次（30s 轮询 + 1.5s 防抖两条路径都在打），
+ *  控制台零输出，用户和排障者都看不到任何线索，只是白耗流量与电量。
+ *
+ *  语义划分：404/501 = 不会再好 → 连续 3 次就**停掉轮询**；
+ *  5xx / 网络错 = 可能自愈 → 只清计数，下一轮照常重试。 */
+let hardFailures = 0;
+let syncDisabled = false;
+const HARD_FAIL_LIMIT = 3;
+
+function disableSync(status: number) {
+  syncDisabled = true;
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  console.error(
+    `[cloudSync] /api/user/sync 返回 ${status}，该接口在当前部署不存在。` +
+      `已停止轮询（跨设备同步当前不可用），本地数据不受影响。`
+  );
+}
+
 /** 推送本地数据到云端 */
 async function pushNow(): Promise<void> {
+  if (syncDisabled) return;
   const { data, keys } = collectLocal();
   if (!keys.length) return;
   try {
@@ -125,7 +151,16 @@ async function pushNow(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: ensureUserId(), data })
     });
-    if (!res.ok) return;
+    if (res.status === 404 || res.status === 501) {
+      hardFailures += 1;
+      if (hardFailures >= HARD_FAIL_LIMIT) disableSync(res.status);
+      return;
+    }
+    if (!res.ok) {
+      hardFailures = 0; // 5xx 等瞬时错误：下一轮照常重试
+      return;
+    }
+    hardFailures = 0;
     const j = await res.json().catch(() => null);
     if (j && j.ok) {
       const now = Date.now();
@@ -134,7 +169,7 @@ async function pushNow(): Promise<void> {
       writeMeta(meta);
     }
   } catch {
-    // 网络失败静默：下轮轮询再试
+    // 网络失败静默：下轮轮询再试（属于瞬时错误，不计入硬失败）
   }
 }
 

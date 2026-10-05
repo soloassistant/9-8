@@ -421,12 +421,17 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
   // 登录页已注册，且是入口页（根路径先到登录页，不会先渲染受保护内容）
   const registered = /'pages\/login\/index',\s*\n\s*'pages\/briefing\/index'/.test(cfg || '');
   // 四条流程可达（SDK 默认登录 UI 契约）
+  // 四条流程可达（SDK 默认登录 UI 契约）。函数名以 cloudAuth 现导出为准。
   const flows = /signInWithPassword/.test(page)
-    && /sendEmailCode/.test(page)
-    && /verifyEmailCode/.test(page)
+    && /sendLoginCode/.test(page)
+    && /verifyLoginCode/.test(page)
     && /requestPasswordReset/.test(page);
+  // ★ Web 端不得出现手机号登录（2026-10-05 平台文档校正）：
+  //   Web 应用只支持邮箱，手机号 provider 在 web 上不存在 —— 加了就是"编译通过、运行时必失败"的死选项。
+  //   这条断言就是防止它被重新加回来（当天确实发生过一次）。
+  const noPhoneOnWeb = !/idKind|IdKind/.test(page) && !/auth\.phone/.test(page) && !/\{\s*phone:/.test(page);
   // 提交验证码时不得再次发码（获取与提交是两个独立动作）
-  const submitNoResend = !/submitOtp[\s\S]{0,600}?sendEmailCode\(/.test(page);
+  const submitNoResend = !/submitOtp[\s\S]{0,600}?sendLoginCode\(/.test(page);
   // ★ 不得再回到「在 App 里不渲染 children」的写法：实测会打断 Taro 页面生命周期
   //   （抛「没有找到页面实例」→ 整页白屏，只剩 Tab 栏），这是踩过的坑，必须挡住回归。
   const rendersChildren = /props\.children/.test(app);
@@ -434,12 +439,13 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
   const stripBlockComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
   const noFake = !/signInAnonymously|mockSession/i.test(stripBlockComments(auth) + stripBlockComments(page));
   const sdkLoaded = /workbuddy-cloud-sdk@dev/.test(html || '');
-  const ok = redirects && registered && flows && submitNoResend && rendersChildren && noFake && sdkLoaded;
+  const ok = redirects && registered && flows && noPhoneOnWeb && submitNoResend && rendersChildren && noFake && sdkLoaded;
   return ok
     ? { pass: true, detail: '未登录重定向到已注册的登录页；四条流程齐备；提交不重发；App 正常渲染 children；无假身份兜底；SDK 已加载' }
     : {
         pass: false,
         detail: 'redirect=' + redirects + ' registered=' + registered + ' flows=' + flows
+          + ' noPhoneOnWeb=' + noPhoneOnWeb
           + ' submitNoResend=' + submitNoResend + ' rendersChildren=' + rendersChildren
           + ' noFake=' + noFake + ' sdk=' + sdkLoaded
       };

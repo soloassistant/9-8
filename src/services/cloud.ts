@@ -3,8 +3,7 @@ import type { Briefing, BriefingIntel, HotspotNews } from '../types'
 import type { UserPrefs } from '../utils/prefs'
 import { fetchWeatherDirect } from '../utils/weather'
 import { evaluatePriceAlerts, type PricedItem, type PriceAlert } from '../utils/price'
-
-const isWeapp = process.env.TARO_ENV === 'weapp'
+import { invoke, isWeapp } from './dataSource'
 
 /** 热点数据来源元信息（服务端 /api/hotspot 附带，mock/真机路径为 null） */
 export interface HotspotMeta {
@@ -265,12 +264,26 @@ export async function callFunction<T = unknown>(
       }
       return briefing as T
     }
-    // AI 能力接真 DeepSeek：本地 LLM 代理（node .tools/llm-proxy.mjs，端口 8138，
-    // key 只存在本地服务端不进前端产物）；代理未启动时降级本地规则 mock
+    // AI 能力：① 云函数（与小程序同一套实现）→ ② 本地 LLM 代理（开发态）
+    // → ③ 本地规则 mock。2026-10-05 之前只有 ②③，而 ② 的代理只在开发机跑，
+    // 线上必然落到 ③ —— 于是 H5 的"AI 对话"在生产环境其实一直是假规则。
     if (name === 'chat' || name === 'extract') {
+      try {
+        return (await invoke(name, data)) as T
+      } catch (err) {
+        console.warn(`[Cloud] ${name} via cloud rpc failed, try local proxy:`, err)
+      }
       const ai = await callLocalAI<T>(name, data)
       if (ai) return ai
       console.warn(`[Cloud] local AI proxy unavailable, fallback to mock: ${name}`)
+    }
+    // 其余云函数（getLibrary / updateSettings / getUsage / shopping / confirmItem /
+    // createOrder / deleteAccount …）：**先走云服务**，两端同一套实现；
+    // 拿不到才降级本地 mock。src/data 下每个云函数都有同名模块，故回退路径不破。
+    try {
+      return (await invoke(name, data)) as T
+    } catch (err) {
+      console.warn(`[Cloud] ${name} via cloud rpc failed, fallback to mock:`, err)
     }
     const mockModule = await import(`../data/${name}`)
     return mockModule.default(data) as T
@@ -285,8 +298,7 @@ export async function callFunction<T = unknown>(
       return mockModule.default() as T
     }
   }
-  const res = await Taro.cloud.callFunction({ name, data })
-  const result = res.result as Record<string, unknown> | null
+  const result = (await invoke(name, data)) as Record<string, unknown> | null
   // 返回协议兼容：webSearch/shopping/deleteAccount 全包 { code, message, data }；
   // login/extract/getBriefing/chat/getUsage 等为裸业务体——统一归一后再校验
   if (result && typeof result === 'object' && 'code' in result) {

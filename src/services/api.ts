@@ -1,5 +1,6 @@
 import Taro from '@tarojs/taro';
 import { callFunction, chatLocalStream } from './cloud';
+import { invoke } from './dataSource';
 /** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
 import type { PlanProposalRaw } from '@/utils/schedule';
 import type {
@@ -97,17 +98,18 @@ export function apiGetHotspot(): Promise<HotspotNews[]> {
   return callFunction<HotspotNews[]>('getHotspot');
 }
 
-/** 全网资讯搜索（F29）：真机走 webSearch 云函数（Bing News RSS）；H5 返回 null，由页面本地过滤兜底 */
+/** 全网资讯搜索（F29）：走 webSearch 云函数（Bing News RSS）。
+ *  2026-10-05 起 H5 也走真后端 —— 经 dataSource 转到云服务 database.rpc，
+ *  此前这里直接 `return null`，等于 H5 的全网搜索从来没真正工作过。 */
 export async function apiNewsSearch(keyword: string): Promise<HotspotNews[] | null> {
   const kw = keyword.trim();
   if (!kw) return [];
-  if (process.env.TARO_ENV !== 'weapp') return null;
   try {
-    const res = await Taro.cloud.callFunction({
-      name: 'webSearch',
-      data: { action: 'searchNews', keyword: kw.slice(0, 30) }
-    });
-    const payload = res.result as { code: number; data: HotspotNews[] | null; message?: string };
+    const payload = (await invoke('webSearch', { action: 'searchNews', keyword: kw.slice(0, 30) })) as {
+      code: number;
+      data: HotspotNews[] | null;
+      message?: string;
+    };
     if (payload && payload.code === 0 && Array.isArray(payload.data)) return payload.data;
     console.warn('[api] newsSearch bad payload:', payload && payload.message);
     return null;
@@ -117,7 +119,7 @@ export async function apiNewsSearch(keyword: string): Promise<HotspotNews[] | nu
   }
 }
 
-/** 资讯反馈（F22）：记录 👍/👎，驱动内容瘦身；本地持久化 + 真机走云函数 */
+/** 资讯反馈（F22）：记录 👍/👎，驱动内容瘦身；本地持久化 + 云端落库 */
 export function apiNewsFeedback(id: string, feedback: 'up' | 'down'): Promise<{ id: string; feedback: 'up' | 'down' }> {
   // 本地持久化（双端即时生效）
   try {
@@ -127,13 +129,8 @@ export function apiNewsFeedback(id: string, feedback: 'up' | 'down'): Promise<{ 
   } catch (err) {
     console.warn('[api] newsFeedback persist failed:', err);
   }
-  // H5 预览无 webSearch 云通道（callFunction 会路由到不存在的 mock），反馈留本地
-  if (process.env.TARO_ENV !== 'weapp') {
-    return Promise.resolve({ id, feedback });
-  }
-  // 真机落库 newsFeedback 集合；失败不阻塞本地标记
-  return Taro.cloud
-    .callFunction({ name: 'webSearch', data: { action: 'feedback', id, feedback } })
+  // 云端落库；失败不阻塞本地标记（双端都会尝试，登录态/网络不通时静默降级为纯本地）
+  return invoke('webSearch', { action: 'feedback', id, feedback })
     .then(() => ({ id, feedback }))
     .catch((err) => {
       console.warn('[api] newsFeedback cloud sync failed:', err);

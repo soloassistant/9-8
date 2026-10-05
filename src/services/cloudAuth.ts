@@ -1,5 +1,11 @@
 /**
- * WorkBuddy 云服务认证（邮箱登录）—— **仅 H5 / 发布版使用**。
+ * WorkBuddy 云服务认证（邮箱 / 手机号）—— **仅 H5 / 发布版使用**。
+ *
+ * 标识方式（2026-10-05 按 SDK 实现核对，非猜测）：SDK 的 `resolveAuthIdentifier` 读
+ *   `{ email }` 或 `{ phone }`，且**两者恰好只能给一个** —— 都给或都不给会返回
+ *   `invalid-request: requires exactly one of email or phone`。内部再归一化成
+ *   `{ kind, username }`，`normalizePhone` 会剥离 +86 / 86 / 0086 并按 /^1\d{10}$/ 校验。
+ *   所以调用方只需把 email 换成 phone，不必自己拼 E.164。
  *
  * 为什么需要它：发布版是**公开链接**，此前任何人拿到链接就能直接进入；而 H5 侧的数据隔离
  * 靠的是 localStorage 里**自生成的 UUID**（`cloud-user-id`），等于没有认证 —— 谁都能进、
@@ -39,19 +45,32 @@ export interface AuthResp<T> {
 export interface CloudUser {
   id?: string;
   email?: string;
+  /** 2026-10-05 SDK 实测：parseUser 同时读 phone_number 与 phone 两个字段。
+   *  微信登录的用户两者都没有，故保持可选。 */
+  phone?: string;
 }
 export interface CloudSession {
   user?: CloudUser;
 }
 
+/** 登录标识：**email 与 phone 恰好给一个**（SDK 的 resolveAuthIdentifier 会拒绝"两个都给"或"都不给"）。
+ *
+ *  手机号不用在前端做国际区号归一化 —— SDK 内部 `normalizePhone` 会剥离 +86 / 86 / 0086，
+ *  按 /^1\d{10}$/ 校验，并在不符合时原样回传以便服务端报错。前端只做"看起来像手机号"的轻校验。 */
+export type AuthIdentifier = { email: string } | { phone: string };
+
+/** 该标识是不是手机号（登录页据此切文案、决定是否显示「忘记密码」——SDK 只有邮箱改密） */
+export function isPhoneIdentifier(id: AuthIdentifier): id is { phone: string } {
+  return 'phone' in id;
+}
+
 interface CloudAuthApi {
   getSession(): Promise<AuthResp<CloudSession | null>>;
-  signInWithPassword(input: { email: string; password: string }): Promise<AuthResp<CloudSession>>;
-  sendOtp(input: { email: string }): Promise<
+  signInWithPassword(input: AuthIdentifier & { password: string }): Promise<AuthResp<CloudSession>>;
+  sendOtp(input: AuthIdentifier): Promise<
     AuthResp<{ verificationId: string; isExistingUser: boolean }>
   >;
-  verifyOtp(input: {
-    email: string;
+  verifyOtp(input: AuthIdentifier & {
     verificationId: string;
     isExistingUser: boolean;
     token: string;
@@ -63,8 +82,21 @@ interface CloudAuthApi {
   signOut(): Promise<AuthResp<null>>;
   onAuthStateChange(cb: (event: string, session: CloudSession | null) => void): () => void;
 }
+
+/** 云函数调用面（PostgREST 风格）：H5 走它，小程序走 Taro.cloud —— 契约相同，见 services/dataSource */
+interface CloudDatabaseApi {
+  rpc<T = unknown>(fn: string, params?: Record<string, unknown>): Promise<T>;
+  from(table: string): unknown;
+}
+
 interface CloudClient {
   auth: CloudAuthApi;
+  /** 2026-10-05 实测 SDK 内部结构：WorkBuddyCloudClient 同时挂 auth / database / storage / llm。
+   *  database 复用 auth 的 access token，因此必须在登录之后调用。 */
+  database?: CloudDatabaseApi;
+  /** OpenAI 兼容的 chat.completions，替代原先只能本地跑的 .tools/llm-proxy.mjs */
+  llm?: { chat: { completions: { create(input: Record<string, unknown>): Promise<unknown> } } };
+  storage?: unknown;
 }
 interface CloudGlobal {
   createWorkBuddyCloud(config: { endpoint: string; publishableKey: string }): CloudClient;
@@ -159,24 +191,42 @@ export async function getSession(): Promise<CloudSession | null> {
   }
 }
 
-export function signInWithPassword(email: string, password: string): Promise<AuthResp<CloudSession>> {
-  return safeAuth((c) => c.auth.signInWithPassword({ email, password }), {} as CloudSession);
+export function signInWithPassword(
+  id: AuthIdentifier,
+  password: string
+): Promise<AuthResp<CloudSession>> {
+  return safeAuth((c) => c.auth.signInWithPassword({ ...id, password }), {} as CloudSession);
 }
 
-export function sendEmailCode(
-  email: string
+/** 取验证码（邮箱或手机号）。**改名而非加函数**：它已经不再只发邮件，
+ *  沿用 sendEmailCode 会让调用方误以为只能走邮箱。 */
+export function sendLoginCode(
+  id: AuthIdentifier
 ): Promise<AuthResp<{ verificationId: string; isExistingUser: boolean }>> {
-  return safeAuth((c) => c.auth.sendOtp({ email }), { verificationId: '', isExistingUser: false });
+  return safeAuth((c) => c.auth.sendOtp({ ...id }), { verificationId: '', isExistingUser: false });
 }
 
-export function verifyEmailCode(input: {
-  email: string;
+export function verifyLoginCode(input: {
+  id: AuthIdentifier;
   verificationId: string;
   isExistingUser: boolean;
   token: string;
   password?: string;
 }): Promise<AuthResp<CloudSession>> {
-  return safeAuth((c) => c.auth.verifyOtp(input), {} as CloudSession);
+  const { id, ...rest } = input;
+  return safeAuth((c) => c.auth.verifyOtp({ ...id, ...rest }), {} as CloudSession);
+}
+
+/** 供 dataSource 层取已登录的云函数调用面。**未登录返回 null** —— 调用方据此决定降级。 */
+export async function getCloudRpc(): Promise<CloudDatabaseApi['rpc'] | null> {
+  const c = await getCloudClient();
+  return c?.database?.rpc?.bind(c.database) || null;
+}
+
+/** 供 dataSource 层取 LLM 调用面（OpenAI 兼容 completions）。未登录/SDK 缺失返回 null。 */
+export async function getCloudLlm(): Promise<NonNullable<CloudClient['llm']> | null> {
+  const c = await getCloudClient();
+  return c?.llm || null;
 }
 
 const NOOP_UPDATE_USER = {

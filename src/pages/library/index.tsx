@@ -8,6 +8,7 @@ import EmptyState from '@/components/EmptyState';
 import { NewsCardSkeleton } from '@/components/Skeleton';
 import { apiGetLibrary, apiGetHotspot, apiNewsSearch } from '@/services/api';
 import { getHotspotMeta, apiAiNewsFilter, apiGetAffinity, apiSaveAffinity } from '@/services/cloud';
+import { invoke } from '@/services/dataSource';
 import { useUserStore } from '@/store/user';
 import { fromNow } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
@@ -132,13 +133,10 @@ function readNewsFeedback(): Record<string, 'up' | 'down'> {
   }
 }
 
-/** 资讯反馈云端落库（真机生效，失败静默） */
+/** 资讯反馈云端落库（双端生效，失败静默） */
 async function apiNewsFeedback(id: string, value: 'up' | 'down'): Promise<void> {
   try {
-    await Taro.cloud?.callFunction({
-      name: 'newsFeedback',
-      data: { id, value }
-    });
+    await invoke('newsFeedback', { id, value });
   } catch (err) {
     console.warn('[LibraryPage] apiNewsFeedback failed:', err);
   }
