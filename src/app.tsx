@@ -3,7 +3,7 @@ import Taro, { useDidShow } from '@tarojs/taro';
 import AiAssistant from '@/components/AiAssistant';
 import Splash from '@/components/Splash';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
-import AuthGate from '@/components/AuthGate';
+import { needsAuthGate, getSession } from '@/services/cloudAuth';
 import { useLanguageStore, dict } from '@/store/language';
 import { initCloudSync } from '@/services/cloudSync';
 // 全局样式
@@ -69,16 +69,25 @@ function App(props) {
     const current = pages[pages.length - 1];
     const route = current ? current.route || '' : '';
     setContext(routeToContext(route));
+    // 门禁：未登录且不在登录页 → 送回登录页。放在 useDidShow 是因为它覆盖
+    // 「切 tab / 深链 / 冷启动」所有进入路径。
+    // 注意实现方式是**重定向**，而不是在 App 里不渲染 children —— 后者会打断
+    // Taro 的页面生命周期（实测抛「没有找到页面实例」并整页白屏，只剩 Tab 栏）。
+    if (needsAuthGate && route && !route.includes('login')) {
+      getSession().then((s) => {
+        if (!s) Taro.redirectTo({ url: '/pages/login/index' }).catch(() => {});
+      });
+    }
   });
 
   return (
-    <AuthGate>
+    <>
       {props.children}
       {/* 晨报页有常驻输入栏（含快捷指令条），AI 悬浮球需额外抬升避让 */}
       <AiAssistant context={context} offset={context === 'briefing' ? 240 : 40} />
       {/* 开屏动画：每次冷启动展示，点击可跳过 */}
       <Splash />
-    </AuthGate>
+    </>
   );
 }
 

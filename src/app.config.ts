@@ -9,6 +9,9 @@ export default defineAppConfig({
     }
   },
   pages: [
+    // 登录页放在首位 = 入口页：根路径先到登录页，已登录则立即跳转，
+    // 避免"先渲染受保护内容再重定向"的闪现。
+    'pages/login/index',
     'pages/briefing/index',
     'pages/inbox/index',
     'pages/library/index',

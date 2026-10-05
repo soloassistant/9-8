@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Taro from '@tarojs/taro';
 import { View, Text, Input } from '@tarojs/components';
 import { useT } from '@/store/language';
 import {
@@ -12,8 +13,8 @@ import {
 } from '@/services/cloudAuth';
 import styles from './index.module.scss';
 
-/** 门禁阶段：校验中 → 未登录（显示登录页）/ 已登录（放行） */
-type Phase = 'checking' | 'login' | 'ready';
+/** 阶段：校验中 → 显示登录表单。已登录不在这里"放行渲染"，而是**跳转到应用首页**。 */
+type Phase = 'checking' | 'form';
 type Tab = 'password' | 'otp' | 'signup' | 'forgot';
 
 /** 「获取验证码」同一次流程里的凭据。**必须活在事件之外** ——
@@ -34,16 +35,18 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * localStorage 里自生成的 UUID —— 等于没有身份。现在进入前必须通过云服务邮箱认证。
  *
  * 平台差异（有意为之）：
- *   · H5 / 发布版：走云服务邮箱认证，未登录就停在这一屏，`children` 根本不渲染。
+ *   · H5 / 发布版：走云服务邮箱认证。未登录时**由 app.tsx 重定向到本页**（独立页面，
+ *     不是"在 App 里不渲染 children"—— 那种做法会打断 Taro 的页面生命周期，
+ *     实测抛「没有找到页面实例」并整页白屏）。
  *   · 微信小程序：身份由微信提供（云函数 login 拿 openid），无需再让用户登一次，
  *     故 `needsAuthGate` 为 false 时直接放行 —— 这不是"游客通道"，见 services/cloudAuth 的说明。
  *
  * 安全边界：这是**前端门禁**。真正的数据保护在服务端（云服务按身份 + RLS 隔离）；
  * 前端这层只负责"不登录就不给用"。**不做任何假身份兜底**：没有 mock session、没有本地假用户。
  */
-export default function AuthGate({ children }: { children: React.ReactNode }) {
+export default function LoginPage() {
   const t = useT();
-  const [phase, setPhase] = useState<Phase>(needsAuthGate ? 'checking' : 'ready');
+  const [phase, setPhase] = useState<Phase>('checking');
   const [tab, setTab] = useState<Tab>('password');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -57,9 +60,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [notice, setNotice] = useState('');
   const [countdown, setCountdown] = useState(0);
 
-  // 首屏校验会话：取不到就停在登录页（绝不因为"取不到"而放行）
+  // 挂载校验：已有会话就进应用；否则显示登录表单。微信端身份由微信提供，直接放行。
   useEffect(() => {
-    if (!needsAuthGate) return;
+    if (!needsAuthGate) {
+      goToApp();
+      return;
+    }
     let alive = true;
     // 先判「后端是否可达」：连不上就别让用户对着一个必然失败的表单空点
     isCloudReady()
@@ -73,11 +79,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     getSession()
       .then((s) => {
         if (!alive) return;
-        setPhase(s ? 'ready' : 'login');
+        if (s) goToApp();
+        else setPhase('form');
       })
       .catch(() => {
         if (!alive) return;
-        setPhase('login');
+        setPhase('form');
       });
     return () => {
       alive = false;
@@ -160,7 +167,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       return;
     }
     setPending(null);
-    setPhase('ready');
+    goToApp();
   };
 
   const submitPassword = async () => {
@@ -179,7 +186,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       setError(t('auth.errWrongCredentials'));
       return;
     }
-    setPhase('ready');
+    goToApp();
   };
 
   const startReset = async () => {
@@ -214,8 +221,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     }
     // 重置成功后 SDK 会直接建立会话；再取一次确认，取不到就回登录页（不放行）
     const s = await getSession();
-    setPhase(s ? 'ready' : 'login');
+    if (s) goToApp();
+    else setError(t('auth.errGeneric'));
   };
+
+  /** 进入应用：switchTab 跳首个 tab（登录页不是 tab 页，不能留在导航栈里） */
+  function goToApp() {
+    Taro.switchTab({ url: '/pages/briefing/index' }).catch(() => {
+      Taro.redirectTo({ url: '/pages/briefing/index' }).catch(() => {});
+    });
+  }
 
   const handleSubmit = () => {
     if (busy) return;
@@ -225,8 +240,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     else if (!resetTicket) void startReset();
     else void submitReset();
   };
-
-  if (phase === 'ready') return <React.Fragment>{children}</React.Fragment>;
 
   if (phase === 'checking') {
     return (
