@@ -133,10 +133,16 @@ function readNewsFeedback(): Record<string, 'up' | 'down'> {
   }
 }
 
-/** 资讯反馈云端落库（双端生效，失败静默） */
+/** 资讯反馈云端落库（双端生效，失败静默）
+ *
+ *  2026-10-05 修复：原先调的是 `invoke('newsFeedback', { id, value })` —— **三重错误**：
+ *  cloudfunctions 下根本没有 newsFeedback 这个函数（只有 webSearch）；
+ *  少了 `action` 分派；字段名是 `feedback` 不是 `value`。
+ *  所以收藏页的 👍/👎 从未真正落库，**weapp 端同样失效**（不是 H5 独有）。
+ *  服务端按 openid 聚合最新一条，见 webSearch/index.js 的 `action === 'feedback'`。 */
 async function apiNewsFeedback(id: string, value: 'up' | 'down'): Promise<void> {
   try {
-    await invoke('newsFeedback', { id, value });
+    await invoke('webSearch', { action: 'feedback', id, feedback: value });
   } catch (err) {
     console.warn('[LibraryPage] apiNewsFeedback failed:', err);
   }
@@ -295,7 +301,7 @@ function LibraryPage() {
     recordAffinityImpression(arm, learned);
     setAffinityCats(learned);
     syncAb();
-    const res = await apiAiNewsFilter(interests, aiCustom.trim(), readSignals());
+    const res = await apiAiNewsFilter(visibleNews, interests, aiCustom.trim(), readSignals());
     setAiLoading(false);
     if (!res) {
       Taro.showToast({ title: t('library.aiFail'), icon: 'none' });
@@ -502,8 +508,15 @@ function LibraryPage() {
   });
 
   /** 全网搜索（F29）：搜索键触发；云端无结果时回退本地热点过滤 */
+  /** 搜索请求序号：用来丢弃「过期回包」。
+   *  没有它时：连按两次搜索，慢的旧关键词响应会盖掉新关键词的结果；
+   *  点「清空」也不取消在途请求，旧结果会自己冒回来。 */
+  const searchSeqRef = useRef(0);
+
   const handleNewsSearch = async () => {
     const kw = keyword.trim();
+    // 先占号：此后任何新搜索或清空都会让本次请求作废
+    const seq = ++searchSeqRef.current;
     if (!kw) {
       setSearchMode(false);
       setSearchResults([]);
@@ -512,6 +525,8 @@ function LibraryPage() {
     setSearchMode(true);
     setSearching(true);
     const online = await apiNewsSearch(kw);
+    // 期间已发起新搜索或点了清空 → 本次结果作废，不许写回 state
+    if (seq !== searchSeqRef.current) return;
     const local = minorVisibleNews.filter(
       (n) => n.title.includes(kw) || n.summary.includes(kw) || n.tags.some((tg) => tg.includes(kw))
     );
@@ -525,9 +540,12 @@ function LibraryPage() {
 
   /** 清空关键词并退出全网搜索模式 */
   const handleClearSearch = () => {
+    // 作废在途请求 + 收掉 loading：否则清空后旧结果会自己冒回来，且转圈不会停
+    searchSeqRef.current += 1;
     setKeyword('');
     setSearchMode(false);
     setSearchResults([]);
+    setSearching(false);
   };
 
   /** 反馈写盘：统一 try/catch，失败只 warn 不阻塞 */

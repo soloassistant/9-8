@@ -8,7 +8,7 @@ export const LANG_OPTIONS: Array<{ id: Lang; label: string }> = [
   { id: 'en', label: 'English' }
 ];
 
-const STORAGE_KEY = 'app-lang';
+export const STORAGE_KEY = 'app-lang';
 
 /** 核心界面级文案字典（AI 对话内容/晨报正文由大模型生成，不参与翻译） */
 const zh = {

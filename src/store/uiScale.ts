@@ -15,7 +15,7 @@ export const UI_SCALE_PRESETS: UiScalePreset[] = [
   { id: 'xlarge', label: '特大', value: 1.3 }
 ];
 
-const STORAGE_KEY = 'ui-scale';
+export const STORAGE_KEY = 'ui-scale';
 const isH5 = process.env.TARO_ENV === 'h5';
 
 /** 把缩放系数应用到文档根（H5） */

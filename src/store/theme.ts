@@ -20,7 +20,7 @@ export const THEME_PRESETS: ThemePreset[] = [
   { id: 'sakura', name: '樱花粉', color: '#F5669C', soft: '#FEEEF5', deep: '#D14B80' }
 ];
 
-const STORAGE_KEY = 'brand-theme';
+export const STORAGE_KEY = 'brand-theme';
 
 interface ThemeState {
   theme: ThemePreset;

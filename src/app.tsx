@@ -4,13 +4,38 @@ import AiAssistant from '@/components/AiAssistant';
 import Splash from '@/components/Splash';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
 import { needsAuthGate, getSession } from '@/services/cloudAuth';
-import { useLanguageStore, dict } from '@/store/language';
+import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/language';
+import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
+import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
 import { initCloudSync } from '@/services/cloudSync';
 // 全局样式
 import './app.scss';
 
 // 用户数据轻云同步（仅 H5）：必须在任何页面读取 storage 之前完成云端恢复，故模块加载即执行
 initCloudSync();
+
+/**
+ * 云端恢复**重放**（2026-10-05 实测缺陷）：ESM 会把被 import 的 store 模块体求值提到
+ * 上面 `initCloudSync()` 之前 —— 三个 store 在创建时读到的是「恢复前」的 storage，
+ * 之后也不会自己重读。结果是**跨设备改过的语言/主题/字号在首刷不生效**：
+ * 数据其实已经从云端拉回来了（pullRemote 是同步 XHR），但界面仍是默认值。
+ *
+ * 所以在同步拉取完成后，按同一份 storage 重放一次。**不要去改 store 模块体**去解决 ——
+ * 那会把「什么时候读」的时序问题散到三个文件里，而且下次加 store 又会漏。
+ */
+function rehydrateStoresAfterCloudPull(): void {
+  try {
+    const lang = Taro.getStorageSync(LANG_KEY);
+    if (lang === 'zh' || lang === 'en') useLanguageStore.getState().setLang(lang);
+    const theme = Taro.getStorageSync(THEME_KEY);
+    if (typeof theme === 'string' && theme) useThemeStore.getState().setTheme(theme);
+    const scale = Taro.getStorageSync(UI_SCALE_KEY);
+    if (typeof scale === 'string' && scale) useUiScaleStore.getState().setScale(scale);
+  } catch (err) {
+    console.warn('[App] rehydrate stores after cloud pull failed:', err);
+  }
+}
+rehydrateStoresAfterCloudPull();
 
 /** TabBar 文案：语言切换时同步更新（index 与 app.config.ts tabBar list 顺序一致） */
 const TAB_KEYS = ['tab.briefing', 'tab.inbox', 'tab.hotspot', 'tab.calendar', 'tab.mine'] as const;
