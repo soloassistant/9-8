@@ -39,3 +39,11 @@ static-server.log*
 .codefix/
 
 dist-weapp/
+
+# push-via-api 临时目录
+.tools/.pushtmp/
+
+# 布局回归与探针的临时产物
+.tools/.layout-shots/
+.tools/.shot-*.png
+.tools/.httpd.log

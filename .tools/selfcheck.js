@@ -451,6 +451,45 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
       };
 });
 
+/* ---------- 22. 桌面端布局防回退 + 布局回归入口（2026-10-07） ---------- */
+// 为什么检查这个：2026-10-07 线上发布版在 ≥500px 视口下**整页塌成 0 宽**（表现为白屏）。
+// 根因是 `.taro-tabbar__panel` 只写了 `max-width` 却依赖 flex 拉伸 —— 而它唯一的子节点
+// `.taro_router` 是 position:absolute（脱离文档流），`margin:0 auto` 把自由空间全吃掉，
+// fit-content 退化为 0。修复的关键就是给它一个**确定宽度**。
+// 这里把"确定宽度 + 根字号钳制 + 回归入口"三件事钉住：任何一条被"顺手简化"掉，
+// 白屏都会原样复现，而它在 375px 手机上是看不出来的（所以必须靠断言，不能靠肉眼）。
+check('桌面端布局防回退（确定宽度 + 根字号钳制 + 回归入口）', 'H5 响应式', () => {
+  const scss = read('src/app.scss');
+  const scale = read('src/store/uiScale.ts');
+  const pkg = read('package.json');
+  if (!scss) return { pass: false, detail: 'src/app.scss 不存在' };
+  if (!scale) return { pass: false, detail: 'src/store/uiScale.ts 不存在' };
+
+  // ① 面板必须是确定宽度，而不是只靠 max-width 等 flex 拉伸
+  const panelBlock = (scss.match(/\.taro-tabbar__panel\s*\{[^}]*\}/g) || []).join('\n');
+  const hasExplicitWidth = /width:\s*20rem\s*!important/.test(panelBlock);
+  // ② 根字号必须按 min(100vw, 500PX) 封顶，且大写 PX 逃逸 pxtransform
+  const rootFontOk = /font-size:\s*calc\(\s*min\(100vw,\s*500PX\)/.test(scss);
+  // ③ --ui-scale 必须被钳制，否则被污染的变量能把根字号放大到 750px（审计提出的另一条根因）
+  const clampOk = /MIN_UI_SCALE/.test(scale) && /MAX_UI_SCALE/.test(scale)
+    && /isFinite\(value\)/.test(scale);
+  // ④ 回归入口与脚本必须在位（否则"检查通过"无从复跑）
+  let scripts = {};
+  try { scripts = JSON.parse(pkg || '{}').scripts || {}; } catch (e) { /* 交给下面报错 */ }
+  const files = ['.tools/verify-layout.mjs', '.tools/cdp-probe.mjs', '.tools/cdp-probe-session.js'];
+  const missing = files.filter((f) => !exists(f));
+  const entryOk = !!scripts['verify:layout'] && missing.length === 0;
+
+  const ok = hasExplicitWidth && rootFontOk && clampOk && entryOk;
+  return ok
+    ? { pass: true, detail: '面板 width:20rem!important 在位；根字号 min(100vw,500PX) 封顶；--ui-scale 钳制 0.5~2；verify:layout 已注册' }
+    : {
+        pass: false,
+        detail: 'explicitWidth=' + hasExplicitWidth + ' rootFont=' + rootFontOk + ' clamp=' + clampOk
+          + ' entry=' + entryOk + (missing.length ? ' 缺文件：' + missing.join(', ') : '')
+      };
+});
+
 /* ---------- 主流程 ---------- */
 // 退出码：0 = 全部 PASS；1 = 有 FAIL；2 = 无 FAIL 但有 SKIP（需人工补验）
 (async () => {
