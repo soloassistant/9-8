@@ -29,14 +29,24 @@ html {
     background: #e9ebef;
   }
   // 页面内容限宽居中，大屏呈现为卡片
+  //
+  // ⚠️ 必须给**明确宽度**，不能只写 max-width 靠 flex 拉伸（2026-10-07 实测修复）：
+  //   .taro-tabbar__panel 是 `flex: 1 1 0%` 的子项，容器是 column 方向的 flex；
+  //   而它唯一的子节点 .taro_router 是 position:absolute（**脱离文档流**）。
+  //   于是 `margin: 0 auto` 会把自由空间全部吃掉，fit-content 退化为 **0 宽**，
+  //   连累 .taro_router / .taro_page 全变 0 —— 整个应用在 ≥500px 视口下页面宽度为 0。
+  //   （症状具有欺骗性：登录页因为 .screen 是 position:fixed 而看着正常，内页全塌。）
+  //   宽度用 rem 表达：根字号 = min(100vw,500px)/20，故 20rem 在封顶时恰为 500px，
+  //   且天然随视口收缩 —— 比大写 PX 逃逸 pxtransform 的写法稳（那种写法依赖浏览器容忍度）。
   .taro-tabbar__panel {
-    max-width: 500PX !important;
+    width: 20rem !important;
+    max-width: 100% !important;
     margin: 0 auto !important;
     box-shadow: 0 0 32rpx rgba(17, 24, 39, 0.1);
   }
   // 底部 TabBar 同步限宽居中
   .taro-tabbar__tabbar {
-    max-width: 500PX !important;
+    max-width: 20rem !important;
     left: 50% !important;
     transform: translateX(-50%) !important;
   }
@@ -45,7 +55,7 @@ html {
     left: 50% !important;
     right: auto !important;
     transform: translateX(-50%);
-    width: min(calc(100% - 32rpx), 468PX) !important;
+    width: min(calc(100% - 32rpx), 18.72rem) !important; // 18.72rem = 封顶时 468px
   }
   // TabBar 选中文字色跟随主题色（图标为静态资源不随主题）
   .taro-tabbar__tabbar .taro-tabbar__tab--active {
