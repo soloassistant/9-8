@@ -44,7 +44,9 @@ const CHROME_CANDIDATES = [
   '/usr/bin/chromium',
 ].filter(Boolean);
 
-/** 面板封顶宽度（rem 基准 20 => 500px），见 src/app.scss 的 @media (min-width:500px) */
+/** 面板封顶宽度（rem 基准 20 => 500px），见 src/app.scss 的 @media (min-width:500px)。
+ *  ⚠️ 这是**标准档位（--ui-scale: 1）**下的值。容器宽 = min(vw,500px) × scale，
+ *  非标准档位由下面的 SCALE_CASES 单独覆盖。 */
 const PANEL_MAX = 500;
 
 const VIEWPORTS = [
@@ -55,6 +57,16 @@ const VIEWPORTS = [
   { w: 1440, h: 900, note: 'MacBook' },
   { w: 1920, h: 1080, note: '外接显示器' },
 ];
+
+/** 界面大小档位 → 预设 id 与系数（须与 src/store/uiScale.ts 的 UI_SCALE_PRESETS 一致）。
+ *  为什么要覆盖：容器宽写成 20rem 后，它会跟着 --ui-scale 同比变化；
+ *  不把这维纳入回归，将来改档位或改 rem 基准时没人会发现"桌面卡片宽度漂了"。 */
+const SCALE_CASES = [
+  { id: 'small', scale: 0.85 },
+  { id: 'large', scale: 1.15 },
+  { id: 'xlarge', scale: 1.3 },
+];
+const SCALE_VIEWPORT = { w: 1280, h: 720 };
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -155,8 +167,8 @@ function pngNearWhite(file) {
   return total ? white / total : 1;
 }
 
-function runProbe(port, vp, png) {
-  const expr = `(()=>{const g=s=>{const e=document.querySelector(s);if(!e)return null;const b=e.getBoundingClientRect();return{w:Math.round(b.width),x:Math.round(b.x),y:Math.round(b.y),h:Math.round(b.height)}};return JSON.stringify({vw:innerWidth,vh:innerHeight,rem:getComputedStyle(document.documentElement).fontSize,stubKept:!!(window.WorkBuddyCloud&&window.WorkBuddyCloud.__probe),hash:location.hash,container:g('.taro-tabbar__container'),panel:g('.taro-tabbar__panel'),page:g('.taro_page'),pageCount:document.querySelectorAll('.taro_page').length,scrollW:document.documentElement.scrollWidth,bodyText:(document.body.innerText||'').replace(/\\s+/g,' ').slice(0,80)})})()`;
+function runProbe(port, vp, png, initFile) {
+  const expr = `(()=>{const g=s=>{const e=document.querySelector(s);if(!e)return null;const b=e.getBoundingClientRect();return{w:Math.round(b.width),x:Math.round(b.x),y:Math.round(b.y),h:Math.round(b.height)}};return JSON.stringify({vw:innerWidth,vh:innerHeight,rem:getComputedStyle(document.documentElement).fontSize,uiScale:getComputedStyle(document.documentElement).getPropertyValue('--ui-scale').trim(),stubKept:!!(window.WorkBuddyCloud&&window.WorkBuddyCloud.__probe),hash:location.hash,container:g('.taro-tabbar__container'),panel:g('.taro-tabbar__panel'),page:g('.taro_page'),pageCount:document.querySelectorAll('.taro_page').length,scrollW:document.documentElement.scrollWidth,bodyText:(document.body.innerText||'').replace(/\\s+/g,' ').slice(0,80)})})()`;
   return new Promise((resolve, reject) => {
     const args = [
       PROBE,
@@ -164,7 +176,7 @@ function runProbe(port, vp, png) {
       String(vp.w),
       String(vp.h),
       '--init-script',
-      SESSION_STUB,
+      initFile,
       '--block-url',
       '*cdn.jsdelivr.net*',
       '--expr',
@@ -206,6 +218,22 @@ async function main() {
   process.env.CHROME_BIN = chrome;
   fs.mkdirSync(OUTDIR, { recursive: true });
 
+  // 默认测试态：只有假 SDK
+  const stubSrc = fs.readFileSync(SESSION_STUB, 'utf8');
+  const defaultInit = path.join(OUTDIR, '_init_default.js');
+  fs.writeFileSync(defaultInit, stubSrc);
+
+  // 档位测试态：先把 ui-scale 写进 localStorage 再加载（Taro 的存储格式是 {"data":"<id>"}）
+  const scaleInits = {};
+  for (const sc of SCALE_CASES) {
+    const f = path.join(OUTDIR, `_init_${sc.id}.js`);
+    fs.writeFileSync(
+      f,
+      `try{localStorage.setItem('ui-scale','{"data":"${sc.id}"}')}catch(e){}\n` + stubSrc
+    );
+    scaleInits[sc.id] = f;
+  }
+
   const { server, port } = await serveDist();
   const rows = [];
   let failed = 0;
@@ -213,7 +241,7 @@ async function main() {
   for (const vp of VIEWPORTS) {
     const png = path.join(OUTDIR, `${vp.w}x${vp.h}.png`);
     try {
-      const v = await runProbe(port, vp, png);
+      const v = await runProbe(port, vp, png, defaultInit);
       const white = pngNearWhite(png);
       const expectPanel = Math.min(vp.w, PANEL_MAX);
       const expectX = Math.round((vp.w - expectPanel) / 2);
@@ -223,7 +251,7 @@ async function main() {
         ['面板水平居中', Math.abs((v.panel?.x || 0) - expectX) <= 1, `panel.x=${v.panel?.x} 期望 ${expectX}`],
         ['页面宽度非 0', (v.page?.w || 0) > 0, `page=${v.page?.w}`],
         ['无横向溢出', (v.scrollW || 0) <= vp.w + 1, `scrollW=${v.scrollW} 期望 <=${vp.w}`],
-        ['非白屏', white < 0.5, `近白像素占比=${(white * 100).toFixed(1)}%`],
+        ['非白屏（辅助判据）', white < 0.5, `近白像素占比=${(white * 100).toFixed(1)}%`],
         ['测试态生效', v.stubKept === true && /briefing/.test(v.hash || ''), `hash=${v.hash} stub=${v.stubKept}`],
         ['只挂载 1 个页面', v.pageCount === 1, `pageCount=${v.pageCount}`],
       ];
@@ -235,10 +263,47 @@ async function main() {
       rows.push({ vp, error: String(e.message || e), checks: [], bad: [['探针执行', false, String(e.message || e)]] });
     }
   }
+
+  // 第二段：界面大小档位 × 1280 —— 面板宽应随 scale 同比变化（且仍居中、不溢出）
+  const scaleRows = [];
+  for (const sc of SCALE_CASES) {
+    const png = path.join(OUTDIR, `scale-${sc.id}-${SCALE_VIEWPORT.w}x${SCALE_VIEWPORT.h}.png`);
+    const vp = { ...SCALE_VIEWPORT, note: `界面大小=${sc.id}` };
+    try {
+      const v = await runProbe(port, vp, png, scaleInits[sc.id]);
+      const white = pngNearWhite(png);
+      const expectPanel = Math.round(Math.min(vp.w, PANEL_MAX) * sc.scale);
+      const expectX = Math.round((vp.w - expectPanel) / 2);
+      const checks = [
+        ['系数已生效', Math.abs(Number(v.uiScale) - sc.scale) < 1e-6, `--ui-scale=${v.uiScale} 期望 ${sc.scale}`],
+        ['面板随档位同比', Math.abs((v.panel?.w || 0) - expectPanel) <= 1, `panel=${v.panel?.w} 期望 ${expectPanel}`],
+        ['面板水平居中', Math.abs((v.panel?.x || 0) - expectX) <= 1, `panel.x=${v.panel?.x} 期望 ${expectX}`],
+        ['页面宽度非 0', (v.page?.w || 0) > 0, `page=${v.page?.w}`],
+        ['无横向溢出', (v.scrollW || 0) <= vp.w + 1, `scrollW=${v.scrollW} 期望 <=${vp.w}`],
+        ['非白屏（辅助判据）', white < 0.5, `近白像素占比=${(white * 100).toFixed(1)}%`],
+      ];
+      const bad = checks.filter((c) => !c[1]);
+      if (bad.length) failed++;
+      scaleRows.push({ sc, v, white, checks, bad });
+    } catch (e) {
+      failed++;
+      scaleRows.push({ sc, error: String(e.message || e), checks: [], bad: [['探针执行', false, String(e.message || e)]] });
+    }
+  }
   server.close();
 
   if (asJson) {
-    console.log(JSON.stringify({ failed, rows: rows.map((r) => ({ vp: r.vp, white: r.white, bad: r.bad, error: r.error })) }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          failed,
+          viewports: rows.map((r) => ({ vp: r.vp, white: r.white, bad: r.bad, error: r.error })),
+          scales: scaleRows.map((r) => ({ scale: r.sc?.id, white: r.white, bad: r.bad, error: r.error })),
+        },
+        null,
+        2
+      )
+    );
   } else {
     console.log('视口布局回归 (verify:layout)');
     console.log('─'.repeat(96));
@@ -265,7 +330,32 @@ async function main() {
     for (const r of rows) {
       for (const b of r.bad) console.log(`  ✗ ${r.vp.w}x${r.vp.h} ${b[0]}: ${b[2]}`);
     }
-    console.log(`结果: ${failed === 0 ? 'PASS' : `FAIL ${failed}/${rows.length}`}（截图在 .tools/.layout-shots/）`);
+
+    console.log('\n界面大小档位回归（1280x720，容器宽应 = min(vw,500) × scale）');
+    console.log('─'.repeat(96));
+    console.log('档位'.padEnd(12) + '系数'.padEnd(9) + 'rem'.padEnd(9) + '面板'.padEnd(15) + '页面'.padEnd(14) + '近白'.padEnd(9) + '结论');
+    for (const r of scaleRows) {
+      if (r.error) {
+        console.log(`${r.sc.id}`.padEnd(12) + `错误: ${r.error.slice(0, 70)}`);
+        continue;
+      }
+      const v = r.v;
+      console.log(
+        `${r.sc.id}`.padEnd(12) +
+          String(r.sc.scale).padEnd(9) +
+          String(v.rem).padEnd(9) +
+          `${v.panel?.w}@${v.panel?.x}`.padEnd(15) +
+          `${v.page?.w}x${v.page?.h}`.padEnd(14) +
+          `${(r.white * 100).toFixed(1)}%`.padEnd(9) +
+          (r.bad.length ? `FAIL ${r.bad.map((b) => b[0]).join(',')}` : 'PASS')
+      );
+    }
+    console.log('─'.repeat(96));
+    for (const r of scaleRows) {
+      for (const b of r.bad) console.log(`  ✗ scale=${r.sc.id} ${b[0]}: ${b[2]}`);
+    }
+    const total = rows.length + scaleRows.length;
+    console.log(`结果: ${failed === 0 ? 'PASS' : `FAIL ${failed}/${total}`}（截图在 .tools/.layout-shots/）`);
   }
   process.exit(failed === 0 ? 0 : 1);
 }
