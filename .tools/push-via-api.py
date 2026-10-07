@@ -34,58 +34,69 @@ REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def resolve_token():
-    """按优先级取 token：环境变量 → git credential → PortableGit 的 wincred helper。
+    """按优先级取 token：环境变量 → wincred helper 直读 → git credential fill。
 
-    注意：在沙箱内读 Windows 凭据库会**静默返回空**（假阴性），不是"本机没有凭据"。
-    遇到这种情况请在沙箱外运行本脚本。
+    ⚠️ 两条实测教训（2026-10-07，都花了时间才定位）：
+    1. **优先直读 wincred helper，不要先走 `git credential fill`**：本机 `credential.helper`
+       配的是 `helper-selector`，在 Python 的 `subprocess`（无 TTY）里调用会**永久挂住**
+       —— 同一个命令在 bash 里却是秒回。表现是脚本零输出卡死，极易误判成网络问题。
+    2. 沙箱内直读 Windows 凭据库**可能返回空**（假阴性），不是"本机没有凭据"；
+       遇到这种情况请在沙箱外运行，或显式给 GITHUB_TOKEN。
     """
     tok = os.environ.get("GITHUB_TOKEN", "").strip()
     if tok:
         return tok, "env:GITHUB_TOKEN"
 
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
-    try:
-        out = subprocess.run(
-            ["git", "credential", "fill"],
-            input=b"protocol=https\nhost=github.com\n\n",
-            capture_output=True,
-            cwd=REPO_DIR,
-            timeout=30,
-            env=env,
-        )
-        for line in out.stdout.decode("utf-8", "replace").splitlines():
+    payload = b"protocol=https\nhost=github.com\n\n"
+
+    def parse(out):
+        for line in out.decode("utf-8", "replace").splitlines():
             if line.startswith("password="):
                 v = line[len("password=") :].strip()
                 if v:
-                    return v, "git credential"
-    except Exception:
-        pass
+                    return v
+        return None
 
-    helpers = glob.glob(
+    # ① wincred helper 直读（快且不依赖 helper-selector）
+    patterns = [
         os.path.join(
             os.path.expanduser("~"),
             ".workbuddy/binaries/PortableGit/versions/*/mingw64/bin/git-credential-wincred.exe",
-        )
-    )
+        ),
+        "C:/Program Files/Git/mingw64/bin/git-credential-wincred.exe",
+    ]
+    helpers = [p for pat in patterns for p in glob.glob(pat)]
     for helper in helpers:
         try:
             out = subprocess.run(
-                [helper, "get"],
-                input=b"protocol=https\nhost=github.com\n\n",
-                capture_output=True,
-                timeout=30,
-                env=env,
-            )
-            for line in out.stdout.decode("utf-8", "replace").splitlines():
-                if line.startswith("password="):
-                    v = line[len("password=") :].strip()
-                    if v:
-                        return v, "wincred helper"
+                [helper, "get"], input=payload, capture_output=True, timeout=20, env=env
+            ).stdout
+            v = parse(out)
+            if v:
+                return v, "wincred helper"
         except Exception:
             continue
 
+    # ② 最后才试 git credential fill，且必须硬超时：它会挂
+    try:
+        out = subprocess.run(
+            ["git", "credential", "fill"],
+            input=payload,
+            capture_output=True,
+            cwd=REPO_DIR,
+            timeout=8,
+            env=env,
+        ).stdout
+        v = parse(out)
+        if v:
+            return v, "git credential fill"
+    except Exception:
+        pass
+
     raise SystemExit(
-        "取不到 GitHub 凭据。请：(a) 在沙箱外运行本脚本，或 (b) 设置环境变量 GITHUB_TOKEN。"
+        "取不到 GitHub 凭据（已试：env / wincred helper %d 个 / credential fill）。请："
+        "(a) 在沙箱外运行本脚本，或 (b) 设置环境变量 GITHUB_TOKEN。" % len(helpers)
     )
 
 
