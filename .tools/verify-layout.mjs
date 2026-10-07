@@ -11,12 +11,20 @@
  * 所以判据必须包含：① 内页（非登录页）② 大视口 ③ 面板/页面的**确定几何**。
  * 三点缺一，这个 bug 就会再溜过去一次。
  *
- * ⚠️ 变异验证的结论（2026-10-07 实测，务必保留这条认知）：
- *   把产物里的 `width:20rem` 改回 `auto` 复现原 bug 后，**"近白像素占比"这个判据没有报警**
- *   （各视口仍是 0.3%~0.8%）—— 因为塌陷的是 `.taro_page`，而页面里 `.screen` 是 `position:fixed`，
- *   脱离塌陷容器照样绘制。真正抓到 bug 的是「面板宽度/居中/页面宽度非 0」这三条几何断言。
- *   结论：像素判据只能当辅助，不能当主判据；宁可多写几何断言。
- *   （顺带说明外部审计"1280×720 全白"与"内容被压成 0 宽"可能是两种不同页面的表现。）
+ * ⚠️ 变异验证的结论（2026-10-07 实测，务必保留这几条认知）：
+ *   1. 把产物里的 `width:20rem` 改回 `auto` 复现原 bug 后，**「近白像素占比」没有报警**。
+ *      在**正确的页面**上重测（见下条）依然是：修复态 0.2488 / 变异态 0.2488，
+ *      逐像素仅 8.5% 不同。原因是绝对定位的页面内容**会逃出 0 宽父容器**照常绘制 ——
+ *      也就是说这个缺陷在 1280×720 下**并不产生"白屏"**（见第 3 条）。
+ *      真正抓到 bug 的是「面板宽度/居中/页面宽度非 0」这三条几何断言。
+ *   2. **开屏封面必须点掉再截图**。本应用的开屏不自动关闭（要点击），
+ *      不点它，截到的就是全屏遮罩：不同视口/档位截出的图**字节完全相同**，
+ *      而"近白占比"看着还挺正常。实测开屏态与页面态 **99.4% 像素不同**。
+ *      所以脚本里带 `--dismiss-splash`，并单独断言「开屏已关闭」——
+ *      否则像素类结论全是错的，而且错误极难察觉（图看着有内容）。
+ *   3. **本缺陷的视觉症状是"布局带偏移 ~8.5% 像素"，不是白屏。**
+ *      因此外部审计报的"1280×720 全白"**不能**由这条根因解释；
+ *      本次修复能主张的只是"容器几何恢复正确"，不要宣称修好了白屏。
  *
  * 内页需要登录态：探针通过 CDP 注入一个**仅在测试进程内存在**的假 SDK（见 cdp-probe-session.js），
  * 并屏蔽 CDN —— 否则真 SDK 会覆盖测试桩，页面被门禁踢回登录页，测出来的又是登录页。
@@ -104,8 +112,12 @@ function serveDist() {
   });
 }
 
-/** 读 PNG → 近白像素占比。纯标准库实现（不引入 Pillow/pngjs 依赖）。 */
-function pngNearWhite(file) {
+/** 读 PNG → 近白像素占比 + 量化后的不同颜色数。
+ *  两个都要，因为**单看近白占比会误判**：手机视口下白卡片本就多，
+ *  修好的页面实测近白 54.8%（比有些"坏页"还高）。而真正"什么都没画"的页面
+ *  特征是"几乎全白 **且** 颜色数 ≤3"（纯背景 + 一个边框色）。
+ *  纯标准库实现（本机无 Pillow，不引依赖）。 */
+function pngStats(file) {
   const buf = fs.readFileSync(file);
   if (buf.subarray(0, 8).toString('binary') !== '\x89PNG\r\n\x1a\n') throw new Error('not png');
   let pos = 8;
@@ -160,11 +172,19 @@ function pngNearWhite(file) {
   }
   let total = 0;
   let white = 0;
+  const colors = new Set();
   for (let i = 0; i + 2 < out.length; i += ch) {
     total++;
     if (out[i] >= 250 && out[i + 1] >= 250 && out[i + 2] >= 250) white++;
+    colors.add(((out[i] >> 4) << 8) | ((out[i + 1] >> 4) << 4) | (out[i + 2] >> 4));
   }
-  return total ? white / total : 1;
+  const nearWhite = total ? white / total : 1;
+  return {
+    nearWhite,
+    distinctColors: colors.size,
+    // 与 .tools/png-stats.py 的判据保持一致：既要几乎全白，又要几乎没有颜色
+    whiteScreen: nearWhite > 0.985 && colors.size <= 3,
+  };
 }
 
 function runProbe(port, vp, png, initFile) {
@@ -179,6 +199,7 @@ function runProbe(port, vp, png, initFile) {
       initFile,
       '--block-url',
       '*cdn.jsdelivr.net*',
+      '--dismiss-splash',
       '--expr',
       expr,
       '--png',
@@ -196,7 +217,8 @@ function runProbe(port, vp, png, initFile) {
         const parsed = JSON.parse(out);
         if (parsed.error) return reject(new Error(parsed.error));
         if (!parsed.value) return reject(new Error('probe 无结果: ' + out.slice(0, 300) + err.slice(0, 300)));
-        resolve(parsed.value);
+        // splash / splashAfter 在探针输出的顶层（不在 value 里），要显式带出来
+        resolve({ ...parsed.value, splash: parsed.splash, splashAfter: parsed.splashAfter });
       } catch (e) {
         reject(new Error(`视口 ${vp.w}x${vp.h} 解析失败(${code}): ${out.slice(0, 300)} ${err.slice(0, 200)}`));
       }
@@ -242,7 +264,8 @@ async function main() {
     const png = path.join(OUTDIR, `${vp.w}x${vp.h}.png`);
     try {
       const v = await runProbe(port, vp, png, defaultInit);
-      const white = pngNearWhite(png);
+      const st = pngStats(png);
+      const white = st.nearWhite;
       const expectPanel = Math.min(vp.w, PANEL_MAX);
       const expectX = Math.round((vp.w - expectPanel) / 2);
       const checks = [
@@ -251,13 +274,18 @@ async function main() {
         ['面板水平居中', Math.abs((v.panel?.x || 0) - expectX) <= 1, `panel.x=${v.panel?.x} 期望 ${expectX}`],
         ['页面宽度非 0', (v.page?.w || 0) > 0, `page=${v.page?.w}`],
         ['无横向溢出', (v.scrollW || 0) <= vp.w + 1, `scrollW=${v.scrollW} 期望 <=${vp.w}`],
-        ['非白屏（辅助判据）', white < 0.5, `近白像素占比=${(white * 100).toFixed(1)}%`],
+        // ⚠️ 这条**不能用来证明本缺陷已修**：实测把修复撤掉后，本判据的数字几乎不变
+        //    （修复态 0.2488 / 变异态 0.2488，逐像素仅 8.5% 不同）——
+        //    因为绝对定位的页面内容会逃出 0 宽父容器照常绘制。它只能防"整页真的什么都没绘制"。
+        ['页面已绘制（辅助判据，对本缺陷无判别力）', !st.whiteScreen, `近白=${(white * 100).toFixed(1)}% 颜色数=${st.distinctColors}`],
+        // 这条才是像素类结论的前提：不点掉开屏，截到的就是全屏遮罩（实测两态 99.4% 像素不同）
+        ['开屏已关闭（否则像素判据测的是遮罩）', v.splash === 'no-splash' || v.splashAfter === 'gone', `splash=${v.splash} 之后=${v.splashAfter}`],
         ['测试态生效', v.stubKept === true && /briefing/.test(v.hash || ''), `hash=${v.hash} stub=${v.stubKept}`],
         ['只挂载 1 个页面', v.pageCount === 1, `pageCount=${v.pageCount}`],
       ];
       const bad = checks.filter((c) => !c[1]);
       if (bad.length) failed++;
-      rows.push({ vp, v, white, checks, bad, png });
+      rows.push({ vp, v, white, st, checks, bad, png });
     } catch (e) {
       failed++;
       rows.push({ vp, error: String(e.message || e), checks: [], bad: [['探针执行', false, String(e.message || e)]] });
@@ -271,7 +299,8 @@ async function main() {
     const vp = { ...SCALE_VIEWPORT, note: `界面大小=${sc.id}` };
     try {
       const v = await runProbe(port, vp, png, scaleInits[sc.id]);
-      const white = pngNearWhite(png);
+      const st = pngStats(png);
+      const white = st.nearWhite;
       const expectPanel = Math.round(Math.min(vp.w, PANEL_MAX) * sc.scale);
       const expectX = Math.round((vp.w - expectPanel) / 2);
       const checks = [
@@ -280,11 +309,12 @@ async function main() {
         ['面板水平居中', Math.abs((v.panel?.x || 0) - expectX) <= 1, `panel.x=${v.panel?.x} 期望 ${expectX}`],
         ['页面宽度非 0', (v.page?.w || 0) > 0, `page=${v.page?.w}`],
         ['无横向溢出', (v.scrollW || 0) <= vp.w + 1, `scrollW=${v.scrollW} 期望 <=${vp.w}`],
-        ['非白屏（辅助判据）', white < 0.5, `近白像素占比=${(white * 100).toFixed(1)}%`],
+        ['页面已绘制（辅助判据）', !st.whiteScreen, `近白=${(white * 100).toFixed(1)}% 颜色数=${st.distinctColors}`],
+        ['开屏已关闭', v.splash === 'no-splash' || v.splashAfter === 'gone', `splash=${v.splash} 之后=${v.splashAfter}`],
       ];
       const bad = checks.filter((c) => !c[1]);
       if (bad.length) failed++;
-      scaleRows.push({ sc, v, white, checks, bad });
+      scaleRows.push({ sc, v, white, st, checks, bad });
     } catch (e) {
       failed++;
       scaleRows.push({ sc, error: String(e.message || e), checks: [], bad: [['探针执行', false, String(e.message || e)]] });
@@ -297,8 +327,8 @@ async function main() {
       JSON.stringify(
         {
           failed,
-          viewports: rows.map((r) => ({ vp: r.vp, white: r.white, bad: r.bad, error: r.error })),
-          scales: scaleRows.map((r) => ({ scale: r.sc?.id, white: r.white, bad: r.bad, error: r.error })),
+          viewports: rows.map((r) => ({ vp: r.vp, white: r.white, colors: r.st && r.st.distinctColors, bad: r.bad, error: r.error })),
+          scales: scaleRows.map((r) => ({ scale: r.sc?.id, white: r.white, colors: r.st && r.st.distinctColors, bad: r.bad, error: r.error })),
         },
         null,
         2
@@ -308,7 +338,7 @@ async function main() {
     console.log('视口布局回归 (verify:layout)');
     console.log('─'.repeat(96));
     console.log(
-      '视口'.padEnd(12) + 'rem'.padEnd(9) + '容器'.padEnd(9) + '面板'.padEnd(15) + '页面'.padEnd(14) + '近白'.padEnd(9) + '结论'
+      '视口'.padEnd(12) + 'rem'.padEnd(9) + '容器'.padEnd(9) + '面板'.padEnd(15) + '页面'.padEnd(14) + '近白/颜色'.padEnd(13) + '结论'
     );
     for (const r of rows) {
       if (r.error) {
@@ -322,7 +352,7 @@ async function main() {
           `${v.container?.w}`.padEnd(9) +
           `${v.panel?.w}@${v.panel?.x}`.padEnd(15) +
           `${v.page?.w}x${v.page?.h}`.padEnd(14) +
-          `${(r.white * 100).toFixed(1)}%`.padEnd(9) +
+          `${(r.white * 100).toFixed(1)}%/${r.st.distinctColors}`.padEnd(13) +
           (r.bad.length ? `FAIL ${r.bad.map((b) => b[0]).join(',')}` : 'PASS')
       );
     }
@@ -333,7 +363,7 @@ async function main() {
 
     console.log('\n界面大小档位回归（1280x720，容器宽应 = min(vw,500) × scale）');
     console.log('─'.repeat(96));
-    console.log('档位'.padEnd(12) + '系数'.padEnd(9) + 'rem'.padEnd(9) + '面板'.padEnd(15) + '页面'.padEnd(14) + '近白'.padEnd(9) + '结论');
+    console.log('档位'.padEnd(12) + '系数'.padEnd(9) + 'rem'.padEnd(9) + '面板'.padEnd(15) + '页面'.padEnd(14) + '近白/颜色'.padEnd(13) + '结论');
     for (const r of scaleRows) {
       if (r.error) {
         console.log(`${r.sc.id}`.padEnd(12) + `错误: ${r.error.slice(0, 70)}`);
@@ -346,7 +376,7 @@ async function main() {
           String(v.rem).padEnd(9) +
           `${v.panel?.w}@${v.panel?.x}`.padEnd(15) +
           `${v.page?.w}x${v.page?.h}`.padEnd(14) +
-          `${(r.white * 100).toFixed(1)}%`.padEnd(9) +
+          `${(r.white * 100).toFixed(1)}%/${r.st.distinctColors}`.padEnd(13) +
           (r.bad.length ? `FAIL ${r.bad.map((b) => b[0]).join(',')}` : 'PASS')
       );
     }

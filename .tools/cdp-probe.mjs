@@ -41,6 +41,12 @@ const blockUrls = [];
 if (blockIdx >= 0) {
   for (let i = blockIdx + 1; i < args.length && !args[i].startsWith('--'); i++) blockUrls.push(args[i]);
 }
+/** --dismiss-splash：点掉开屏封面再截图。
+ *  ⚠️ 本应用的开屏**不会自动关闭，必须点击**（见 src/components/Splash）。
+ *  不点它，截图与像素统计测到的是全屏开屏遮罩而不是页面 ——
+ *  后果极具欺骗性：不同视口/档位截出的图**字节完全相同**，而"近白占比"看起来很"正常"。
+ *  几何量测（getBoundingClientRect）不受影响，所以只有像素类判据会被它骗。 */
+const dismissSplash = args.includes('--dismiss-splash');
 
 const udd = path.join(os.tmpdir(), `cdp-probe-${Date.now()}`);
 const child = spawn(
@@ -170,6 +176,20 @@ try {
 
   await cdp.send('Page.navigate', { url });
   await sleep(waitMs);
+
+  if (dismissSplash) {
+    const r = await cdp.send('Runtime.evaluate', {
+      expression: `(()=>{const s=document.querySelector('[class*="__splash__"]')||document.querySelector('[class*="splash"]');if(!s)return 'no-splash';s.click();return 'clicked'})()`,
+      returnByValue: true,
+    });
+    result.splash = r.result?.value;
+    await sleep(1200); // 450ms 淡出过渡 + 卸载
+    const still = await cdp.send('Runtime.evaluate', {
+      expression: `(()=>{const s=document.querySelector('[class*="__splash__"]');return s?getComputedStyle(s).display:'gone'})()`,
+      returnByValue: true,
+    });
+    result.splashAfter = still.result?.value;
+  }
 
   result.browser = ver.Browser;
   result.viewport = `${width}x${height}`;

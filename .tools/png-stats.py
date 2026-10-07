@@ -118,4 +118,39 @@ if __name__ == "__main__":
     region = None
     if "--region" in sys.argv:
         region = tuple(int(v) for v in sys.argv[sys.argv.index("--region") + 1].split(","))
-    print(json.dumps(stats(path, region), ensure_ascii=False, indent=2))
+    out = stats(path, region)
+
+    # --diff <other.png>：逐像素差分。用来回答"两态在画面上到底差多少"，
+    # 而不是靠"看起来挺像/不太像"。比绝对阈值判据（near_white）可靠得多。
+    if "--diff" in sys.argv:
+        other = sys.argv[sys.argv.index("--diff") + 1]
+        w1, h1, c1, px1 = read_png(path)
+        w2, h2, c2, px2 = read_png(other)
+        if (w1, h1) != (w2, h2):
+            out["diff"] = f"尺寸不同：{w1}x{h1} vs {w2}x{h2}"
+        else:
+            n = w1 * h1
+            diff = 0
+            big = 0
+            for y in range(h1):
+                r1 = y * w1 * c1
+                r2 = y * w2 * c2
+                for x in range(w1):
+                    i1 = r1 + x * c1
+                    i2 = r2 + x * c2
+                    d = (
+                        abs(px1[i1] - px2[i2])
+                        + abs(px1[i1 + 1] - px2[i2 + 1])
+                        + abs(px1[i1 + 2] - px2[i2 + 2])
+                    )
+                    if d > 12:
+                        diff += 1
+                    if d > 120:
+                        big += 1
+            out["diff"] = {
+                "other": other,
+                "differing_pixels_ratio": round(diff / n, 4),
+                "strongly_differing_ratio": round(big / n, 4),
+            }
+
+    print(json.dumps(out, ensure_ascii=False, indent=2))
