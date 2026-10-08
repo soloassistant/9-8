@@ -105,6 +105,33 @@ def git(*args, binary=False):
     return out if binary else out.decode("utf-8").strip()
 
 
+def changed_paths(base, head):
+    """列出 base→head 的变更。
+
+    ⚠️ **必须用 `-z`**：`git diff --name-status` 会把非 ASCII 路径**转义**成
+    `"docs/\\345\\217\\221..."`（core.quotePath 默认开），拿它去 `git show <rev>:<path>`
+    会 `fatal: path ... does not exist`。踩过一次（中文文件名 `docs/发布记录-*.md`）。
+    `-z` 用 NUL 分隔且不转义，按 NUL 解析即可。
+
+    `-z` 下的布局：`<status>\0<path>\0`，重命名/复制为 `<status>\0<old>\0<new>\0`。
+    """
+    raw = subprocess.check_output(
+        ["git", "diff", "--name-status", "-z", base, head], cwd=REPO_DIR
+    ).decode("utf-8")
+    fields = [f for f in raw.split("\0") if f != ""]
+    out = []
+    i = 0
+    while i < len(fields):
+        status = fields[i]
+        if status[:1] in ("R", "C"):
+            out.append((status, fields[i + 2]))  # 取新路径
+            i += 3
+        else:
+            out.append((status, fields[i + 1]))
+            i += 2
+    return out
+
+
 def make_api(token):
     def api(method, path, payload=None):
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
@@ -138,15 +165,15 @@ def main():
     parent = remote["object"]["sha"]
 
     base_sha = git("rev-parse", "origin/main")
-    changed = git("diff", "--name-status", base_sha, head).splitlines()
+    changed = changed_paths(base_sha, head)
 
     print(f"token 来源: {src}")
     print(f"local  {rev} = {head}")
     print(f"remote {BRANCH}  = {parent}")
     print(f"base            = {base_sha}")
     print("changed:")
-    for line in changed:
-        print("   ", line)
+    for status, path in changed:
+        print(f"    {status}\t{path}")
 
     if not changed:
         print("no changes; nothing to do")
@@ -156,9 +183,7 @@ def main():
         return
 
     entries = []
-    for line in changed:
-        parts = line.split("\t")
-        status, path = parts[0], parts[-1]
+    for status, path in changed:
         if status.startswith("D"):
             entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
             continue
