@@ -8,6 +8,7 @@ import { useUiScaleStore, UI_SCALE_PRESETS } from '@/store/uiScale';
 import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiCreateOrder, apiDeleteAccount, apiApplyPlan } from '@/services/api';
+import { signOut } from '@/services/cloudAuth';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { fromNow } from '@/utils/date';
@@ -718,20 +719,32 @@ function MinePage() {
           Taro.showToast({ title: t('mine.deleteInputMismatch'), icon: 'none' });
           return;
         }
-        apiDeleteAccount()
-          .then(() => {
-            try {
-              Taro.clearStorageSync();
-            } catch (err) {
-              console.error('[MinePage] clear storage failed:', err);
-            }
-            Taro.showToast({ title: t('mine.deleteDone'), icon: 'none' });
-            setTimeout(() => Taro.reLaunch({ url: '/pages/briefing/index' }), 1200);
-          })
-          .catch((err) => {
-            console.error('[MinePage] deleteAccount failed:', err);
-            Taro.showToast({ title: '注销失败，请稍后再试', icon: 'none' });
-          });
+        // 删除成功后的收尾（清本机数据 → 完成提示 → 回首页），两端共用
+        const finishDelete = () => {
+          try {
+            Taro.clearStorageSync();
+          } catch (err) {
+            console.error('[MinePage] clear storage failed:', err);
+          }
+          Taro.showToast({ title: t('mine.deleteDone'), icon: 'none' });
+          setTimeout(() => Taro.reLaunch({ url: '/pages/briefing/index' }), 1200);
+        };
+        // C-04 注销分端语义（2026-10-08 修正 H5 死路）：
+        //   · h5：没有微信上下文（deleteAccount 云函数只认 getWXContext().OPENID，必抛 no openid），
+        //     且应用数据库未建表、服务端本就没有账号数据可删 —— 故 H5 的「注销」= 登出 + 清空本机数据，
+        //     不再调用注定失败的云函数（否则用户只会收到「注销失败」，且永远走不到清本地那一步）。
+        //   · weapp：保持原逻辑，调 deleteAccount 真删服务端数据。
+        if (process.env.TARO_ENV === 'h5') {
+          // signOut 自身吞掉登出失败；即便登出异常也继续清本机数据并回到门禁
+          signOut().then(finishDelete).catch(finishDelete);
+        } else {
+          apiDeleteAccount()
+            .then(finishDelete)
+            .catch((err) => {
+              console.error('[MinePage] deleteAccount failed:', err);
+              Taro.showToast({ title: '注销失败，请稍后再试', icon: 'none' });
+            });
+        }
       }
     } as unknown as Taro.showModal.Option);
   };

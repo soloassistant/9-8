@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, Textarea, Input, Button, Image } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import dayjs from 'dayjs';
@@ -75,30 +75,66 @@ function InboxPage() {
       .catch((err) => console.warn('[InboxPage] load briefing for conflict check failed:', err));
   }, []);
 
+  // 上限判定需要读「当前」张数，但粘贴监听器是 [] 依赖、闭包里的 images 永远是初始的 []，
+  // 所以另备一个 ref：用来算剩余名额（避免解码用不上的 base64）并在合并时兜底。
+  const imagesRef = useRef<string[]>([]);
+  useEffect(() => {
+    imagesRef.current = images;
+  }, [images]);
+
+  /**
+   * 一批图片文件 → dataURL → 并入已选列表。返回本次实际加入的张数。
+   *
+   * 上限必须在**合并那一刻**判断。原来的写法把判断放在 setImages 的 updater 里读 prev.length，
+   * 但真正的 append 发生在 fileToDataURL(...).then() 回调里 —— 同一事件里 N 个 updater
+   * 看到的都是 append 之前的数组，于是 MAX_IMAGES 形同虚设：一次粘贴/多选多张会把
+   * 全部 base64 送进 apiExtract，白烧 token 且大概率被服务端截断。
+   */
+  const addImageFiles = async (files: File[]): Promise<number> => {
+    const room = Math.max(0, MAX_IMAGES - imagesRef.current.length);
+    if (!files.length || room === 0) return 0;
+    const take = files.slice(0, room);
+    let urls: string[] = [];
+    try {
+      urls = await Promise.all(take.map((f) => fileToDataURL(f)));
+    } catch (err) {
+      console.warn('[InboxPage] fileToDataURL failed:', err);
+      return 0;
+    }
+    const fresh = urls.filter((u) => u && !imagesRef.current.includes(u));
+    if (!fresh.length) return 0;
+    setImages((list) => {
+      const merged = list.slice();
+      for (const u of fresh) {
+        if (merged.length >= MAX_IMAGES) break;
+        if (!merged.includes(u)) merged.push(u);
+      }
+      return merged.length === list.length ? list : merged;
+    });
+    return fresh.length;
+  };
+
   // H5：支持 Ctrl+V 直接粘贴截屏图片
   useEffect(() => {
     if (isWeapp) return undefined;
     const onPaste = (e: ClipboardEvent) => {
       const items = (e.clipboardData && e.clipboardData.items) || [];
-      let added = 0;
+      const files: File[] = [];
       Array.from(items).forEach((item) => {
         if (!item.type.startsWith('image/')) return;
         const file = item.getAsFile();
         if (!file) return;
         e.preventDefault();
-        setImages((prev) => {
-          if (prev.length >= MAX_IMAGES) {
-            Taro.showToast({ title: `最多 ${MAX_IMAGES} 张截图`, icon: 'none' });
-            return prev;
-          }
-          added += 1;
-          fileToDataURL(file).then((dataUrl) => {
-            setImages((list) => (list.includes(dataUrl) ? list : [...list, dataUrl]));
-          });
-          return prev;
-        });
+        files.push(file);
       });
-      if (added > 0) Taro.showToast({ title: '已添加截图', icon: 'success', duration: 1000 });
+      if (!files.length) return;
+      if (imagesRef.current.length >= MAX_IMAGES) {
+        Taro.showToast({ title: `最多 ${MAX_IMAGES} 张截图`, icon: 'none' });
+        return;
+      }
+      void addImageFiles(files).then((added) => {
+        if (added > 0) Taro.showToast({ title: `已添加 ${added} 张截图`, icon: 'success', duration: 1000 });
+      });
     };
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
@@ -131,16 +167,10 @@ function InboxPage() {
       input.multiple = true;
       input.onchange = () => {
         const files = Array.from(input.files || []);
-        files.forEach((file) => {
-          setImages((prev) => {
-            if (prev.length >= MAX_IMAGES) return prev;
-            fileToDataURL(file).then((dataUrl) => {
-              setImages((list) => (list.includes(dataUrl) ? list : [...list, dataUrl]));
-            });
-            return prev;
-          });
+        void addImageFiles(files).then((added) => {
+          if (added > 0) Taro.showToast({ title: `已添加 ${added} 张截图`, icon: 'success', duration: 1000 });
+          else if (files.length > 0) Taro.showToast({ title: `最多 ${MAX_IMAGES} 张截图`, icon: 'none' });
         });
-        if (files.length > 0) Taro.showToast({ title: '已添加截图', icon: 'success', duration: 1000 });
       };
       input.click();
     }

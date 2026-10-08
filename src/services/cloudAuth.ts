@@ -229,6 +229,30 @@ export async function getCloudLlm(): Promise<NonNullable<CloudClient['llm']> | n
   return c?.llm || null;
 }
 
+/** 当前登录用户的稳定 id（H5 = 平台 auth 会话里的 user.id）。
+ *
+ *  ⚠️ **不得**用它去顶替微信 OPENID，也不要把身份当参数传给云函数。
+ *  平台文档（cloud-service / references/database/code-generation.md）原文要求：
+ *  「Identity is automatic: after the user logs in via `cloud.auth`, the shared request layer
+ *   attaches the current session to each database request. **Never pass a token, user id, or
+ *   owner id by hand.**」
+ *  正确做法：服务端在**应用数据库的 PostgreSQL 函数**里用 `auth.uid()` 取身份
+ *  （表的 owner 列同理用 `DEFAULT auth.uid()` + RLS，客户端不传 owner_id）。
+ *
+ *  另注：`cloud.database.rpc()` 调的是**应用数据库里的 PostgreSQL 函数**，不是
+ *  `cloudfunctions/` 下的微信云函数（后者跑在微信云开发里，只认 `getWXContext().OPENID`）。
+ *  本应用数据库当前未建表，H5 的云端数据通路尚未接通。
+ *
+ *  未登录返回 null。 */
+export async function getCloudUserId(): Promise<string | null> {
+  try {
+    const s = await getSession();
+    return s?.user?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 const NOOP_UPDATE_USER = {
   updateUser: async (): Promise<AuthResp<CloudSession>> => ({
     data: {} as CloudSession,

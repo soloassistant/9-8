@@ -847,6 +847,121 @@ exports.main = async (event) => {
       }
     }
 
+    // action=aiFilter：资讯 AI 精选。2026-10-05 新增，把 .tools 侧的 /api/news/ai-filter
+    // 能力搬上云函数 —— 原先只有本地 static-server 有，H5 生产环境无后端，该功能始终 404。
+    //
+    // **候选由前端自带**（event.candidates），不在这里重新抓热点：客户端列表可能已按用户
+    // 偏好排序 / 过滤，服务端再抓一份会出现「页面显示的 A、模型挑的 B」对不上的情况。
+    //
+    // 本分支**不涉及任何用户数据**，故不需要 openid —— 这也是它能被 H5 安全调用的前提。
+    // 2 小时单槽缓存与「同类目硬去重」都留在前端做：云函数是无状态的，进程内缓存不可靠，
+    // 而客户端本来就有 categoryOf() 与该批条目，去重放在数据所在处最自然。
+    if (action === 'aiFilter') {
+      const interests = Array.isArray(event && event.interests)
+        ? event.interests.map((s) => String(s).slice(0, 12)).filter(Boolean).slice(0, 8)
+        : [];
+      const custom = String((event && event.custom) || '').slice(0, 60);
+      const signals = Array.isArray(event && event.signals)
+        ? event.signals.map((s) => String(s).slice(0, 40)).filter(Boolean).slice(0, 8)
+        : [];
+      const candidates = Array.isArray(event && event.candidates)
+        ? event.candidates.filter(Boolean).slice(0, 110)
+        : [];
+      if (!candidates.length) return { code: -1, message: 'candidates required', data: null };
+
+      const apiKey = process.env.LLM_API_KEY;
+      if (!apiKey) return { code: -1, message: 'LLM_API_KEY not configured', data: null };
+      const base = process.env.LLM_BASE_URL || 'https://api.deepseek.com';
+      const model = process.env.LLM_MODEL || 'deepseek-chat';
+
+      const systemContent =
+        '你是新闻筛选助手。根据用户兴趣画像，从候选新闻中挑出最值得看的条目，按相关度从高到低排序，最多输出 20 条。' +
+        '规则：1) 只挑与兴趣相关或与近期关注相近的条目；若整体相关度都低，也要挑出相对最相关的 6 条；' +
+        '2) 合规降权（优先级最高，覆盖第1条）：时政/外交/军事/突发事件监管类内容不得入选 picks；财经类最多 1 条；优先科技/数字生活/健康/教育等生活建设性议题；' +
+        '3) 类目多样性（优先级仅次于合规）：候选条目格式为「编号. [来源·类目] 标题」，请据此判断每条的类目；' +
+        '同一类目最多给 2 条；请把不同类目的条目都排进这 20 条里 —— 给出 20 条是为了让下游按类目去重后仍能凑满 10 条，' +
+        '所以同类目的备用条目请排在后面，不要用同一类目占满靠前的位置；' +
+        '4) reason 用不超过16字说明「为什么推荐给这位用户」，不要复述标题；' +
+        '5) 对每个选中条目额外输出 why 字段：不超过30字的中文，回答「为什么这条值得**这个用户**看」，必须结合其 interests/custom 画像给出个人化理由（不是通用新闻价值）；' +
+        '6) summary 以早报员「小晨」的口吻写（克制友好、少废话），不超过20字；' +
+        '7) 严格返回 JSON：{"picks":[{"n":编号数字,"reason":"理由","why":"个人化理由(30字内)"}],"summary":"一句话概括筛选依据(20字内)"}，不要输出任何其他内容；why 缺失时允许为空字符串，但字段必须存在。';
+      const userContent =
+        `兴趣标签：${interests.length ? interests.join('、') : '（未设置）'}\n` +
+        `自定义关注：${custom || '（无）'}\n` +
+        `近期关注（参考）：${signals.length ? signals.join(' / ').slice(0, 120) : '（无）'}\n\n` +
+        `候选新闻：\n${candidates.join('\n')}`;
+
+      try {
+        // 20 条 picks（每条含 reason+why）token 量不小，2600 是为了不被截断成不可解析的 JSON
+        const body = JSON.stringify({
+          model,
+          temperature: 0.3,
+          max_tokens: 2600,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: systemContent },
+            { role: 'user', content: userContent }
+          ]
+        });
+        const endpoint = new URL('/chat/completions', base);
+        const content = await new Promise((resolve, reject) => {
+          const req = https.request(
+            endpoint,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Length': Buffer.byteLength(body)
+              },
+              timeout: 45000
+            },
+            (res) => {
+              let resp = '';
+              res.on('data', (chunk) => (resp += chunk));
+              res.on('end', () => {
+                try {
+                  const data = JSON.parse(resp);
+                  if (res.statusCode !== 200) {
+                    return reject(new Error(`LLM ${res.statusCode}: ${resp.slice(0, 160)}`));
+                  }
+                  resolve(data.choices[0].message.content);
+                } catch (err) {
+                  reject(err);
+                }
+              });
+            }
+          );
+          req.on('error', reject);
+          req.on('timeout', () => req.destroy(new Error('aiFilter LLM timeout')));
+          req.write(body);
+          req.end();
+        });
+
+        const parsed = safeParse(content);
+        const upper = candidates.length;
+        const picks = Array.isArray(parsed && parsed.picks)
+          ? parsed.picks
+              .filter((p) => p && Number.isInteger(Number(p.n)) && Number(p.n) >= 1 && Number(p.n) <= upper)
+              .slice(0, 20)
+              .map((p) => ({
+                n: Number(p.n),
+                reason: String(p.reason || '').slice(0, 30),
+                // why 缺失容错：非字符串 → 空串；超长截断 30 字（与提示词口径一致）
+                why: String(p.why || '').trim().slice(0, 30)
+              }))
+          : [];
+        return {
+          code: 0,
+          message: 'ok',
+          data: { picks, summary: String((parsed && parsed.summary) || '').slice(0, 40) }
+        };
+      } catch (err) {
+        console.warn('[webSearch] aiFilter failed:', err && err.message);
+        return { code: -1, message: 'aiFilter failed', data: null };
+      }
+    }
+
     if (action === 'briefing') {
       // openid：优先取微信上下文（前端直接调用）；无上下文时允许服务端
       // （getBriefing 定时/聚合路径）显式传入——同环境云函数间调用无 OPENID

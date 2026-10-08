@@ -3,6 +3,7 @@ import type { Briefing, BriefingIntel, HotspotNews } from '../types'
 import type { UserPrefs } from '../utils/prefs'
 import { fetchWeatherDirect } from '../utils/weather'
 import { evaluatePriceAlerts, type PricedItem, type PriceAlert } from '../utils/price'
+import { categoryOf } from '../utils/categoryLabel'
 import { invoke, isWeapp } from './dataSource'
 
 /** 热点数据来源元信息（服务端 /api/hotspot 附带，mock/真机路径为 null） */
@@ -311,28 +312,83 @@ export async function callFunction<T = unknown>(
   return result as T
 }
 
-/** 资讯 AI 精选（手动触发；H5 同源 /api/news/ai-filter → DeepSeek 筛选，2h 缓存）
- *  weapp 或接口失败返回 null，调用方自行提示兜底；不阻塞原始资讯列表 */
+/** 资讯 AI 精选（手动触发）。
+ *
+ *  2026-10-05 重写：原先 weapp 直接 return null、H5 打同源 `/api/news/ai-filter`，
+ *  而生产环境只静态托管 dist/，该路径恒 404 —— **这个功能从未在线上工作过**。
+ *  现在两端统一走 webSearch 云函数的 `action=aiFilter`（纯内容转换，不碰用户数据）。
+ *
+ *  分工：云函数只负责「LLM 挑选」（返回 picks 编号 + 理由）；**候选映射与同类目去重留在前端**
+ *  —— ① 数据本来就在这里（items 是页面当前可见列表，可能已按偏好排序）；
+ *  ② 云函数无状态，进程内缓存不可靠，不适合承担 2h 单槽缓存。
+ *
+ *  仍保留 `/api/news/ai-filter` 作为本地 static-server 预览时的兜底。
+ */
+const AI_FILTER_CANDIDATE_MAX = 110; // 与 static-server.js 的候选上限同口径
+const AI_FILTER_MAX = 10; // 展示条数上限（AI_PICK_MAX）
+const AI_FILTER_PER_CATEGORY_MAX = 2; // 同类目硬上限（AI_PICK_PER_CATEGORY_MAX）
+
 export async function apiAiNewsFilter(
+  items: HotspotNews[],
   interests: string[],
   custom: string,
   signals: string[]
-): Promise<{ items: import('../types').HotspotNews[]; summary: string } | null> {
-  if (!isWeapp) {
-    try {
-      const res = await fetch('/api/news/ai-filter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ interests, custom, signals })
-      })
-      if (!res.ok) return null
-      const payload = await res.json()
-      if (!payload || !Array.isArray(payload.items)) return null
-      return { items: payload.items as import('../types').HotspotNews[], summary: String(payload.summary || '') }
-    } catch (err) {
-      console.warn('[Cloud] aiNewsFilter failed:', err)
-      return null
+): Promise<{ items: HotspotNews[]; summary: string } | null> {
+  if (!items.length) return null;
+  // 候选串带上 [来源·类目]：类目由数据自己带（tags），而不是把「哪个源属于哪个类目」
+  // 硬编码进上游提示词 —— 那样一改源清单就失真。
+  const pool = items.slice(0, AI_FILTER_CANDIDATE_MAX);
+  const candidates = pool.map((it, i) => {
+    const tags = Array.isArray(it.tags) && it.tags.length ? '·' + it.tags.join('/') : '';
+    return `${i + 1}. [${it.source}${tags}] ${it.title}`;
+  });
+  try {
+    const res = (await invoke('webSearch', {
+      action: 'aiFilter',
+      interests,
+      custom,
+      signals,
+      candidates
+    })) as {
+      code?: number;
+      message?: string;
+      data?: { picks?: Array<{ n?: number; reason?: string; why?: string }>; summary?: string } | null;
+    } | null;
+    if (!res || res.code !== 0 || !res.data) throw new Error((res && res.message) || 'aiFilter failed');
+    const picks = Array.isArray(res.data.picks) ? res.data.picks : [];
+    // 确定性多样性兜底：按模型给的相关度顺序贪心取，同类目超上限则跳过。
+    // 提示词不可靠（实测教育曾占 4/10），这里才是唯一能保证结果的地方。
+    const perCat = new Map<string, number>();
+    const out: HotspotNews[] = [];
+    for (const p of picks) {
+      const it = pool[Number(p.n) - 1];
+      if (!it) continue;
+      const cat = categoryOf(it.tags);
+      const used = perCat.get(cat) || 0;
+      if (used >= AI_FILTER_PER_CATEGORY_MAX || out.length >= AI_FILTER_MAX) continue;
+      perCat.set(cat, used + 1);
+      const why = typeof p.why === 'string' ? p.why.trim() : '';
+      out.push({ ...it, aiReason: String(p.reason || ''), ...(why ? { whyItMatters: why } : {}) });
     }
+    if (!out.length) return null;
+    return { items: out, summary: String(res.data.summary || '') };
+  } catch (err) {
+    // 云函数未部署 / 未注册为 RPC 时，退回本地 static-server 预览路径
+    console.warn('[Cloud] aiFilter via cloud function failed, try local endpoint:', err);
   }
-  return null
+  if (isWeapp) return null; // 小程序没有同源 /api
+  try {
+    const res = await fetch('/api/news/ai-filter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interests, custom, signals })
+    });
+    if (!res.ok) return null;
+    const payload = await res.json();
+    if (!payload || !Array.isArray(payload.items)) return null;
+    return { items: payload.items as HotspotNews[], summary: String(payload.summary || '') };
+  } catch (err) {
+    console.warn('[Cloud] aiNewsFilter local endpoint failed:', err);
+    return null;
+  }
 }

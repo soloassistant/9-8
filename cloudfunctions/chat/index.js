@@ -520,7 +520,14 @@ async function handleApplyPlan(openid, event) {
 }
 
 exports.main = async (event) => {
+  // 身份只认微信上下文：本函数跑在微信云开发里，`cloud.getWXContext().OPENID` 才是权威身份。
+  // **不接受 event.openid** —— 接受调用方自传的身份，等于让调用方自证身份（谁都能填别人的 openid）；
+  // 平台文档（cloud-service/references/database/code-generation.md）也明确要求身份由会话自动附带、
+  // 不得由客户端传 user id/openid。H5 侧要读用户数据，应在应用数据库建 PostgreSQL 函数用 auth.uid()。
+  // 取不到就拒绝：chat 会读写 todos / events / user_prefs / user_affinity / shopping / usage
+  // 六个集合，openid 为 undefined 会让所有用户互相可见对方数据。
   const { OPENID } = cloud.getWXContext();
+  if (!OPENID) throw new Error('no openid');
   const message = (event && event.message ? String(event.message) : '').trim();
   const deep = !!(event && event.deep);
   const mode = event && event.mode;

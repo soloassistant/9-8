@@ -37,6 +37,49 @@ const SYNC_KEYS = [
   'ui-scale'          // 字号
 ] as const;
 
+/**
+ * removeStorageSync 之后的占位值 —— 必须与该 key 的**真实存储类型**一致。
+ *
+ * 语义：删除某个 SYNC_KEYS 后写回一个「空值」，让删除动作也能同步到云端
+ * （collectLocal 会对 ''/null/undefined 跳过，不写占位就同步不出去）。
+ *
+ * 类型依据（逐 key 读写入点确认，2026-10-08）：
+ *   · 数组类 → `[]`：列表/日志/集合类 key，各处 setStorageSync 写入的都是数组。
+ *   · 对象类 → `{}`：仅 `user-settings`。src/pages/mine/index.tsx:143 `CUSTOM_SETTINGS_KEY`，
+ *     loadCustom() 按 `{ ...DEFAULT_CUSTOM, ...getStorageSync(key) }` 读取、setCustom() 写回的是
+ *     CustomSettings 对象（replyStyle/newsEnabled/morningReminderEnabled），故占位必须是对象；
+ *     写成 `[]` 类型不符（空数组展开成对象也不带任何设置字段）。
+ *   · 标量类 → `''`：城市/用量/主题/语言/字号，写入的是字符串（既非列表也非对象）。
+ *
+ * 注意：当前没有任何调用点会单独 remove 这些 key —— 全仓 removeStorageSync 只命中
+ * pages/history 的 browseHistory（数组，写 `[]` 正确）与两个不在 SYNC_KEYS 里的 affinity key，
+ * 而 pages/mine 的 clearStorageSync 走的是 Taro H5 的 localStorage.clear()、不经过本钩子。
+ * 因此这是**防御性修复**，不是线上故障。
+ */
+const REMOVE_PLACEHOLDER: Record<string, unknown> = {
+  // 数组类
+  shoppingList: [],
+  dailyPlanStore: [],
+  browseHistory: [],
+  newsFeedback: [],
+  'news-interests': [],
+  'news-interests-custom': [],
+  'activity-log': [],
+  learnStore: [],
+  'ai-memory': [],
+  collectionStore: [],
+  briefingChatLog: [],
+  aiAssistantLog: [],
+  // 对象类
+  'user-settings': {},
+  // 标量类
+  'user-city': '',
+  'usage-voice': '',
+  'brand-theme': '',
+  'app-lang': '',
+  'ui-scale': ''
+};
+
 let userId = '';
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -232,8 +275,8 @@ function hookStorage(): void {
     (Taro as unknown as { removeStorageSync: typeof Taro.removeStorageSync }).removeStorageSync = (key: string) => {
       origRemove(key);
       if ((SYNC_KEYS as readonly string[]).includes(key)) {
-        // 删除后写入空数组占位（清空浏览历史等场景），保证删除动作同步到云端
-        origSet(key, []);
+        // 删除后写入与该 key 类型一致的占位值（见 REMOVE_PLACEHOLDER），保证删除动作同步到云端
+        origSet(key, REMOVE_PLACEHOLDER[key]);
         const meta = readMeta();
         meta[key] = Date.now();
         writeMeta(meta);

@@ -53,7 +53,12 @@ function safeParse(text) {
 }
 
 exports.main = async (event) => {
+  // 身份只认微信上下文：本函数跑在微信云开发里，`cloud.getWXContext().OPENID` 才是权威身份。
+  // **不接受 event.openid** —— 接受调用方自传的身份，等于让调用方自证身份（谁都能填别人的 openid）；
+  // 平台文档也要求身份由会话自动附带、不得由客户端传 user id/openid。
+  // 取不到就拒绝：openid 为 undefined 时 msgSecCheck 无主体，且下游会以 undefined 身份落库。
   const { OPENID } = cloud.getWXContext();
+  if (!OPENID) throw new Error('no openid');
   const content = (event && event.content ? String(event.content) : '').trim();
   // 截图/图片提取：base64 数组（不含 dataURL 前缀），最多 3 张
   const images = Array.isArray(event && event.images)
