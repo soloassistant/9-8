@@ -1,6 +1,8 @@
 import Taro from '@tarojs/taro';
 import { callFunction, chatLocalStream } from './cloud';
-import { invoke } from './dataSource';
+import { invoke, isWeapp } from './dataSource';
+import { getSession } from './cloudAuth';
+import { buildProfileFromSession, writeProfileSettings } from './localProfile';
 /** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
 import type { PlanProposalRaw } from '@/utils/schedule';
 import type {
@@ -13,9 +15,18 @@ import type {
   UserProfile
 } from '../types';
 
-/** 登录（静默获取 openid + 用户档案） */
-export function apiLogin(): Promise<UserProfile> {
-  return callFunction<UserProfile>('login');
+/** 用户档案 —— **两端来源不同**。
+ *
+ *  · 小程序：`login` 云函数，身份由微信提供（openid 真实，档案在服务端）。
+ *  · H5：该云函数不在 dataSource 的 RPC 白名单内（H5 取不到 getWXContext().OPENID），
+ *    走它必然落到 src/data/login.ts 的 mock，昵称恒为「晨友」且与登录身份无关。
+ *    故 H5 改为「真会话 + 本地可同步设置」，见 services/localProfile 的说明。
+ *
+ * 取不到会话时**抛错**（不返回假档案）：store 会提示初始化失败，
+ * 这比静默给一个「看起来登录好了」的假档案诚实。 */
+export async function apiLogin(): Promise<UserProfile> {
+  if (isWeapp) return callFunction<UserProfile>('login');
+  return buildProfileFromSession(await getSession());
 }
 
 /** AI 提取转发内容/截图 → 日程/待办/收藏（images 为 base64 数组，不含 dataURL 前缀） */
@@ -138,8 +149,24 @@ export function apiNewsFeedback(id: string, feedback: 'up' | 'down'): Promise<{ 
     });
 }
 
-/** 更新习惯设置 */
-export function apiUpdateSettings(payload: Partial<Pick<UserProfile, 'nickname' | 'briefingTime' | 'preferences'>>): Promise<UserProfile> {
+/** 更新习惯设置。
+ *
+ * H5 同样不走云函数（原因同 apiLogin）：`updateSettings` 也不在白名单内，
+ * mock 版只 `console.info` 不落盘 → 用户改了昵称/推送时间/偏好，刷新即丢。
+ * H5 改为写 `user-settings`（已在 cloudSync 同步表内，写入即跨设备生效），
+ * 再用真会话重建档案返回，保证返回值与下次 init 读到的一致。 */
+export async function apiUpdateSettings(
+  payload: Partial<Pick<UserProfile, 'nickname' | 'briefingTime' | 'preferences'>>
+): Promise<UserProfile> {
+  if (!isWeapp) {
+    // 先确认会话再落盘：反过来的话，会话已失效时设置已经写进本地却返回失败，
+    // 用户会看到「保存失败」但值其实变了 —— 下次登录又会读到那个"失败"的值。
+    const session = await getSession();
+    if (!session?.user?.id) throw new Error('no-cloud-session');
+    writeProfileSettings(payload);
+    // buildProfileFromSession 内部会重读刚写入的设置，返回值即刷新后的档案
+    return buildProfileFromSession(session);
+  }
   return callFunction<UserProfile>('updateSettings', payload);
 }
 
