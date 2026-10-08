@@ -103,7 +103,23 @@ export function writeProfileSettings(patch: Partial<ProfileSettings>): ProfileSe
   return next;
 }
 
-/** 登录标识脱敏后作默认昵称：邮箱留首字符+域名，手机号留前3后4，中间一律掩掉。 */
+/** 登录标识脱敏后作默认昵称：邮箱留首字符+域名，手机号留前3后4，中间一律掩掉。
+ *
+ * ⚠️ **H5 上这段的 email/phone 分支实际不可达（2026-10-08 查 SDK 坐实，勿据注释误判）**：
+ *   SDK（`@tencent-ai/workbuddy-cloud-sdk` lib/index.global.js）里
+ *     · `getSession()` → `sessions.ensure()` → `store.read()`，
+ *       读取的是 `parseSession` 写入的会话，其 user 来自 `userFromSessionPayload(r)`：
+ *         `{ id: typeof r.sub === "string" ? r.sub : "", name, avatarUrl, isAnonymous, raw: r }`
+ *       —— **没有 email、也没有 phone**；
+ *     · 带 email/phone 的 `parseUser(r)`（读 `r.email ?? r.user_metadata.email`）
+ *       只被 `auth.getUser()`（`/v1/user/me`）使用，**不参与会话**。
+ *   因此 H5 的 `session.user.email` 恒为 undefined，本函数会直接返回空串，
+ *   昵称回落到 `buildProfileFromSession` 里的 `id.slice(0,8)`。
+ *   这不是编造身份（id 是真实的），但也不是"脱敏邮箱"——两者别混为一谈。
+ *   想让脱敏邮箱真正生效，得改成调 `auth.getUser()` 取 email（多一次网络往返），
+ *   或从 `user.raw` 里取（**未证实** `/v1/token` 响应是否带 email），
+ *   两者都属行为变更，需产品确认，故此处只标注不改。
+ *   小程序端不受影响：那边 `login` 云函数返回的档案本来就带 email。 */
 export function maskIdentifier(user: CloudUser | undefined): string {
   const email = user?.email?.trim();
   if (email) {
