@@ -49,6 +49,22 @@ if (blockIdx >= 0) {
 const dismissSplash = args.includes('--dismiss-splash');
 
 const udd = path.join(os.tmpdir(), `cdp-probe-${Date.now()}`);
+// 本地地址必须绕开代理（否则 127.0.0.1 也会被拿去建隧道，报 ERR_TUNNEL_CONNECTION_FAILED；
+// Windows Chromium 不认 NO_PROXY，只能靠这个开关）。
+// ⚠️ 但**外部站点恰恰必须用代理**：如果对线上域名也加这个开关，Chrome 会直连失败，
+// 打开的是 chrome-error 页 —— 此时 `document.body` 为 null、截图只有 2KB，
+// 看起来像"线上白屏"，其实是测量缺陷（2026-10-07 踩过）。
+const isLocalTarget = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/.test(url);
+// 外部域名必须显式给代理：**Windows 上的 Chromium 不读 `http_proxy`/`https_proxy` 环境变量**
+// （只认系统代理设置），所以只靠环境变量会直连失败/长时间挂住。
+// 本机出口代理在 sandbox 的这几个环境变量里。
+const proxyUrl =
+  process.env.CDP_PROXY ||
+  process.env.https_proxy ||
+  process.env.HTTPS_PROXY ||
+  process.env.http_proxy ||
+  process.env.HTTP_PROXY ||
+  '';
 const child = spawn(
   CHROME,
   [
@@ -57,7 +73,7 @@ const child = spawn(
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-extensions',
-    '--no-proxy-server', // 本地探测必须绕开代理，否则 localhost 也会被 CONNECT 掉
+    ...(isLocalTarget ? ['--no-proxy-server'] : proxyUrl ? [`--proxy-server=${proxyUrl}`] : []),
     '--hide-scrollbars',
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${udd}`,
@@ -176,6 +192,29 @@ try {
 
   await cdp.send('Page.navigate', { url });
   await sleep(waitMs);
+
+  // 先判定"到底加载到了什么"。加载失败时 Chrome 会停在 chrome-error:// 页，
+  // 此时 body 为 null、截图近空白 —— 若不先识别，后面的表达式会抛 TypeError，
+  // 而那个异常很容易被误读成"被测站点白屏"。
+  {
+    const nav = await cdp.send('Runtime.evaluate', {
+      expression: `JSON.stringify({href: location.href, title: document.title, bodyOk: !!document.body})`,
+      returnByValue: true,
+    });
+    try {
+      const info = JSON.parse(nav.result?.value || '{}');
+      result.navigatedTo = info.href;
+      result.title = info.title;
+      result.bodyOk = info.bodyOk;
+      if (!info.bodyOk) {
+        result.navigationError = /^chrome-error:/.test(info.href || '')
+          ? '页面未加载成功（chrome-error 页）—— 外部域名需要代理，本地域名需要 --no-proxy-server'
+          : 'body 不存在，页面可能未完成解析';
+      }
+    } catch {
+      /* 忽略 */
+    }
+  }
 
   if (dismissSplash) {
     const r = await cdp.send('Runtime.evaluate', {
