@@ -110,8 +110,11 @@ export function maskIdentifier(user: CloudUser | undefined): string {
 /**
  * 由真会话构造 UserProfile。
  *
- * `user.id` 缺失时**抛错而非编造**：UserProfile.openid 是必填，且全应用把它当身份口径，
- * 造一个假值等于退回这次要修的那个 mock 行为。调用方（api.ts）会把它当作失败处理。
+ * `user.id` 缺失时**抛错而非编造**：`UserProfile.openid` 在类型上是必填字段，
+ * 造一个假值等于退回这次要修的那个 mock 行为（假档案冒充真身份）。调用方（api.ts）按失败处理。
+ *
+ * 附：检索核对结论 —— 该字段目前**没有任何读取方**（只有类型定义与赋值），
+ * 所以它现在是"填对但不被消费"；保留真值是为了将来若有消费方时口径正确，而不是因为当下有用。
  */
 export function buildProfileFromSession(session: CloudSession | null): UserProfile {
   const user = session?.user;
