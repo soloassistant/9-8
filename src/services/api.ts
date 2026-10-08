@@ -161,8 +161,11 @@ export async function apiUpdateSettings(
   if (!isWeapp) {
     // 先确认会话再落盘：反过来的话，会话已失效时设置已经写进本地却返回失败，
     // 用户会看到「保存失败」但值其实变了 —— 下次登录又会读到那个"失败"的值。
+    // ⚠️ 只判"有没有会话"，**不判 `user.id` 是否为空** —— 后者是 SDK 允许的合法状态
+    //   （userFromSessionPayload: `id: typeof r.sub === 'string' ? r.sub : ''`），
+    //   据此拒绝会让登录用户改不了设置。
     const session = await getSession();
-    if (!session?.user?.id) throw new Error('no-cloud-session');
+    if (!session) throw new Error('no-cloud-session');
     writeProfileSettings(payload);
     // buildProfileFromSession 内部会重读刚写入的设置，返回值即刷新后的档案
     return buildProfileFromSession(session);

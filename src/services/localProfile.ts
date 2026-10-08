@@ -119,16 +119,21 @@ export function maskIdentifier(user: CloudUser | undefined): string {
 /**
  * 由真会话构造 UserProfile。
  *
- * `user.id` 缺失时**抛错而非编造**：`UserProfile.openid` 在类型上是必填字段，
- * 造一个假值等于退回这次要修的那个 mock 行为（假档案冒充真身份）。调用方（api.ts）按失败处理。
+ * ⚠️ **只在"确实没有会话"时抛错，不因 `user.id` 为空而抛错**（2026-10-08 实测修正）。
+ *   依据：SDK 的 `userFromSessionPayload` 是
+ *     `{ id: typeof r.sub === 'string' ? r.sub : '', ... }`（见 index.global.js）
+ *   —— 也就是说 **会话存在但 id 为空是合法状态**（登录响应里没有 `sub` 时）。
+ *   若据此抛错，H5 会每次 init 都失败：比被修的 mock 更糟（用户连档案都没有）。
+ *   正确姿势：`openid` 留空字符串 —— 空是"不知道"的如实表达，不是编造身份；
+ *   而编造一个假 openid 才是要修的那个行为。
  *
  * 附：检索核对结论 —— 该字段目前**没有任何读取方**（只有类型定义与赋值），
- * 所以它现在是"填对但不被消费"；保留真值是为了将来若有消费方时口径正确，而不是因为当下有用。
+ * 所以留空不会影响任何功能；保留真值是为了将来若有消费方时口径正确。
  */
 export function buildProfileFromSession(session: CloudSession | null): UserProfile {
-  const user = session?.user;
-  const id = user?.id?.trim();
-  if (!id) throw new Error('no-cloud-session');
+  if (!session) throw new Error('no-cloud-session');
+  const user = session.user;
+  const id = user?.id?.trim() || '';
   const settings = readProfileSettings();
   return {
     openid: id,

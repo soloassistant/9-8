@@ -130,23 +130,40 @@ check('T6 无邮箱无昵称 → 用 id 前 8 位', p6.nickname === 'uid-3'.slic
 
 let threw = null;
 try {
-  lp.buildProfileFromSession({ user: { email: 'x@y.z' } });
+  lp.buildProfileFromSession(null);
 } catch (e) {
   threw = e && e.message;
 }
-check('T7 会话无 id → 抛错不造假', threw === 'no-cloud-session', `threw=${threw}`);
-let threw2 = null;
-try {
-  lp.buildProfileFromSession(null);
-} catch (e) {
-  threw2 = e && e.message;
-}
-check('T8 会话为 null → 抛错', threw2 === 'no-cloud-session', `threw=${threw2}`);
+check('T7 会话为 null → 抛错（未登录）', threw === 'no-cloud-session', `threw=${threw}`);
 
-/* ---- T9：脱敏函数 ---- */
-check('T9 邮箱脱敏', lp.maskIdentifier({ email: 'someone@a.com' }) === 's***@a.com', lp.maskIdentifier({ email: 'someone@a.com' }));
-check('T9 手机脱敏', lp.maskIdentifier({ phone: '13800138000' }) === '138****8000', lp.maskIdentifier({ phone: '13800138000' }));
-check('T9 都没有 → 空串', lp.maskIdentifier({}) === '', JSON.stringify(lp.maskIdentifier({})));
+// T8：会话存在但 user.id 为空 → **不得抛错**。
+// 依据 SDK userFromSessionPayload：`id: typeof r.sub === 'string' ? r.sub : ''`，
+// 即"有会话、无 id"是合法状态。若据此抛错，H5 每次 init 都会失败（比被修的 mock 更糟）。
+seed({ nickname: '', briefingTime: '07:30', preferences: [] });
+let p8 = null;
+let threw8 = null;
+try {
+  p8 = lp.buildProfileFromSession({ user: { email: 'noid@example.test' } });
+} catch (e) {
+  threw8 = e && e.message;
+}
+check('T8 会话无 id → 不抛错', threw8 === null, `threw=${threw8}`);
+check('T8 无 id 时 openid 留空（不编造）', p8 && p8.openid === '', `openid=${JSON.stringify(p8 && p8.openid)}`);
+check('T8 无 id 时昵称回落脱敏邮箱', p8 && p8.nickname === 'n***@example.test', `nickname=${p8 && p8.nickname}`);
+check('T8 无 id 时时间仍取设置', p8 && p8.briefingTime === '07:30', `briefingTime=${p8 && p8.briefingTime}`);
+
+let p9 = null;
+try {
+  p9 = lp.buildProfileFromSession({ user: {} });
+} catch (e) {
+  p9 = { err: String(e && e.message) };
+}
+check('T9 无 id 无邮箱 → 不抛错且昵称为空', !p9.err && p9.nickname === '' && p9.openid === '', JSON.stringify(p9));
+
+/* ---- T10：脱敏函数 ---- */
+check('T10 邮箱脱敏', lp.maskIdentifier({ email: 'someone@a.com' }) === 's***@a.com', lp.maskIdentifier({ email: 'someone@a.com' }));
+check('T10 手机脱敏', lp.maskIdentifier({ phone: '13800138000' }) === '138****8000', lp.maskIdentifier({ phone: '13800138000' }));
+check('T10 都没有 → 空串', lp.maskIdentifier({}) === '', JSON.stringify(lp.maskIdentifier({})));
 
 /* ---- 输出 ---- */
 const bad = results.filter((r) => !r.pass);
