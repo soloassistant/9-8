@@ -46,15 +46,24 @@ const DEFAULT_SETTINGS: ProfileSettings = {
   preferences: []
 };
 
-/** localStorage 内容不可信：类型不符就丢弃该项并回落默认，不让脏值渗进 UserProfile。 */
+/**
+ * 时间格式校验：既看形状也看范围。
+ * 只写 `/^\d{2}:\d{2}$/` 是不够的 —— `'25:99'` 也能通过，于是"脏值不渗进档案"这句就不成立。
+ * 这个值虽然正常由时间选择器产生，但 `user-settings` 在 cloudSync 的 SYNC_KEYS 内，
+ * **可能来自云端同步**，而 sanitize 存在的意义正是「存储内容不可信」。
+ */
+function isHHMM(v: unknown): v is string {
+  if (typeof v !== 'string' || !/^\d{2}:\d{2}$/.test(v)) return false;
+  const [h, m] = v.split(':').map(Number);
+  return h <= 23 && m <= 59;
+}
+
+/** localStorage 内容不可信：类型/范围不符就丢弃该项并回落默认，不让脏值渗进 UserProfile。 */
 function sanitize(raw: unknown): ProfileSettings {
   const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   return {
     nickname: typeof src.nickname === 'string' ? src.nickname : DEFAULT_SETTINGS.nickname,
-    briefingTime:
-      typeof src.briefingTime === 'string' && /^\d{2}:\d{2}$/.test(src.briefingTime)
-        ? src.briefingTime
-        : DEFAULT_SETTINGS.briefingTime,
+    briefingTime: isHHMM(src.briefingTime) ? src.briefingTime : DEFAULT_SETTINGS.briefingTime,
     preferences: Array.isArray(src.preferences)
       ? src.preferences.filter((p): p is string => typeof p === 'string')
       : DEFAULT_SETTINGS.preferences

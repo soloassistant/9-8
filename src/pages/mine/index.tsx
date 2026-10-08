@@ -801,7 +801,10 @@ function MinePage() {
           <Text className={styles.avatarEdit}>{t('mine.avatarEdit')}</Text>
         </Button>
         <View className={styles.userBody}>
-          <Text className={styles.nickname}>{profile?.nickname || '晨友'}</Text>
+          {/* ⚠️ 不要在这里给"占位昵称"（原为 `|| '晨友'`）。档案取不到时（会话失效 / init 失败）
+              显示一个名字，等于让用户以为"登录好了"—— 这正是本轮在修的"假身份"问题本身。
+              空串只是没有名字，不是错误声明。（`07:30` 那处不同：那是应用的默认值，不是身份。） */}
+          <Text className={styles.nickname}>{profile?.nickname || ''}</Text>
           <Text className={styles.userMeta}>
             {profile?.subscribed && profile?.expiredAt
               ? `订阅至 ${profile.expiredAt.slice(0, 10)}`
