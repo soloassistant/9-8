@@ -91,12 +91,18 @@ Module._load = function (request) {
   return origLoad.apply(this, arguments);
 };
 
-/* ---------------- https：全部 RSS 源返回「零宽混淆毒 feed」 ---------------- */
-const ZW = String.fromCharCode(0x200b); // U+200B
-const POISON = 'hacked' + ZW + 'by trenggalek6etar';
+/* ---------------- https：全部 RSS 源返回「混淆毒 feed」 ---------------- */
+// 混淆字符在三种变体间切换（零宽 / 软连字符 / 不可见分隔）——
+// 前两者分别覆盖缺陷 A 与缺陷 C，用来证明**任一变体都不能把毒源写进全局缓存**。
+const ZW = String.fromCharCode(0x200b);   // U+200B 零宽空格
+const SHY = String.fromCharCode(0x00ad);  // U+00AD 软连字符
+const INV = String.fromCharCode(0x2063);  // U+2063 不可见分隔符
+let POISON_CHAR = ZW;
+const makePoison = () => 'hacked' + POISON_CHAR + 'by trenggalek6etar';
 function poisonRssXml() {
   const d = new Date().toUTCString();
-  const item = `<item><title>${POISON}</title><link>https://ex.com/x</link><description></description><pubDate>${d}</pubDate></item>`;
+  const poison = makePoison();
+  const item = `<item><title>${poison}</title><link>https://ex.com/x</link><description></description><pubDate>${d}</pubDate></item>`;
   return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>${item}${item}${item}</channel></rss>`;
 }
 function fakeResponse(code, body) {
@@ -126,33 +132,45 @@ https.request = hook();
 /* ---------------- 载入真实模块 ---------------- */
 const ws = require('D:/Agent/cloudfunctions/webSearch/index.js');
 const { filterNewsItems, getHotspotNews } = ws.__internals;
-const poisonItem = () => ({ title: POISON, summary: '', source: '量子位', tags: [] });
+const poisonItem = () => ({ title: makePoison(), summary: '', source: '量子位', tags: [] });
+
+// 三种混淆变体：零宽空格（缺陷 A）/ 软连字符 + 不可见分隔（缺陷 C）
+const POISON_VARIANTS = [
+  ['零宽空格 U+200B', ZW],
+  ['软连字符 U+00AD', SHY],
+  ['不可见分隔 U+2063', INV]
+];
 
 (async () => {
-  const r1 = filterNewsItems([poisonItem()]);
-  ok('零宽混淆毒条 1/1 → kept.length===0', r1.kept.length === 0, r1.kept.length);
-  const r3 = filterNewsItems([poisonItem(), poisonItem(), poisonItem()]);
-  ok('零宽混淆毒条 3/3 → kept.length===0（护栏不得放行）', r3.kept.length === 0, r3.kept.length);
+  for (const [label, ch] of POISON_VARIANTS) {
+    POISON_CHAR = ch;
 
-  // A：无旧缓存 + 全源投毒（含零宽混淆）→ 过滤后 0 条
-  writes.hotspotSet = 0;
-  delete stores['hotspotCache'];
-  let eA = null, rA = null;
-  try { rA = await getHotspotNews(); } catch (e) { eA = e; }
-  ok('全毒 feed（含零宽混淆）→ 空结果未写入 hotspotCache', writes.hotspotSet === 0, writes.hotspotSet);
-  ok('全毒 feed 无旧缓存 → 抛受控错误「所有 RSS 源抓取失败」', eA && /所有 RSS 源抓取失败/.test(eA.message), eA && eA.message);
+    const r1 = filterNewsItems([poisonItem()]);
+    ok(`[${label}] 混淆毒条 1/1 → kept.length===0`, r1.kept.length === 0, r1.kept.length);
+    const r3 = filterNewsItems([poisonItem(), poisonItem(), poisonItem()]);
+    ok(`[${label}] 混淆毒条 3/3 → kept.length===0（护栏不得放行）`, r3.kept.length === 0, r3.kept.length);
 
-  // B：有旧缓存 → 降级复用旧缓存，仍不写空
-  writes.hotspotSet = 0;
-  stores['hotspotCache'] = [
-    { _id: 'hotspot', key: 'hotspot', items: [{ title: '旧缓存正常条目', source: 'X' }], sourceHealth: [], updateTime: new Date(Date.now() - 2 * 3600 * 1000).toISOString() }
-  ];
-  let eB = null, rB = null;
-  try { rB = await getHotspotNews(); } catch (e) { eB = e; }
-  ok('有旧缓存 → 空结果未写入 hotspotCache', writes.hotspotSet === 0, writes.hotspotSet);
-  ok('有旧缓存 → 降级复用旧缓存而非空白', eB === null && rB && rB.items.length === 1 && rB.fromCache === true, eB && String(eB));
+    // A：无旧缓存 + 全源投毒（含混淆）→ 过滤后 0 条
+    writes.hotspotSet = 0;
+    delete stores['hotspotCache'];
+    let eA = null, rA = null;
+    try { rA = await getHotspotNews(); } catch (e) { eA = e; }
+    ok(`[${label}] 全毒 feed → 空结果未写入 hotspotCache`, writes.hotspotSet === 0, writes.hotspotSet);
+    ok(`[${label}] 全毒 feed 无旧缓存 → 抛受控错误「所有 RSS 源抓取失败」`, eA && /所有 RSS 源抓取失败/.test(eA.message), eA && eA.message);
 
-  // C：真实入口 main(action='hotspot') 不抛未捕获异常
+    // B：有旧缓存 → 降级复用旧缓存，仍不写空
+    writes.hotspotSet = 0;
+    stores['hotspotCache'] = [
+      { _id: 'hotspot', key: 'hotspot', items: [{ title: '旧缓存正常条目', source: 'X' }], sourceHealth: [], updateTime: new Date(Date.now() - 2 * 3600 * 1000).toISOString() }
+    ];
+    let eB = null, rB = null;
+    try { rB = await getHotspotNews(); } catch (e) { eB = e; }
+    ok(`[${label}] 有旧缓存 → 空结果未写入 hotspotCache`, writes.hotspotSet === 0, writes.hotspotSet);
+    ok(`[${label}] 有旧缓存 → 降级复用旧缓存而非空白`, eB === null && rB && rB.items.length === 1 && rB.fromCache === true, eB && String(eB));
+  }
+
+  // C：真实入口 main(action='hotspot') 不抛未捕获异常（用零宽混淆变体，与缺陷 A 对齐）
+  POISON_CHAR = ZW;
   writes.hotspotSet = 0;
   delete stores['hotspotCache'];
   let eC = null, rC = null;

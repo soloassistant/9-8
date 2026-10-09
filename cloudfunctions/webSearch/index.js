@@ -274,12 +274,16 @@ const NEWS_TRUST_MAX_DROP_RATIO = 0.8;
 const NEWS_TRUST_HIGH_CONFIDENCE = new Set(['empty', 'active-content', 'inject', 'defaced', 'obfuscated']);
 
 /** 指令注入：针对下游消费者（LLM 或人）的越权话术。中英双语都要覆盖。
- *  分隔符用 `\s*`（而非 `\s+`）：归一化会**删除**不可见字符（见 NEWS_TRUST_INVISIBLE_RE），
- *  `ignore\u200Ball` 归一化后成 `ignoreall`，只有 `\s*` 才能命中。 */
+ *  ⚠️ 只匹配**自然形态**（一律用 `\s+`），且语义收紧到真正的注入习语：
+ *   - `you are now …` 必须后接冠词（`a/an/the`）+ 词边界，否则 `nowhere / nowadays / now able` 会误杀；
+ *   - `disregard …(above|previous|prior)…` 必须后接被抛弃的**对象**
+ *     （instructions/prompts/rules/context/messages），否则 `previously / assumptions` 会误杀。
+ *  早期版本为吃下「粘连形态」把分隔符放宽成 `\s*`，尾随 `\s*` 命中零个空白 → 上述正常措辞被误判注入。
+ *  「粘连形态」（归一化后无分隔，如 `ignoreallpreviousinstructions`）改由下方**去分隔骨架**负责。 */
 const NEWS_TRUST_INJECT_PATTERNS = [
-  /ignore\s*(?:all\s*)?(?:previous|prior|above|earlier)\s*(?:instructions?|prompts?|rules?)/i,
-  /disregard\s*(?:all\s*)?(?:the\s*)?(?:above|previous|prior)\s*/i,
-  /\byou\s*are\s*now\s*/i,
+  /\bignore\s+(?:all\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|prompts?|rules?)\b/i,
+  /\bdisregard\s+(?:all\s+)?(?:the\s+)?(?:above|previous|prior)\s+(?:instructions?|prompts?|rules?|context|messages?)\b/i,
+  /\byou\s+are\s+now\s+(?:a|an|the)\b/i,
   /\b(?:system|developer)\s*(?:prompt|message)\s*[:：]/i,
   /忽略(?:掉)?(?:以上|上面|之前|前面)(?:的)?(?:所有)?(?:指令|内容|规则|设定)/,
   /(?:请|你)?(?:务必|必须)?不要(?:告诉|告知|告诉过)(?:用户|任何人)/,
@@ -287,18 +291,36 @@ const NEWS_TRUST_INJECT_PATTERNS = [
   /系统(?:提示|设定|指令)\s*[:：]/
 ];
 
-/** 站点被篡改 / 黑产投放的署名特征。分隔符用 `\s*`：`hacked\u200Bby` 归一化后成 `hackedby`，
- *  若仍用 `\s+` 则签名失配 → 被绕过。 */
-const NEWS_TRUST_DEFACED_PATTERNS = [/\bhacked\s*by\b/i, /\bdefaced\s*by\b/i, /\bpwned\s*by\b/i, /被\s*(?:黑|入)客\s*攻(?:破|陷)/];
+/** 站点被篡改 / 黑产投放的署名特征（自然形态，用 `\s+`）。粘连形态由骨架匹配负责。 */
+const NEWS_TRUST_DEFACED_PATTERNS = [/\bhacked\s+by\b/i, /\bdefaced\s+by\b/i, /\bpwned\s+by\b/i, /被\s*(?:黑|入)客\s*攻(?:破|陷)/];
 
 /** `stripHtml` 漏掉的**可执行**内容残留：真新闻不需要 script:/onerror=。 */
 const NEWS_TRUST_ACTIVE_CONTENT_PATTERNS = [/<script[\s>]/i, /javascript\s*:/i, /\bon(?:error|load|click)\s*=/i, /<iframe[\s>]/i];
 
-/** 判定前需**删除**的不可见字符：零宽（U+200B–200D/U+2060/U+FEFF）+ 双向控制（U+202A–202E/U+2066–2069）。
- *  攻击者把签名拆成 `hacked\u200Bby` 即可让 `\s+` 失配，且零宽计数 ≤2 不触发 zero-width → 完全隐形放行。
- *  归一化用**删除**而非替换为空格：删除后 `java\u200Bscript:`→`javascript:`、`忽略\u200B以上`→`忽略以上`
- *  直接命中既有正则；只有 `hacked by` 这类带分隔的签名需把 `\s+` 放宽为 `\s*`（见上方 INJECT/DEFACED 规则）。 */
-const NEWS_TRUST_INVISIBLE_RE = /[\u200b-\u200d\u2060\ufeff\u202a-\u202e\u2066-\u2069]/g;
+/**
+ * 判定前需**删除**的不可见/格式/组合字符。**按 Unicode 类别做，不再枚举码点**
+ * （枚举必漏：U+00AD / U+2061–2064 / U+034F / U+3164 / U+180E … 都曾是绕过点）。
+ *  · `\p{Cf}` 格式类：ZWSP(200B) / WJ(2060) / BOM(FEFF) / 双向控制(202A–202E, 2066–2069)
+ *    / **软连字符 U+00AD** / **U+2061–2064**；
+ *  · `\p{Cc}` 控制类：含 `\n`/`\t`/`\r` —— 顺带把 title/summary 跨字段拼接起来（`hac`+`ked by`）；
+ *  · `\p{Mn}` / `\p{Me}`：组合/包围记号（如组合重音 U+0301）；
+ *  · 另补上述类别覆盖不到的已知不可见字：U+034F CGJ、U+3164 韩文填充、
+ *    U+115F/U+1160 谚文填充、U+FFA0 半角谚文填充、U+180E 蒙古文元音分隔符。
+ *  归一化用**删除**而非替换为空格：删除后 `java\u00ADscript:`→`javascript:`、
+ *  `忽略\u00AD以上`→`忽略以上` 直接命中既有正则；替换为空格反而会打断这些签名。 */
+const NEWS_TRUST_INVISIBLE_RE = /[\p{Cf}\p{Cc}\p{Mn}\p{Me}\u034f\u3164\u115f\u1160\uffa0\u180e]/gu;
+
+/** 去分隔骨架用：只保留字母/数字（含 CJK），删除一切分隔符/标点/空白 —— 用来匹配「粘连形态」。 */
+const NEWS_TRUST_NON_SIGNIFICANT_RE = /[^\p{L}\p{N}]/gu;
+
+/** 骨架签名（作用于 `glued`，已转小写）。正常资讯里没有这些串；
+ *  `\b` 在粘连形态下失效（`hackedby` 的 `d`→`b` 之间无词边界），故这里用**去分隔子串**匹配。
+ *  ⚠️ 不给 `you are now` 做骨架签名：`youarenow` 会命中正常短语 `you are nowhere / you are now at`。 */
+const NEWS_TRUST_SKELETON_DEFACED_RE = /(?:hacked|defaced|pwned)by/;
+const NEWS_TRUST_SKELETON_INJECT_RES = [
+  /ignore(?:all)?(?:previous|prior|above|earlier)(?:instructions?|prompts?|rules?)/,
+  /disregard(?:all)?(?:the)?(?:above|previous|prior)(?:instructions?|prompts?|rules?|context|messages?)/
+];
 
 /** 双向文字覆写/隔离控制符（U+202A–202E、U+2066–2069）：在中文/英文资讯标题里**没有任何正当用途**，
  *  正常排版不需要它们，出现即为藏字符 → 命中即拦，不设阈值。
@@ -316,6 +338,10 @@ const NEWS_TRUST_ZERO_WIDTH_MAX = 2;
 const NEWS_TRUST_MOJIBAKE_RE = /[\uFFFD\u0400-\u04FF\u0370-\u03FF]/g;
 const NEWS_TRUST_MOJIBAKE_MAX = 3;
 
+/** ⚠️ 本轮**明确不覆盖**的残余：**形近字同形攻击**（如西里尔 `а` U+0430 冒充拉丁 `a`，构造 `hаcked by`）。
+ *  需要 confusables 映射表做字形归一化，本轮不做。缓解：同形文字**洪水**仍会被上面的 mojibake 规则拦下
+ *  （> NEWS_TRUST_MOJIBAKE_MAX），但只夹 1 个同形字的短标题会漏过 —— 已知缺口，后续以映射表补齐。 */
+
 /** 把一个条目里参与判定的文本拼起来（title/summary/tags）。 */
 function newsTextOf(item) {
   const tags = Array.isArray(item && item.tags) ? item.tags.join(' ') : '';
@@ -329,10 +355,15 @@ function newsTextOf(item) {
 function assessNewsItem(item) {
   const raw = newsTextOf(item);
   if (!raw.trim()) return 'empty';
-  // 归一化：**删除**零宽 / 双向控制字符后再跑签名规则，堵住「签名中间插 1 个不可见字符」的绕过。
-  // 高置信签名一律在归一化文本上判定 —— 于是「原始含不可见字符 + 归一化后命中高置信签名」
-  // 会先返回高置信 reason（active-content/inject/defaced），不会被降级成低精度 zero-width 而被护栏放回。
-  const text = raw.replace(NEWS_TRUST_INVISIBLE_RE, '');
+  // 归一化（**仅用于判定**，不改变展示内容）：
+  //  ① NFKC —— 消全角/兼容字符（ｈａｃｋｅｄ → hacked）；
+  //  ② 删除不可见/格式/组合/控制字符（按 Unicode 类别，见 NEWS_TRUST_INVISIBLE_RE）；
+  //  ③ 去分隔骨架 glued —— 只留字母/数字，匹配「跨字段拆词 / 逐字夹心」的粘连形态。
+  const text = raw.normalize('NFKC').replace(NEWS_TRUST_INVISIBLE_RE, '');
+  const glued = text.replace(NEWS_TRUST_NON_SIGNIFICANT_RE, '').toLowerCase();
+
+  // 通道 1：自然文本（严格语义）。高置信签名先判 —— 于是「原始含不可见字符 + 归一化后命中高置信签名」
+  // 会返回高置信 reason，不会被降级成低精度 zero-width 而被护栏放回。
   for (const re of NEWS_TRUST_ACTIVE_CONTENT_PATTERNS) {
     if (re.test(text)) return 'active-content';
   }
@@ -342,9 +373,15 @@ function assessNewsItem(item) {
   for (const re of NEWS_TRUST_DEFACED_PATTERNS) {
     if (re.test(text)) return 'defaced';
   }
-  if (NEWS_TRUST_BIDI_RE.test(raw)) return 'obfuscated'; // 高置信：对原始文本判定（归一化会删掉 bidi 字符）
-  const zw = (raw.match(NEWS_TRUST_ZERO_WIDTH_RE) || []).length; // 低精度：对原始文本计数
-  if (zw > NEWS_TRUST_ZERO_WIDTH_MAX) return 'zero-width'; // emoji 序列 / 部分 CJK 源会正常产生
+  // 通道 2：去分隔骨架（粘连形态，同样属高置信）。
+  if (NEWS_TRUST_SKELETON_DEFACED_RE.test(glued)) return 'defaced';
+  for (const re of NEWS_TRUST_SKELETON_INJECT_RES) {
+    if (re.test(glued)) return 'inject';
+  }
+  // 低精度启发式与 bidi：对**原始**文本判定/计数（归一化会把它们删掉/清零，否则永不命中）。
+  if (NEWS_TRUST_BIDI_RE.test(raw)) return 'obfuscated'; // 高置信
+  const zw = (raw.match(NEWS_TRUST_ZERO_WIDTH_RE) || []).length;
+  if (zw > NEWS_TRUST_ZERO_WIDTH_MAX) return 'zero-width'; // 低精度：emoji / 部分 CJK 源会正常产生
   const moj = (text.match(NEWS_TRUST_MOJIBAKE_RE) || []).length;
   if (moj > NEWS_TRUST_MOJIBAKE_MAX) return 'mojibake'; // 低精度：乱码洪水
   return null;
