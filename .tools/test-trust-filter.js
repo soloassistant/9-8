@@ -54,11 +54,11 @@ is('onerror 属性', { title: '新闻', summary: '<img src=x onerror=alert(1)>' 
 const ZW = String.fromCharCode(0x200b);   // 零宽空格 U+200B
 const RLO = String.fromCharCode(0x202e);  // 从右至左覆写 U+202E
 const PDF = String.fromCharCode(0x202c);  // 弹出方向格式化 U+202C
-is('零宽字符藏指令（5个）', { title: '正常标题', summary: 'a' + ZW.repeat(5) }, 'obfuscated');
+is('零宽字符洪水（5个）→ 低精度规则', { title: '正常标题', summary: 'a' + ZW.repeat(5) }, 'zero-width');
 is('双向覆写字符（单个 RLO…PDF 对）', { title: RLO + 'normal' + PDF, summary: 'x' }, 'obfuscated');
 is('单个零宽字符放行（emoji/部分源合法）', { title: '正常标' + ZW + '题' }, null);
 is('两个零宽字符放行（阈值边界内）', { title: 'a' + ZW + 'b' + ZW + 'c' }, null);
-is('三个零宽字符拦下（超阈值）', { title: 'a' + ZW + 'b' + ZW + 'c' + ZW + 'd' }, 'obfuscated');
+is('三个零宽字符拦下（超阈值）→ 低精度规则', { title: 'a' + ZW + 'b' + ZW + 'c' + ZW + 'd' }, 'zero-width');
 is('替换字符洪水', { title: String.fromCharCode(0xFFFD).repeat(9) + '乱码内容' }, 'mojibake');
 is('西里尔字母伪装', { title: 'Новости из России' }, 'mojibake');
 
@@ -101,7 +101,8 @@ check('混入一条投毒 → 拦下且保留其余', r2.kept.length === 4 && r2
 
 const allBad = Array.from({ length: 5 }, (_, i) => ({ title: `hacked by bot${i}`, source: 'X' }));
 const r3 = filterNewsItems(allBad);
-check('全毒触发护栏 → fail-open 放行全部（避免整站空白）', r3.kept.length === 5 && r3.dropped.length === 0, `kept=${r3.kept.length} dropped=${r3.dropped.length}`);
+// 修复后：defaced 属高置信，护栏不得放行 —— 全毒必须 fail-closed 全部丢弃
+check('全毒（高置信 defaced）→ fail-closed 全部丢弃', r3.kept.length === 0 && r3.dropped.length === 5, `kept=${r3.kept.length} dropped=${r3.dropped.length}`);
 
 const r4 = filterNewsItems([]);
 check('空数组安全', r4.kept.length === 0);
@@ -109,11 +110,42 @@ check('空数组安全', r4.kept.length === 0);
 const r5 = filterNewsItems(null);
 check('null 安全', Array.isArray(r5.kept) && r5.kept.length === 0);
 
-/* ---------- 4. 护栏阈值边界 ---------- */
-// 5 条投毒 + 1 条正常 = 83% > 80% → 应触发护栏
+/* ---------- 4. 护栏阈值边界（分层：高置信不受护栏，低精度受护栏） ---------- */
+// 5 条 defaced（高置信）+ 1 条正常 = 83% > 80% → 高置信不入护栏，只保留那条正常
 const edge = allBad.concat([{ title: '正常', source: 'A' }]);
 const r6 = filterNewsItems(edge);
-check('83% 超阈值 → 触发护栏放行', r6.kept.length === 6 && r6.dropped.length === 0, `kept=${r6.kept.length} dropped=${r6.dropped.length}`);
+check(
+  '83% 全为高置信 defaced → 不入护栏，仅保留正常条目',
+  r6.kept.length === 1 && r6.dropped.length === 5 && r6.kept[0].title === '正常',
+  `kept=${r6.kept.length} dropped=${r6.dropped.length}`
+);
+
+// 低精度护栏仍须生效：5 条 mojibake 全量（100% > 80%）→ 护栏 fail-open 放回，避免启发式误清空整站
+const FFD = String.fromCharCode(0xfffd);
+const allMojibake = Array.from({ length: 5 }, (_, i) => ({ title: FFD.repeat(5) + `乱码${i}`, source: 'X' }));
+const r7 = filterNewsItems(allMojibake);
+check('全量低精度 mojibake → 护栏仍 fail-open 放回', r7.kept.length === 5 && r7.dropped.length === 0, `kept=${r7.kept.length} dropped=${r7.dropped.length}`);
+
+// 混合且低精度未超阈值：高置信与低精度都丢弃
+const mixBelow = [
+  { title: 'hacked by evil', source: 'X' },
+  { title: FFD.repeat(5) + '乱码A', source: 'Y' },
+  { title: '正常新闻', source: 'Z' }
+];
+const r8 = filterNewsItems(mixBelow);
+check('混合（低精度 1/3 未超阈值）→ 高置信与低精度均丢弃', r8.kept.length === 1 && r8.dropped.length === 2, `kept=${r8.kept.length} dropped=${r8.dropped.length}`);
+
+// 关键：低精度超阈值触发护栏（放回低精度）时，高置信仍然必须被丢弃
+const mixAbove = [
+  { title: 'hacked by evil', source: 'X' },
+  ...Array.from({ length: 5 }, (_, i) => ({ title: FFD.repeat(5) + `乱${i}`, source: 'Y' }))
+];
+const r9 = filterNewsItems(mixAbove); // 低精度 5/6 = 83% > 80%
+check(
+  '护栏因低精度过宽触发时，高置信 defaced 仍被丢弃',
+  r9.kept.length === 5 && r9.dropped.length === 1 && r9.dropped[0].reason === 'defaced',
+  `kept=${r9.kept.length} dropped=${r9.dropped.length} reasons=${r9.dropped.map((d) => d.reason).join(',')}`
+);
 
 console.log(`\n通过 ${pass} / 失败 ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

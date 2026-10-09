@@ -248,10 +248,30 @@ function toNews(it) {
  * 失败模式：**规则过宽会把整站新闻清空**，那本身就是一次线上事故。
  * 故加 `NEWS_TRUST_MAX_DROP_RATIO` 护栏 —— 丢弃比例超阈值时**保留原列表并大声告警**，
  * 宁可漏放一条也不让产品空白；护栏触发会在日志里留下明确痕迹，便于当天修规则。
+ *
+ * ⚠️ 但护栏**不能无差别地作用于所有规则**：原实现对全量 `dropped` 生效，于是
+ * 「唯一存活源被投毒」（`MAX_ITEMS_PER_SOURCE=3` → 列表塌缩成 3 条全毒 = 100% > 80%）
+ * 会让护栏把毒条目**全部放行**，过滤被完全绕过（2026-10-08 实测复现）。
+ * 因此规则按置信度分层（见 `NEWS_TRUST_HIGH_CONFIDENCE`）：
+ * 高置信签名**永不 fail-open**，护栏只保护低精度启发式。
  */
 
-/** 单条被判定为不可信时的丢弃比例上限；超过则判定「规则过宽」，回退放行。 */
+/** 单条被判定为不可信时的丢弃比例上限；超过则判定「规则过宽」，回退放行。
+ *  **只对低精度启发式（'zero-width' / 'mojibake'）生效**；高置信规则不受它影响。 */
 const NEWS_TRUST_MAX_DROP_RATIO = 0.8;
+
+/** 高置信规则：命中即**无条件丢弃**，护栏不得放行。
+ *  这些签名在正常资讯里没有正当用途 —— 若被护栏放行，等于把攻击者内容
+ *  （甚至直接进入 LLM prompt 的注入文本）交给用户：
+ *   - 'defaced'：站点被篡改 / 黑产署名（`hacked by` / `被黑客攻破`）—— 标题写着 hacked by X 不可能是正常新闻；
+ *   - 'active-content'：`<script>` / `javascript:` / `onerror=` 等可执行残留 —— 真新闻不需要；
+ *   - 'inject'：指令注入（忽略以上指令 / `system prompt:` / 角色劫持）—— 这是针对下游 LLM 的
+ *     prompt 注入，放过即把攻击文本喂进 LLM；其中 `\byou are now\b` 虽是弱特征，但它是标准角色劫持
+ *     开场白，误判代价只是**单条**被丢（不是整站空白），远低于漏放注入的代价，故同样归高置信；
+ *   - 'obfuscated'：bidi 覆写字符（U+202A–202E / U+2066–2069）在标题里没有正当用途；
+ *   - 'empty'：无任何可判定文本的条目（确定性判定、非启发式，没有「正常空新闻」需要保护）。
+ *  低精度启发式（'zero-width'、'mojibake'）**不在**此集合，仍受护栏保护。 */
+const NEWS_TRUST_HIGH_CONFIDENCE = new Set(['empty', 'active-content', 'inject', 'defaced', 'obfuscated']);
 
 /** 指令注入：针对下游消费者（LLM 或人）的越权话术。中英双语都要覆盖。 */
 const NEWS_TRUST_INJECT_PATTERNS = [
@@ -307,40 +327,66 @@ function assessNewsItem(item) {
   for (const re of NEWS_TRUST_DEFACED_PATTERNS) {
     if (re.test(text)) return 'defaced';
   }
-  if (NEWS_TRUST_BIDI_RE.test(text)) return 'obfuscated';
+  if (NEWS_TRUST_BIDI_RE.test(text)) return 'obfuscated'; // 高置信：bidi 覆写在标题里没有正当用途
   const zw = (text.match(NEWS_TRUST_ZERO_WIDTH_RE) || []).length;
-  if (zw > NEWS_TRUST_ZERO_WIDTH_MAX) return 'obfuscated';
+  if (zw > NEWS_TRUST_ZERO_WIDTH_MAX) return 'zero-width'; // 低精度：emoji 序列 / 部分 CJK 源会正常产生
   const moj = (text.match(NEWS_TRUST_MOJIBAKE_RE) || []).length;
-  if (moj > NEWS_TRUST_MOJIBAKE_MAX) return 'mojibake';
+  if (moj > NEWS_TRUST_MOJIBAKE_MAX) return 'mojibake'; // 低精度：乱码洪水
   return null;
 }
 
 /**
- * 过滤一批条目。返回 `{ kept, dropped }`；`dropped` 只用于日志，不进返回体。
- * 触发护栏时 kept === 原始列表（fail-open），并 warn 留痕。
+ * 过滤一批条目。返回 `{ kept, dropped }`（`dropped` 仅用于日志，不进返回体）。
+ *
+ * 护栏按置信度分层（修复 2026-10-08「唯一存活源被投毒」绕过）：
+ *  - 高置信规则（`NEWS_TRUST_HIGH_CONFIDENCE`）**永不 fail-open** —— 一律丢弃并留在 `dropped`；
+ *  - 低精度启发式（'zero-width' / 'mojibake'）仍受护栏保护：丢弃比例 > `NEWS_TRUST_MAX_DROP_RATIO`
+ *    时视为「规则过宽」，把**它们**放回 kept（fail-open），避免启发式误清空整站。
+ * 这样既保住护栏「防整站空白」的初衷，又堵住「毒源成为唯一存活源即全量放行」的绕过点。
  */
 function filterNewsItems(items) {
   const list = Array.isArray(items) ? items : [];
   if (!list.length) return { kept: list, dropped: [] };
   const kept = [];
-  const dropped = [];
+  const high = []; // 高置信丢弃（含原条目引用，便于日志展示）
+  const low = []; // 低精度丢弃（可能被护栏放回）
   for (const it of list) {
     const reason = assessNewsItem(it);
-    if (reason) dropped.push({ title: String((it && it.title) || '').slice(0, 60), source: (it && it.source) || '', reason });
-    else kept.push(it);
+    if (!reason) {
+      kept.push(it);
+      continue;
+    }
+    const rec = {
+      item: it,
+      title: String((it && it.title) || '').slice(0, 60),
+      source: (it && it.source) || '',
+      reason
+    };
+    (NEWS_TRUST_HIGH_CONFIDENCE.has(reason) ? high : low).push(rec);
   }
-  if (dropped.length && dropped.length / list.length > NEWS_TRUST_MAX_DROP_RATIO) {
+  // 护栏只作用于低精度类；高置信条目无条件丢弃，永不放回。
+  let guardrailTriggered = false;
+  if (low.length && low.length / list.length > NEWS_TRUST_MAX_DROP_RATIO) {
+    guardrailTriggered = true;
+    for (const rec of low) kept.push(rec.item);
+  }
+  if (high.length || low.length) {
+    const brief = (arr) => arr.slice(0, 5).map((r) => ({ title: r.title, source: r.source, reason: r.reason }));
     console.warn(
-      `[webSearch] trust filter would drop ${dropped.length}/${list.length} (>${Math.round(
-        NEWS_TRUST_MAX_DROP_RATIO * 100
-      )}%) —— 判定规则过宽，本次放行全部条目。请检查 NEWS_TRUST_* 规则。`,
-      JSON.stringify(dropped.slice(0, 5))
+      `[webSearch] trust filter: high-dropped=${high.length} ` +
+        `low-dropped=${guardrailTriggered ? 0 : low.length}` +
+        (guardrailTriggered
+          ? ` guardrail=ON(低精度 ${low.length}/${list.length} > ${Math.round(
+              NEWS_TRUST_MAX_DROP_RATIO * 100
+            )}%，已放回)`
+          : ' guardrail=off') +
+        ` kept=${kept.length}/${list.length}`,
+      JSON.stringify({ high: brief(high), low: brief(low) })
     );
-    return { kept: list, dropped: [] };
   }
-  if (dropped.length) {
-    console.warn(`[webSearch] trust filter dropped ${dropped.length}/${list.length}`, JSON.stringify(dropped.slice(0, 5)));
-  }
+  const dropped = high
+    .concat(guardrailTriggered ? [] : low)
+    .map((r) => ({ title: r.title, source: r.source, reason: r.reason }));
   return { kept, dropped };
 }
 
@@ -621,7 +667,7 @@ async function fetchAllSources() {
   // 内容信任过滤放在**这个出口**：早于 writeHotspotCache、早于 summarize(weather, ranked)，
   // 也早于全部消费路径（热点页缓存 / 免费档 / 订阅限额档 / 订阅降级档）。
   // 放晚一步毒条目已经进了缓存，也已经进过 LLM 的 prompt。
-  const { items } = filterNewsItems(raw);
+  const { kept: items } = filterNewsItems(raw); // filterNewsItems 返回 { kept, dropped }
   return { items, sourceHealth };
 }
 
