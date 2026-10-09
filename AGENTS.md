@@ -114,6 +114,52 @@ best-effort 设计，失败只告警、不抛错、不阻塞构建：
   所以**实际生效的是第 2 跳**；第 3 跳是"gh-pages 也挂了"时的最后防线。
   因此这份文件缺失**不是**用户可见故障，但缺了就应该知道。
 
+### 3.3 ★★ Taro 两种"单位陷阱" + 一种 flex 陷阱，构建/单测都不报错，只有真浏览器量几何才暴露（2026-10-09 实测）
+
+起因：用户报「晨报页底部输入区有问题」，查出来是**三处独立缺陷**，全都在构建日志、`typecheck`、
+既有单测里**一路绿灯**。详细根因、读数、截图见 `docs/晨报页底部输入区-三处缺陷-根因与修复-2026-10-09.md`。
+
+**陷阱一：Taro H5 里小写 `px` 就是 `rpx`（都是设计 px），不是 CSS px。**
+
+| 源码 | 构建产物 | 375 视口实际 |
+|---|---|---|
+| `66px` | `1.76rem` | **33px** |
+| `66PX` | `66PX`（原样保留） | 66px ✅ |
+
+⇒ 要写"真 px"必须大写 `PX` 逃过 pxtransform（`app.scss` 的 `500PX` 是同一手法）。
+指纹：一个本该固定的尺寸却随视口缩放（本次 `bottom` 三档 33 / 34.32 / 44px 全都不是 66）。
+后果实例：`.h5Fix` 想避让 50px 的 TabBar，实际只避让 33px → 输入栏底部 17px 被压住。
+
+**陷阱二：内联 `style` 里写 `rpx` 是无效 CSS —— 整条声明被丢弃，不是"留个错值"。**
+
+浏览器不认 `rpx`，`calc(50px + env(...) + 340rpx)` 整条非法 → `bottom` 退回 **`auto`** →
+元素落到**静态位置**（实测 AI 悬浮球因此渲染到屏幕顶端，提示气泡盖住页头问候语）。
+内联 style 要用 `rem`：本项目 **1 设计 px = 1/37.5 rem**（推导自 `app.scss` 的
+`html{font-size:calc(min(100vw,500PX)/20)}`，即 750 设计宽 = 20rem；构建产物 `24rpx→0.64rem`、
+`66px→1.76rem` 两处都精确吻合这个比值）。
+- ⚠️ **不要改用 `Taro.pxTransform`**：它按 **1/20 rem** 换算（面向"设计 px ≠ rpx"的项目），在本项目会放大一倍；
+  且它假设根字号 = `100vw/20`，而本项目根字号**封顶 500px**，>500px 视口会一起错。
+- 小程序端（WXSS）`rpx` 原生合法，所以这类 bug **只在 H5 坏**，属于"编译期不报、真机才发现"。
+- 排查：`grep -n "rpx'\|\${.*}rpx" src/**/*.tsx`（改完上述两处后全仓应为 0 命中）。
+
+**陷阱三：flex 行里给子项写 `width:100%` 当"占位"，会把兄弟项挤成 0。**
+
+`width:100%` 让该子项以**整行宽**作为 flex basis；若同行其他项都是 `flex:0 0 auto` 不可压缩，
+压力全落在 `flex:1` 的兄弟上。本次实例：VoiceButton 的 `.wrapper{width:100%}` 占 173px，
+把输入框压到 32px，而它自身 padding 左右各 16px ⇒ 内容盒 0 ⇒ 里面的 `<input>` **宽度 0**，
+placeholder 一个字都不显示。修法是 `.wrapper.compact{width:auto;flex:0 0 auto}`。
+> 同类"看起来没事其实内容盒为 0"的情况，光看宽度不够 —— 要同时读 `getBoundingClientRect().width`
+> 与该元素的 `paddingLeft/Right`，二者相等就是塌了。
+
+**量几何的脚手架**（都在 `.tmp-verify/inputui/`，不进 `dist/`、不进版本控制）：
+```bash
+bash .tmp-verify/inputui/run.sh                                    # ① 线上多视口量测（注入 SDK 桩 + 点掉开屏封面）
+PROBE=.tmp-verify/inputui/probe-intervention.mjs bash .tmp-verify/inputui/run.sh   # ② 干预验证
+bash .tmp-verify/inputui/run-local.sh                              # ③ 本地构建产物复测
+```
+**先做②再做①**：直接改源码再测，分不清"我修对了"和"问题本来会自己好"；先在浏览器里注入候选修法、
+拿到明确的好/坏值变化，才把假设钉成根因。（另：`.tools/cdp-probe.mjs` 是通用单视口版，本目录是它的多视口特化版。）
+
 ## 4. 上线通道
 
 | 端 | 通道 | 说明 |

@@ -655,9 +655,13 @@
   gap: $spacing-xs;
 }
 
-/* H5 预览端：避让底部 TabBar（50px）并再上移一点 */
+/* H5 预览端：避让底部 TabBar（实测固定 50px）并再上移一点。
+   ⚠️ 这里**必须**用大写 `PX` 逃过 Taro pxtransform：在 Taro H5 里小写 px 会被当作**设计 px（750 基准）**
+   编译成 rem —— `66px` → `1.76rem`，在 375 视口只有 33px，于是"避让 50px TabBar"实际只避让了 33px，
+   输入栏底部 17px 被 TabBar 压住（2026-10-09 线上实测 375 / 390 / 1280 三档分别重叠 17 / 15.7 / 6 px）。
+   大小写不敏感是 CSS 规范行为，大写只是给构建器看的。 */
 .h5Fix {
-  bottom: calc(66px + env(safe-area-inset-bottom));
+  bottom: calc(66PX + env(safe-area-inset-bottom));
 }
 
 .quickRow {

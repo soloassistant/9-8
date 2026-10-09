@@ -5,6 +5,17 @@
   width: 100%;
 }
 
+/* 紧凑态（仅晨报页输入栏在用）：wrapper 不能再占满整行宽度。
+   ⚠️ 2026-10-09 线上实测的根因：`.wrapper{width:100%}` 作为 flex 项时 basis 取 auto→整行宽，
+   把同一行里 `flex:1` 的 taro-input-core 挤到只剩 32px；而 `.textInput` 左右各 16px padding，
+   内容盒被压成 0 → 内部 `<input>` 宽度 0px：用户既看不见 placeholder 也打不了字。
+   改成 width:auto 后输入框从 0px → 169px（内容盒 137px）。
+   注意 `.compact.button`（下一段）特异性相同且写在后面，按钮本身的 72rpx 定宽不受影响。 */
+.wrapper.compact {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 .button {
   display: flex;
   align-items: center;

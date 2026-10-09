@@ -17,6 +17,14 @@ const isH5 = process.env.TARO_ENV === 'h5';
 /** AI 助理对话本地持久化 key（上限 60 条，由 saveChatLog 截断） */
 const AI_LOG_KEY = 'aiAssistantLog';
 
+/** 悬浮球离底基准偏移（设计 px / rpx），offset 由调用页在此基础上叠加 */
+const FAB_BASE_OFFSET_RPX = 100;
+/** Taro 把设计 px/rpx 编译成 rem 的比例。
+ *  依据 src/app.scss 的 `html { font-size: calc(min(100vw, 500PX) / 20) }` —— 即 750 设计宽 = 20rem，
+ *  故 1 设计 px = 1/37.5 rem。这与 .module.scss 里 `24rpx → 0.64rem` 的编译结果完全一致。
+ *  ⚠️ 不要改用 Taro.pxTransform：它按 1/20 rem 换算（面向"设计 px≠rpx"的项目），在本项目会放大一倍。 */
+const DESIGN_PX_PER_REM = 750 / 20;
+
 /** 视口尺寸（px）；H5 读 window，weapp 兜底 getWindowInfo */
 const getViewport = () => {
   if (isH5 && typeof window !== 'undefined') {
@@ -459,7 +467,20 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
 
   const lastMsgId = messages.length > 0 ? messages[messages.length - 1].id : '';
 
-  const fabStyle = { bottom: `calc(${isH5 ? '50px' : '0px'} + env(safe-area-inset-bottom) + ${100 + offset}rpx)` };
+  /**
+   * 悬浮球离底定位。
+   *
+   * ⚠️ H5 端**不能**在内联 style 里直接写 `rpx`：`rpx` 不是浏览器认得的 CSS 单位，整条 `calc()` 会被判为
+   * 非法并**整条丢弃**，`bottom` 退回 `auto`，元素落到静态位置 —— 表现为悬浮球连同提示气泡渲染在
+   * **屏幕顶部**、遮住页头问候语（2026-10-09 线上实测：wrapper top=0，computed bottom=694px=视口高-自身高）。
+   * 所以 H5 分支自己把设计 px 换算成 rem（rem 在内联 style 里合法，且随 app.scss 的根字号同比缩放）。
+   * 小程序端 rpx 原生合法，保持原样不动。
+   */
+  const fabStyle = {
+    bottom: isH5
+      ? `calc(50px + env(safe-area-inset-bottom) + ${((FAB_BASE_OFFSET_RPX + offset) / DESIGN_PX_PER_REM).toFixed(5)}rem)`
+      : `calc(0px + env(safe-area-inset-bottom) + ${FAB_BASE_OFFSET_RPX + offset}rpx)`
+  };
 
   /** 拖过位后位置生效：wrapper 从「全宽贴底」切换为「按坐标定位」 */
   const wrapperStyle = fabPos
