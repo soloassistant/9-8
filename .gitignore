@@ -47,3 +47,6 @@ dist-weapp/
 .tools/.layout-shots/
 .tools/.shot-*.png
 .tools/.httpd.log
+
+# 项目记忆（含操作细节），仓库是 public，不入库
+MEMORY.md

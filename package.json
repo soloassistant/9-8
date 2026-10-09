@@ -18,7 +18,7 @@
     "verify:dedupe": "node .tools/dedupe-eval.js",
     "verify:layout": "node .tools/verify-layout.mjs",
     "deploy:cloud": "node .tools/deploy-cloud.mjs",
-    "build:weapp": "taro build --type weapp && node .tools/copy-assets.js dist",
+    "build:weapp": "taro build --type weapp",
     "build:swan": "taro build --type swan",
     "build:alipay": "taro build --type alipay",
     "build:tt": "taro build --type tt",

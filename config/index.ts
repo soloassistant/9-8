@@ -5,6 +5,19 @@ import prodConfig from './prod';
 import vitePluginImp from 'vite-plugin-imp';
 // https://taro-docs.jd.com/docs/next/config#defineconfig-辅助函数
 export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
+  // 产物目录按平台分开：H5 → dist，其它端 → dist-<platform>（如 dist-weapp）。
+  // 【为什么必须分开】此前只有 `process.env.TARO_OUTPUT_DIR || 'dist'`，而 `build:weapp`
+  // 的 npm script 并没有设这个环境变量 —— 于是**跑一次小程序构建就会把 H5 的 dist 整个覆盖掉**
+  // 成小程序产物。危害不止是本地乱：一旦有人在这之后把 dist 发到 gh-pages，
+  // **小程序产物就被当成网页发布上线了**。project.config.json 的 miniprogramRoot
+  // 与 docs/质量验证报告.md 记的都是 `dist-weapp`，说明"按平台分目录"本就是既定约定，
+  // 只是没人把它写进配置 → 在这里一次性收口，不依赖调用方记得传环境变量。
+  // 保留 TARO_OUTPUT_DIR 覆盖能力（CI 需要自定义目录时仍可用）。
+  // ⚠️ 兜底必须容忍 TARO_ENV 为空：否则会得到 `dist-undefined`。
+  const platform = process.env.TARO_ENV || '';
+  const outputRoot =
+    process.env.TARO_OUTPUT_DIR || (platform && platform !== 'h5' ? `dist-${platform}` : 'dist');
+
   const baseConfig: UserConfigExport<'webpack5'> = {
     projectName: 'taro_template',
     date: '2025-12-10',
@@ -16,7 +29,7 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
       828: 1.81 / 2,
     },
     sourceRoot: 'src',
-    outputRoot: process.env.TARO_OUTPUT_DIR || 'dist',
+    outputRoot,
     plugins: ['@tarojs/plugin-html'],
     // 云环境 ID 编译期注入：设系统环境变量 TARO_APP_CLOUD_ENV 后构建，或直接在此填
     // （不用 config.env 字段——Taro 4.1.9 webpack5-runner 对其处理有坑，会破坏 taro-loader entry 分析）
