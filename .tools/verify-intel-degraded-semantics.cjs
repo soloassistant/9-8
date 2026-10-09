@@ -46,6 +46,12 @@ function noteKey(p) {
   return p.degraded ? 'intelRawNote' : 'aiTag';
 }
 
+/** 复刻 pages/briefing/index.tsx 的 AI 导语署名判断
+ *  （缺陷 B 修复后收紧为「确实由 AI 生成」：aiEnabled && !degraded）。 */
+function showLeadTag(p) {
+  return p.groups.length > 0 && p.aiEnabled && !p.degraded;
+}
+
 const items = [
   { text: '谷歌借助 AI 改写 C 语言依赖库为 Rust', source: 'InfoQ中文' },
   { text: '智己LS6 把转向柱删了', source: '什么值得买' }
@@ -100,6 +106,13 @@ ok('订阅正常 显示 AI 标识', noteKey(proOk) === 'aiTag', noteKey(proOk));
 const legacyFree = M.resolveIntelGroups({ subscribed: false, intelItems: items, groups: [], degraded: true });
 ok('旧载荷缺 aiEnabled → 保守按 true', legacyFree.aiEnabled === true, legacyFree.aiEnabled);
 ok('旧载荷 仍显示错误提示（不回归）', noteKey(legacyFree) === 'intelRawNote', noteKey(legacyFree));
+
+/* ---------- 缺陷 B：AI 导语署名只在「确实由 AI 生成」时显示 ---------- */
+// 免费档 aiEnabled=false，导语来自 groupIntelLocally 的纯文本拼接 → 不得挂「— 以下导语由 AI 生成 —」
+ok('免费档 不显示 AI 导语署名（本地拼接非 AI 生成）', showLeadTag(free) === false, showLeadTag(free));
+ok('订阅正常 显示 AI 导语署名', showLeadTag(proOk) === true, showLeadTag(proOk));
+ok('订阅降级 不显示 AI 导语署名', showLeadTag(proDegraded) === false, showLeadTag(proDegraded));
+ok('旧载荷 不显示 AI 导语署名（缺 aiEnabled 保守真，但 degraded=true 兜底）', showLeadTag(legacyFree) === false, showLeadTag(legacyFree));
 
 /* ---------- 防过度修复：内容本身不受影响 ---------- */
 ok('免费档条目数不变（过滤/分档未吞内容）', free.groups.reduce((n, g) => n + g.items.length, 0) === items.length,

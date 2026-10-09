@@ -273,31 +273,42 @@ const NEWS_TRUST_MAX_DROP_RATIO = 0.8;
  *  低精度启发式（'zero-width'、'mojibake'）**不在**此集合，仍受护栏保护。 */
 const NEWS_TRUST_HIGH_CONFIDENCE = new Set(['empty', 'active-content', 'inject', 'defaced', 'obfuscated']);
 
-/** 指令注入：针对下游消费者（LLM 或人）的越权话术。中英双语都要覆盖。 */
+/** 指令注入：针对下游消费者（LLM 或人）的越权话术。中英双语都要覆盖。
+ *  分隔符用 `\s*`（而非 `\s+`）：归一化会**删除**不可见字符（见 NEWS_TRUST_INVISIBLE_RE），
+ *  `ignore\u200Ball` 归一化后成 `ignoreall`，只有 `\s*` 才能命中。 */
 const NEWS_TRUST_INJECT_PATTERNS = [
-  /ignore\s+(?:all\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|prompts?|rules?)/i,
-  /disregard\s+(?:all\s+)?(?:the\s+)?(?:above|previous|prior)\s+/i,
-  /\byou\s+are\s+now\s+/i,
-  /\b(?:system|developer)\s+(?:prompt|message)\s*[:：]/i,
+  /ignore\s*(?:all\s*)?(?:previous|prior|above|earlier)\s*(?:instructions?|prompts?|rules?)/i,
+  /disregard\s*(?:all\s*)?(?:the\s*)?(?:above|previous|prior)\s*/i,
+  /\byou\s*are\s*now\s*/i,
+  /\b(?:system|developer)\s*(?:prompt|message)\s*[:：]/i,
   /忽略(?:掉)?(?:以上|上面|之前|前面)(?:的)?(?:所有)?(?:指令|内容|规则|设定)/,
   /(?:请|你)?(?:务必|必须)?不要(?:告诉|告知|告诉过)(?:用户|任何人)/,
   /你(?:现在)?(?:是|扮演)(?:一个|一名)?(?:新的)?(?:助手|ai|智能体)/i,
   /系统(?:提示|设定|指令)\s*[:：]/
 ];
 
-/** 站点被篡改 / 黑产投放的署名特征。 */
-const NEWS_TRUST_DEFACED_PATTERNS = [/\bhacked\s+by\b/i, /\bdefaced\s+by\b/i, /\bpwned\s+by\b/i, /被\s*(?:黑|入)客\s*攻(?:破|陷)/];
+/** 站点被篡改 / 黑产投放的署名特征。分隔符用 `\s*`：`hacked\u200Bby` 归一化后成 `hackedby`，
+ *  若仍用 `\s+` 则签名失配 → 被绕过。 */
+const NEWS_TRUST_DEFACED_PATTERNS = [/\bhacked\s*by\b/i, /\bdefaced\s*by\b/i, /\bpwned\s*by\b/i, /被\s*(?:黑|入)客\s*攻(?:破|陷)/];
 
 /** `stripHtml` 漏掉的**可执行**内容残留：真新闻不需要 script:/onerror=。 */
 const NEWS_TRUST_ACTIVE_CONTENT_PATTERNS = [/<script[\s>]/i, /javascript\s*:/i, /\bon(?:error|load|click)\s*=/i, /<iframe[\s>]/i];
 
+/** 判定前需**删除**的不可见字符：零宽（U+200B–200D/U+2060/U+FEFF）+ 双向控制（U+202A–202E/U+2066–2069）。
+ *  攻击者把签名拆成 `hacked\u200Bby` 即可让 `\s+` 失配，且零宽计数 ≤2 不触发 zero-width → 完全隐形放行。
+ *  归一化用**删除**而非替换为空格：删除后 `java\u200Bscript:`→`javascript:`、`忽略\u200B以上`→`忽略以上`
+ *  直接命中既有正则；只有 `hacked by` 这类带分隔的签名需把 `\s+` 放宽为 `\s*`（见上方 INJECT/DEFACED 规则）。 */
+const NEWS_TRUST_INVISIBLE_RE = /[\u200b-\u200d\u2060\ufeff\u202a-\u202e\u2066-\u2069]/g;
+
 /** 双向文字覆写/隔离控制符（U+202A–202E、U+2066–2069）：在中文/英文资讯标题里**没有任何正当用途**，
  *  正常排版不需要它们，出现即为藏字符 → 命中即拦，不设阈值。
- *  （曾把它和零宽字符合并成一个 >2 的阈值，被单测抓到漏判：单个 RLO…PDF 对就绕过去了。）*/
+ *  （曾把它和零宽字符合并成一个 >2 的阈值，被单测抓到漏判：单个 RLO…PDF 对就绕过去了。）
+ *  ⚠️ 对**原始**文本判定：归一化会删除 bidi 字符，若对归一化文本判定将永不命中。 */
 const NEWS_TRUST_BIDI_RE = /[\u202a-\u202e\u2066-\u2069]/;
 
 /** 零宽字符（U+200B–200D、U+2060、U+FEFF）：emoji 序列与部分 CJK 源**会正常产生**，
- *  故不能命中即拦，按数量阈值判定。 */
+ *  故不能命中即拦，按数量阈值判定。
+ *  ⚠️ 对**原始**文本计数：归一化会清空计数，若对归一化文本计数将永不判 zero-width。 */
 const NEWS_TRUST_ZERO_WIDTH_RE = /[\u200b-\u200d\u2060\ufeff]/g;
 const NEWS_TRUST_ZERO_WIDTH_MAX = 2;
 
@@ -316,8 +327,12 @@ function newsTextOf(item) {
  * 纯函数、无副作用、可直接单测（见 exports.__internals）。
  */
 function assessNewsItem(item) {
-  const text = newsTextOf(item);
-  if (!text.trim()) return 'empty';
+  const raw = newsTextOf(item);
+  if (!raw.trim()) return 'empty';
+  // 归一化：**删除**零宽 / 双向控制字符后再跑签名规则，堵住「签名中间插 1 个不可见字符」的绕过。
+  // 高置信签名一律在归一化文本上判定 —— 于是「原始含不可见字符 + 归一化后命中高置信签名」
+  // 会先返回高置信 reason（active-content/inject/defaced），不会被降级成低精度 zero-width 而被护栏放回。
+  const text = raw.replace(NEWS_TRUST_INVISIBLE_RE, '');
   for (const re of NEWS_TRUST_ACTIVE_CONTENT_PATTERNS) {
     if (re.test(text)) return 'active-content';
   }
@@ -327,9 +342,9 @@ function assessNewsItem(item) {
   for (const re of NEWS_TRUST_DEFACED_PATTERNS) {
     if (re.test(text)) return 'defaced';
   }
-  if (NEWS_TRUST_BIDI_RE.test(text)) return 'obfuscated'; // 高置信：bidi 覆写在标题里没有正当用途
-  const zw = (text.match(NEWS_TRUST_ZERO_WIDTH_RE) || []).length;
-  if (zw > NEWS_TRUST_ZERO_WIDTH_MAX) return 'zero-width'; // 低精度：emoji 序列 / 部分 CJK 源会正常产生
+  if (NEWS_TRUST_BIDI_RE.test(raw)) return 'obfuscated'; // 高置信：对原始文本判定（归一化会删掉 bidi 字符）
+  const zw = (raw.match(NEWS_TRUST_ZERO_WIDTH_RE) || []).length; // 低精度：对原始文本计数
+  if (zw > NEWS_TRUST_ZERO_WIDTH_MAX) return 'zero-width'; // emoji 序列 / 部分 CJK 源会正常产生
   const moj = (text.match(NEWS_TRUST_MOJIBAKE_RE) || []).length;
   if (moj > NEWS_TRUST_MOJIBAKE_MAX) return 'mojibake'; // 低精度：乱码洪水
   return null;

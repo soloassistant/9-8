@@ -1143,8 +1143,11 @@ function BriefingPage() {
                       <Text className={styles.digestSource}>来源：{item.source}</Text>
                     </View>
                   ))}
-              {/* 导语为 AI 生成内容：分组态额外挂显式 AI 标识（合规） */}
-              {intelResolved.groups.length > 0 && !intelResolved.degraded ? (
+              {/* 只有「确实由 AI 生成」的导语才挂 AI 署名（合规）：必须本档位启用 AI（aiEnabled）
+                  且未降级。免费档 aiEnabled=false、导语来自 groupIntelLocally 的纯文本拼接
+                  （如「科技前沿：共 1 条相关资讯」），并非 AI 生成 —— 挂此署名会与下方
+                  「暂不含 AI 提炼」文案自相矛盾，构成 AI 虚假归因。 */}
+              {intelResolved.groups.length > 0 && intelResolved.aiEnabled && !intelResolved.degraded ? (
                 <Text className={styles.intelLeadTag}>{t('briefing.intelGroupLead')}</Text>
               ) : null}
               <Text className={styles.intelNote}>
