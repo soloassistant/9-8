@@ -33,6 +33,25 @@ const SCHEDULED_DEADLINE_MS = 15000;
  *  真正规模化需要 fan-out/续跑，当前用户量下不引入那套复杂度。 */
 const SCHEDULED_USER_BATCH_MAX = 1000;
 
+/**
+ * 订阅消息下发失败中「用户侧已不可达」的错误码 —— 这类失败**重试没有意义**：
+ *  - 43101：用户拒收该模板 / 已取消订阅 / 可接收次数已耗尽（openid 维度）
+ * 这类错误此前与「网络抖动、模板参数写错」混在一个 catch 里，后果有两个：
+ *  ① 每天为同一个已拒收用户重复推送（对微信侧是无效调用，对本函数是白跑）；
+ *  ② `failed` 计数被这类"用户主观选择"的失败灌满，掩盖了真正的故障（日志失真）。
+ * 因此单独识别、单独计数、并把用户标记为不再接收。
+ * 只收口 43101：43104/43107 等模板/参数类错误仍按普通失败处理，避免扩大改动面。
+ */
+const SUBSCRIBE_USER_GONE_ERR_CODES = new Set([43101]);
+function isUserUnsubscribedErr(err) {
+  if (!err) return false;
+  const code = err.errCode != null ? err.errCode : err.errcode;
+  if (code != null && SUBSCRIBE_USER_GONE_ERR_CODES.has(Number(code))) return true;
+  // SDK 有的分支只给 errMsg 字符串，故仍需兜底匹配码值
+  const msg = String(err.errMsg || err.message || '');
+  return /(^|[^0-9])43101([^0-9]|$)/.test(msg);
+}
+
 function sameDay(a, b) {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -282,6 +301,13 @@ async function pushPriceAlert(openid, alerts) {
       });
       sent += 1;
     } catch (err) {
+      if (isUserUnsubscribedErr(err)) {
+        // 43101：该用户已拒收/次数耗尽 → 同一次调用里后续告警同样发不出去，直接停止重试。
+        // 注意：这里**不**改用户的 subscribeAccepted —— 那是「晨报模板」的授权标记，
+        // 降价提醒走的是另一个模板（PRICE_ALERT_TEMPLATE_ID），两者授权互相独立。
+        console.warn('[getBriefing] price alert skipped: user unsubscribed (43101)');
+        break;
+      }
       console.warn('[getBriefing] price alert push failed:', err && (err.errMsg || err.message));
     }
   }
@@ -406,6 +432,8 @@ async function runScheduled() {
   let ok = 0;
   let failed = 0;
   let skipped = 0;
+  // 用户主动不可达（43101）单独计数：既不算成功也不算失败，必须与真故障分开看。
+  let unsubscribed = 0;
 
   /**
    * 处理单个用户：**先查重再聚合** —— 今日晨报已生成的用户（如当天已打开过）直接复用，
@@ -432,15 +460,29 @@ async function runScheduled() {
         briefing = dup.data[0]; // 已存在：直接复用，含 events/todos，够发订阅消息
       }
       if (templateId && user.subscribeAccepted) {
-        await cloud.openapi.subscribeMessage.send({
-          touser: user.openid,
-          templateId,
-          page: 'pages/briefing/index',
-          data: {
-            thing1: { value: `你有 ${briefing.events.length} 个日程、${briefing.todos.length} 项待办` },
-            time2: { value: user.briefingTime || '07:30' }
+        try {
+          await cloud.openapi.subscribeMessage.send({
+            touser: user.openid,
+            templateId,
+            page: 'pages/briefing/index',
+            data: {
+              thing1: { value: `你有 ${briefing.events.length} 个日程、${briefing.todos.length} 项待办` },
+              time2: { value: user.briefingTime || '07:30' }
+            }
+          });
+        } catch (sendErr) {
+          if (!isUserUnsubscribedErr(sendErr)) throw sendErr; // 真故障：交给外层 catch 计入 failed
+          // 43101：用户已拒收/次数耗尽。晨报**已经生成并落库**，下发只是做不到 ——
+          // 所以不能算这个用户失败，也不该明天再试一次。写回标记并从 failed 口径里摘出来。
+          unsubscribed += 1;
+          if (user._id) {
+            await db
+              .collection('users')
+              .doc(user._id)
+              .update({ data: { subscribeAccepted: false } })
+              .catch((e) => console.warn('[getBriefing.scheduled] clear subscribeAccepted failed:', e && e.message));
           }
-        });
+        }
       }
       ok += 1;
     } catch (err) {
@@ -462,9 +504,9 @@ async function runScheduled() {
   }
 
   const elapsedMs = Date.now() - startedAt;
-  const summary = { total, ok, failed, skipped, elapsedMs };
+  const summary = { total, ok, failed, skipped, unsubscribed, elapsedMs };
   // 有声：此前无返回值、无汇总日志，超时/失败完全静默（不报错、不崩溃，只是无声少给了一些人）
-  const line = `[getBriefing.scheduled] total=${total} ok=${ok} failed=${failed} skipped=${skipped} elapsedMs=${elapsedMs}`;
+  const line = `[getBriefing.scheduled] total=${total} ok=${ok} failed=${failed} skipped=${skipped} unsubscribed=${unsubscribed} elapsedMs=${elapsedMs}`;
   if (failed > 0 || skipped > 0) console.error(line);
   else console.log(line);
   return summary;
