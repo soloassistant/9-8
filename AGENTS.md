@@ -42,6 +42,37 @@ npx tsc --noEmit      # 类型检查
 > 小程序端不需要 `copy-assets.js`（Taro 的 `config.copy` 已拷 tabbar PNG 等）；
 > 只有 **H5** 需要 `node .tools/copy-assets.js dist`。
 
+### 3.1 ★ H5 构建"看似卡死"时，先杀干净进程树再重试（2026-10-09 实测）
+
+现象：`taro build --type h5` 跑到 `building (10%) 675/694 dependencies` 后日志冻结，
+进程却持续满 CPU（约 1 核）+ RSS 涨到 1.1 GiB，`dist/` 十几分钟不出文件。
+
+同一台机器、同一份源码连续 5 次实测：
+
+| # | 启动方式 | 结果 |
+|---|---|---|
+| 1 | `npx taro build --type h5` | 卡住 ≥14 分钟，手动终止 |
+| 2 | `npx taro build --type h5` | 卡在同一处 ≥10 分钟，`taskkill /T /F` 终止 |
+| 3 | `node node_modules/@tarojs/cli/bin/taro build --type h5` | **成功，编译 44.5s** |
+| 4 | `npm run build:h5` | **成功，编译 60.9s** |
+| 5 | `npx taro build --type h5`（输出到 `TARO_OUTPUT_DIR`） | **成功，编译 63.2s** |
+
+- **不要据此断定「npx 有问题」**：第 5 次同样是 `npx` 却成功了 → **卡死是间歇性的**。
+- 前两次卡死时机器上都还残留着上一次构建的 node 子进程；用**杀进程树**的
+  `taskkill //PID <pid> //T //F` 清干净后，后续 3 次全部正常。
+- 判「真卡死」的判据是**日志文件 mtime 冻结**（不是「屏幕上没滚动」）+ `dist/` 长时间不出文件；
+  进度条不动也可能只是 webpack 进入了不打进度条的阶段（seal / minify）。
+
+**产物指纹（判断「本地是否等于线上」用）**：`main` 上 H5 的稳定产物是
+`js/app.a8cbdfbb.js`（1,864,973 B，sha256 `a10e8634…`）、
+`css/app.a8cbdfbbff5e90af8b73.css`（154,005 B，sha256 `ef445990…`）、
+`index.html`（1,191 B，sha256 `7aee7486…`）。2026-10-09 重建后与线上 gh-pages 三个文件
+**逐字节相同** → gh-pages 上就是 `main` 源码的产物，且产物目录改造未改变 H5 输出。
+
+> ⚠️ 本环境 `rm -rf dist` 可能被**批量删除守卫**拦下（文件数 > 50 时要求确认，报
+> `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，并且会**删到一半就停**，留下小程序版残留文件）。
+> 清理产物目录要么分批删、要么确认删干净后再构建，否则残留文件会被一起发布出去。
+
 ## 4. 上线通道
 
 | 端 | 通道 | 说明 |
