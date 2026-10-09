@@ -78,6 +78,53 @@ function App(props) {
   const isLoginPage = route.indexOf('login') >= 0;
   const lang = useLanguageStore((s) => s.lang);
 
+  /**
+   * H5 路由跟随 —— **必须自己订阅导航，不能依赖 useDidShow**。
+   *
+   * 实测依据（2026-10-09，真 Chrome + CDP，在页面脚本前装路由事件记录器）：
+   *   Taro H5 的页面跳转走 `history.replaceState` —— **既不派发 hashchange 也不派发 popstate**；
+   *   而 App 级 `useDidShow` 随 app 显示触发，**不随导航重触发**。
+   *   三种导航方式（replaceState / popstate / hashchange）逐一试过，`route` 状态都不更新。
+   *
+   * 后果（均在线上实测复现）：
+   *   ① 从登录页登录进主应用后 `isLoginPage` 永远为 true → AI 悬浮球与开屏**永不挂载**，
+   *      必须手动刷新才出现；C1 要求的「AI 对话页全程固定展示提示」因此在 H5 上拿不到。
+   *   ② 反方向：未登录深链到受保护页、被门禁送回登录页后，外壳**仍留在登录页上**
+   *      （未登录用户看到一个点了没用的浮层）—— 就是上面注释里说 2026-10-05 修掉的
+   *      「状态泄漏」，其实当时只修了冷启动那半边。
+   *
+   * 所以这里直接盯住「导航本身」：包一层 history 方法 + 监听浏览器前进后退。
+   * 只读 `window.location.hash`，与 Taro 的 router 内部状态无关，故不挑路由模式。
+   */
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5' || typeof window === 'undefined') return;
+
+    const syncRoute = () => setRoute(window.location.hash || '');
+    syncRoute(); // 挂载时对齐一次（首帧的 useState 初值可能已过期，例如门禁重定向发生在首帧之后）
+
+    window.addEventListener('hashchange', syncRoute);
+    window.addEventListener('popstate', syncRoute);
+
+    const pushOrig = window.history.pushState;
+    const replaceOrig = window.history.replaceState;
+    type HistoryArgs = Parameters<typeof window.history.pushState>;
+    const wrap = (orig: typeof window.history.pushState) =>
+      function (this: History, ...args: HistoryArgs) {
+        const ret = orig.apply(this, args);
+        syncRoute(); // replaceState 是同步的，返回时 location.hash 已是新值
+        return ret;
+      };
+    window.history.pushState = wrap(pushOrig);
+    window.history.replaceState = wrap(replaceOrig);
+
+    return () => {
+      window.removeEventListener('hashchange', syncRoute);
+      window.removeEventListener('popstate', syncRoute);
+      window.history.pushState = pushOrig;
+      window.history.replaceState = replaceOrig;
+    };
+  }, []);
+
   // 语言变化（含恢复本地选择）时同步 TabBar 文案；延迟执行等 H5 TabBar 渲染就绪，否则刷新后仍为默认文案
   useEffect(() => {
     const timer = setTimeout(() => syncTabBar(lang), 300);
