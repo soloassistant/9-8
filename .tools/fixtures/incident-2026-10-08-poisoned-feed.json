@@ -1,0 +1,23 @@
+{
+  "_说明": "2026-10-08 真实端到端抓取中实际推送给用户的 3 条免费档情报，原样摘录。",
+  "_来源": "D:\\Agent\\.tmp-verify\\qa-real-data\\real-out.txt",
+  "_注意": "按 filterNewsItems 的输入形状建模（title/summary/source），而非 intelItems 的 text 形状。",
+  "_当时健康度": "16/16 源存活 —— 不是抓取失败，是内容层投毒",
+  "items": [
+    {
+      "title": "谷歌借助 AI 与差分模糊测试将 C 语言依赖库改写为 Rust：点击查看原文",
+      "summary": "",
+      "source": "InfoQ中文"
+    },
+    {
+      "title": "19.79万的智己LS6把转向柱删了：先别骂「拿命开车」，看看国标替你锁死了什么：前年12月，蔚来把线控转向卖到78.8万一台，全国就那一款车能用。今年9月底，",
+      "summary": "",
+      "source": "什么值得买"
+    },
+    {
+      "title": "hacked by trenggalek6etar",
+      "summary": "",
+      "source": "量子位"
+    }
+  ]
+}

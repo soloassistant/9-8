@@ -230,6 +230,120 @@ function toNews(it) {
   };
 }
 
+/* ---------------- 情报内容信任过滤 ---------------- */
+
+/**
+ * 为什么需要（2026-10-08）：本文件把第三方 RSS 的 `title`/`summary` **原样**拼进
+ * 今日情报（`fallbackIntel`），中间没有任何内容信任检查。RSS 是开放投稿/可被投毒的面，
+ * 一条被写入指令的条目会同时污染三条出口：免费档、订阅档降级档、以及**喂给 LLM 的
+ * `ranked`**（`summarize(weather, ranked)`）。所以过滤点必须在
+ * `fetchAllSources()` 的出口、入库进 `hotspotCache` **之前** —— 放晚一步，
+ * 毒条目已经在缓存里，也已经进过 LLM 的 prompt。
+ *
+ * 设计取舍：**只打高置信度信号，不做关键词黑名单**。
+ * 语料里有「什么值得买」这类优惠源，天天出现 限时/好价/券/直降；按营销词过滤会
+ * 每天误杀正常条目，而新闻产品的假阳性比被投毒更难被用户原谅。故规则只覆盖
+ * ① 指令注入 ② 站点被篡改签名 ③ 可执行内容残留 ④ 混淆字符 ⑤ 乱码洪水。
+ *
+ * 失败模式：**规则过宽会把整站新闻清空**，那本身就是一次线上事故。
+ * 故加 `NEWS_TRUST_MAX_DROP_RATIO` 护栏 —— 丢弃比例超阈值时**保留原列表并大声告警**，
+ * 宁可漏放一条也不让产品空白；护栏触发会在日志里留下明确痕迹，便于当天修规则。
+ */
+
+/** 单条被判定为不可信时的丢弃比例上限；超过则判定「规则过宽」，回退放行。 */
+const NEWS_TRUST_MAX_DROP_RATIO = 0.8;
+
+/** 指令注入：针对下游消费者（LLM 或人）的越权话术。中英双语都要覆盖。 */
+const NEWS_TRUST_INJECT_PATTERNS = [
+  /ignore\s+(?:all\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|prompts?|rules?)/i,
+  /disregard\s+(?:all\s+)?(?:the\s+)?(?:above|previous|prior)\s+/i,
+  /\byou\s+are\s+now\s+/i,
+  /\b(?:system|developer)\s+(?:prompt|message)\s*[:：]/i,
+  /忽略(?:掉)?(?:以上|上面|之前|前面)(?:的)?(?:所有)?(?:指令|内容|规则|设定)/,
+  /(?:请|你)?(?:务必|必须)?不要(?:告诉|告知|告诉过)(?:用户|任何人)/,
+  /你(?:现在)?(?:是|扮演)(?:一个|一名)?(?:新的)?(?:助手|ai|智能体)/i,
+  /系统(?:提示|设定|指令)\s*[:：]/
+];
+
+/** 站点被篡改 / 黑产投放的署名特征。 */
+const NEWS_TRUST_DEFACED_PATTERNS = [/\bhacked\s+by\b/i, /\bdefaced\s+by\b/i, /\bpwned\s+by\b/i, /被\s*(?:黑|入)客\s*攻(?:破|陷)/];
+
+/** `stripHtml` 漏掉的**可执行**内容残留：真新闻不需要 script:/onerror=。 */
+const NEWS_TRUST_ACTIVE_CONTENT_PATTERNS = [/<script[\s>]/i, /javascript\s*:/i, /\bon(?:error|load|click)\s*=/i, /<iframe[\s>]/i];
+
+/** 双向文字覆写/隔离控制符（U+202A–202E、U+2066–2069）：在中文/英文资讯标题里**没有任何正当用途**，
+ *  正常排版不需要它们，出现即为藏字符 → 命中即拦，不设阈值。
+ *  （曾把它和零宽字符合并成一个 >2 的阈值，被单测抓到漏判：单个 RLO…PDF 对就绕过去了。）*/
+const NEWS_TRUST_BIDI_RE = /[\u202a-\u202e\u2066-\u2069]/;
+
+/** 零宽字符（U+200B–200D、U+2060、U+FEFF）：emoji 序列与部分 CJK 源**会正常产生**，
+ *  故不能命中即拦，按数量阈值判定。 */
+const NEWS_TRUST_ZERO_WIDTH_RE = /[\u200b-\u200d\u2060\ufeff]/g;
+const NEWS_TRUST_ZERO_WIDTH_MAX = 2;
+
+/** 非 CJK/非拉丁的异体文字洪水 + U+FFFD 替换字符：典型的乱码/伪装条目。 */
+const NEWS_TRUST_MOJIBAKE_RE = /[\uFFFD\u0400-\u04FF\u0370-\u03FF]/g;
+const NEWS_TRUST_MOJIBAKE_MAX = 3;
+
+/** 把一个条目里参与判定的文本拼起来（title/summary/tags）。 */
+function newsTextOf(item) {
+  const tags = Array.isArray(item && item.tags) ? item.tags.join(' ') : '';
+  return [item && item.title, item && item.summary, tags].filter(Boolean).join('\n');
+}
+
+/**
+ * 判定单条是否不可信。**返回命中的规则名**，便于日志定位；可信返回 null。
+ * 纯函数、无副作用、可直接单测（见 exports.__internals）。
+ */
+function assessNewsItem(item) {
+  const text = newsTextOf(item);
+  if (!text.trim()) return 'empty';
+  for (const re of NEWS_TRUST_ACTIVE_CONTENT_PATTERNS) {
+    if (re.test(text)) return 'active-content';
+  }
+  for (const re of NEWS_TRUST_INJECT_PATTERNS) {
+    if (re.test(text)) return 'inject';
+  }
+  for (const re of NEWS_TRUST_DEFACED_PATTERNS) {
+    if (re.test(text)) return 'defaced';
+  }
+  if (NEWS_TRUST_BIDI_RE.test(text)) return 'obfuscated';
+  const zw = (text.match(NEWS_TRUST_ZERO_WIDTH_RE) || []).length;
+  if (zw > NEWS_TRUST_ZERO_WIDTH_MAX) return 'obfuscated';
+  const moj = (text.match(NEWS_TRUST_MOJIBAKE_RE) || []).length;
+  if (moj > NEWS_TRUST_MOJIBAKE_MAX) return 'mojibake';
+  return null;
+}
+
+/**
+ * 过滤一批条目。返回 `{ kept, dropped }`；`dropped` 只用于日志，不进返回体。
+ * 触发护栏时 kept === 原始列表（fail-open），并 warn 留痕。
+ */
+function filterNewsItems(items) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return { kept: list, dropped: [] };
+  const kept = [];
+  const dropped = [];
+  for (const it of list) {
+    const reason = assessNewsItem(it);
+    if (reason) dropped.push({ title: String((it && it.title) || '').slice(0, 60), source: (it && it.source) || '', reason });
+    else kept.push(it);
+  }
+  if (dropped.length && dropped.length / list.length > NEWS_TRUST_MAX_DROP_RATIO) {
+    console.warn(
+      `[webSearch] trust filter would drop ${dropped.length}/${list.length} (>${Math.round(
+        NEWS_TRUST_MAX_DROP_RATIO * 100
+      )}%) —— 判定规则过宽，本次放行全部条目。请检查 NEWS_TRUST_* 规则。`,
+      JSON.stringify(dropped.slice(0, 5))
+    );
+    return { kept: list, dropped: [] };
+  }
+  if (dropped.length) {
+    console.warn(`[webSearch] trust filter dropped ${dropped.length}/${list.length}`, JSON.stringify(dropped.slice(0, 5)));
+  }
+  return { kept, dropped };
+}
+
 /* ---------------- F29 全网资讯搜索（Bing News RSS 主通道 + LLM 联网兜底） ---------------- */
 
 /** LLM 联网搜索兜底（通义 DashScope enable_search，需 LLM_WEB_API_KEY）；未配置/失败返回 [] */
@@ -503,7 +617,11 @@ async function fetchAllSources() {
       .join(' ');
     console.warn(`[webSearch] source unhealthy: ${detail}`);
   }
-  const items = selectWithQuota(allItems, HOTSPOT_ITEMS_LIMIT, MAX_ITEMS_PER_SOURCE).map(toNews);
+  const raw = selectWithQuota(allItems, HOTSPOT_ITEMS_LIMIT, MAX_ITEMS_PER_SOURCE).map(toNews);
+  // 内容信任过滤放在**这个出口**：早于 writeHotspotCache、早于 summarize(weather, ranked)，
+  // 也早于全部消费路径（热点页缓存 / 免费档 / 订阅限额档 / 订阅降级档）。
+  // 放晚一步毒条目已经进了缓存，也已经进过 LLM 的 prompt。
+  const { items } = filterNewsItems(raw);
   return { items, sourceHealth };
 }
 
@@ -992,9 +1110,15 @@ exports.main = async (event) => {
       const ranked = rankByPreferences(news, user && user.preferences);
 
       if (!subscribed) {
-        // 免费档：零 LLM 成本。公开 RSS 原始条目 + 天气，不做 AI 提炼；
-        // groups 留空 → 前端 resolveIntelGroups() 走 groupIntelLocally 本地兜底分组，
-        // degraded:true → 前端挂「资讯来自公开 RSS…（AI 提炼暂不可用）」标识。
+        // 免费档：零 LLM 成本。公开 RSS 原始条目 + 天气，**按设计**不做 AI 提炼。
+        // groups 留空 → 前端 resolveIntelGroups() 走 groupIntelLocally 本地兜底分组。
+        //
+        // ⚠️ `degraded` 的语义是「**本该有 AI 却没拿到**」，不是「这条内容来自 RSS」。
+        // 免费档没有 AI 就没有降级，硬编码 degraded:true 会让前端**永久**对免费用户
+        // 显示「AI 提炼暂不可用」——明明没坏，却一直显示坏了。故：
+        //   degraded:false —— 语义正确：没有东西失败；
+        //   aiEnabled:false —— 前端据此把标识换成「免费版·来自公开 RSS」这类**档位说明**，
+        //                       而不是错误提示（前端 utils/intelGroups.ts 已按此字段分叉）。
         const intelItems = fallbackIntel(ranked, FREE_INTEL_ITEMS_LIMIT);
         console.log(
           `[webSearch] briefing tier=free items=${intelItems.length} weather=${!!weather} fromCache=${newsFromCache}`
@@ -1002,7 +1126,15 @@ exports.main = async (event) => {
         return {
           code: 0,
           message: 'ok',
-          data: { subscribed: false, limited: false, weather, intelItems, groups: [], degraded: true }
+          data: {
+            subscribed: false,
+            limited: false,
+            weather,
+            intelItems,
+            groups: [],
+            degraded: false,
+            aiEnabled: false
+          }
         };
       }
 
@@ -1010,7 +1142,16 @@ exports.main = async (event) => {
         return {
           code: 0,
           message: 'ok',
-          data: { subscribed: true, limited: false, weather: null, intelItems: [], groups: [], degraded: true }
+          // 订阅档本该有 AI 却没有内容 → 真的降级，必须让前端显示错误提示而非档位说明
+          data: {
+            subscribed: true,
+            limited: false,
+            weather: null,
+            intelItems: [],
+            groups: [],
+            degraded: true,
+            aiEnabled: true
+          }
         };
       }
       const quota = await checkIntelQuota(openid);
@@ -1038,10 +1179,12 @@ exports.main = async (event) => {
         );
       }
       // intelItems 保留（向后兼容旧前端/旧缓存）；groups 新增（分组 + 导语 + 内联引用）
+      // aiEnabled:true —— 订阅档**按设计**有 AI，所以这里的 degraded 是真的降级语义
+      //（限额耗尽 / LLM 失败 / 无内容），前端应显示「AI 提炼暂不可用」。
       return {
         code: 0,
         message: 'ok',
-        data: { subscribed: true, limited: quota.limited, weather, intelItems, groups, degraded }
+        data: { subscribed: true, limited: quota.limited, weather, intelItems, groups, degraded, aiEnabled: true }
       };
     }
 
@@ -1062,4 +1205,4 @@ exports.FETCH_RETRY_BACKOFF_MS = FETCH_RETRY_BACKOFF_MS;
 exports.FREE_INTEL_ITEMS_LIMIT = FREE_INTEL_ITEMS_LIMIT;
 exports.INTEL_ITEM_TEXT_MAX = INTEL_ITEM_TEXT_MAX;
 exports.RSS_SOURCES = RSS_SOURCES;
-exports.__internals = { fetchText, parseFeed, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, rankByPreferences, clampByCodePoint };
+exports.__internals = { fetchText, parseFeed, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, rankByPreferences, clampByCodePoint, assessNewsItem, filterNewsItems, newsTextOf };

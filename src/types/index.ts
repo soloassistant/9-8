@@ -54,8 +54,16 @@ export interface BriefingIntel {
   weather: { text: string; updateTime: string } | null;
   /** 情报条目，每条标注来源（合规要求） */
   intelItems: Array<{ text: string; source: string }>;
-  /** true = 未经 LLM 提炼的降级内容（原始资讯或空） */
+  /** true = **本该有 AI 却没拿到**的降级内容（LLM 失败 / 限额耗尽 / 无内容）。
+   *
+   *  ⚠️ 语义边界：不要用它表达「本档位没有 AI」。免费档按设计没有 AI，
+   *     若标成 true，前端会对免费用户**永久**显示「AI 提炼暂不可用」——明明没坏却一直显示坏了。 */
   degraded?: boolean;
+  /** 本档位是否**按设计**提供 AI 提炼（free=false / pro=true）。
+   *
+   *  加这个**可选**字段是为区分「没有 AI」与「AI 坏了」两种不同状态；
+   *  可选 ⇒ 纯增量，旧服务端不下发该字段时前端按 true 兜底，行为不回归。 */
+  aiEnabled?: boolean;
 }
 
 /** 晨报自适应信号（F21） */

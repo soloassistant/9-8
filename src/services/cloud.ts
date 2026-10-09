@@ -251,7 +251,9 @@ export async function callFunction<T = unknown>(
       try {
         const city = String(Taro.getStorageSync('user-city') || '北京')
         const [hotspot, weather] = await Promise.all([loadHotspotPayload(), loadWeather(city)])
-        const intel: BriefingIntel = { subscribed: false, weather: null, intelItems: [], degraded: true }
+        // H5 本地兜底走的是与免费档同构的路径（RSS 原始条目、零 LLM），
+        // 故 aiEnabled:false —— 不能让前端把它误显示成「AI 提炼暂不可用」。
+        const intel: BriefingIntel = { subscribed: false, weather: null, intelItems: [], degraded: false, aiEnabled: false }
         if (weather) intel.weather = weather
         if (hotspot) {
           intel.intelItems = hotspot.items.slice(0, 3).map((it) => ({

@@ -90,8 +90,16 @@ export interface IntelLeadSegment {
 export interface IntelGroupsPayload {
   /** 归一化后的分组（可能为空数组，调用方需自行决定是否走本地兜底） */
   groups: IntelGroup[];
-  /** 是否降级（true = 非 LLM 提炼，UI 应挂 `intelRawNote`） */
+  /** 是否降级（true = **本该有 AI 却没拿到**，UI 应挂 `intelRawNote`）
+   *
+   *  ⚠️ 不要用它表达「这条内容来自 RSS」。免费档按设计就没有 AI，不算降级；
+   *     早期版本把免费档硬编码成 degraded:true，导致前端对免费用户**永久**显示
+   *     「AI 提炼暂不可用」——明明没坏却一直显示坏了。区分见 `aiEnabled`。 */
   degraded: boolean;
+  /** 本档位是否**按设计**提供 AI 提炼（free=false / pro=true）。
+   *  `aiEnabled=false` 时 UI 应显示**档位说明**（如「免费版·来自公开 RSS」），
+   *  `aiEnabled=true && degraded=true` 时才显示**错误提示**。 */
+  aiEnabled: boolean;
   /** 是否由本地关键词兜底分组产生（前端可据此决定是否提示「已本地归并」） */
   localFallback: boolean;
 }
@@ -188,11 +196,18 @@ export function splitLeadSegments(lead: string, itemCount?: number): IntelLeadSe
  *
  * @param raw 云端 `intel.groups`（未知形状）
  * @param degradedHint 云端 `intel.degraded`（可选，缺省按 true 处理，宁降级不误标）
+ * @param aiEnabledHint 云端 `intel.aiEnabled`（可选，**缺省按 true** —— 旧服务端没有这个字段时，
+ *   保守假设「本该有 AI」，从而保持旧行为：降级提示照常显示，不会把真故障误标成档位说明）
  */
-export function normalizeGroups(raw: unknown, degradedHint?: boolean): IntelGroupsPayload {
+export function normalizeGroups(
+  raw: unknown,
+  degradedHint?: boolean,
+  aiEnabledHint?: boolean
+): IntelGroupsPayload {
   const degraded = typeof degradedHint === 'boolean' ? degradedHint : true;
+  const aiEnabled = typeof aiEnabledHint === 'boolean' ? aiEnabledHint : true;
   if (!Array.isArray(raw) || raw.length === 0) {
-    return { groups: [], degraded, localFallback: false };
+    return { groups: [], degraded, aiEnabled, localFallback: false };
   }
   const groups: IntelGroup[] = [];
   for (const item of raw) {
@@ -211,7 +226,7 @@ export function normalizeGroups(raw: unknown, degradedHint?: boolean): IntelGrou
     groups.push({ title, lead, items });
     if (groups.length >= INTEL_GROUP_MAX) break;
   }
-  return { groups, degraded, localFallback: false };
+  return { groups, degraded, aiEnabled, localFallback: false };
 }
 
 /**
@@ -274,30 +289,38 @@ export function groupIntelLocally(items: unknown): IntelGroup[] {
  *
  * 决策树（与架构设计 3.6 流程图一致）：
  * 1. `intel.groups` 合法 → `normalizeGroups`，`localFallback=false`；
- * 2. 无 `groups` 但 `intelItems` 存在 → `groupIntelLocally`，`localFallback=true` + `degraded=true`；
+ * 2. 无 `groups` 但 `intelItems` 存在 → `groupIntelLocally`，`localFallback=true`；
  * 3. 都无 → 空分组（调用方不渲染情报区块）。
+ *
+ * ⚠️ 路径② 的 `degraded` **不是恒 true**（2026-10-08 修正）。
+ *   免费档按设计没有 AI，`aiEnabled=false`：走本地分组是**既定行为**而非降级，
+ *   此时若再返回 degraded:true，前端就会对免费用户永久显示「AI 提炼暂不可用」。
+ *   反过来，订阅档（`aiEnabled=true`）落到本地兜底**确实**说明 LLM 没给出分组，
+ *   必须标 degraded 让用户看到提示。
  *
  * @param intel 云端 `BriefingIntel`（宽化读取，允许未知字段）
  */
 export function resolveIntelGroups(intel: unknown): IntelGroupsPayload {
   if (!intel || typeof intel !== 'object') {
-    return { groups: [], degraded: true, localFallback: false };
+    return { groups: [], degraded: true, aiEnabled: true, localFallback: false };
   }
   const obj = intel as Record<string, unknown>;
   const degradedHint = typeof obj.degraded === 'boolean' ? obj.degraded : undefined;
+  // 缺省 true：旧服务端没有该字段时保守按「本该有 AI」处理，保持旧行为不回归
+  const aiEnabled = typeof obj.aiEnabled === 'boolean' ? obj.aiEnabled : true;
 
   // ① 云端分组优先（LLM 语义聚类，质量最高）
   if (Array.isArray(obj.groups) && obj.groups.length > 0) {
-    const payload = normalizeGroups(obj.groups, degradedHint);
+    const payload = normalizeGroups(obj.groups, degradedHint, aiEnabled);
     if (payload.groups.length > 0) return payload;
   }
 
-  // ② 无分组 → 本地关键词兜底（degraded 恒 true，UI 挂 intelRawNote）
+  // ② 无分组 → 本地关键词兜底。仅当本档位**本该有 AI** 时才算降级
   const local = groupIntelLocally(obj.intelItems);
   if (local.length > 0) {
-    return { groups: local, degraded: true, localFallback: true };
+    return { groups: local, degraded: aiEnabled, aiEnabled, localFallback: true };
   }
 
   // ③ 都无 → 空载荷（不渲染情报区块）
-  return { groups: [], degraded: degradedHint ?? true, localFallback: false };
+  return { groups: [], degraded: degradedHint ?? true, aiEnabled, localFallback: false };
 }

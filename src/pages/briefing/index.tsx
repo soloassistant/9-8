@@ -1148,7 +1148,13 @@ function BriefingPage() {
                 <Text className={styles.intelLeadTag}>{t('briefing.intelGroupLead')}</Text>
               ) : null}
               <Text className={styles.intelNote}>
-                {intelResolved.degraded ? t('briefing.intelRawNote') : t('briefing.aiTag')}
+                {/* 三态而非两态（2026-10-08）：「本档位没有 AI」是档位说明，
+                    「本该有 AI 却没拿到」才是错误提示 —— 两者对用户是天壤之别。 */}
+                {!intelResolved.aiEnabled
+                  ? t('briefing.intelFreeNote')
+                  : intelResolved.degraded
+                    ? t('briefing.intelRawNote')
+                    : t('briefing.aiTag')}
               </Text>
             </View>
           ) : null}
