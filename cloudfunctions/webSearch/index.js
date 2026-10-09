@@ -266,16 +266,20 @@ const NEWS_TRUST_MAX_DROP_RATIO = 0.8;
  *   - 'defaced'：站点被篡改 / 黑产署名（`hacked by` / `被黑客攻破`）—— 标题写着 hacked by X 不可能是正常新闻；
  *   - 'active-content'：`<script>` / `javascript:` / `onerror=` 等可执行残留 —— 真新闻不需要；
  *   - 'inject'：指令注入（忽略以上指令 / `system prompt:` / 角色劫持）—— 这是针对下游 LLM 的
- *     prompt 注入，放过即把攻击文本喂进 LLM；其中 `\byou are now\b` 虽是弱特征，但它是标准角色劫持
- *     开场白，误判代价只是**单条**被丢（不是整站空白），远低于漏放注入的代价，故同样归高置信；
+ *     prompt 注入，放过即把攻击文本喂进 LLM；`\byou are now\b` 虽有误判可能，但已收紧为
+ *     「必须后接 AI 角色名词（assistant/ai/model/…）」——普通句式的 `You are now a subscriber`
+ *     不再命中（曾误杀，见 NEWS_TRUST_INJECT_PATTERNS 注释），误判代价仅**单条**被丢；
  *   - 'obfuscated'：bidi 覆写字符（U+202A–202E / U+2066–2069）在标题里没有正当用途；
+ *   - 'confusable'：一个词内跨文字系统混拼（`h<西里尔а>cked`）—— 同形字走私，正常文本不会这样；
  *   - 'empty'：无任何可判定文本的条目（确定性判定、非启发式，没有「正常空新闻」需要保护）。
  *  低精度启发式（'zero-width'、'mojibake'）**不在**此集合，仍受护栏保护。 */
-const NEWS_TRUST_HIGH_CONFIDENCE = new Set(['empty', 'active-content', 'inject', 'defaced', 'obfuscated']);
+const NEWS_TRUST_HIGH_CONFIDENCE = new Set(['empty', 'active-content', 'inject', 'defaced', 'obfuscated', 'confusable']);
 
 /** 指令注入：针对下游消费者（LLM 或人）的越权话术。中英双语都要覆盖。
  *  ⚠️ 只匹配**自然形态**（一律用 `\s+`），且语义收紧到真正的注入习语：
- *   - `you are now …` 必须后接冠词（`a/an/the`）+ 词边界，否则 `nowhere / nowadays / now able` 会误杀；
+ *   - `you are now …` 必须后接**AI 角色名词**（assistant/ai/model/chatbot/bot/helper/agent/persona/system）。
+ *     只要求「冠词 + 任意名词」不够：`You are now a Premium subscriber` / `You are now a member of …`
+ *     是极常见的合法英文句式，会被静默误杀（且因 inject 属高置信度、永不被护栏放回）—— 已收紧。
  *   - `disregard …(above|previous|prior)…` 必须后接被抛弃的**对象**
  *     （instructions/prompts/rules/context/messages），否则 `previously / assumptions` 会误杀。
  *  早期版本为吃下「粘连形态」把分隔符放宽成 `\s*`，尾随 `\s*` 命中零个空白 → 上述正常措辞被误判注入。
@@ -283,7 +287,12 @@ const NEWS_TRUST_HIGH_CONFIDENCE = new Set(['empty', 'active-content', 'inject',
 const NEWS_TRUST_INJECT_PATTERNS = [
   /\bignore\s+(?:all\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|prompts?|rules?)\b/i,
   /\bdisregard\s+(?:all\s+)?(?:the\s+)?(?:above|previous|prior)\s+(?:instructions?|prompts?|rules?|context|messages?)\b/i,
-  /\byou\s+are\s+now\s+(?:a|an|the)\b/i,
+  /\byou\s+are\s+now\s+(?:a|an|the)?\s*(?:helpful\s+|new\s+|ai\s+)?(?:assistant|ai|model|chatbot|bot|helper|agent|persona|system)\b/i,
+  // 「抛弃规则」这一类**指令从句**：比人设词更稳——人设词无法穷举（`you are now a pirate`），
+  // 而「忘掉/忽略规则」本身就是越权指令。`(?:(?:the|all|your|any)\s+)*` 以吃下 `forget all your rules`。
+  // 负向前瞻排除 `forget the rules **of** X` 这类**讨论式**标题（`of/for/about/in…` 引出宾语，
+  // 说明被讨论的是规则本身，不是在给助手下指令）——否则正常标题会被误杀。
+  /\b(?:ignore|forget|disregard)\s+(?:(?:the|all|your|any|these|those)\s+)*(?:rules|instructions?|prompts?|guidelines|restrictions?|directives?)\b(?!\s+(?:of|for|about|in|on|to|when|regarding|behind|around)\b)/i,
   /\b(?:system|developer)\s*(?:prompt|message)\s*[:：]/i,
   /忽略(?:掉)?(?:以上|上面|之前|前面)(?:的)?(?:所有)?(?:指令|内容|规则|设定)/,
   /(?:请|你)?(?:务必|必须)?不要(?:告诉|告知|告诉过)(?:用户|任何人)/,
@@ -310,8 +319,16 @@ const NEWS_TRUST_ACTIVE_CONTENT_PATTERNS = [/<script[\s>]/i, /javascript\s*:/i, 
  *  `忽略\u00AD以上`→`忽略以上` 直接命中既有正则；替换为空格反而会打断这些签名。 */
 const NEWS_TRUST_INVISIBLE_RE = /[\p{Cf}\p{Cc}\p{Mn}\p{Me}\u034f\u3164\u115f\u1160\uffa0\u180e]/gu;
 
-/** 去分隔骨架用：只保留字母/数字（含 CJK），删除一切分隔符/标点/空白 —— 用来匹配「粘连形态」。 */
-const NEWS_TRUST_NON_SIGNIFICANT_RE = /[^\p{L}\p{N}]/gu;
+/** 骨架用的「透明字符」集 —— 删除后相邻词会粘连，用于捕捉「被不可见字/分隔符拆开」的签名。
+ *  ⚠️ 这里**刻意不含句子标点**（, . ; : ! ? ( ) " ' 等）。正常英文安全新闻常见写法
+ *  `Website hacked, by an unknown group` 若把逗号也删掉 → `websitehackedby…`，与投毒签名
+ *  `hackedby` **完全同形** → 正常资讯被静默误杀（本轮修复的根因）。
+ *  包含：`\p{Cf}` 格式类 / `\p{Cc}` 控制类（含 `\n`，顺带跨字段拼接）/ `\p{Mn}\p{Me}` 组合记号 /
+ *  `\p{Zs}\p{Zl}\p{Zp}` 各类空白（NBSP 经 NFKC 已变普通空格，此处仍列 `\p{Zs}` 兜底）/
+ *  类别覆盖不到的已知不可见字（**U+2800 盲文空白属 So、U+3164/U+115F/U+1160/U+FFA0 属 Lo**，
+ *  须显式列出）/ **词内**分隔符（连字符、下划线、中点、项目符号）——
+ *  `h-a-c-k-e-d` / `h_a_c_k_e_d` 这种逐字拆分是可见的混淆手法，应当照旧命中。 */
+const NEWS_TRUST_TRANSPARENT_RE = /[\p{Cf}\p{Cc}\p{Mn}\p{Me}\p{Zs}\p{Zl}\p{Zp}\u034f\u3164\u115f\u1160\uffa0\u180e\u2800\-_\u00b7\u2022]/gu;
 
 /** 骨架签名（作用于 `glued`，已转小写）。正常资讯里没有这些串；
  *  `\b` 在粘连形态下失效（`hackedby` 的 `d`→`b` 之间无词边界），故这里用**去分隔子串**匹配。
@@ -334,13 +351,47 @@ const NEWS_TRUST_BIDI_RE = /[\u202a-\u202e\u2066-\u2069]/;
 const NEWS_TRUST_ZERO_WIDTH_RE = /[\u200b-\u200d\u2060\ufeff]/g;
 const NEWS_TRUST_ZERO_WIDTH_MAX = 2;
 
-/** 非 CJK/非拉丁的异体文字洪水 + U+FFFD 替换字符：典型的乱码/伪装条目。 */
-const NEWS_TRUST_MOJIBAKE_RE = /[\uFFFD\u0400-\u04FF\u0370-\u03FF]/g;
+/** U+FFFD 替换字符洪水：**编码损坏**（mojibake）的真信号。这里只看 U+FFFD。
+ *  ⚠️ 早期版本把西里尔(U+0400–04FF)/希腊(U+0370–03FF)码点也算进来并做「计数 > 3」判定，
+ *  后果有二（本轮实测）：① 正常俄语/希腊语资讯被**整条误杀**；② 是否存活还取决于同一列表里
+ *  其他条目的构成 —— 与中文混排时（丢弃比 1/3）被静默删除，整列都是外文时（丢弃比 100%）
+ *  又被护栏 fail-open 放回。这种「随列表构成而变」的行为不是任何人会设计的，已废弃；
+ *  同形字改由下方**混拼词**规则负责。 */
+const NEWS_TRUST_MOJIBAKE_RE = /[\uFFFD]/g;
 const NEWS_TRUST_MOJIBAKE_MAX = 3;
 
-/** ⚠️ 本轮**明确不覆盖**的残余：**形近字同形攻击**（如西里尔 `а` U+0430 冒充拉丁 `a`，构造 `hаcked by`）。
- *  需要 confusables 映射表做字形归一化，本轮不做。缓解：同形文字**洪水**仍会被上面的 mojibake 规则拦下
- *  （> NEWS_TRUST_MOJIBAKE_MAX），但只夹 1 个同形字的短标题会漏过 —— 已知缺口，后续以映射表补齐。 */
+/** 混拼词（同形字走私）检测用的字符类别。 */
+const NEWS_TRUST_LATIN_RE = /\p{Script=Latin}/u;
+const NEWS_TRUST_LETTER_RE = /\p{L}/u;
+/** CJK：中日韩文字本身**大量**与拉丁字母混排（`AI 技术` / `Rust 编程`），属正常，必须排除。 */
+const NEWS_TRUST_CJK_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+/**
+ * 找出「混拼词」——**一个词内部同时含拉丁字母与「非拉丁且非 CJK」的字母**。
+ * 正常多语言文本总是「整词同一文字系统」（`Российские` / `Η` / `AI`）；只有
+ * `h<西里尔 а>cked` 这种**跨文字系统拼同一个词**才是同形字走私的特征。
+ * 这一条取代了原来「按码点范围计数」的 mojibake：既**消掉正常外文误杀**，
+ * 又把覆盖从西里尔/希腊**扩展到**亚美尼亚/格鲁吉亚/切罗基/科普特等同形字来源。
+ * ⚠️ 已知残余（本轮**不做**）：拉丁系**内部**的同形字（拉丁 IPA `ɑ` U+0251 / `ɡ` U+0261
+ * 冒充 a/g）——它们本身就是 `\p{Script=Latin}`，任何基于文字系统的规则都不可能捕获，
+ * 需 confusables 映射表。缓解：此类攻击仍需攻击者刻意构造，且自然形态的签名
+ * （`hacked by` 等）另由通道 1/2 拦截。
+ * @returns {string|null} 命中的词，未命中返回 null
+ */
+function findMixedScriptToken(text) {
+  const tokens = String(text || '').split(/[^\p{L}\p{N}]+/u);
+  for (const tk of tokens) {
+    if (!tk) continue;
+    let hasLatin = false;
+    let hasOther = false;
+    for (const ch of tk) {
+      if (NEWS_TRUST_LATIN_RE.test(ch)) hasLatin = true;
+      else if (NEWS_TRUST_LETTER_RE.test(ch) && !NEWS_TRUST_CJK_RE.test(ch)) hasOther = true;
+      if (hasLatin && hasOther) return tk;
+    }
+  }
+  return null;
+}
 
 /** 把一个条目里参与判定的文本拼起来（title/summary/tags）。 */
 function newsTextOf(item) {
@@ -358,9 +409,11 @@ function assessNewsItem(item) {
   // 归一化（**仅用于判定**，不改变展示内容）：
   //  ① NFKC —— 消全角/兼容字符（ｈａｃｋｅｄ → hacked）；
   //  ② 删除不可见/格式/组合/控制字符（按 Unicode 类别，见 NEWS_TRUST_INVISIBLE_RE）；
-  //  ③ 去分隔骨架 glued —— 只留字母/数字，匹配「跨字段拆词 / 逐字夹心」的粘连形态。
+  //  ③ 去「透明字符」骨架 glued —— 删掉空白与不可见字后相邻词会粘连，用于匹配「跨字段拆词 /
+  //     逐字夹心」的粘连形态；**句子标点被保留作屏障**，否则正常标题 `hacked, by` 会与投毒
+  //     签名 `hackedby` 同形（本轮修复的误杀，见 NEWS_TRUST_TRANSPARENT_RE）。
   const text = raw.normalize('NFKC').replace(NEWS_TRUST_INVISIBLE_RE, '');
-  const glued = text.replace(NEWS_TRUST_NON_SIGNIFICANT_RE, '').toLowerCase();
+  const glued = text.replace(NEWS_TRUST_TRANSPARENT_RE, '').toLowerCase();
 
   // 通道 1：自然文本（严格语义）。高置信签名先判 —— 于是「原始含不可见字符 + 归一化后命中高置信签名」
   // 会返回高置信 reason，不会被降级成低精度 zero-width 而被护栏放回。
@@ -378,12 +431,14 @@ function assessNewsItem(item) {
   for (const re of NEWS_TRUST_SKELETON_INJECT_RES) {
     if (re.test(glued)) return 'inject';
   }
+  // 通道 3：混拼词（同形字走私）—— 高置信：一个词内部跨文字系统混拼没有正当用途。
+  if (findMixedScriptToken(text)) return 'confusable';
   // 低精度启发式与 bidi：对**原始**文本判定/计数（归一化会把它们删掉/清零，否则永不命中）。
   if (NEWS_TRUST_BIDI_RE.test(raw)) return 'obfuscated'; // 高置信
   const zw = (raw.match(NEWS_TRUST_ZERO_WIDTH_RE) || []).length;
   if (zw > NEWS_TRUST_ZERO_WIDTH_MAX) return 'zero-width'; // 低精度：emoji / 部分 CJK 源会正常产生
   const moj = (text.match(NEWS_TRUST_MOJIBAKE_RE) || []).length;
-  if (moj > NEWS_TRUST_MOJIBAKE_MAX) return 'mojibake'; // 低精度：乱码洪水
+  if (moj > NEWS_TRUST_MOJIBAKE_MAX) return 'mojibake'; // 低精度：U+FFFD 编码损坏
   return null;
 }
 
@@ -1303,4 +1358,4 @@ exports.FETCH_RETRY_BACKOFF_MS = FETCH_RETRY_BACKOFF_MS;
 exports.FREE_INTEL_ITEMS_LIMIT = FREE_INTEL_ITEMS_LIMIT;
 exports.INTEL_ITEM_TEXT_MAX = INTEL_ITEM_TEXT_MAX;
 exports.RSS_SOURCES = RSS_SOURCES;
-exports.__internals = { fetchText, parseFeed, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, rankByPreferences, clampByCodePoint, assessNewsItem, filterNewsItems, newsTextOf };
+exports.__internals = { fetchText, parseFeed, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, rankByPreferences, clampByCodePoint, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken };
