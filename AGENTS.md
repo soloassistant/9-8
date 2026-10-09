@@ -69,9 +69,50 @@ npx tsc --noEmit      # 类型检查
 `index.html`（1,191 B，sha256 `7aee7486…`）。2026-10-09 重建后与线上 gh-pages 三个文件
 **逐字节相同** → gh-pages 上就是 `main` 源码的产物，且产物目录改造未改变 H5 输出。
 
+> ★★ **本项目的"网页版"有两个入口，它们会各自漂移 —— 判断"线上是哪一版"必须两个都查**（2026-10-09 实测）：
+>
+> | 入口 | 发布源 | 是否随 `main` 自动更新 |
+> |---|---|---|
+> | `https://soloassistant.github.io/9-8/`（gh-pages 分支） | `origin/gh-pages` | ❌ **不会** —— `.github/workflows/refresh-data.yml` **只刷新 `api/hotspot.json`，不构建前端**；bundle 要人工推 |
+> | `https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host/` | 本地 `D:\Agent\dist` | ❌ 不会 —— 要靠平台侧重新发布 |
+>
+> 教训：改了 `src/` 只把代码提交/推送，**两个线上入口都不会变**。当天实测两者差了整整一个
+> 合规提交（`01f6296`）：WorkBuddy 那个仍指 `app.2fedd178.js`，包里 `panelNotice` 命中 **0** 次，
+> 而 gh-pages 已是 `a8cbdfbb`（命中 2 次）。
+>
+> 查法（30 秒）：`curl <入口>/ | grep -o 'js/app\.[0-9a-f]*\.js'`，再把那份 JS 拉下来
+> `grep -o <特征符号> | wc -l`。特征符号要选**完整词**（`panelNotice` / `ai.notice`），
+> 别选短串——本环境吃过 `stance` 命中 320 次全是 `instance` 的假阳性。
+
+> ⚠️ 比对产物时**先落到文件再比**，且别用 `sed 's#.*/##'` 去拼本地路径
+> —— 它会把 `js/app.X.js` 削成 `app.X.js`，于是 `cmp` 比的是一个**不存在的文件**，
+> 报出"线上与本地不一致"的假故障（2026-10-09 我正是这么误报了一次，sha256 一比才知道全等）。
+
 > ⚠️ 本环境 `rm -rf dist` 可能被**批量删除守卫**拦下（文件数 > 50 时要求确认，报
 > `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，并且会**删到一半就停**，留下小程序版残留文件）。
 > 清理产物目录要么分批删、要么确认删干净后再构建，否则残留文件会被一起发布出去。
+
+### 3.2 兜底数据 `dist/api/hotspot.json` 会被构建清掉 —— 现已自愈（2026-10-09 补）
+
+Taro 构建**先清空产物目录**，所以每次 `build:h5` 都会把 `dist/api/hotspot.json` 清掉。
+它是前端兜底链的第 3 跳（`src/services/cloud.ts:41`：
+`/api/hotspot` → `soloassistant.github.io/9-8/api/hotspot.json` → `./api/hotspot.json`），
+此前只能靠人**手动备份/还原** —— 而实践证据是它真的丢过一次。
+
+现在由 `.tools/copy-assets.js`（`build:h5` 的后置步骤）**在发现它缺失时**从 gh-pages 取一份当日数据补回。
+best-effort 设计，失败只告警、不抛错、不阻塞构建：
+
+| 场景 | 行为 | 实测 |
+|---|---|---|
+| 文件缺失 + 网络通 | 拉取并落盘 | `65702 B, 195 items, updatedAt=2026-10-09T08:23:59Z` |
+| 文件缺失 + 网络断 | `console.warn` + 提示手动命令，**exit 0** | `HOTSPOT_LIVE_URL=https://127.0.0.1:9/nope.json` → 告警且**未**创建文件 |
+| 文件已在位 | 只打印大小，**不打网络** | `已在位 65702 B` |
+
+- 落盘前会 `JSON.parse` 并断言 `items` 是数组 —— 免得把错误页当数据写进去。
+- 可用 `HOTSPOT_LIVE_URL` 覆盖来源（就是靠它做上面那条负路径验证的）。
+- ⚠️ 第一跳 `/api/hotspot` 在两个线上域名上都实测 **404**（纯静态托管无后端），
+  所以**实际生效的是第 2 跳**；第 3 跳是"gh-pages 也挂了"时的最后防线。
+  因此这份文件缺失**不是**用户可见故障，但缺了就应该知道。
 
 ## 4. 上线通道
 
