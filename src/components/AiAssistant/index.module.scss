@@ -147,6 +147,24 @@
   font-size: $font-size-sm;
 }
 
+/* 深度合成-AI问答 类目「人工必查项」：AI 对话页需**全程固定展示**醒目提示。
+   官方明确禁止「角落小字 / 仅弹窗一次 / 浅色隐藏」，故：置于头部之下、消息列表之上，
+   不随消息滚动、无关闭按钮；用 error 色 + 加粗，避免被判为「浅色隐藏」。 */
+.panelNotice {
+  padding: $spacing-sm $page-padding;
+  background: rgba(245, 63, 63, 0.08);
+  border-bottom: 1rpx solid rgba(245, 63, 63, 0.16);
+}
+
+.panelNoticeText {
+  display: block;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-bold;
+  line-height: $line-height-normal;
+  color: $color-error;
+  text-align: center;
+}
+
 .msgList {
   flex: 1;
   min-height: 0;

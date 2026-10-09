@@ -495,6 +495,13 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
             </View>
           </View>
 
+          {/* P0-2/C1 合规常驻提示：深度合成-AI问答 类目「人工必查项」要求 AI 对话页
+              **全程固定展示**醒目提示，官方明确禁止「角落小字 / 仅弹窗一次 / 浅色隐藏」。
+              故放在面板顶部、不随消息滚动、不设关闭按钮；仅气泡底部角标不满足要求。 */}
+          <View className={styles.panelNotice}>
+            <Text className={styles.panelNoticeText}>{t('ai.notice')}</Text>
+          </View>
+
           <ScrollView scrollY scrollIntoView={lastMsgId} className={styles.msgList}>
             {messages.map((m) => (
               <View

@@ -220,6 +220,9 @@ const zh = {
   'ai.labelExtract': '— 由 AI 提取整理，请核对 —',
   'ai.labelSummary': '— 由 AI 摘要生成，仅供参考 —',
   'ai.audioIntro': '以下内容由 AI 生成，仅供参考。',
+  // 深度合成-AI问答 类目「人工必查项」：AI 对话页需**全程固定展示**的醒目提示
+  // （官方明确禁止「角落小字 / 仅弹窗一次 / 浅色隐藏」）。仅气泡底部角标不算。
+  'ai.notice': 'AI 生成，内容仅供参考，不构成专业建议',
   'ai.metaHint': '本内容含 AI 生成标识信息',
   'ai.labelVersion': 'AI 标识规范 {version}',
 
@@ -809,6 +812,8 @@ const en: Record<keyof typeof zh, string> = {
   'ai.labelExtract': '— Extracted and organized by AI, please verify —',
   'ai.labelSummary': '— AI-generated summary, for reference only —',
   'ai.audioIntro': 'The following content is AI-generated, for reference only.',
+  // Deep-synthesis (AI Q&A) category requirement: a persistent, always-visible notice on AI chat.
+  'ai.notice': 'AI-generated. For reference only — not professional advice.',
   'ai.metaHint': 'This content carries an AI-generated label',
   'ai.labelVersion': 'AI labeling spec {version}',
 

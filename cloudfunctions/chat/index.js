@@ -519,6 +519,41 @@ async function handleApplyPlan(openid, event) {
   return { code: 0, message: 'ok', data: { saved: ids.length, ids, proposalId } };
 }
 
+/** 内容安全拒答话术（命中 msgSecCheck 时使用）。不暴露具体命中原因，避免被用来试探规则。 */
+const CHAT_REFUSE_REPLY = '抱歉，这条内容我不能处理。请换一个说法，或者换个话题聊聊？';
+
+/**
+ * 内容安全：过微信 msgSecCheck。返回 true=放行，false=命中违规需拒答。
+ *
+ * 【为什么必须加】本函数是**深度合成（AI 问答）**的主要出口，微信《小程序深度合成服务运营指引》
+ * 把「用户输入内容」与「深度合成输出内容」的内容安全检测列为**强制项**，也是代码审核的
+ * 常见驳回原因。extract / getBriefing 早已接入（见各自 config.json 声明的
+ * `security.msgSecCheck` 权限），chat 此前**完全缺失** —— 审核会因「输入/输出存在安全风险」驳回。
+ *
+ * 【异常时 fail-open】与 extract 的既有做法一致：接口抖动时不阻断主流程，只告警。
+ * 理由是聊天是主交互路径，因安全接口超时把整条对话打断，用户损失大于收益；
+ * 代价是异常窗口内的内容不过检 —— 已在日志里显式标出（`skipped`），便于事后归因。
+ */
+async function securityCheck(content, openid) {
+  const text = String(content || '').slice(0, 2500);
+  if (!text.trim()) return true;
+  try {
+    const res = await cloud.openapi.security.msgSecCheck({
+      version: 2,
+      openid,
+      scene: 1,
+      content: text
+    });
+    if (res && res.result && res.result.suggest && res.result.suggest !== 'pass') {
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[chat] msgSecCheck skipped:', err && err.errMsg);
+    return true;
+  }
+}
+
 exports.main = async (event) => {
   // 身份只认微信上下文：本函数跑在微信云开发里，`cloud.getWXContext().OPENID` 才是权威身份。
   // **不接受 event.openid** —— 接受调用方自传的身份，等于让调用方自证身份（谁都能填别人的 openid）；
@@ -608,6 +643,11 @@ exports.main = async (event) => {
   }
 
   if (!message) throw new Error('message is required');
+
+  // 用户输入过内容安全（深度合成类目强制项）。放在额度校验之前：违规内容不该消耗用户语音额度。
+  if (!(await securityCheck(message, OPENID))) {
+    return { reply: CHAT_REFUSE_REPLY, action: 'chat' };
+  }
 
   // 额度校验：订阅用户不限次
   const user = await getUser(OPENID);
@@ -787,6 +827,12 @@ exports.main = async (event) => {
   // P-02 最后一道防线：任何 action 的回复都不允许出现禁止表述（命中即整条替换为拒答话术）
   if (SHOPPING_FORBIDDEN_PATTERNS.some((re) => re.test(replyText))) {
     replyText = SHOPPING_REFUSE_REPLY;
+  }
+
+  // 深度合成**输出**侧内容安全（与输入侧同为类目强制项）。放在最后一道禁语防线之后、
+  // 组装 payload 之前 —— 此处 replyText 已是最终将要返回给用户的文本（含联网改写、截断、配图追加）。
+  if (!(await securityCheck(replyText, OPENID))) {
+    replyText = CHAT_REFUSE_REPLY;
   }
 
   const payload = { reply: replyText, action: result.action || 'chat', image };
