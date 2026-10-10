@@ -18,6 +18,8 @@ import {
   LearnStore
 } from '@/utils/learn';
 import { useT } from '@/store/language';
+import PartnerEntry, { PartnerSectionHeader } from '@/components/PartnerEntry';
+import { LINGXI_ENTRY_URL } from '@/config/partners';
 import styles from './index.module.scss';
 
 /** 语言学习主页（MVP）：语种切换 + 分级课程 + 进度与打卡 */
@@ -233,6 +235,17 @@ function LearnPage() {
       ))}
 
       <View className={styles.footer}>
+        {/* 关联产品入口：灵犀课堂是独立网页版产品，这里只做入口（小程序端只能复制链接） */}
+        <View className={styles.partnerBlock}>
+          <PartnerSectionHeader />
+          <PartnerEntry
+            icon='🎓'
+            title={t('partner.lingxiTitle')}
+            desc={t('partner.lingxiDesc')}
+            url={LINGXI_ENTRY_URL}
+          />
+        </View>
+
         <View className={styles.communityEntry} onClick={() => Taro.navigateTo({ url: '/pages/learnCommunity/index' })}>
           <Text className={styles.communityIcon}>🏅</Text>
           <View className={styles.communityTextWrap}>

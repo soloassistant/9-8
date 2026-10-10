@@ -350,6 +350,14 @@
 }
 
 /* 社区与成就入口 */
+/* 关联产品入口区块（灵犀课堂）：与下方社区入口留出同等级间距 */
+.partnerBlock {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  margin: 0 $page-padding $spacing-lg;
+}
+
 .communityEntry {
   display: flex;
   align-items: center;

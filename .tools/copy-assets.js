@@ -47,6 +47,70 @@ for (const job of jobs) {
 }
 console.log(`[copy-assets] ${copied} files -> ${dist}`);
 
+// ---------------------------------------------------------------------------
+// 「省心买」同源子页：vendor/shengxinmai 的静态白名单 → dist/sxm/
+// ---------------------------------------------------------------------------
+// 为什么用**显式白名单**而不是整目录拷贝：dist/ 是公开发布目录，多出来的任何文件都会被打包上线。
+// 这份清单与上游 server/lib/static-whitelist.js 的 STATIC_WHITELIST 一一对应，
+// 作为闸门可以保证 vendor/ 里将来多出的文件（例如 PROVENANCE.md）永远上不了线。
+// 出处、指纹与两条"别自作聪明"的规矩见 vendor/shengxinmai/PROVENANCE.md。
+const SXM_VENDOR = path.resolve(root, 'vendor/shengxinmai');
+const SXM_OUT = path.join(dist, 'sxm');
+const SXM_FILES = [
+  'index.html',
+  'app.js',
+  'data.js',
+  'styles.css',
+  'sw.js',
+  'manifest.json',
+  'icon.svg',
+  'favicon-32.png',
+  'icon-192.png',
+  'icon-512.png',
+  'icon-maskable-512.png',
+  'apple-touch-icon.png',
+  'og-image.png'
+];
+
+function copySxm() {
+  if (!fs.existsSync(SXM_VENDOR)) {
+    // 硬失败：这不是"可选兜底"—— 缺了它 /sxm/ 就是个打不开的入口，必须让人看见
+    console.error(
+      `[copy-assets] FATAL: 缺少 ${SXM_VENDOR} —— /sxm/ 子页会 404。见 vendor/shengxinmai/PROVENANCE.md`
+    );
+    process.exitCode = 1;
+    return;
+  }
+  fs.mkdirSync(SXM_OUT, { recursive: true });
+  const missing = [];
+  let n = 0;
+  let bytes = 0;
+  for (const f of SXM_FILES) {
+    const from = path.join(SXM_VENDOR, f);
+    if (!fs.existsSync(from)) {
+      missing.push(f);
+      continue;
+    }
+    fs.copyFileSync(from, path.join(SXM_OUT, f));
+    n++;
+    bytes += fs.statSync(from).size;
+  }
+  if (missing.length) {
+    console.error(
+      `[copy-assets] FATAL: vendor 里缺 ${missing.length} 个白名单文件：${missing.join(', ')}`
+    );
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`[copy-assets] sxm -> ${SXM_OUT}: ${n} files, ${bytes} B`);
+  // 反向报警：vendor 里出现了白名单之外的文件 —— 要么上游漂移了，要么该更新白名单了
+  const stray = fs.readdirSync(SXM_VENDOR).filter((f) => !SXM_FILES.includes(f));
+  if (stray.length) {
+    console.log(`[copy-assets] sxm 未纳入白名单（不会上线，符合预期）: ${stray.join(', ')}`);
+  }
+}
+copySxm();
+
 /**
  * 兜底数据缺失时补一份 —— best-effort，任何失败都只告警。
  * 只在"文件不存在"时才发起请求，所以正常重复构建不会每次都打网络。

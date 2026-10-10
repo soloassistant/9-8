@@ -238,6 +238,14 @@ $ad-section-gap: 48rpx;
 }
 
 /* ---------- P-03 广告与推荐分离（当前版本无广告位，样式预留） ---------- */
+/* 关联产品入口区块（省心买）：水平边距由 .list 统一提供，这里只加纵向间距 */
+.partnerBlock {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  margin: $spacing-md 0 $spacing-lg;
+}
+
 .adSection {
   margin-top: $ad-section-gap;
   padding-top: $ad-section-gap;

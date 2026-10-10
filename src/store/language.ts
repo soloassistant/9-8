@@ -96,6 +96,19 @@ const zh = {
   'community.postPlaceholder': '分享今天的学习心得，比如「今天记住了 10 个单词」…',
   'community.postButton': '发布',
   'community.cloudNote': '动态暂存本机，云同步即将开放',
+
+  // 关联产品入口（网页版服务）：灵犀课堂 / 省心买。
+  // 这两个都是独立产品，本应用不重写它们、只做入口；小程序端因无 web-view 只能复制链接。
+  'partner.sectionTitle': '网页版服务',
+  'partner.sectionDesc': '这两个是独立网页版产品，点开在浏览器里使用',
+  'partner.lingxiTitle': '灵犀课堂 · AI 一对一直播课',
+  'partner.lingxiDesc': 'AI 老师一对一实时对话教学，独立网页版',
+  'partner.sxmTitle': '省心买 · 比价与出行助手',
+  'partner.sxmDesc': '贴一句商品名，横向拉平各平台到手价；不代下单、不代支付',
+  'partner.open': '浏览器打开',
+  'partner.copy': '复制链接',
+  'partner.copyHint': '链接已复制，请到手机浏览器打开',
+  'partner.copyFail': '复制失败，请手动输入地址',
   'mine.shoppingDesc': '记想买的东西 · 多平台比价',
   'mine.privacyNote': '隐私说明：转发的内容仅用于生成你的日程、待办与摘要，存储于境内服务器；数据删除与客服入口见上方设置区。',
   'mine.docRead': '我已阅读',
@@ -688,6 +701,19 @@ const en: Record<keyof typeof zh, string> = {
   'community.postPlaceholder': 'Share today\'s progress, e.g. "mastered 10 words today"…',
   'community.postButton': 'Post',
   'community.cloudNote': 'Posts are stored locally; cloud sync coming soon',
+
+  // Partner entries (web services): Lingxi Classroom / Shengxinmai.
+  // Both are standalone products — this app only links out; the mini program has no web-view.
+  'partner.sectionTitle': 'Web services',
+  'partner.sectionDesc': 'Both are standalone web apps; open them in a browser',
+  'partner.lingxiTitle': 'Lingxi Classroom · 1-on-1 AI live class',
+  'partner.lingxiDesc': 'Real-time 1-on-1 AI tutoring in a standalone web app',
+  'partner.sxmTitle': 'Shengxinmai · Price & travel assistant',
+  'partner.sxmDesc': "Paste a product name to line up every platform's final price; no ordering, no payment",
+  'partner.open': 'Open in browser',
+  'partner.copy': 'Copy link',
+  'partner.copyHint': 'Link copied — open it in your phone browser',
+  'partner.copyFail': 'Copy failed — please type the address manually',
   'mine.shoppingDesc': 'Save items to buy · compare prices',
   'mine.privacyNote': 'Privacy: forwarded content is only used to generate your schedule, to-dos and summaries, stored on domestic servers; data deletion & support entries are above.',
   'mine.docRead': "I've read it",

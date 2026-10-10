@@ -4,6 +4,8 @@ import Taro, { useDidShow } from '@tarojs/taro';
 import EmptyState from '@/components/EmptyState';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { useT } from '@/store/language';
+import PartnerEntry, { PartnerSectionHeader } from '@/components/PartnerEntry';
+import { SXM_ENTRY_URL } from '@/config/partners';
 import {
   apiShoppingList,
   apiShoppingAdd,
@@ -289,6 +291,18 @@ function ShoppingPage() {
             );
           })
         )}
+
+        {/* 关联产品入口：省心买是独立网页版产品（H5 端已挂到同源子页 /sxm/），这里只做入口。
+            放在推广区块**之前**，避免把「广告」标签挤到页面中部、破坏 P-03 的"推广只在末尾"约定。 */}
+        <View className={styles.partnerBlock}>
+          <PartnerSectionHeader />
+          <PartnerEntry
+            icon='🛒'
+            title={t('partner.sxmTitle')}
+            desc={t('partner.sxmDesc')}
+            url={SXM_ENTRY_URL}
+          />
+        </View>
 
         {/* P-03：推广区块独立渲染 —— 分割线 + ≥16px 间隔 + 顶部「广告」灰底标签，不与推荐混排 */}
         {adEntries.length > 0 ? (
