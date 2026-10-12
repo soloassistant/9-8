@@ -3,6 +3,9 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+// 与云函数共用同一份信任过滤规则（小程序端 / 线上 H5 站点 / 本地预览三条链路不能各判各的）
+const { filterNewsItems } = require('../cloudfunctions/webSearch/news-trust.js');
+
 // 用法：node static-server.js [rootDir]
 //   rootDir 可为相对项目根（如 .tools/preview-snapshot）或绝对路径；缺省服务 dist
 const ROOT = process.argv[2]
@@ -681,9 +684,22 @@ async function fetchHotspot() {
   // 聚类耗时（可观测）：只在真正拉取真源的这一轮打印，命中缓存不打印
   console.log('[hotspot] 聚类耗时 ' + (Date.now() - clusterT0) + 'ms / 主条目 ' + merged.length
     + ' / 合并 ' + clustered.merged + ' 条（' + clustered.groups + ' 组）');
+  // 内容信任过滤（2026-12 修复）：此前本地 /api/hotspot 链路**零过滤**，
+  // 而小程序端（走 webSearch 云函数）有 —— 同一条毒 RSS 能从本地预览链路直达用户视野。
+  // 现在 require 的是与云函数**同一份** rules（cloudfunctions/webSearch/news-trust.js）。
+  // 位置在聚类之后、pubDate 剥离之前：此时 entry 仍带 pubDate，可被全字段判定。
+  const trust = filterNewsItems(merged, { label: 'static-server' });
+  dropped.untrusted = trust.dropped.length;
+  if (trust.dropped.length) {
+    dropped.trustReasons = trust.dropped.reduce((acc, d) => {
+      acc[d.reason] = (acc[d.reason] || 0) + 1;
+      return acc;
+    }, {});
+  }
+
   // 剥离内部字段：pubDate 只用于上面的新鲜度闸门，不进入响应契约（HotspotNews 无该字段）。
   // 只挑 pubDate 丢、不做白名单裁剪 —— alsoFrom 属于响应契约，必须原样保留。
-  const items = merged.map(({ pubDate, ...rest }) => rest);
+  const items = trust.kept.map(({ pubDate, ...rest }) => rest);
 
   const meta = {
     updatedAt: new Date().toISOString(),

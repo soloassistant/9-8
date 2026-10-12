@@ -159,7 +159,9 @@ const zh = {
   'mine.privacyNote': '隐私说明：转发的内容仅用于生成你的日程、待办与摘要，存储于境内服务器；数据删除与客服入口见上方设置区。',
   'mine.docRead': '我已阅读',
   'mine.badgeSubscribed': '订阅中',
-  'mine.subDesc': '语音晨报不限次畅聊 · 收藏无限量 · 习惯记忆主动调整晨报 · 新功能优先体验',
+  // 用户读完应该知道自己省了什么。原版全是形容词（不限次/无限量/优先体验），
+  // **没有一项可验证** —— 对比代码 voiceQuota:20 / collectionQuota:50 才知道差在哪。
+  'mine.subDesc': '语音 20→不限次 · 收藏 50→无限量 · 习惯守护 · 新功能优先',
   'mine.freeUser': '免费版用户',
   'mine.earlyBirdBadge': '早鸟会员',
   'mine.memberBadge': '订阅会员',
@@ -205,7 +207,11 @@ const zh = {
   'briefing.quickDone': '完成待办',
   'briefing.quickHot': '今日热点',
   'briefing.emptyTitle': '今天还没有安排',
-  'briefing.emptyHint': '去收件箱把微信消息转发进来，我帮你提取日程和待办',
+  'briefing.emptyHint': '把微信里聊的会议、约定复制到收件箱，我自动变成今天的日程',
+  // 空态主行动：文案指挥了动作就必须能点（2026-10-12 增长审计）
+  'briefing.emptyCta': '去收件箱粘贴 →',
+  // 云端未接通时的诚实横幅：降级到 mock 却让用户以为是真数据，违反 AGENTS.md 的「不静默失败」
+  'briefing.degraded': '当前为演示数据，云端服务尚未接通',
   'briefing.loadFailed': '晨报加载失败',
   'briefing.voiceLimitTitle': '语音额度已用完',
   'briefing.voiceLimitContent': '本月免费语音条数已用完，订阅后不限次畅聊。',
@@ -237,7 +243,10 @@ const zh = {
   'library.aiFilteredNote': '以下条目由 AI 从公开资讯中筛选整理',
   'library.curator': '早报员·小晨为你筛选',
   'library.whyTitle': '为什么推荐给你',
-  'common.disclaimer': '内容由 AI 整理，仅供参考，不构成任何投资建议；资讯源自公开媒体，点击标题查看原文。',
+  'common.disclaimer': '仅供参考，不构成任何投资建议；资讯源自公开媒体，点击标题查看原文。',
+  // 仅当本条内容**确实**由 AI 生成时才用这一条署名。资讯列表是原始 RSS（免费档全程无 AI），
+  // 无条件写「内容由 AI 整理」属于对功能能力的虚假陈述，合规上要按《广告法》/生成式 AI 标识要求处理。
+  'common.disclaimerAI': '内容由 AI 整理，仅供参考，不构成任何投资建议；资讯源自公开媒体，点击标题查看原文。',
   'settings.aiFilter': 'AI 精选',
   'settings.aiFilterDesc': '关闭后资讯按时间排序，不使用 AI 筛选',
   'settings.push': '推送偏好',
@@ -303,6 +312,8 @@ const zh = {
   'library.dataUpdated': '数据更新于',
   'library.dataStale': '离线缓存 · 实时源暂时不可用',
   'library.dataSources': '来源 ',
+  // 只列前 3 个源，其余折成计数 —— 23 个源名铺满 4 行会把首屏资讯全挤走
+  'library.dataSourcesMore': ' 等 {n} 个',
   'library.searchGo': '搜索',
   'library.searchOnlineTitle': '联网搜索',
   'library.searchOnlineHint': '必应资讯 · 标注来源',
@@ -624,7 +635,9 @@ const zh = {
   // 进入门禁（登录）文案。Web 端支持邮箱与手机号两种标识，二者互斥（SDK 硬性要求）。
   'auth.checking': '正在校验登录状态…',
   'auth.title': '需要登录',
-  'auth.subtitle': '这是一个私人应用，登录后才能进入。',
+  // 注册前唯一能看到的「产品是什么」。原文是「这是一个私人应用，登录后才能进入。」
+  // —— 在用户还没体验任何价值前，先强化了封闭感，是激活漏斗上最贵的一句文案（2026-10-12 增长审计）。
+  'auth.subtitle': '把微信里聊的会议和约定复制进来，自动变成你的日程和待办，每天早上送到你面前。',
   'auth.idEmail': '邮箱登录',
   'auth.idPhone': '手机号登录',
   'auth.tabPassword': '密码登录',
@@ -659,6 +672,10 @@ const zh = {
   'auth.errSdkUnavailable': '登录服务连不上（云服务未加载或网络不可达），请稍后重试',
   'auth.errResetEmailOnly': '改密暂只支持邮箱，请切到「邮箱登录」',
   'auth.otpSentHint': '没收到？先看垃圾邮件箱，再确认邮箱地址没写错',
+  // 个保法要求的「明示同意」：登录前必须让用户看到收集范围并主动勾选，不能默认勾、也不能藏在协议里
+  'auth.privacyNotice': '邮箱仅用于账号登录与晨报推送；位置信息只在你开启相关功能后采集，且不会用于广告。数据存放在你自己的账号下，可在「我的 - 注销账号」一键删除。',
+  'auth.privacyAgree': '我已阅读并同意上述隐私说明',
+  'auth.errPrivacy': '请先勾选同意隐私说明',
   'auth.smsSentHint': '没收到？确认手机号无误，并检查是否被短信拦截'
 };
 
@@ -813,7 +830,7 @@ const en: Record<keyof typeof zh, string> = {
   'mine.privacyNote': 'Privacy: forwarded content is only used to generate your schedule, to-dos and summaries, stored on domestic servers; data deletion & support entries are above.',
   'mine.docRead': "I've read it",
   'mine.badgeSubscribed': 'Subscribed',
-  'mine.subDesc': 'Unlimited voice briefings · unlimited saves · memory-adaptive briefings · early access to new features',
+  'mine.subDesc': 'Voice 20→unlimited · saves 50→unlimited · habit guard · early access',
   'mine.freeUser': 'Free plan user',
   'mine.earlyBirdBadge': 'Early Bird Member',
   'mine.memberBadge': 'Subscriber',
@@ -859,7 +876,9 @@ const en: Record<keyof typeof zh, string> = {
   'briefing.quickDone': 'Done',
   'briefing.quickHot': 'Hotspot',
   'briefing.emptyTitle': 'Nothing scheduled today',
-  'briefing.emptyHint': 'Forward messages from WeChat to Inbox and I will extract your schedule and to-dos',
+  'briefing.emptyHint': 'Copy meeting plans and promises from WeChat into your Inbox and I will turn them into today’s schedule',
+  'briefing.emptyCta': 'Go to Inbox →',
+  'briefing.degraded': 'Showing demo data — the cloud service is not connected yet',
   'briefing.loadFailed': 'Failed to load briefing',
   'briefing.voiceLimitTitle': 'Voice quota used up',
   'briefing.voiceLimitContent': "This month's free voice messages are used up. Subscribe for unlimited chat.",
@@ -891,7 +910,9 @@ const en: Record<keyof typeof zh, string> = {
   'library.aiFilteredNote': 'Curated by AI from public news sources',
   'library.curator': 'Curated for you by XiaoChen, your morning editor',
   'library.whyTitle': 'Why this was picked',
-  'common.disclaimer': 'AI-curated for reference only; not investment advice. Sources: public media — tap a title for the original article.',
+  'common.disclaimer': 'For reference only; not investment advice. Sources: public media — tap a title for the original article.',
+  // 仅在本条内容确实由 AI 生成时署名（见中文版同键注释）
+  'common.disclaimerAI': 'AI-curated for reference only; not investment advice. Sources: public media — tap a title for the original article.',
   'settings.aiFilter': 'AI curation',
   'settings.aiFilterDesc': 'When off, news is sorted by time without AI filtering',
   'settings.push': 'Notification preferences',
@@ -956,6 +977,7 @@ const en: Record<keyof typeof zh, string> = {
   'library.dataUpdated': 'Data updated ',
   'library.dataStale': 'offline cache · live sources unavailable',
   'library.dataSources': 'Sources: ',
+  'library.dataSourcesMore': ' +{n} more',
 
   'library.searchGo': 'Search',
   'library.searchOnlineTitle': 'Web search',
@@ -1271,7 +1293,7 @@ const en: Record<keyof typeof zh, string> = {
 
   'auth.checking': 'Checking your session…',
   'auth.title': 'Sign in required',
-  'auth.subtitle': 'This is a private app. Please sign in to continue.',
+  'auth.subtitle': 'Copy meeting plans and promises from WeChat — they become your schedule and to-dos, delivered every morning.',
   'auth.idEmail': 'Email',
   'auth.idPhone': 'Phone number',
   'auth.tabPassword': 'Password',
@@ -1306,6 +1328,10 @@ const en: Record<keyof typeof zh, string> = {
   'auth.errSdkUnavailable': 'Sign-in service unreachable — the cloud SDK failed to load or the network is blocked',
   'auth.errResetEmailOnly': 'Password reset is email-only for now — switch to Email',
   'auth.otpSentHint': 'Not seeing it? Check your spam folder first, then confirm the address is correct',
+  // 个保法要求的「明示同意」：登录前必须让用户看到收集范围并主动勾选
+  'auth.privacyNotice': 'Your email is used only to sign in and deliver your briefing. Location is collected only after you turn the related feature on, and is never used for advertising. Your data lives under your own account and can be deleted at any time under My - Delete account.',
+  'auth.privacyAgree': 'I have read and agree to the privacy notice above',
+  'auth.errPrivacy': 'Please agree to the privacy notice first',
   'auth.smsSentHint': 'Not seeing it? Confirm the number, then check your SMS blocker'
 };
 

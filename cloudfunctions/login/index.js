@@ -4,6 +4,9 @@ const db = cloud.database();
 
 exports.main = async () => {
   const { OPENID } = cloud.getWXContext();
+  // 取不到微信上下文就拒绝：否则会建出 openid 为 undefined 的「用户」，随后所有人的
+  // 查询都命中这一条共享档案（昵称、订阅状态、偏好全部串在一起）。
+  if (!OPENID) throw new Error('no openid');
   const users = db.collection('users');
 
   try {

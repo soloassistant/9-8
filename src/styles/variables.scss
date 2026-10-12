@@ -9,6 +9,11 @@
 // 屏幕适配（设计稿基准 750rpx）
 $screen-width: 750rpx;
 $page-padding: 32rpx; // 页面左右安全边距
+// tab 页内容区**底部**安全留白：必须大于 TabBar 高度，否则最后一块内容会被压在 TabBar 下面。
+// 原来 5 个 tab 页一律写死 `80rpx`，在 375 视口折合 **40px**，而 H5 端 TabBar 实测高 **50px**
+// ——差 10px，登录态实测「日历」页底部的「今日视图」标题被压掉一半（2026-10-12）。
+// 120rpx = 60px，留 10px 余量。
+$page-pad-bottom-tab: 120rpx;
 $page-spacing: 32rpx;
 $max-content-width: 686rpx; // 750 - 32*2，内容最大宽度
 

@@ -119,7 +119,14 @@ export function writeProfileSettings(patch: Partial<ProfileSettings>): ProfileSe
  *   想让脱敏邮箱真正生效，得改成调 `auth.getUser()` 取 email（多一次网络往返），
  *   或从 `user.raw` 里取（**未证实** `/v1/token` 响应是否带 email），
  *   两者都属行为变更，需产品确认，故此处只标注不改。
- *   小程序端不受影响：那边 `login` 云函数返回的档案本来就带 email。 */
+ *   小程序端不受影响：那边 `login` 云函数返回的档案本来就带 email。
+ *
+ * ⚠️ 2026-10-12 实测修正：上面那条「只标注不改」的结论造成了真实缺陷 ——
+ *   H5 会话里**只有**数字 `user.id`（无 email/phone），本函数返回空串，
+ *   nickname 便落到 `id.slice(0,8)` 的兜底上。登录态实测截图确认：
+ *   晨报页显示「21094813，中午好」、我的页显示「21094813免费版用户」——
+ *   **把用户的真实账号标识当成昵称公开渲染**。这既没有产品价值，又平白暴露了标识。
+ *   故：① 数字 id 也脱敏；② 兜底改为中性称呼，不再回落到原始 id。 */
 export function maskIdentifier(user: CloudUser | undefined): string {
   const email = user?.email?.trim();
   if (email) {
@@ -129,6 +136,9 @@ export function maskIdentifier(user: CloudUser | undefined): string {
   }
   const phone = user?.phone?.trim();
   if (phone) return `${phone.slice(0, 3)}****${phone.slice(-4)}`;
+  // 数字 id（平台会话的常态）：同样脱敏，绝不整串展示
+  const id = user?.id?.trim();
+  if (id) return `${id.slice(0, 2)}***${id.slice(-2)}`;
   return '';
 }
 
@@ -153,7 +163,10 @@ export function buildProfileFromSession(session: CloudSession | null): UserProfi
   const settings = readProfileSettings();
   return {
     openid: id,
-    nickname: settings.nickname || maskIdentifier(user) || id.slice(0, 8),
+    // 兜底用中性称呼，**不再回落到 id 片段** —— 实测 H5 会话只有数字 id，
+    // 回落会让「21094813，中午好」这种真实账号标识直接出现在问候语里。
+    // 用户可在「我的 - 称呼」自设；默认值与小程序端 login 云函数保持一致。
+    nickname: settings.nickname || maskIdentifier(user) || '晨友',
     briefingTime: settings.briefingTime,
     preferences: settings.preferences,
     // 订阅态无服务端来源（H5 拿不到订阅云函数），不编造：按未订阅呈现，

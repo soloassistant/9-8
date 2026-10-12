@@ -21,6 +21,9 @@ function toItem(d) {
 
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
+  // 取不到微信上下文就拒绝：清单按 openid 隔离，openid 为 undefined 会让所有无上下文
+  // 调用方读到同一条购物清单（且任何人都能改它的降价提醒状态）。
+  if (!OPENID) throw new Error('no openid');
   const action = event && event.action;
   try {
     let data;

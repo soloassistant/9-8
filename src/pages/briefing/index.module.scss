@@ -676,6 +676,13 @@
   &::-webkit-scrollbar {
     display: none;
   }
+
+  /* 滚动条被藏起来后，第 4 个 chip（「今日热点」）在容器右缘被截断，
+     看起来像「按钮坏了」而不是「还能往右滑」（2026-10-12 登录态实测 640px 视口）。
+     加一道右侧渐隐做可滚动暗示；末尾留白，保证 chip 不贴着渐变被吃掉。 */
+  padding-right: $spacing-lg;
+  mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent 100%);
 }
 
 .quickChip {

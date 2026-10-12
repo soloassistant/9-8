@@ -62,6 +62,9 @@ function resolveLockedPrice(user) {
 exports.main = async (event) => {
   const action = (event && event.action) || '';
   const { OPENID } = cloud.getWXContext();
+  // 取不到微信上下文就拒绝：额度账本按 openid 计，openid 为 undefined 会让所有无上下文
+  // 调用方共用同一份用量记录（互相消耗额度、并读到对方的订阅状态）。
+  if (!OPENID) throw new Error('no openid');
 
   try {
     const [userRes, usageRes, itemsCount] = await Promise.all([

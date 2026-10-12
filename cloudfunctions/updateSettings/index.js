@@ -4,6 +4,9 @@ const db = cloud.database();
 
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
+  // 取不到微信上下文就拒绝：否则 update/查询会命中 `where({ openid: undefined })`，
+  // 变成「任意无上下文调用方都能改到同一条记录」。
+  if (!OPENID) throw new Error('no openid');
   const payload = event || {};
   const update = {};
 

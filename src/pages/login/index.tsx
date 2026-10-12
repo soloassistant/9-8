@@ -28,6 +28,17 @@ interface PendingOtp {
 const RESEND_SECONDS = 60;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** 隐私同意的本地留存键。**默认不勾选** —— 未经用户主动同意不得发起任何登录/取码动作。 */
+const PRIVACY_CONSENT_KEY = 'sxm-privacy-consent';
+
+function readPrivacyConsent(): boolean {
+  try {
+    return Taro.getStorageSync(PRIVACY_CONSENT_KEY) === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 进入门禁：**未登录一律不得进入应用**（H5 / 发布版）。
  *
@@ -64,6 +75,8 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [countdown, setCountdown] = useState(0);
+  // 个保法要求的明示同意：默认 false，用户主动勾选后才允许提交
+  const [privacyOk, setPrivacyOk] = useState(readPrivacyConsent);
 
   // 挂载校验：已有会话就进应用；否则显示登录表单。微信端身份由微信提供，直接放行。
   useEffect(() => {
@@ -107,6 +120,25 @@ export default function LoginPage() {
     setNotice('');
   };
 
+  /** 未同意隐私说明时拦住一切提交动作（登录 / 取码 / 注册 / 改密都算） */
+  const requirePrivacy = (): boolean => {
+    if (privacyOk) return true;
+    setError(t('auth.errPrivacy'));
+    return false;
+  };
+
+  const togglePrivacy = () => {
+    const next = !privacyOk;
+    setPrivacyOk(next);
+    try {
+      if (next) Taro.setStorageSync(PRIVACY_CONSENT_KEY, true);
+      else Taro.removeStorageSync(PRIVACY_CONSENT_KEY);
+    } catch {
+      /* 存储不可用也不影响本次会话内的门禁 —— 状态在 React 里 */
+    }
+    if (next) setError('');
+  };
+
   /** 切页签时清空验证码凭据：换了方式/邮箱就必须重新取码，不能拿旧 challenge 去提交 */
   const switchTab = (next: Tab) => {
     setTab(next);
@@ -127,6 +159,7 @@ export default function LoginPage() {
 
   const doSendCode = async () => {
     if (busy || countdown > 0) return;
+    if (!requirePrivacy()) return;
     if (!ensureEmail()) return;
     clearMsg();
     setBusy(true);
@@ -239,6 +272,7 @@ export default function LoginPage() {
 
   const handleSubmit = () => {
     if (busy) return;
+    if (!requirePrivacy()) return;
     if (tab === 'password') void submitPassword();
     else if (tab === 'otp') void submitOtp(false);
     else if (tab === 'signup') void submitOtp(true);
@@ -380,7 +414,17 @@ export default function LoginPage() {
         ) : null}
         {error ? <Text className={styles.error}>{error}</Text> : null}
 
-        <View className={`${styles.submit} ${busy ? styles.btnDisabled : ''}`} onClick={handleSubmit}>
+        {/* 个保法「明示同意」：默认未勾选（☐），且未勾选时提交会被 requirePrivacy 拦下。
+            整块可点，扩大勾选热区 —— 移动端小对勾很难点准。 */}
+        <View className={styles.privacyRow} onClick={togglePrivacy}>
+          <Text className={styles.privacyBox}>{privacyOk ? '☑' : '☐'}</Text>
+          <View className={styles.privacyBody}>
+            <Text className={styles.privacyText}>{t('auth.privacyNotice')}</Text>
+            <Text className={styles.privacyAgree}>{t('auth.privacyAgree')}</Text>
+          </View>
+        </View>
+
+        <View className={`${styles.submit} ${busy || !privacyOk ? styles.btnDisabled : ''}`} onClick={handleSubmit}>
           <Text className={styles.submitText}>
             {t(
               tab === 'password'

@@ -10,6 +10,9 @@ const PLANS = {
 
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
+  // 取不到微信上下文就拒绝：订单表以 openid 归属，openid 为 undefined 会产出无主订单，
+  // 后续 payCallback 延长订阅时长时无法定位到人。
+  if (!OPENID) throw new Error('no openid');
   const planId = event && event.planId;
   const plan = PLANS[planId];
   if (!plan) throw new Error('invalid planId');

@@ -974,7 +974,25 @@ function BriefingPage() {
         <BriefingSkeleton />
       ) : !hasContent ? (
         <View className={styles.section}>
-          <EmptyState icon='☕' title={t('briefing.emptyTitle')} hint={t('briefing.emptyHint')} />
+          {/* 空态带**可点的主行动**：文案让用户「去收件箱」，这句话以前是指不动的
+              （EmptyState 原本只有 icon/title/hint 三个 prop），用户得自己在底栏
+              找「收件箱」。晨报首屏对新用户 100% 是这个空态 —— 它就是激活漏斗的第一步，
+              不该是死胡同（2026-10-12 增长审计）。 */}
+          <EmptyState
+            icon='☕'
+            title={t('briefing.emptyTitle')}
+            // 云端没接通导致的空态，必须说明白原因 —— 否则用户会以为是自己没转发内容，
+            // 反复去收件箱试。「去复制消息」对他此刻毫无意义（云端都没接）。
+            // 判据用 briefing.intel.degraded，而不是 !briefing.intel：
+            // 前者只由 cloud.ts 的 catch 置位，语义精确；后者在新用户首次进站时也成立。
+            hint={briefing?.intel?.degraded ? t('briefing.degraded') : t('briefing.emptyHint')}
+            action={t('briefing.emptyCta')}
+            onAction={() => {
+              Taro.switchTab({ url: '/pages/inbox/index' }).catch(() => {
+                Taro.redirectTo({ url: '/pages/inbox/index' }).catch(() => {});
+              });
+            }}
+          />
         </View>
       ) : (
         <View className={styles.contentFade}>
@@ -1232,9 +1250,13 @@ function BriefingPage() {
         </View>
       ) : null}
 
-      {/* L3 免责页脚：晨报含天气/财经资讯，合规要求常驻 */}
+      {/* L3 免责页脚：晨报含天气/财经资讯，合规要求常驻。
+    合规修正（2026-10-12）：「内容由 AI 整理」只在**本档位确实走了 AI 且未降级**时才署名 ——
+    免费档情报来自公开 RSS 的本地分组，全程无 AI，署 AI 名即对功能能力的虚假陈述。 */}
       <View className={styles.disclaimerFooter}>
-        <Text className={styles.disclaimerText}>{t('common.disclaimer')}</Text>
+        <Text className={styles.disclaimerText}>
+          {t(intelResolved.aiEnabled && !intelResolved.degraded ? 'common.disclaimerAI' : 'common.disclaimer')}
+        </Text>
       </View>
 
       <View className={classnames(styles.inputBar, isH5 && styles.h5Fix, isH5 && 'h5Fixed')}>

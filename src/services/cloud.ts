@@ -263,7 +263,12 @@ export async function callFunction<T = unknown>(
         }
         briefing.intel = intel
       } catch (err) {
-        console.warn('[Cloud] briefing intel patch failed, keep mock:', err)
+        // 不静默失败（AGENTS.md:215）：原来这里只 console.warn 然后放行，
+        // 结果 `briefing.intel` 保持 undefined —— 页面只知道「没数据」，
+        // 分不清是「用户还没转发内容」还是「云端没接通」。二者对用户的下一步动作完全不同。
+        // 记下 degraded:true，让晨报空态能如实说明原因（消费点：pages/briefing 的 EmptyState hint）。
+        briefing.intel = { subscribed: false, weather: null, intelItems: [], degraded: true, aiEnabled: false }
+        console.warn('[Cloud] briefing intel patch failed, mark degraded:', err)
       }
       return briefing as T
     }

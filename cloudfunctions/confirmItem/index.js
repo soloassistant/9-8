@@ -7,6 +7,9 @@ const FREE_COLLECTION_QUOTA = 50;
 
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
+  // 取不到微信上下文就拒绝：本函数往 events / todos / items 三个集合写 openid，
+  // openid 为 undefined 会让所有无上下文调用方的记录混在同一个桶里、并共用同一份配额。
+  if (!OPENID) throw new Error('no openid');
   const { events = [], todos = [], collection } = event || {};
   const now = new Date().toISOString();
   let saved = 0;

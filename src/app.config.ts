@@ -27,9 +27,12 @@ export default defineAppConfig({
     'pages/learnCommunity/index'
   ],
   // 定位权限（weapp 生效，H5 忽略）：晨报天气城市自动定位
+  // ⚠️ 文案必须与 location.ts 的真实行为一致（2026-10-12 合规修正）：
+  // 原文写「坐标不存储」——不存储属实，但**漏了会把坐标发给第三方**做逆地理编码，
+  // 属于告知不完整。微信授权弹层的文案是用户决定是否授权的唯一依据，不能只说对自己有利的部分。
   permission: {
     'scope.userLocation': {
-      desc: '用于获取你所在城市的天气和晨报，坐标不存储'
+      desc: '用于获取你所在城市的天气和晨报。坐标会发送至第三方地图服务解析出城市名，不做存储'
     }
   },
   requiredPrivateInfos: ['getLocation'],

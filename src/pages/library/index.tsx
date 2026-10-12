@@ -946,12 +946,19 @@ function LibraryPage() {
           </View>
           {!searchMode && hotMeta ? (
             <View className={styles.dataMetaBar}>
+              {/* 源名**必须限量**：登录态实测 640px 视口下 23 个源名铺满 4 行，
+                  把首屏的资讯全挤走了（2026-10-12）。这里只列前 3 个 + 总数，
+                  完整清单在「我的」页与 AI 标识说明里可查。 */}
               <Text className={styles.dataMetaText}>
-                {t('library.dataUpdated')} {dayjs(hotMeta.updatedAt || Date.now()).format('HH:mm')}
+                {t('library.dataUpdated')} {dayjs(hotMeta.updatedAt || Date.now()).format('MM-DD HH:mm')}
                 {hotMeta.stale ? ` · ${t('library.dataStale')}` : ''}
-                {hotMeta.sources.length
-                  ? ` · ${t('library.dataSources')}${hotMeta.sources.filter((s) => s.ok).map((s) => s.name).join('/')}`
-                  : ''}
+                {(() => {
+                  const okNames = hotMeta.sources.filter((s) => s.ok).map((s) => s.name);
+                  if (!okNames.length) return '';
+                  const shown = okNames.slice(0, 3).join('/');
+                  const rest = okNames.length - 3;
+                  return ` · ${t('library.dataSources')}${shown}${rest > 0 ? t('library.dataSourcesMore').replace('{n}', String(rest)) : ''}`;
+                })()}
               </Text>
             </View>
           ) : null}

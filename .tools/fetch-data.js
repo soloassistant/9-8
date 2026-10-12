@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 // 热榜板块的零依赖取数实现（自带 6 个板块：4 个垂类 + 2 个综合榜）
 const { fetchAllBoards } = require('./boards-core.js');
+// 与云函数共用同一份信任过滤规则（小程序端 / 线上 H5 站点两条链路不能各判各的）
+const { filterNewsItems } = require('../cloudfunctions/webSearch/news-trust.js');
 
 const FETCH_TIMEOUT = 8000;
 
@@ -31,8 +33,26 @@ function clean(s) {
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
     .replace(/<[^>]+>/g, '')
+    // 剥完标签仍可能残留**落单的尖括号**：部分源（如 InfoQ）的 description 里
+    // 写着「…查看原文&lt;/a&gt;」这类不闭合标签，`<[^>]+>` 匹配不到它们，
+    // 于是结尾留下一个孤零零的「>」。2026-10-12 实测 198 条里有 10 条（5.1%）这样。
+    // 正文里出现裸尖括号没有任何合法用途，直接清掉。
+    .replace(/[<>]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** 按 Unicode 码点截断并补省略号。
+ *
+ *  为什么不用 `slice()`（2026-10-12 内容质量审计）：
+ *   ① `slice` 按 UTF-16 码元切，会把 emoji / 生僻字的代理对切成两半 → 落库即 U+FFFD 乱码；
+ *   ② 硬切后正文戛然而止，读者分不清「摘要本来就短」还是「被截断了」——
+ *      实测线上 198 条里 77 条摘要长度恰好等于上限，一条省略号都没有。
+ *  省略号本身占 1 个码点，故在 max-1 处截，保证输出长度不超过 max。 */
+function clampText(s, max) {
+  const chars = Array.from(String(s == null ? '' : s));
+  if (chars.length <= max) return chars.join('');
+  return chars.slice(0, Math.max(0, max - 1)).join('') + '…';
 }
 
 /** 极简 RSS 解析（无依赖）。tag / pubDate 口径与 static-server.js 的 parseRss 完全一致：
@@ -51,7 +71,7 @@ function parseRss(xml, source, limit, tag) {
     out.push({
       id: 'rss_' + hash(source + title),
       title,
-      summary: (desc || title).slice(0, 80),
+      summary: clampText(desc || title, 80),
       source,
       url: link,
       tags: tag ? [tag] : [],
@@ -225,8 +245,22 @@ async function fetchHotspot() {
     }
   }
 
+  // 内容信任过滤（2026-12 修复）：此前本链路**完全没有**信任过滤，而小程序端（走 webSearch 云函数）有。
+  // 产出 dist/api/hotspot.json 的是这里 —— 也就是线上 H5/gh-pages 站点真正读的那份数据。
+  // 后果：一条被投毒的 RSS 条目能绕过小程序端的过滤，直接进线上站点、进用户视野。
+  // 现在 require 的是与云函数**同一份** rules（cloudfunctions/webSearch/news-trust.js），不可能再发散。
+  // 位置放在跨源合并之后、pubDate 剥离之前：此时 entry 仍带 pubDate，可被 NEWS_TRUST_* 全字段判定。
+  const trust = filterNewsItems(merged, { label: 'fetch-data' });
+  dropped.untrusted = trust.dropped.length;
+  if (trust.dropped.length) {
+    dropped.trustReasons = trust.dropped.reduce((acc, d) => {
+      acc[d.reason] = (acc[d.reason] || 0) + 1;
+      return acc;
+    }, {});
+  }
+
   // 剥离内部字段：pubDate 只用于上面的新鲜度闸门，不进入响应契约（与 static-server.js 同口径）
-  const items = merged.map(({ pubDate, ...rest }) => rest);
+  const items = trust.kept.map(({ pubDate, ...rest }) => rest);
   return {
     items,
     meta: { updatedAt: new Date().toISOString(), stale: false, sources: srcStatus, dropped, boards }

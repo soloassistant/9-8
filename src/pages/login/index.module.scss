@@ -156,6 +156,39 @@
   color: $color-error;
 }
 
+/* 个保法「明示同意」：整块可点，扩大勾选热区 */
+.privacyRow {
+  display: flex;
+  align-items: flex-start;
+  margin-top: $spacing-md;
+  padding: $spacing-xs;
+}
+
+.privacyBox {
+  font-size: $font-size-md;
+  line-height: $line-height-normal;
+  margin-right: $spacing-xs;
+}
+
+.privacyBody {
+  flex: 1;
+}
+
+.privacyText {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+.privacyAgree {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
 .submit {
   margin-top: $spacing-lg;
   height: $button-height-lg;

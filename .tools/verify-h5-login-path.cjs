@@ -144,9 +144,13 @@ function check(name, cond, detail) {
   api.__setSession(SESSION_REAL_H5);
   const pr = await api.apiLogin();
   check('A2b 真实 H5 会话（无 email）不抛错', !!pr, 'ok');
+  // ⚠️ 这条断言的期望值在 2026-10-12 被**反转**了，因为它原先钉住的正是缺陷本身：
+  //   旧期望 `pr.nickname === 'uid-real'` —— 即「无 email 时把原始账号 id 前 8 位当昵称」。
+  //   登录态实测确认后果：晨报页显示「uid-real，中午好」、我的页显示「uid-real免费版用户」。
+  //   现在期望：纯数字 id 也走脱敏（ui***al），整串 id 绝不出现。
   check(
-    'A2b 无 email 时昵称回落 id 前 8 位（脱敏邮箱分支不可达，见上方 SDK 依据）',
-    pr.nickname === 'uid-real',
+    'A2b 无 email 时昵称是**脱敏后的 id**，不是 id 原文',
+    pr.nickname !== 'uid-real' && !String(pr.nickname).includes('real') && /\*{3}/.test(pr.nickname || ''),
     `nickname=${pr.nickname}`
   );
 

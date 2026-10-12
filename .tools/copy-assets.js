@@ -117,7 +117,27 @@ copySxm();
  */
 async function ensureHotspotFallback() {
   if (fs.existsSync(HOTSPOT_OUT)) {
-    console.log(`[copy-assets] hotspot fallback: 已在位 ${fs.statSync(HOTSPOT_OUT).size} B`);
+    // 存在 ≠ 新鲜（2026-10-12 实测踩坑）：本函数过去只看文件在不在，于是 dist 里那份
+    // 线上下载回来的 198 条旧快照被反复原样打包上线 —— 它含 5.1% 的半截 HTML，
+    // 而修复后本地抓的 220 条干净数据一直躺在 .tools 里进不了产物。
+    // 只告警不阻断：数据保旧比重建失败更糟，但「以为发的是新数据」必须让人看见。
+    try {
+      const parsed = JSON.parse(fs.readFileSync(HOTSPOT_OUT, 'utf8'));
+      const n = Array.isArray(parsed.items) ? parsed.items.length : 0;
+      const ageH = Math.round((Date.now() - fs.statSync(HOTSPOT_OUT).mtimeMs) / 3600000);
+      console.log(
+        `[copy-assets] hotspot fallback: 已在位 ${fs.statSync(HOTSPOT_OUT).size} B` +
+          ` / ${n} 条 / 文件年龄 ${ageH}h / 数据 updatedAt=${parsed.updatedAt || '(无)'}`
+      );
+      if (ageH >= 12) {
+        console.warn(
+          `[copy-assets] ⚠ hotspot 数据已放置 ${ageH} 小时。若 fetch-data 已跑过，请把新数据复制到 ` +
+            `${HOTSPOT_OUT}，否则会把旧快照原样发布上线。`
+        );
+      }
+    } catch (e) {
+      console.warn(`[copy-assets] hotspot 已存在但无法解析（${String(e.message || e)}），交由 fallback 处理`);
+    }
     return;
   }
   try {
@@ -133,6 +153,19 @@ async function ensureHotspotFallback() {
       `[copy-assets] hotspot fallback restored: ${buf.length} B, ` +
         `${parsed.items.length} items, updatedAt=${parsed.updatedAt || '(无)'}`
     );
+    // ⚠️ 这条路径意味着：**本次构建发的不是本地抓的数据，是线上 gh-pages 此刻的那份**。
+    // 而 `taro build --type h5` 会清空 dist，所以每次构建都会走这里 ——
+    // 只要 gh-pages 上的数据是旧的（修复没推上去、或定时刷新失败），每次构建都会把旧数据原样上线。
+    // 2026-10-12 实测：本地 fetch-data 已修好摘要里的半截 HTML，但 git 不可用、修复没推到 main，
+    // gh-pages 仍是修复前的 198 条（5.1% 半截 HTML），而本机 build 把它原样烤进了产物。
+    const dataAgeH = Math.round((Date.now() - Date.parse(parsed.updatedAt || '')) / 3600000);
+    if (!parsed.updatedAt || !Number.isFinite(dataAgeH) || dataAgeH >= 12) {
+      console.warn(
+        `[copy-assets] ⚠ 本次构建的热点数据来自线上快照${Number.isFinite(dataAgeH) ? `（已放置 ${dataAgeH} 小时）` : ''}，` +
+          `共 ${parsed.items.length} 条。若 .tools/fetch-data.js 的修复尚未提交推送，` +
+          `gh-pages 会一直供旧数据，构建也会一直发旧数据 —— 先 commit + push 再重建。`
+      );
+    }
   } catch (err) {
     console.warn(
       `[copy-assets] hotspot fallback MISSING (${(err && err.message) || err}) ` +

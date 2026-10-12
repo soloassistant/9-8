@@ -3,7 +3,7 @@
 .page {
   min-height: 100vh;
   background: $color-bg-page;
-  padding: $spacing-md $page-padding 80rpx;
+  padding: $spacing-md $page-padding $page-pad-bottom-tab;
 }
 
 .howTo {
@@ -50,6 +50,11 @@
   padding: $spacing-md;
   font-size: $font-size-md;
   box-sizing: border-box;
+
+  /* 去掉浏览器原生 textarea 的右下角拖拽手柄。
+     小程序端没有这个控件，H5 端露出来会显得是坏的（2026-10-12 登录态实测截图），
+     且用户拖出来的高度会破坏下面「添加截图」按钮的布局。 */
+  resize: none;
 }
 
 /* 截图/图片输入 */

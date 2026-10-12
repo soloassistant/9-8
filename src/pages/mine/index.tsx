@@ -365,9 +365,20 @@ function MinePage() {
       // B-01：首次成功订阅 → 打标早鸟锁价（已锁价时内部自动跳过覆盖）
       setLocked(lockPrice(order.planId, order.price));
       // TODO：微信支付需要主体资质与商户号，接入后替换为 Taro.requestPayment(order.payment)
+      //
+      // ⚠️ 2026-10-12 增长审计发现的公开事故隐患：
+      //   原文案是「开发环境提示 / 已创建模拟订单」，它**没有区分环境**。
+      //   线上有真实流量的站点上，用户点「立即订阅」看到「开发环境」四个字，
+      //   截图一传就是公关事故。而且全仓库 `subscribed: true` 零命中 ——
+      //   没有任何代码路径能把用户真正置为订阅者，所以这条路径目前 100% 收款失败。
+      //   现在按环境分流：非生产环境才说「开发环境」，生产环境只说「支付尚未开放」，
+      //   避免把内部实现细节暴露给付费意愿最强的用户。
+      const isProd = process.env.NODE_ENV === 'production';
       Taro.showModal({
-        title: '开发环境提示',
-        content: `已创建模拟订单：${PLAN_LIST.find((p) => p.id === planId)?.label} ¥${order.price}。微信支付将在主体资质就绪后接入。`,
+        title: isProd ? '支付功能即将开放' : '开发环境提示',
+        content: isProd
+          ? `${PLAN_LIST.find((p) => p.id === planId)?.label} ¥${order.price} 已为你预留。微信支付正在开通中，开放后我们会第一时间通知你。`
+          : `已创建模拟订单：${PLAN_LIST.find((p) => p.id === planId)?.label} ¥${order.price}。微信支付将在主体资质就绪后接入。`,
         showCancel: false
       });
     } catch (err) {

@@ -26,3 +26,17 @@
   text-align: center;
   line-height: $line-height-loose;
 }
+
+// 空态主行动按钮：让「去收件箱」这种指令真的可点（2026-10-12 增长审计）
+.action {
+  margin-top: $spacing-lg;
+  padding: $spacing-sm $spacing-xl;
+  background: $color-primary;
+  border-radius: $radius-button;
+}
+
+.actionText {
+  font-size: $font-size-md;
+  color: #fff;
+  line-height: $line-height-normal;
+}

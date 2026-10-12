@@ -20,15 +20,32 @@ export function listCollections(): CollectionItem[] {
   return load();
 }
 
-/** 新增收藏（时间倒序，最新在前） */
-export function addCollection(item: Omit<CollectionItem, 'id' | 'createTime'>): CollectionItem {
+/** 新增收藏（时间倒序，最新在前）
+ *
+ * ⚠️ `opts.quota` 是**付费墙的唯一硬边界**（2026-10-12 增长审计）：
+ *   「我的」页一直显示「收藏空间 0/50」，但旧实现**完全不校验** ——
+ *   用户存到第 51 条照样成功，于是「50 条」只是个展示数字，订阅缺少触发理由。
+ *   不传 `quota` 时保持旧行为（不拦），避免影响内部/测试调用方。
+ *   超限时**抛错而不静默丢弃** —— 调用方据此给出可操作的提示。 */
+export function addCollection(
+  item: Omit<CollectionItem, 'id' | 'createTime'>,
+  opts?: { quota?: number }
+): CollectionItem {
+  const quota = opts && typeof opts.quota === 'number' ? opts.quota : 0;
+  const existing = load();
+  if (quota > 0 && existing.length >= quota) {
+    const err = new Error('collection-quota-exceeded');
+    (err as Error & { quota?: number; current?: number }).quota = quota;
+    (err as Error & { quota?: number; current?: number }).current = existing.length;
+    throw err;
+  }
   const full: CollectionItem = {
     ...item,
     id: `col-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     createTime: new Date().toISOString()
   };
   try {
-    Taro.setStorageSync(STORE_KEY, [full, ...load()]);
+    Taro.setStorageSync(STORE_KEY, [full, ...existing]);
   } catch (err) {
     console.warn('[collectionStore] save failed:', err);
   }

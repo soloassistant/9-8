@@ -3,7 +3,7 @@
 .page {
   min-height: 100vh;
   background: $color-bg-page;
-  padding: $spacing-md 0 80rpx;
+  padding: $spacing-md 0 $page-pad-bottom-tab;
 }
 
 .sectionBar {

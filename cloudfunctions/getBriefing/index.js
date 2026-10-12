@@ -323,9 +323,16 @@ async function pushPriceAlert(openid, alerts) {
  */
 async function attachIntel(openid, tripCity) {
   try {
+    // S-1 安全修复（2026-10-12）：webSearch 不再接受客户端自传的 openid，服务端代传必须
+    // 携带 INTERNAL_CALL_TOKEN。该变量需在 getBriefing 与 webSearch **两个云函数的环境变量里
+    // 配成同一个值**；未配置时 webSearch 会拒掉本调用（返回 no openid），此处显式告警。
+    const token = process.env.INTERNAL_CALL_TOKEN;
+    if (!token) {
+      console.error('[getBriefing] INTERNAL_CALL_TOKEN 未配置，attachIntel 会被 webSearch 拒绝 —— 请在两个云函数的环境变量中配置同一个值');
+    }
     const res = await cloud.callFunction({
       name: 'webSearch',
-      data: { action: 'briefing', openid, tripCity: tripCity || undefined }
+      data: { action: 'briefing', openid, tripCity: tripCity || undefined, __internalToken: token }
     });
     const payload = res && res.result;
     if (payload && payload.code === 0 && payload.data) return payload.data;
