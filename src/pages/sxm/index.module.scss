@@ -1,0 +1,412 @@
+@use '@/styles/variables.scss' as *;
+
+/* 说明：本文件沿用全站既有写法 —— 尺寸一律用 rpx（配 src/styles 的共享变量），
+   绝不写小写裸 px（Taro pxtransform 会把它按 375 设计稿换算，尺寸会差一倍）。 */
+
+.page {
+  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, var(--brand-soft, #{$color-bg-header}) 0%, $color-bg-page 360rpx);
+}
+
+.header {
+  padding: $spacing-lg $page-padding $spacing-sm;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.title {
+  font-size: $font-size-xl;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.subtitle {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+/* ---------- 分栏 ---------- */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $page-padding;
+}
+
+.tab,
+.tabActive {
+  flex: 1;
+  height: $button-height-sm;
+  border-radius: $radius-button;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: $color-bg-card;
+  border: 2rpx solid $color-border;
+}
+
+.tabActive {
+  background: var(--brand, #{$color-primary});
+  border-color: var(--brand, #{$color-primary});
+}
+
+.tabText {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-text-secondary;
+}
+
+.tabActive .tabText {
+  color: $color-text-white;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+}
+
+.section {
+  padding: $spacing-sm $page-padding 120rpx;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.sectionTitle {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-top: $spacing-sm;
+}
+
+/* ---------- 输入 ---------- */
+.fieldRow {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.fieldLabel {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.input {
+  height: $button-height-md;
+  background: $color-bg-card;
+  border-radius: $radius-button;
+  padding: 0 $spacing-lg;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  border: 2rpx solid $color-border;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.chipBlock {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.chipHint {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+}
+
+.chip {
+  padding: $spacing-xs $spacing-md;
+  background: $color-bg-card;
+  border: 2rpx solid $color-border;
+  border-radius: $radius-round;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.chipText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+/* ---------- 日期 ---------- */
+.dateRow {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.dateBox {
+  height: $button-height-md;
+  background: $color-bg-card;
+  border-radius: $radius-button;
+  border: 2rpx solid $color-border;
+  display: flex;
+  align-items: center;
+  padding: 0 $spacing-lg;
+  box-sizing: border-box;
+}
+
+.dateValue {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.dateNote {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+/* ---------- 提示 / 结论 ---------- */
+.warnCard {
+  padding: $spacing-md $spacing-lg;
+  background: $color-event-bg;
+  border-left: 6rpx solid $color-warning;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+}
+
+.warnText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.hintCard {
+  padding: $spacing-md $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+}
+
+.hintText {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+.resultCard {
+  padding: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.resultRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.resultLabel {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.kmValue {
+  font-size: $font-size-xl;
+  font-weight: $font-weight-bold;
+  color: var(--brand, #{$color-primary});
+}
+
+.verdictRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.verdictLabel {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.verdictPick {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-secondary;
+  background: $color-todo-bg;
+  padding: 2rpx $spacing-sm;
+  border-radius: $radius-xs;
+}
+
+.verdictText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* ---------- 耗时粗估 ---------- */
+.estimateCard {
+  padding: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.estimateRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.estimateLabel {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.estimateValue {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.noteText {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+/* ---------- 平台卡 ---------- */
+.platformCard {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.pfBadge {
+  flex-shrink: 0;
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: $radius-md;
+  background: var(--brand-soft, #{$color-bg-header});
+  color: var(--brand, #{$color-primary});
+  font-size: $font-size-md;
+  font-weight: $font-weight-bold;
+  text-align: center;
+  line-height: 72rpx;
+}
+
+.pfMain {
+  // min-width: 0 不能省：不加它，长描述会把 flex 行撑破、把右侧动作挤出去
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.pfName {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.pfTag {
+  font-size: $font-size-xs;
+  font-weight: $font-weight-normal;
+  color: $color-text-tertiary;
+  margin-left: $spacing-xs;
+}
+
+.pfDesc {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+.pfWarn {
+  font-size: $font-size-xs;
+  color: $color-warning;
+  line-height: $line-height-normal;
+}
+
+.pfAction,
+.pfActionDisabled {
+  flex-shrink: 0;
+  padding: $spacing-xs $spacing-md;
+  border-radius: $radius-button;
+  background: var(--brand, #{$color-primary});
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.pfActionDisabled {
+  background: $color-text-disabled;
+  opacity: 0.7;
+}
+
+.pfActionText {
+  font-size: $font-size-xs;
+  font-weight: $font-weight-medium;
+  color: $color-text-white;
+  white-space: nowrap;
+}
+
+/* ---------- 清单 ---------- */
+.listItem {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-md;
+  padding: $spacing-md $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+}
+
+.listIndex,
+.listName {
+  flex-shrink: 0;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: var(--brand, #{$color-primary});
+}
+
+.listName {
+  min-width: 140rpx;
+}
+
+.listText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* ---------- 比价声明 ---------- */
+.disclaimer {
+  padding: $spacing-md $spacing-lg;
+  background: $color-event-bg;
+  border-left: 6rpx solid $color-warning;
+  border-radius: $radius-md;
+}
+
+.disclaimerText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}

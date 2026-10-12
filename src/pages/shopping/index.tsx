@@ -32,6 +32,10 @@ const PRICE_PATTERN = /([一-龥A-Za-z]+)\s*([\d.,]+)/;
 /** 降价提醒 toast 停留时长（ms） */
 const ALERT_TOAST_MS = 3000;
 
+/** 省心买已在小程序端原生重做，入口改为页面内跳转；H5 端保持"浏览器打开网页版"不变 */
+const isH5 = process.env.TARO_ENV === 'h5';
+const SXM_NATIVE_PATH = '/pages/sxm/index';
+
 /** 结果区条目（P-03：isAd 区分 AI 推荐与推广内容，两者不得混排在同一张卡片内） */
 interface ResultEntry {
   id: string;
@@ -292,7 +296,9 @@ function ShoppingPage() {
           })
         )}
 
-        {/* 关联产品入口：省心买是独立网页版产品（H5 端已挂到同源子页 /sxm/），这里只做入口。
+        {/* 关联产品入口：省心买是独立产品。H5 端它挂在同源子页 /sxm/，点开在浏览器打开；
+            小程序端已**原生重做**（pages/sxm/index，见阶段 B 第一期），改为页面内跳转，
+            不再让用户"复制链接再自己开浏览器"。
             放在推广区块**之前**，避免把「广告」标签挤到页面中部、破坏 P-03 的"推广只在末尾"约定。 */}
         <View className={styles.partnerBlock}>
           <PartnerSectionHeader />
@@ -301,6 +307,8 @@ function ShoppingPage() {
             title={t('partner.sxmTitle')}
             desc={t('partner.sxmDesc')}
             url={SXM_ENTRY_URL}
+            onTap={isH5 ? undefined : () => Taro.navigateTo({ url: SXM_NATIVE_PATH })}
+            actionText={isH5 ? undefined : t('partner.sxmOpen')}
           />
         </View>
 
