@@ -14,6 +14,7 @@
  */
 import Taro from '@tarojs/taro';
 import type { LangKey } from '../store/language';
+import { currentMonth } from './date';
 
 /** 订阅方案（与 `types/index.ts` 的 `PayOrder['planId']` 保持一致，此处就近定义避免改动公共类型） */
 export type PlanId = 'earlybird_monthly' | 'monthly' | 'yearly';
@@ -79,17 +80,16 @@ export interface PriceChangeNotice {
 /* 基础工具                                                             */
 /* ------------------------------------------------------------------ */
 
-/** 取今天 'YYYY-MM-DD'（本地时区，云函数侧同样用原生 Date 口径） */
+/** 取今天 'YYYY-MM-DD'（本地时区，云函数侧同样用原生 Date 口径；月部分统一走 currentMonth） */
 function today(): DateStr {
   const d = new Date();
-  const month = `${d.getMonth() + 1}`.padStart(2, '0');
   const day = `${d.getDate()}`.padStart(2, '0');
-  return `${d.getFullYear()}-${month}-${day}`;
+  return `${currentMonth(d)}-${day}`;
 }
 
 /** 金额展示：¥9.9（去掉多余小数位，避免出现 ¥88.0） */
 export function formatPrice(price: number): string {
-  if (typeof price !== 'number' || !isFinite(price)) return '¥--';
+  if (typeof price !== 'number' || !Number.isFinite(price)) return '¥--';
   const rounded = Math.round(price * 100) / 100;
   return `¥${Number(rounded.toFixed(2))}`;
 }
@@ -107,7 +107,7 @@ export function lockPrice(planId: PlanId, price: number): LockedPriceInfo {
   if (prev && prev.active) return prev;
   const info: LockedPriceInfo = {
     planId,
-    price: typeof price === 'number' && isFinite(price) ? price : EARLYBIRD_PRICE[planId],
+    price: typeof price === 'number' && Number.isFinite(price) ? price : EARLYBIRD_PRICE[planId],
     lockedAt: today(),
     active: true
   };

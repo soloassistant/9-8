@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { create } from 'zustand';
 import Taro from '@tarojs/taro';
 
@@ -23,6 +24,7 @@ const zh = {
   'common.itemCount': '项',
 
   'mine.avatarEdit': '点头像',
+  'mine.avatarAlt': '用户头像',
   'mine.subTitle': '订阅私人晨报助理',
   'mine.quotaTitle': '本月额度',
   'mine.quotaVoice': '🎙 语音对话',
@@ -165,7 +167,7 @@ const zh = {
   'mine.freeUser': '免费版用户',
   'mine.earlyBirdBadge': '早鸟会员',
   'mine.memberBadge': '订阅会员',
-  'mine.priceNote': '/月 起 · 前 500 名锁价（当前：{plan}）',
+  'mine.priceNote': '/月 起 · 前 500 名锁价（早鸟价）',
   'mine.subscribe': '立即订阅',
   'mine.subscribing': '下单中…',
   'mine.unlimited': '不限量',
@@ -189,6 +191,19 @@ const zh = {
   'ai.placeholder': '输入指令，如「帮我把评审会挪到明天」',
   'ai.send': '发送',
   'ai.fallbackReply': '抱歉，我刚刚走神了，请再说一次。',
+  'ai.greeting': '你好，我是你的 AI 助理 🤖 需要我帮你做点什么？',
+  'ai.greetingWithSuggestion': '你好，我是你的 AI 助理 🤖\n\n需要我帮你做点什么？比如：「{hint}」',
+  'ai.memorySourceSeed': '初始',
+  'ai.memorySourceChat': '对话',
+  'ai.suggest.briefing': '帮我梳理一下今天的时间安排',
+  'ai.suggest.inbox': '帮我把转发的内容提取成日程和待办',
+  'ai.suggest.hotspot': '帮我总结一下今天的热点新闻',
+  'ai.suggest.calendar': '把今天的待办整理给我看看',
+  'ai.suggest.mine': '介绍一下订阅方案和语音额度',
+  'ai.suggest.search': '告诉我你想找什么，我帮你搜',
+  'ai.suggest.history': '看看我最近浏览过什么',
+  'ai.suggest.settings': '帮我检查一下我的设置',
+  'ai.suggest.shopping': '帮我看下购物清单，哪些值得跟进比价',
 
   'briefing.sectionToday': '今日日程',
   'briefing.sectionTodo': '待办',
@@ -355,10 +370,36 @@ const zh = {
   'calendar.rescheduleSaved': '已重排 {n} 条日程',
   'calendar.rescheduleFailed': '重排失败，请稍后再试',
   'calendar.rescheduleNoSlot': '当天没有可用空闲时段',
+  'calendar.enterTitleFirst': '先填写事项名称',
+  'calendar.addedEvents': '已添加日程（{n} 条）',
+  'calendar.addFailed': '添加失败，请重试',
+  'calendar.weappOnlyCalendar': '微信端可写入手机日历',
+  'calendar.noEventsToday': '当天没有日程',
+  'calendar.writtenEvents': '已写入 {n} 条日程',
+  'calendar.writeFailed': '写入失败，请检查日历权限',
+  'calendar.prevMonth': '上个月',
+  'calendar.nextMonth': '下个月',
+  'calendar.today': '今天',
+  'calendar.writeToPhone': '写入手机日历',
+  'calendar.manualAddPlaceholder': '手动添加日程，如：产品评审会',
+  'calendar.addBtn': '添加',
+  'calendar.emptyDayTitle': '这一天没有安排',
+  'calendar.emptyDayHint': '转发消息到收件箱，或直接告诉助理帮你安排',
+  'calendar.sourcePrefix': '来源：',
+  'calendar.monthFormat': '{y}年{m}月',
+  'calendar.dateFormat': '{m}月{d}日',
+  'calendar.weekdaysHead': '日|一|二|三|四|五|六',
+  'calendar.weekdays': '周日|周一|周二|周三|周四|周五|周六',
 
   'search.loading': '加载中…',
   'search.empty': '输入关键词，找回你存过的任何东西',
   'search.placeholder': '搜索日程、待办、收藏…',
+  'search.found': '已找到「{q}」',
+  'search.noResult': '没有找到与「{q}」相关的内容',
+  'search.groupEvents': '📅 日程 · {n}',
+  'search.groupTodos': '✅ 待办 · {n}',
+  'search.groupFavorites': '🔖 收藏 · {n}',
+  'search.noDue': '无截止',
 
   'history.title': '浏览历史',
   'history.hint': '你看过的热点资讯都会留在这里，只保存在你的手机上',
@@ -386,6 +427,8 @@ const zh = {
   'perm.repeatDeniedLoc': '你已多次拒绝位置权限，可随时在设置中开启后获取本地天气。',
   'perm.platformUnsupported': '当前平台不支持该设置',
   'cancel': '取消',
+  'common.loadFailed': '加载失败，请稍后重试',
+  'common.writeFailed': '暂时无法写入，请稍后再试',
 
   /* ---- v1.2 · 语音交互（V-01~V-04）---- */
   'voice.listening': '正在聆听…',
@@ -464,7 +507,7 @@ const zh = {
 
   /* ---- v1.2 · 订阅锁价与调价（B-*）+ 记忆管理（M-*）+ 注销（C-04）---- */
   'mine.lockTitle': '早鸟锁价',
-  'mine.lockBody': '早鸟锁价：你现在订阅的价格将长期有效。即使未来价格调整，你的续费价格保持不变，直至你主动取消订阅。',
+  'mine.lockBody': '你现在订阅的价格将长期有效。即使未来价格调整，你的续费价格保持不变，直至你主动取消订阅。',
   'mine.lockLose': '若你主动取消后重新订阅，将按当时的最新价格执行。',
   'mine.priceChangeTitle': '订阅价格即将调整',
   'mine.priceChangeLocked': '我们将于 {date} 起调整订阅价格。你属于早期订阅用户，续费价格不受影响，仍为 ¥{price}。如需取消，可在「我的 - 订阅管理」中操作。',
@@ -676,7 +719,17 @@ const zh = {
   'auth.privacyNotice': '邮箱仅用于账号登录与晨报推送；位置信息只在你开启相关功能后采集，且不会用于广告。数据存放在你自己的账号下，可在「我的 - 注销账号」一键删除。',
   'auth.privacyAgree': '我已阅读并同意上述隐私说明',
   'auth.errPrivacy': '请先勾选同意隐私说明',
-  'auth.smsSentHint': '没收到？确认手机号无误，并检查是否被短信拦截'
+  'auth.smsSentHint': '没收到？确认手机号无误，并检查是否被短信拦截',
+
+  /* ---- 法务文本与 H5 首启同意层（诚实性：英文界面下必须说明以中文条款为准）---- */
+  // 法务原文只有中文版。英文界面下不能假装条款是英文的 —— 必须显式告知以中文版为准，
+  // 否则用户会以为他读到的是「英文条款」，那是不实告知。（2026-10-12 审计项：legal.ts 未本地化）
+  'legal.langNotice': '以下条款为中文原文。若英文界面的表述与中文条款有出入，以中文版为准。',
+  'consent.title': '服务协议与隐私政策',
+  'consent.declinedBody': '你未同意上述协议，暂时无法使用本服务。\n如改变主意，可点击下方「同意并继续」。',
+  'consent.hint': '继续使用前，请阅读并同意以上协议',
+  'consent.decline': '不同意',
+  'consent.agree': '同意并继续'
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -691,6 +744,7 @@ const en: Record<keyof typeof zh, string> = {
   'common.itemCount': 'items',
 
   'mine.avatarEdit': 'Tap avatar',
+  'mine.avatarAlt': 'User avatar',
   'mine.subTitle': 'Subscribe to Personal Morning Assistant',
   'mine.quotaTitle': 'Monthly Quota',
   'mine.quotaVoice': '🎙 Voice Chat',
@@ -834,7 +888,7 @@ const en: Record<keyof typeof zh, string> = {
   'mine.freeUser': 'Free plan user',
   'mine.earlyBirdBadge': 'Early Bird Member',
   'mine.memberBadge': 'Subscriber',
-  'mine.priceNote': '/mo starting · first 500 locked price (now: {plan})',
+  'mine.priceNote': '/mo starting · first 500 locked price (early-bird)',
   'mine.subscribe': 'Subscribe Now',
   'mine.subscribing': 'Ordering…',
   'mine.unlimited': 'Unlimited',
@@ -858,6 +912,19 @@ const en: Record<keyof typeof zh, string> = {
   'ai.placeholder': 'Type a command, e.g. "Move the review to tomorrow"',
   'ai.send': 'Send',
   'ai.fallbackReply': 'Sorry, I got distracted. Please say that again.',
+  'ai.greeting': "Hi, I'm your AI assistant 🤖 What can I help you with?",
+  'ai.greetingWithSuggestion': "Hi, I'm your AI assistant 🤖\n\nWhat can I help you with? For example: \"{hint}\"",
+  'ai.memorySourceSeed': 'Seeded',
+  'ai.memorySourceChat': 'Chat',
+  'ai.suggest.briefing': 'Help me organize my schedule for today',
+  'ai.suggest.inbox': 'Extract my forwarded content into events and to-dos',
+  'ai.suggest.hotspot': "Summarize today's top news for me",
+  'ai.suggest.calendar': "Show me today's to-dos, organized",
+  'ai.suggest.mine': 'Tell me about the subscription plans and voice quota',
+  'ai.suggest.search': "Tell me what to look for and I'll search",
+  'ai.suggest.history': 'Show me what I browsed recently',
+  'ai.suggest.settings': 'Help me review my settings',
+  'ai.suggest.shopping': "Check my shopping list and what's worth price-tracking",
 
   'briefing.sectionToday': "Today's Schedule",
   'briefing.sectionTodo': 'To-dos',
@@ -1020,10 +1087,36 @@ const en: Record<keyof typeof zh, string> = {
   'calendar.rescheduleSaved': 'Rescheduled {n} events',
   'calendar.rescheduleFailed': 'Reschedule failed, try again later',
   'calendar.rescheduleNoSlot': 'No free slot left that day',
+  'calendar.enterTitleFirst': 'Enter a title first',
+  'calendar.addedEvents': 'Added {n} events',
+  'calendar.addFailed': 'Failed to add, please try again',
+  'calendar.weappOnlyCalendar': 'Writing to your phone calendar is available in WeChat',
+  'calendar.noEventsToday': 'No events that day',
+  'calendar.writtenEvents': 'Wrote {n} events',
+  'calendar.writeFailed': 'Write failed, please check calendar permission',
+  'calendar.prevMonth': 'Previous month',
+  'calendar.nextMonth': 'Next month',
+  'calendar.today': 'Today',
+  'calendar.writeToPhone': 'Write to phone calendar',
+  'calendar.manualAddPlaceholder': 'Add an event, e.g. Product review',
+  'calendar.addBtn': 'Add',
+  'calendar.emptyDayTitle': 'Nothing scheduled this day',
+  'calendar.emptyDayHint': 'Forward a message to Inbox, or just ask the assistant to schedule it',
+  'calendar.sourcePrefix': 'Source: ',
+  'calendar.monthFormat': '{m}/{y}',
+  'calendar.dateFormat': '{m}/{d}',
+  'calendar.weekdaysHead': 'S|M|T|W|T|F|S',
+  'calendar.weekdays': 'Sun|Mon|Tue|Wed|Thu|Fri|Sat',
 
   'search.loading': 'Loading…',
   'search.empty': 'Search to find anything you saved',
   'search.placeholder': 'Search schedule, to-dos, saved…',
+  'search.found': 'Found "{q}"',
+  'search.noResult': 'No results for "{q}"',
+  'search.groupEvents': '📅 Schedule · {n}',
+  'search.groupTodos': '✅ To-dos · {n}',
+  'search.groupFavorites': '🔖 Saved · {n}',
+  'search.noDue': 'No due date',
 
   'history.title': 'Browsing History',
   'history.hint': 'Everything you viewed stays here, only on your phone',
@@ -1051,6 +1144,8 @@ const en: Record<keyof typeof zh, string> = {
   'perm.repeatDeniedLoc': 'You\'ve declined location access several times. Enable it in settings for local weather.',
   'perm.platformUnsupported': 'Not supported on this platform',
   'cancel': 'Cancel',
+  'common.loadFailed': 'Failed to load, please try again',
+  'common.writeFailed': 'Unable to save right now, please try again later',
 
   /* ---- v1.2 · 语音交互（V-01~V-04）---- */
   'voice.listening': 'Listening…',
@@ -1129,7 +1224,7 @@ const en: Record<keyof typeof zh, string> = {
 
   /* ---- v1.2 · 订阅锁价与调价（B-*）+ 记忆管理（M-*）+ 注销（C-04）---- */
   'mine.lockTitle': 'Early-bird price lock',
-  'mine.lockBody': 'Early-bird lock: the price you subscribe at stays valid. Even if prices change, your renewal price stays the same until you cancel.',
+  'mine.lockBody': 'The price you subscribe at stays valid. Even if prices change, your renewal price stays the same until you cancel.',
   'mine.lockLose': 'If you cancel and resubscribe later, the then-current price applies.',
   'mine.priceChangeTitle': 'Subscription price is changing',
   'mine.priceChangeLocked': 'Prices change on {date}. As an early subscriber your renewal stays ¥{price}. To cancel, go to Me › Subscription.',
@@ -1332,7 +1427,15 @@ const en: Record<keyof typeof zh, string> = {
   'auth.privacyNotice': 'Your email is used only to sign in and deliver your briefing. Location is collected only after you turn the related feature on, and is never used for advertising. Your data lives under your own account and can be deleted at any time under My - Delete account.',
   'auth.privacyAgree': 'I have read and agree to the privacy notice above',
   'auth.errPrivacy': 'Please agree to the privacy notice first',
-  'auth.smsSentHint': 'Not seeing it? Confirm the number, then check your SMS blocker'
+  'auth.smsSentHint': 'Not seeing it? Confirm the number, then check your SMS blocker',
+
+  /* ---- Legal text & H5 first-run consent (honesty: the Chinese terms govern) ---- */
+  'legal.langNotice': 'The terms below are the Chinese originals. Where the English interface wording differs, the Chinese version prevails.',
+  'consent.title': 'Terms of Service & Privacy Policy',
+  'consent.declinedBody': 'You have not agreed to the terms above, so the service is unavailable for now.\nChanged your mind? Tap "Agree and continue" below.',
+  'consent.hint': 'Please read and agree to the terms above before continuing',
+  'consent.decline': 'Decline',
+  'consent.agree': 'Agree and continue'
 };
 
 export type LangKey = keyof typeof zh;
@@ -1363,16 +1466,23 @@ try {
   console.warn('[LanguageStore] restore failed:', err);
 }
 
-/** 组件内取翻译函数：语言切换时自动触发重渲染；支持 {key} 参数插值 */
+/**
+ * 组件内取翻译函数：语言切换时自动触发重渲染；支持 {key} 参数插值。
+ * 用 useCallback 以 [lang] 固定 translator 标识：同一语言下引用恒定，
+ * 下游 memo/useCallback/useEffect 的依赖比较才有意义（此前每次渲染都是新函数）。
+ */
 export function useT() {
   const lang = useLanguageStore((s) => s.lang);
-  return (key: LangKey, params?: Record<string, string | number>): string => {
-    let str = dict[lang][key] ?? zh[key] ?? key;
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        str = str.split(`{${k}}`).join(String(v));
-      });
-    }
-    return str;
-  };
+  return useCallback(
+    (key: LangKey, params?: Record<string, string | number>): string => {
+      let str = dict[lang][key] ?? zh[key] ?? key;
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          str = str.split(`{${k}}`).join(String(v));
+        });
+      }
+      return str;
+    },
+    [lang]
+  );
 }

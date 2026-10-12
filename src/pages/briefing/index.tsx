@@ -48,14 +48,14 @@ import {
 } from '@/utils/readStreak';
 import type { ReadSectionKind, ReadSession } from '@/utils/readStreak';
 import { canPromptSubscribe, promptSubscribe, isSubscriptionStale } from '@/utils/subscribe';
-import type { Briefing, ChatMessage, ScheduleEvent } from '@/types';
+import type { Briefing, ChatMessage, ScheduleEvent, TodoItem } from '@/types';
 import { useT, useLanguageStore } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { readPrefs } from '@/utils/prefs';
-import styles from './index.module.scss';
 import shareCover from '@/assets/share-cover.png';
 // 订阅模板 id 集中配置（上线三件事）：空串 = 未配置，promptSubscribe 内部 noop
 import { SUBSCRIBE_TEMPLATE_ID } from '@/config/subscribe';
+import styles from './index.module.scss';
 
 const isWeapp = process.env.TARO_ENV === 'weapp';
 /** H5 预览端底部有 50px TabBar，输入栏需避让 */
@@ -381,6 +381,8 @@ function BriefingPage() {
   useEffect(() => {
     init();
     loadBriefing();
+    // 仅挂载执行一次：init 为 store 动作，loadBriefing 为 useCallback；语言切换无需重跑拉取，故二者都不列入 deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ---------------- v2.1 阅读计时与结算 ---------------- */
@@ -471,7 +473,9 @@ function BriefingPage() {
         readSessionRef.current = markSectionSeen(readSessionRef.current, kind);
       }
     });
-    // todaySchedule 由 briefing 派生；readSessionEpoch 保证每次进入页面都会重跑（会话重建）
+    // todaySchedule 由 briefing 派生，briefing 变化已覆盖其重算；且它声明在本组件后段（约 650 行），
+    // 渲染期在 deps 里引用会直接触发 TDZ 报错（TS2448/TS2454），故不列入；readSessionEpoch 保证每次进页面重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [briefing, readSessionEpoch]);
 
   usePullDownRefresh(async () => {
@@ -656,12 +660,16 @@ function BriefingPage() {
       location: e.location
     })),
     ...(briefing?.todos || [])
-      .filter((t) => t.dueDate && dayjs(t.dueDate).isSame(dayjs(), 'day'))
-      .map((t) => ({
+      // 类型谓词：把「filter 恰好滤掉了空 dueDate」这件事从**运行期巧合**升级成
+      // 类型系统保证，否则下面只能靠 `todo.dueDate!` 非空断言 —— 一旦 filter 条件被改动，
+      // 断言不会报错，运行期会静默把 undefined 当成时间塞进时间线。
+      // 注：这里的 `todo` 原名 `t`，会遮蔽上面的 i18n `t`（useT()），已改名以免误调用。
+      .filter((todo): todo is TodoItem & { dueDate: string } => Boolean(todo.dueDate) && dayjs(todo.dueDate).isSame(dayjs(), 'day'))
+      .map((todo) => ({
         kind: 'todo' as const,
-        id: t.id,
-        title: t.title,
-        time: t.dueDate!,
+        id: todo.id,
+        title: todo.title,
+        time: todo.dueDate,
         location: undefined as string | undefined
       }))
   ].sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf());
@@ -688,7 +696,10 @@ function BriefingPage() {
         });
         Taro.showToast({ title: t('habit.addedToast', { title: ev.title }), icon: 'none' });
       })
-      .catch(() => {});
+      .catch(() => {
+        /* 静默：showActionSheet 被用户取消时 reject，是正常操作而非错误；
+           createHabit 自身已把习惯落本地，失败亦无 UI 反馈诉求 */
+      });
   };
 
   /**
@@ -755,7 +766,7 @@ function BriefingPage() {
       setHabitProposal(null);
       loadBriefing(true); // 落库成功后强制重拉，同步更新当日缓存
     } else {
-      Taro.showToast({ title: '暂时无法写入，请稍后再试', icon: 'none' });
+      Taro.showToast({ title: t('common.writeFailed'), icon: 'none' });
     }
   };
 
@@ -800,7 +811,9 @@ function BriefingPage() {
   // 按分钟/600 计算填充比例（10 小时封顶）。busyMinutes 缺失（旧缓存数据）时返回 null，整块不渲染。
   const loadInfo = (() => {
     const mins = adaptive?.busyMinutes;
-    if (typeof mins !== 'number' || !isFinite(mins)) return null;
+    // Number.isFinite：上面已用 typeof 收窄为 number，两者对 number 行为完全一致，
+    // 且避免全局 isFinite 的隐式字符串强转（isFinite('5') === true）。
+    if (typeof mins !== 'number' || !Number.isFinite(mins)) return null;
     const count = typeof adaptive?.todayCount === 'number' ? adaptive.todayCount : todayEvents.length;
     const pct = Math.min(100, Math.round((mins / 600) * 100));
     const tier: 'low' | 'mid' | 'high' = mins >= 300 || count >= 4 ? 'high' : mins >= 150 ? 'mid' : 'low';
@@ -989,7 +1002,10 @@ function BriefingPage() {
             action={t('briefing.emptyCta')}
             onAction={() => {
               Taro.switchTab({ url: '/pages/inbox/index' }).catch(() => {
-                Taro.redirectTo({ url: '/pages/inbox/index' }).catch(() => {});
+                // 主通道（tab 跳转）失败时退回普通跳转；两条通道都失败才是真故障，必须留痕
+                Taro.redirectTo({ url: '/pages/inbox/index' }).catch((err) => {
+                  console.error('[BriefingPage] 跳转收件箱失败:', err);
+                });
               });
             }}
           />
@@ -1317,16 +1333,17 @@ function BriefingPage() {
       {showConsent ? (
         <View className={styles.consentMask}>
           <View className={styles.consentPanel}>
-            <Text className={styles.consentTitle}>服务协议与隐私政策</Text>
+            <Text className={styles.consentTitle}>{t('consent.title')}</Text>
             {consentDeclined ? (
               <View className={styles.consentDeclinedBox}>
-                <Text className={styles.consentDeclinedText}>
-                  你未同意上述协议，暂时无法使用本服务。
-                  {'\n'}如改变主意，可点击下方「同意并继续」。
-                </Text>
+                <Text className={styles.consentDeclinedText}>{t('consent.declinedBody')}</Text>
               </View>
             ) : (
               <ScrollView scrollY className={styles.consentBody}>
+                {/* 法务原文只有中文版：英文界面下必须先声明「以中文版为准」 */}
+                {lang === 'en' ? (
+                  <Text className={styles.consentText}>{`${t('legal.langNotice')}\n\n`}</Text>
+                ) : null}
                 <Text className={styles.consentText}>{PRIVACY_TEXT}</Text>
                 <Text className={styles.consentText}>{'\n\n'}</Text>
                 <Text className={styles.consentText}>{TERMS_TEXT}</Text>
@@ -1334,13 +1351,13 @@ function BriefingPage() {
                 <Text className={styles.consentText}>{AI_SERVICES_TEXT}</Text>
               </ScrollView>
             )}
-            <Text className={styles.consentHint}>继续使用前，请阅读并同意以上协议</Text>
+            <Text className={styles.consentHint}>{t('consent.hint')}</Text>
             <View className={styles.consentActions}>
               <Button className={styles.consentDecline} onClick={handleConsentDecline}>
-                不同意
+                {t('consent.decline')}
               </Button>
               <Button className={styles.consentAgree} onClick={handleConsentAgree}>
-                同意并继续
+                {t('consent.agree')}
               </Button>
             </View>
           </View>

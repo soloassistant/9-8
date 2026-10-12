@@ -27,8 +27,7 @@
   align-items: center;
   gap: $spacing-md;
   padding: 160rpx $page-padding 0;
-  color: $color-text-tertiary;
-  font-size: $font-size-sm;
+  @include text-tertiary-sm;
 
   .hintIcon {
     font-size: 72rpx;

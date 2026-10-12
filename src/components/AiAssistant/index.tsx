@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, Input, Image } from '@tarojs/components';
 import type { ITouchEvent } from '@tarojs/components';
 import Taro from '@tarojs/taro';
@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import classnames from 'classnames';
 import { apiChat, apiChatStream, apiApplyPlan, apiGetBriefing } from '@/services/api';
 import { useT } from '@/store/language';
+import type { LangKey } from '@/store/language';
 import { loadChatLog, saveChatLog } from '@/utils/chatLog';
 import { buildPlanProposal, type PlanProposal, type PlanProposalRaw, type PlanApplyEvent } from '@/utils/schedule';
 import { readMemory, writeMemory, undoMemory, memoryToast, MEMORY_UNDO_WINDOW_MS, type MemoryItem } from '@/utils/memory';
@@ -38,17 +39,17 @@ const getViewport = () => {
   }
 };
 
-/** 各页面上下文对应的默认主动建议 */
-const CONTEXT_HINTS: Record<string, string> = {
-  briefing: '帮我梳理一下今天的时间安排',
-  inbox: '帮我把转发的内容提取成日程和待办',
-  hotspot: '帮我总结一下今天的热点新闻',
-  calendar: '把今天的待办整理给我看看',
-  mine: '介绍一下订阅方案和语音额度',
-  search: '告诉我你想找什么，我帮你搜',
-  history: '看看我最近浏览过什么',
-  settings: '帮我检查一下我的设置',
-  shopping: '帮我看下购物清单，哪些值得跟进比价'
+/** 各页面上下文对应的默认主动建议（存 i18n key，渲染/发送时再取当前语言文案） */
+const CONTEXT_HINT_KEYS: Record<string, LangKey> = {
+  briefing: 'ai.suggest.briefing',
+  inbox: 'ai.suggest.inbox',
+  hotspot: 'ai.suggest.hotspot',
+  calendar: 'ai.suggest.calendar',
+  mine: 'ai.suggest.mine',
+  search: 'ai.suggest.search',
+  history: 'ai.suggest.history',
+  settings: 'ai.suggest.settings',
+  shopping: 'ai.suggest.shopping'
 };
 
 interface AiAssistantProps {
@@ -105,7 +106,7 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
   /** 自动弹出的主动建议每会话只弹一次，避免骚扰 */
   const hintShownRef = useRef(false);
 
-  const suggestion = useMemo(() => activeHint || CONTEXT_HINTS[context] || '', [activeHint, context]);
+  const suggestion = activeHint || (CONTEXT_HINT_KEYS[context] ? t(CONTEXT_HINT_KEYS[context]) : '');
 
   /** 主动建议气泡：动态建议即时显示；默认建议延迟一次；面板打开时隐藏 */
   useEffect(() => {
@@ -269,12 +270,12 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
         }
       } catch (err) {
         console.error('[AiAssistant] chat failed:', err);
-        push('assistant', '抱歉，我刚刚走神了，请再说一次。');
+        push('assistant', t('ai.fallbackReply'));
       } finally {
         setSending(false);
       }
     },
-    [sending, push, appendMsg, setMsgContent, patchMsg, removeMsg, loadExistingEvents, showMemoryToast]
+    [sending, push, appendMsg, setMsgContent, patchMsg, removeMsg, loadExistingEvents, showMemoryToast, t]
   );
 
   /** 批准方案：透传 apiApplyPlan 落库（S-01），成功后 toast 并从消息中移除卡片 */
@@ -289,7 +290,7 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
         // 日程已变更，刷新本地缓存供后续冲突检测
         await loadExistingEvents();
       } else {
-        Taro.showToast({ title: '暂时无法写入，请稍后再试', icon: 'none' });
+        Taro.showToast({ title: t('common.writeFailed'), icon: 'none' });
       }
     },
     [t, loadExistingEvents]
@@ -323,7 +324,7 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
     setOpen(true);
     setHintVisible(false);
     if (messages.length === 0) {
-      const greeting = suggestion ? `你好，我是你的 AI 助理 🤖\n\n需要我帮你做点什么？比如：「${suggestion}」` : '你好，我是你的 AI 助理 🤖 需要我帮你做点什么？';
+      const greeting = suggestion ? t('ai.greetingWithSuggestion', { hint: suggestion }) : t('ai.greeting');
       push('assistant', greeting);
     }
   };
@@ -573,7 +574,7 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
                             <View key={item.id} className={styles.memoryPanelRow}>
                               <Text className={styles.memoryPanelContent}>{item.content}</Text>
                               <Text className={styles.memoryPanelMeta}>
-                                {dayjs(item.createdAt).format('MM-DD HH:mm')} · {item.source === 'seed' ? '初始' : '对话'}
+                                {dayjs(item.createdAt).format('MM-DD HH:mm')} · {item.source === 'seed' ? t('ai.memorySourceSeed') : t('ai.memorySourceChat')}
                               </Text>
                             </View>
                           ))}

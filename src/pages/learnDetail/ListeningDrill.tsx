@@ -6,8 +6,8 @@ import { LearnCourse } from '@/data/learn';
 import { buildListeningQuestions, ListeningQuestion } from '@/utils/learnDrills';
 import { addDrillResult } from '@/utils/learn';
 import { startSpeak, stopSpeak, TtsLang } from '@/utils/tts';
-import { DrillFinish, DrillOptions, DrillProgress, DrillReveal, vibrateCorrect } from './DrillShared';
 import { useT } from '@/store/language';
+import { DrillFinish, DrillOptions, DrillProgress, DrillReveal, vibrateCorrect } from './DrillShared';
 import styles from './index.module.scss';
 
 interface ListeningDrillProps {
@@ -23,6 +23,8 @@ interface ListeningDrillProps {
 function ListeningDrill({ course, accent, ttsLang, best }: ListeningDrillProps) {
   const t = useT();
   const [round, setRound] = useState(0);
+  // round 只是「重洗牌」触发器：buildListeningQuestions 内含随机 shuffle，必须随 round 重算才有效果，不能删
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const questions = useMemo(() => buildListeningQuestions(course), [course, round]);
   const [idx, setIdx] = useState(0);
   const [picked, setPicked] = useState<string | null>(null);
@@ -84,7 +86,7 @@ function ListeningDrill({ course, accent, ttsLang, best }: ListeningDrillProps) 
     const pct = Math.round((correct / questions.length) * 100);
     return (
       <DrillFinish
-        emoji="🎧"
+        emoji='🎧'
         title={t('learn.listenDone')}
         score={`${t('learn.correctCount', { count: correct, total: questions.length })} · ${pct}%`}
         best={Math.max(best, pct)}

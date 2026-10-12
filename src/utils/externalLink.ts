@@ -41,7 +41,6 @@ export function isSafeExternalUrl(url: string): boolean {
   const u = url.trim();
   if (!u) return false;
   // 纵深防御：含 ASCII 控制字符（U+0000–U+001F、U+007F）一律判否
-  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001F\u007F]/.test(u)) return false;
 
   if (u.startsWith('/')) {

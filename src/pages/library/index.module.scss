@@ -1,9 +1,7 @@
 @use '@/styles/variables.scss' as *;
 
 .page {
-  min-height: 100vh;
-  background: $color-bg-page;
-  padding: $spacing-md 0 $page-pad-bottom-tab;
+  @include page-root($page-pad-bottom-tab, 0);
 }
 
 .sectionBar {
@@ -64,8 +62,7 @@
   justify-content: center;
   border-radius: $radius-round;
   background: $color-bg-page;
-  color: $color-text-tertiary;
-  font-size: $font-size-sm;
+  @include text-tertiary-sm;
   flex-shrink: 0;
 }
 
@@ -115,10 +112,7 @@
 }
 
 .newsCard {
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow-card;
-  padding: $spacing-lg;
+  @include card-surface;
   margin: 0 $page-padding $spacing-md;
   transition: all $transition-fast;
 

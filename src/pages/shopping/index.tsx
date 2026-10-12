@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { View, Text, Input, ScrollView } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import EmptyState from '@/components/EmptyState';
+import DemoDataHint from '@/components/DemoDataHint';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { useT } from '@/store/language';
 import PartnerEntry, { PartnerSectionHeader } from '@/components/PartnerEntry';
@@ -148,7 +149,8 @@ function ShoppingPage() {
       title: `给「${item.name}」记价格`,
       editable: true,
       placeholderText: PRICE_INPUT_SAMPLE,
-      success: async (res) => {
+      // editable 输入框的回填字段 content 是微信扩展、Taro 类型未声明，仍按既有写法断言读取
+      success: async (res: Taro.showModal.SuccessCallbackResult) => {
         const input = (res as unknown as { content?: string }).content;
         if (!input) return;
         const m = input.match(PRICE_PATTERN);
@@ -177,7 +179,8 @@ function ShoppingPage() {
       title: t('shopping.targetSet'),
       editable: true,
       placeholderText: t('shopping.targetPlaceholder'),
-      success: async (res) => {
+      // 同 addPrice：content 为微信扩展字段，Taro 类型未声明
+      success: async (res: Taro.showModal.SuccessCallbackResult) => {
         const input = (res as unknown as { content?: string }).content;
         if (!res.confirm || !input) return;
         const price = Number(String(input).replace(/[^\d.]/g, ''));
@@ -215,6 +218,8 @@ function ShoppingPage() {
 
   return (
     <View className={styles.page} style={brandVars(theme)}>
+      {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
+      <DemoDataHint />
       <View className={styles.addBar}>
         <Input
           className={styles.nameInput}

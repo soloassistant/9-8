@@ -3,10 +3,13 @@
  * 数据流：localStorage ←→ 同源 /api/user/data(拉) /api/user/sync(推)，服务端按 userId 隔离存 JSON 文件。
  * 策略：per-key 时间戳 + 服务端保留较新版本（防旧设备覆盖新数据）；启动时远端较新的 key 覆盖本地（跨设备恢复）。
  *
- * 重要：本模块运行于 Taro 引擎就绪之前的模块加载期（必须先于页面首屏恢复数据），
- * 因此一律使用原生 localStorage 直读直写，绝不经过 Taro.setStorageSync——
- * 模块加载期 Taro API 可能尚未注入，会静默失败导致恢复失效（已踩坑验证）。
+ * 重要：本模块运行于 Taro 引擎就绪之前的模块加载期，因此一律使用原生 localStorage 直读直写，
+ * 绝不经过 Taro.setStorageSync——模块加载期 Taro API 可能尚未注入，会静默失败导致恢复失效（已踩坑验证）。
  * 仅 H5 生效：weapp 走微信 openid + 云数据库，不进本模块。
+ *
+ * 恢复时序（2026-10-12 变更）：启动拉取已由**同步 XHR** 改为**异步 fetch**（同步 XHR 会阻塞主线程、
+ * 拖慢首屏，且已被规范标记废弃）。恢复因此**不再保证「先于首屏」**——调用方须 `await initCloudSync()`
+ * 或 `await cloudSyncReady()` 之后，再渲染 / 重放依赖云端恢复的界面（语言 / 主题 / 字号等）。
  */
 import Taro from '@tarojs/taro';
 
@@ -14,6 +17,7 @@ const USER_ID_KEY = 'cloud-user-id';
 const META_KEY = 'cloud-sync-meta'; // { [storageKey]: ts } 本地各 key 最后一次确认同步的时间
 const SYNC_INTERVAL = 30_000; // 兜底轮询：每 30 秒推一次变更
 const DEBOUNCE = 1500; // 写入后防抖 1.5 秒再推，合并连续写入
+const PULL_TIMEOUT_MS = 8000; // 启动拉取超时（异步 fetch 需要自己兜底，避免悬挂）
 
 /** 需要上云的 key（与 src 内实际使用一一对应；设备级隐私同意不上云） */
 const SYNC_KEYS = [
@@ -84,20 +88,27 @@ let userId = '';
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let pulling = false;
+/** 「启动恢复完成」信号：initCloudSync() 返回它，也供 cloudSyncReady() 读取 */
+let readyPromise: Promise<void> | null = null;
 
 // ---- 原生 localStorage 封装（模块加载期可用，不依赖 Taro） ----
 // 注意：Taro H5 的存储是信封格式——setStorageSync 写入 JSON.stringify({ data: 值 })，
 // getStorageSync 只认带 data 属性的信封对象（裸值会被当「非 Taro 数据」返回空）。
 // 因此恢复数据必须按信封格式写入，读取时解信封，否则页面读到的一律是空（已踩坑验证）。
 function rawGet(key: string): string {
+  // 有意静默：localStorage 在隐私模式 / 被禁用时会直接抛错，这里按「无数据」降级即可；
+  // 该函数在每次存储读写时都会命中，warn 只会刷屏，且调用方对「要用到的数据缺失」另有兜底。
   try { return window.localStorage.getItem(key) || ''; } catch { return ''; }
 }
 function rawSet(key: string, value: string) {
+  // 有意静默：与 rawGet 对称的写兜底。localStorage 不可用（被禁用 / 配额满）时，
+  // 同步能力本身已失效；而「应用远端数据」这条关键路径另有 console.warn 兜底（见 applyRemoteData）。
   try { window.localStorage.setItem(key, value); } catch {}
 }
 /** 按 Taro 语义读值：信封 { data } 解包返回，裸值原样返回 */
 function taroUnwrap(raw: string): unknown {
   let item: unknown;
+  // 有意静默：本地可能残留非 JSON 的裸值（历史数据），解析失败按「无值」跳过即可。
   try { item = JSON.parse(raw); } catch { return undefined; }
   if (item && typeof item === 'object' && !Array.isArray(item) && Object.prototype.hasOwnProperty.call(item, 'data')) {
     return (item as { data: unknown }).data;
@@ -107,6 +118,8 @@ function taroUnwrap(raw: string): unknown {
 function rawGetJSON<T>(key: string, fallback: T): T {
   const s = rawGet(key);
   if (!s) return fallback;
+  // 有意静默：脏数据（非 JSON）降级为 fallback。readMeta 在**每次**存储写入时都会被调用，
+  // 在此 warn 会随写入频率刷屏，故保持静默。
   try { return JSON.parse(s) as T; } catch { return fallback; }
 }
 
@@ -216,42 +229,72 @@ async function pushNow(): Promise<void> {
   }
 }
 
-/** 启动拉取：远端 ts 较新的 key 覆盖本地（跨设备恢复）。同步 XHR，保证页面首屏渲染前完成恢复 */
-function pullRemote(): void {
+/**
+ * 纯函数：把远端数据合并进本地（只认 SYNC_KEYS，且只覆盖 ts 比本地已确认值更新的 key）。
+ * 按 Taro 信封格式写入本地，页面 getStorageSync 才能读到。返回本次恢复的 key 数。
+ *
+ * 抽成纯函数是为了可单测：异步改造后拉取时机变了，但**合并口径必须与改造前完全一致**。
+ */
+function applyRemoteData(remote: Record<string, { v: unknown; ts: number }>): number {
+  const meta = readMeta();
+  let restored = 0;
+  for (const k of Object.keys(remote)) {
+    if (!(SYNC_KEYS as readonly string[]).includes(k)) continue;
+    const r = remote[k];
+    if (!r || !('v' in r)) continue;
+    if ((Number(r.ts) || 0) > (Number(meta[k]) || 0)) {
+      // 远端比本机已确认的新 → 覆盖本地（按 Taro 信封格式写入，页面 getStorageSync 才能读到）
+      try {
+        rawSet(k, JSON.stringify({ data: r.v }));
+        meta[k] = Number(r.ts) || 0; // 与远端对齐，避免下轮把旧值又推回去
+        restored++;
+      } catch (err) {
+        console.warn('[cloudSync] apply failed for', k, err);
+      }
+    }
+  }
+  if (restored) writeMeta(meta);
+  return restored;
+}
+
+/**
+ * 启动拉取：远端 ts 较新的 key 覆盖本地（跨设备恢复）。
+ *
+ * 【2026-10-12 同步 XHR → 异步 fetch】原实现 `xhr.open('GET', ..., false)` 是同步 XHR：
+ * 它阻塞主线程直到响应返回，只为保证「恢复先于首屏」；代价是首屏被网络 RTT 拖住，且同步 XHR
+ * 已被规范标记废弃。现改为 fetch + 超时中止，恢复完成时机落在首屏之后 —— 调用方须 await
+ * `initCloudSync()` / `cloudSyncReady()`（见文件头「恢复时序」）。
+ */
+async function pullRemote(): Promise<void> {
   if (pulling) return;
   pulling = true;
   try {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', '/api/user/data?userId=' + encodeURIComponent(ensureUserId()), false); // sync XHR：H5 仅此一处，恢复必须先于首屏
-    xhr.send(null);
-    if (xhr.status !== 200) {
-      console.info('[cloudSync] pull skipped, status', xhr.status);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PULL_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch('/api/user/data?userId=' + encodeURIComponent(ensureUserId()), {
+        method: 'GET',
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (res.status !== 200) {
+      console.info('[cloudSync] pull skipped, status', res.status);
       return;
     }
-    const j = JSON.parse(xhr.responseText || '{}') as { data?: Record<string, { v: unknown; ts: number }> };
-    const remote = j.data || {};
-    const meta = readMeta();
-    let restored = 0;
-    for (const k of Object.keys(remote)) {
-      if (!(SYNC_KEYS as readonly string[]).includes(k)) continue;
-      const r = remote[k];
-      if (!r || !('v' in r)) continue;
-      if ((Number(r.ts) || 0) > (Number(meta[k]) || 0)) {
-        // 远端比本机已确认的新 → 覆盖本地（按 Taro 信封格式写入，页面 getStorageSync 才能读到）
-        try {
-          rawSet(k, JSON.stringify({ data: r.v }));
-          meta[k] = Number(r.ts) || 0; // 与远端对齐，避免下轮把旧值又推回去
-          restored++;
-        } catch (err) {
-          console.warn('[cloudSync] apply failed for', k, err);
-        }
-      }
+    let j: { data?: Record<string, { v: unknown; ts: number }> };
+    try {
+      j = JSON.parse((await res.text()) || '{}') as { data?: Record<string, { v: unknown; ts: number }> };
+    } catch (err) {
+      console.warn('[cloudSync] pull response parse failed:', err);
+      return;
     }
-    if (restored) {
-      writeMeta(meta);
-      console.info('[cloudSync] restored', restored, 'keys from cloud');
-    }
+    const restored = applyRemoteData(j.data || {});
+    if (restored) console.info('[cloudSync] restored', restored, 'keys from cloud');
   } catch (err) {
+    // 网络失败 / 超时中止：有意静默降级（本地数据不受影响），warn 一次便于排查。
     console.warn('[cloudSync] pull failed:', err);
   } finally {
     pulling = false;
@@ -288,10 +331,16 @@ function hookStorage(): void {
   }
 }
 
-/** 应用入口调用：仅 H5。先恢复 → 再接管写入 → 启动轮询兜底 */
-export function initCloudSync(): void {
-  if (process.env.TARO_ENV !== 'h5') return;
-  pullRemote(); // 同步执行，先于首屏
+/**
+ * 应用入口调用：仅 H5。启动恢复（异步）→ 接管写入 → 启动轮询兜底。
+ *
+ * 返回的 Promise 在**恢复完成后** resolve。调用方若在首屏渲染 / 存储重放前依赖云端恢复的数据
+ * （语言 / 主题 / 字号等），必须 await 或 .then() 这个 Promise —— 原同步 XHR 版本靠阻塞主线程
+ * 换取该时序保证，现已移除。
+ */
+export function initCloudSync(): Promise<void> {
+  if (process.env.TARO_ENV !== 'h5') return Promise.resolve();
+  readyPromise = pullRemote(); // 异步恢复，不再阻塞首屏
   hookStorage();
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(() => void pushNow(), SYNC_INTERVAL);
@@ -300,5 +349,14 @@ export function initCloudSync(): void {
     window.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') void pushNow();
     });
-  } catch {}
+  } catch (err) {
+    // 注册失败不阻断主流程（30s 轮询仍在），但值得留痕：否则「关页前不推送」将无从排查。
+    console.warn('[cloudSync] visibilitychange 兜底推送注册失败（关闭页面前不再兜底推送）:', err);
+  }
+  return readyPromise;
+}
+
+/** 「启动恢复完成」信号：供无法捕获 initCloudSync() 返回值的调用方 await（未初始化时立即 resolve） */
+export function cloudSyncReady(): Promise<void> {
+  return readyPromise || Promise.resolve();
 }

@@ -1,0 +1,18 @@
+@use '@/styles/variables.scss' as *;
+
+// 降级提示条：克制的浅底 + 品牌警示色描边，不抢主内容视觉
+.hint {
+  display: flex;
+  align-items: center;
+  margin-bottom: $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: $color-event-bg;
+  border: 2rpx solid $color-warning;
+  border-radius: $radius-md;
+}
+
+.text {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}

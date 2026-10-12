@@ -35,7 +35,8 @@ const EN_STOPWORDS = new Set([
 function inWindow(dateStr: string | undefined, now: Date): boolean {
   if (!dateStr) return false;
   const d = new Date(dateStr.replace(' ', 'T'));
-  if (isNaN(d.getTime())) return false;
+  // d.getTime() 返回 number，Number.isNaN 与全局 isNaN 对它等价
+  if (Number.isNaN(d.getTime())) return false;
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).getTime();
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
   return d.getTime() >= start && d.getTime() <= end;

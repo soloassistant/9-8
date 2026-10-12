@@ -1,9 +1,7 @@
 @use '@/styles/variables.scss' as *;
 
 .page {
-  min-height: 100vh;
-  background: $color-bg-page;
-  padding: $spacing-md 0 80rpx;
+  @include page-root(80rpx, 0);
 }
 
 /* 语种切换 */
@@ -321,12 +319,14 @@
 }
 
 .recCourse {
+  display: block;
   font-size: $font-size-md;
   font-weight: $font-weight-medium;
   color: $color-text-primary;
 }
 
 .recReason {
+  display: block;
   margin-top: 4rpx;
   font-size: $font-size-xs;
   color: $color-text-secondary;

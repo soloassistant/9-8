@@ -146,8 +146,8 @@ export interface TtsPrefs {
   voiceMode: TtsVoiceMode;
 }
 
-/** 默认偏好：跟随场景 + 标准语速 */
-export const TTS_PREFS_DEFAULT: TtsPrefs = {
+/** 默认偏好：跟随场景 + 标准语速（仅供本模块内部降级使用，不对外导出） */
+const TTS_PREFS_DEFAULT: TtsPrefs = {
   rate: TTS.RATE_DEFAULT,
   voiceMode: 'auto'
 };
@@ -169,7 +169,7 @@ export function isTtsLangSupported(lang: TtsLang): boolean {
  * 调用方在 `startSpeak(..., { rate })` 里显式传入的 rate **不走这里**，原样透传。
  */
 export function clampRate(rate: number): number {
-  if (typeof rate !== 'number' || !isFinite(rate)) return TTS.RATE_DEFAULT;
+  if (typeof rate !== 'number' || !Number.isFinite(rate)) return TTS.RATE_DEFAULT;
   if (rate < TTS.RATE_MIN) {
     console.warn(`[tts] rate ${rate} 低于下限 ${TTS.RATE_MIN}，已收敛`);
     return TTS.RATE_MIN;
@@ -235,13 +235,13 @@ export function resolveVoiceProfile(
           lang: sceneProfile.lang
         };
   // 优先级：显式传入 rate（不钳制） > 场景表 / 固定音色 rate
-  const finalRate = typeof rate === 'number' && isFinite(rate) ? rate : base.rate;
+  const finalRate = typeof rate === 'number' && Number.isFinite(rate) ? rate : base.rate;
   return { rate: finalRate, pitch: base.pitch, lang: base.lang };
 }
 
 /** 由小时数推断场景：22:00–07:00 → night，其余沿用 fallback */
 export function sceneByHour(hour: number, fallback: TtsScene = 'briefing'): TtsScene {
-  const h = typeof hour === 'number' && isFinite(hour) && hour >= 0 && hour <= 23 ? hour : new Date().getHours();
+  const h = typeof hour === 'number' && Number.isFinite(hour) && hour >= 0 && hour <= 23 ? hour : new Date().getHours();
   return h >= 22 || h < 7 ? 'night' : fallback;
 }
 

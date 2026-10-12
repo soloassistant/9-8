@@ -17,8 +17,20 @@
       按 SDK 文档的降级路径改用 CDN IIFE（全局 WorkBuddyCloud），且不往 package.json 加依赖。
       仅 H5/发布版需要：微信小程序侧不加载本脚本（微信身份直接登录）。
       必须用 @dev 渠道（latest 尚未维护，指向旧构建）；不要改成固定版本号。
+
+      ⚠️ 已知未闭环项（2026-10-12 视觉走查 §四缺陷3，本轮**未修**）：这里是**未固定版本**的
+      `@dev` 渠道且**没有 SRI** —— CDN 发新版/被投毒都会直接改变登录行为。
+      为什么本轮没动：① 本机连不上 cdn.jsdelivr.net（curl 与 WebFetch 均失败），
+      无法验证「固定到某个具体版本」后那份产物是否真能加载，按「不做未经验证的改动」原则不落地；
+      ② 固定版本 + SRI 会把「CDN 抖动」从「友好报错」升级成「整站登不进去」（hash 不匹配即拒执行），
+      属于要权衡的产品决策。可查事实（data.jsdelivr.com，同日实测）：tag `dev` = `0.1.3-dev.c090db7.202610050023`，
+      `latest` = `0.1.3`。三条可选路线：固定到该 dev 版本 + SRI / 自托管进 vendor 白名单 / 维持现状。
+
+      `defer` 的理由：app bundle 本身就是 `defer`，defer 脚本按**文档序**执行 → SDK 仍在 app 之前定义
+      全局 `WorkBuddyCloud`，顺序不变（本页内联脚本只是 rem 根字号缩放，不依赖该全局，已在产物中确认）。
+      好处是 CDN 慢/不可达时不再**阻塞首屏渲染**，用户先看到壳，再看到 `auth.errSdkUnavailable` 的友好兜底。
     -->
-    <script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
     <script>
       <%= htmlWebpackPlugin.options.script %>
     </script>

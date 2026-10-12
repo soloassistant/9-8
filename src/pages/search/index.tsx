@@ -23,18 +23,26 @@ function SearchPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let alive = true;
     (async () => {
       try {
         const [b, lib] = await Promise.all([apiGetBriefing(), apiGetLibrary()]);
+        if (!alive) return;
         setBriefing(b);
         setLibrary(lib);
       } catch (err) {
+        // 错误痕迹与是否已卸载无关，始终记录
         console.error('[SearchPage] load data failed:', err);
-        Taro.showToast({ title: '数据加载失败', icon: 'none' });
+        if (alive) Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
     })();
+    return () => {
+      alive = false;
+    };
+    // t 仅用于失败提示文案；本 effect 负责加载数据，语言切换无需重跑请求
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const result: SearchResult = useMemo(() => {
@@ -43,16 +51,19 @@ function SearchPage() {
     const hit = (text?: string) => !!text && text.toLowerCase().includes(kw);
     return {
       events: (briefing?.events || []).filter((e) => hit(e.title) || hit(e.location)),
-      todos: (briefing?.todos || []).filter((t) => hit(t.title)),
+      todos: (briefing?.todos || []).filter((todo) => hit(todo.title)),
       collections: library.filter((c) => hit(c.title) || hit(c.summary) || c.tags.some(hit))
     };
   }, [keyword, briefing, library]);
 
   const total = result.events.length + result.todos.length + result.collections.length;
 
-  const goBackWithPick = useCallback((label: string) => {
-    Taro.showToast({ title: `已找到「${label.slice(0, 8)}」`, icon: 'none' });
-  }, []);
+  const goBackWithPick = useCallback(
+    (label: string) => {
+      Taro.showToast({ title: t('search.found', { q: label.slice(0, 8) }), icon: 'none' });
+    },
+    [t]
+  );
 
   return (
     <View className={styles.page} style={brandVars(theme)}>
@@ -80,13 +91,13 @@ function SearchPage() {
       ) : total === 0 ? (
         <View className={styles.hint}>
           <Text className={styles.hintIcon}>🫙</Text>
-          <Text>没有找到与「{keyword.trim()}」相关的内容</Text>
+          <Text>{t('search.noResult', { q: keyword.trim() })}</Text>
         </View>
       ) : (
         <ScrollView scrollY className={styles.results}>
           {result.events.length > 0 ? (
             <View className={styles.group}>
-              <Text className={styles.groupTitle}>📅 日程 · {result.events.length}</Text>
+              <Text className={styles.groupTitle}>{t('search.groupEvents', { n: result.events.length })}</Text>
               {result.events.map((evt) => (
                 <View key={evt.id} className={styles.row} onClick={() => goBackWithPick(evt.title)}>
                   <Text className={styles.rowMain}>{evt.title}</Text>
@@ -98,11 +109,11 @@ function SearchPage() {
 
           {result.todos.length > 0 ? (
             <View className={styles.group}>
-              <Text className={styles.groupTitle}>✅ 待办 · {result.todos.length}</Text>
+              <Text className={styles.groupTitle}>{t('search.groupTodos', { n: result.todos.length })}</Text>
               {result.todos.map((todo) => (
                 <View key={todo.id} className={styles.row} onClick={() => goBackWithPick(todo.title)}>
                   <Text className={styles.rowMain}>{todo.title}</Text>
-                  <Text className={styles.rowMeta}>{todo.dueDate ? formatEventTime(todo.dueDate) : '无截止'}</Text>
+                  <Text className={styles.rowMeta}>{todo.dueDate ? formatEventTime(todo.dueDate) : t('search.noDue')}</Text>
                 </View>
               ))}
             </View>
@@ -110,7 +121,7 @@ function SearchPage() {
 
           {result.collections.length > 0 ? (
             <View className={styles.group}>
-              <Text className={styles.groupTitle}>🔖 收藏 · {result.collections.length}</Text>
+              <Text className={styles.groupTitle}>{t('search.groupFavorites', { n: result.collections.length })}</Text>
               {result.collections.map((item) => (
                 <View key={item.id} className={styles.row} onClick={() => goBackWithPick(item.title)}>
                   <Text className={styles.rowMain}>{item.title}</Text>

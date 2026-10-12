@@ -6,13 +6,19 @@
  */
 import Taro from '@tarojs/taro';
 import dayjs from 'dayjs';
-import { LEARN_LANGS, LearnLangId } from '@/data/learn';
+import { LEARN_LANGS, LearnLangId, type LearnCourse } from '@/data/learn';
+import { createStreakEngine, toStreakDateStr } from './readStreak';
+import { currentMonth } from './date';
 
 /** 语种 id 类型：对外转发导出，页面可直接从 utils/learn 引用 */
 export type { LearnLangId };
 
 const LEARN_STORE_KEY = 'learnStore';
 const DAY_LIMIT = 180;
+/** 冻结卡：每连续满 7 天发 1 张（具名化既有内联魔法数，数值不变） */
+const LEARN_FREEZE_INTERVAL_DAYS = 7;
+/** 冻结卡持有上限（具名化既有内联魔法数，数值不变） */
+const LEARN_FREEZE_MAX_CARDS = 2;
 
 export interface CourseProgress {
   /** 已掌握的词 id */
@@ -74,16 +80,6 @@ export interface LearnStore {
 
 /** 练习类型：语法填空 / 听力选义 / 口语跟读 */
 export type DrillKind = 'grammar' | 'listening' | 'speaking';
-
-/** 归一化为 'YYYY-MM-DD' */
-function toDateStr(d: string | StreakDay): string {
-  return typeof d === 'string' ? d : d.date;
-}
-
-/** 当前自然月 'YYYY-MM' */
-function currentMonth(): string {
-  return dayjs().format('YYYY-MM');
-}
 
 export function readLearnStore(): LearnStore {
   try {
@@ -147,7 +143,7 @@ export function getCourseProgress(courseId: string): CourseProgress {
 export function checkInToday(): boolean {
   const store = readLearnStore();
   const today = dayjs().format('YYYY-MM-DD');
-  const hit = store.streak.days.some((d) => toDateStr(d) === today);
+  const hit = store.streak.days.some((d) => toStreakDateStr(d) === today);
   if (hit) return false;
   store.streak.days = [...store.streak.days, today].slice(-DAY_LIMIT);
   writeLearnStore(store);
@@ -179,30 +175,37 @@ export function setCourseCompleted(courseId: string, completed: boolean, totalWo
 }
 
 /**
+ * 学习连续引擎：注入 learnStore 适配器与学习版常量（与 readStreak 共用同一实现）。
+ * 读侧仍走本模块的 readLearnStore（宽松归一化口径保持不变）。
+ */
+const learnEngine = createStreakEngine<LearnStore>({
+  read: readLearnStore,
+  write: writeLearnStore,
+  getDays: (store) => store.streak.days,
+  setDays: (store, days) => ({ ...store, streak: { ...store.streak, days } }),
+  getFreeze: (store) => store.streak.freeze ?? { cards: 0, granted: 0, usedDates: [] },
+  setFreeze: (store, freeze) => ({ ...store, streak: { ...store.streak, freeze } }),
+  dayLimit: DAY_LIMIT,
+  cardLimit: LEARN_FREEZE_MAX_CARDS,
+  cardIntervalDays: LEARN_FREEZE_INTERVAL_DAYS
+});
+
+/**
  * 连续打卡天数：以今天（未学则从昨天）为锚点向前连续计数。
  * 冻结日（frozen）/ 补签日（makeup）也计入连续（L-03 统一口径）。
  */
 export function getStreak(): number {
-  const days = new Set(readLearnStore().streak.days.map(toDateStr));
-  let cursor = dayjs();
-  if (!days.has(cursor.format('YYYY-MM-DD'))) cursor = cursor.subtract(1, 'day');
-  let streak = 0;
-  while (days.has(cursor.format('YYYY-MM-DD'))) {
-    streak++;
-    cursor = cursor.subtract(1, 'day');
-  }
-  return streak;
+  return learnEngine.getStreak();
 }
 
 /** 今日是否已学（打卡态） */
 export function isTodayCheckedIn(): boolean {
-  const today = dayjs().format('YYYY-MM-DD');
-  return readLearnStore().streak.days.some((d) => toDateStr(d) === today);
+  return learnEngine.isTodayCheckedIn();
 }
 
 /** 当前持有冻结卡张数 */
 export function getFreezeCards(): number {
-  return readLearnStore().streak.freeze?.cards ?? 0;
+  return learnEngine.getFreezeCards();
 }
 
 /**
@@ -217,7 +220,7 @@ export function canMakeup(): { ok: boolean; date: string | null; reason: 'none' 
   if (mk.month === currentMonth() && mk.used >= 1) {
     return { ok: false, date: null, reason: 'exhausted' };
   }
-  const days = new Set(store.streak.days.map(toDateStr));
+  const days = new Set(store.streak.days.map(toStreakDateStr));
   const yesterday = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
   const twoDaysAgo = dayjs().subtract(2, 'day').format('YYYY-MM-DD');
   let candidate: string | null = null;
@@ -253,35 +256,7 @@ export function makeupMissed(): { ok: boolean; streak: number } {
  * 幂等：同一天多次调用不重复发卡/消耗（granted / usedDates 去重）。
  */
 export function settleStreakOnOpen(): SettleResult {
-  const store = readLearnStore();
-  const freeze = store.streak.freeze ?? { cards: 0, granted: 0, usedDates: [] };
-  const result: SettleResult = { frozenDates: [], grantedCards: 0, changed: false };
-
-  // ① 漏打卡日：昨日未打卡且有冻结卡 → 消耗 1 张保住连续记录
-  const days = new Set(store.streak.days.map(toDateStr));
-  const yesterday = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
-  const hasAnyStreak = store.streak.days.length > 0;
-  if (hasAnyStreak && !days.has(yesterday) && freeze.cards > 0) {
-    store.streak.days = [...store.streak.days, { date: yesterday, frozen: true }].slice(-DAY_LIMIT);
-    freeze.cards -= 1;
-    freeze.usedDates = [...freeze.usedDates, yesterday];
-    result.frozenDates.push(yesterday);
-    result.changed = true;
-  }
-
-  // ② 每连续满 7 天发 1 张（上限 2）
-  const streak = getStreak();
-  const entitled = Math.min(2, Math.floor(streak / 7));
-  while (freeze.granted < entitled && freeze.cards < 2) {
-    freeze.granted += 1;
-    freeze.cards += 1;
-    result.grantedCards += 1;
-    result.changed = true;
-  }
-
-  store.streak.freeze = freeze;
-  if (result.changed) writeLearnStore(store);
-  return result;
+  return learnEngine.settleOnOpen();
 }
 
 /** 单语种学习统计：已掌握/总词数 */
@@ -328,6 +303,14 @@ export interface PathStep {
 }
 
 /**
+ * 「课程 + 其进度」配对。用类型谓词把 filter 的隐含非空保证写进类型，
+ * 使后续访问不再依赖 `!`（filter 条件被改动时类型系统会直接报错）。
+ */
+type CourseWithProgress = { course: LearnCourse; progress: CourseProgress };
+/** 复习候选：进度里的 lastAt 同样被 filter 保证非空，故一并写进类型 */
+type StaleCourse = { course: LearnCourse; progress: CourseProgress & { lastAt: string } };
+
+/**
  * 个性化学习路径推荐（规则引擎，零成本）：按语种分析进度，
  * 优先级 续学未完成课 > 隔 ≥3 天复习已学课 > 开启下一门新课 > 零基础起步。
  */
@@ -340,39 +323,42 @@ export function getRecommendedPath(langId: LearnLangId): PathStep[] {
   const now = Date.now();
 
   // 1) 续学：进度过半但未完成的课
-  const unfinished = flat.filter((c) => {
-    const p = store.progress[c.id];
-    return p && p.learned.length > 0 && p.learned.length < c.words.length;
-  });
+  const unfinished = flat
+    .map((course) => ({ course, progress: store.progress[course.id] }))
+    .filter(
+      (x): x is CourseWithProgress =>
+        !!x.progress && x.progress.learned.length > 0 && x.progress.learned.length < x.course.words.length
+    );
   if (unfinished.length > 0) {
-    const c = unfinished[0];
-    const p = store.progress[c.id];
+    const { course, progress } = unfinished[0];
     steps.push({
       type: 'continue',
-      courseId: c.id,
-      title: c.title,
-      reason: `已掌握 ${p!.learned.length}/${c.words.length} 词，接着学完这课`
+      courseId: course.id,
+      title: course.title,
+      reason: `已掌握 ${progress.learned.length}/${course.words.length} 词，接着学完这课`
     });
   }
 
   // 2) 复习：已学但超过 3 天没碰的课（间隔复习记忆更牢）
   const stale = flat
-    .filter((c) => {
-      const p = store.progress[c.id];
-      if (!p || p.learned.length === 0) return false;
-      if (unfinished.some((u) => u.id === c.id)) return false;
-      if (!p.lastAt) return false;
-      return now - new Date(p.lastAt).getTime() > 3 * 24 * 3600 * 1000;
-    })
-    .sort((a, b) => (store.progress[a.id]!.lastAt || '').localeCompare(store.progress[b.id]!.lastAt || ''));
+    .map((course) => ({ course, progress: store.progress[course.id] }))
+    .filter(
+      (x): x is StaleCourse =>
+        !!x.progress &&
+        x.progress.learned.length > 0 &&
+        !unfinished.some((u) => u.course.id === x.course.id) &&
+        !!x.progress.lastAt &&
+        now - new Date(x.progress.lastAt).getTime() > 3 * 24 * 3600 * 1000
+    )
+    .sort((a, b) => (a.progress.lastAt || '').localeCompare(b.progress.lastAt || ''));
   if (stale.length > 0) {
-    const c = stale[0];
-    const days = Math.floor((now - new Date(store.progress[c.id]!.lastAt!).getTime()) / (24 * 3600 * 1000));
+    const { course, progress } = stale[0];
+    const days = Math.floor((now - new Date(progress.lastAt).getTime()) / (24 * 3600 * 1000));
     steps.push({
       type: 'review',
-      courseId: c.id,
-      title: c.title,
-      reason: `隔了 ${days} 天没复习，巩固 ${store.progress[c.id]!.learned.length} 个词`
+      courseId: course.id,
+      title: course.title,
+      reason: `隔了 ${days} 天没复习，巩固 ${progress.learned.length} 个词`
     });
   }
 

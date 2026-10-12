@@ -35,7 +35,53 @@ Thumbs.db
 .swc/
 
 # local toolchain & artifacts
-.tools/
+# 【2026-10-12 修正】这里原本是整目录忽略 `.tools/`，但 `git ls-files .tools` 显示**已有 43 个
+# 文件被跟踪**（.js/.mjs/.cjs/.ts/.py + fixtures/ + stubs/）—— 忽略规则对已跟踪文件无效，
+# 于是出现一个**只对新文件生效**的陷阱：今后往 .tools/ 新增的 CI 脚本会被**静默忽略**，
+# 而 package.json 里的 selfcheck / verify:* / deploy:cloud **全是** `node .tools/xxx.js`：
+# 本地（文件已存在）能跑，CI/新克隆一拉就少文件、直接红。
+# 改为「.tools 下默认忽略，脚本类文件与脚本素材放行」：
+.tools/*
+!.tools/*.js
+!.tools/*.mjs
+!.tools/*.cjs
+!.tools/*.ts
+!.tools/*.py
+!.tools/fixtures/
+!.tools/fixtures/**
+!.tools/stubs/
+!.tools/stubs/**
+# 但下面这些**继续忽略**（规则顺序：后者覆盖前者），否则「放行脚本」会把一堆本地垃圾一并放出来：
+# · .tools 下点开头的全部是本地临时产物/探针缓存（实测 .acc-* / .shot-* / .hotspot-* / .cache /
+#   .audit / .pushtmp / .tmp-oldbehav-dist / .layout-shots* / .httpd*.log 全在此列）
+.tools/.*
+# · 非脚本产物：日志 / 压缩包 / 二进制 / 截图 / 抓包 XML / 文本转储 / 一次性备份
+.tools/*.log
+.tools/*.zip
+.tools/*.exe
+.tools/*.png
+.tools/*.xml
+.tools/*.txt
+.tools/*.html
+.tools/*.cmd
+.tools/*.ps1
+.tools/*.bak-*
+# · 非脚本子目录：嵌套仓库、缓存、第三方 CLI、预览快照
+.tools/DailyHotApi/
+.tools/acc2-d/
+.tools/cache/
+.tools/cpolar/
+.tools/empty/
+.tools/gh-deploy/
+.tools/gh-index-trial/
+.tools/gh-pages-deploy/
+.tools/node/
+.tools/npm-cache-fresh/
+.tools/preview-snapshot/
+.tools/preview-try/
+.tools/vercel-cli/
+.tools/yarn/
+.tools/yarn-cache/
 dist-preview/
 static-server.log*
 .codefix/

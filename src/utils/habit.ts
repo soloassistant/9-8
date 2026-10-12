@@ -23,9 +23,10 @@
  */
 import Taro from '@tarojs/taro';
 import dayjs from 'dayjs';
+import type { ScheduleEvent } from '@/types';
 import { isOverlap, suggestSlotCandidates, SCAN_NO_LIMIT } from './schedule';
 import type { SlotCandidate, PlanProposalRaw } from './schedule';
-import type { ScheduleEvent } from '@/types';
+import { isSameDay } from './date';
 import type { LangKey } from '../store/language';
 
 /* ------------------------------------------------------------------ */
@@ -185,7 +186,8 @@ function nextId(prefix: string): string {
 
 /** 小时值钳制到合法区间 [0, 24] */
 function clampHour(h: number): number {
-  if (!isFinite(h)) return HABIT_WINDOW_START_HOUR;
+  // h 形参类型即 number，Number.isFinite 与全局 isFinite 对 number 等价
+  if (!Number.isFinite(h)) return HABIT_WINDOW_START_HOUR;
   return Math.min(24, Math.max(0, Math.round(h)));
 }
 
@@ -349,10 +351,10 @@ export function removeHabit(id: string): void {
 /* 候选窗口判定（纯函数）                                               */
 /* ------------------------------------------------------------------ */
 
-/** 两个 'YYYY-MM-DD HH:mm' 是否同一自然日 */
-export function isSameDay(time: string, ref: string): boolean {
-  return dayjs(time).format('YYYY-MM-DD') === dayjs(ref).format('YYYY-MM-DD');
-}
+/**
+ * 两个 'YYYY-MM-DD HH:mm' 是否同一自然日。
+ * 实现已统一到 utils/date.ts 的 isSameDay（原文件内重复实现删除）——语义不变。
+ */
 
 /**
  * 候选是否落在习惯允许的时段窗口内（分钟精度）。

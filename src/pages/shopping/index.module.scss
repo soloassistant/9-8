@@ -162,8 +162,7 @@ $ad-section-gap: 48rpx;
   justify-content: center;
   border-radius: $radius-sm;
   background: $color-bg-page;
-  color: $color-text-tertiary;
-  font-size: $font-size-sm;
+  @include text-tertiary-sm;
   transition: all $transition-fast;
 
   &:active {
@@ -228,8 +227,7 @@ $ad-section-gap: 48rpx;
   justify-content: center;
   border-radius: $radius-button;
   background: $color-bg-page;
-  color: $color-text-tertiary;
-  font-size: $font-size-sm;
+  @include text-tertiary-sm;
   transition: all $transition-fast;
 
   &:active {

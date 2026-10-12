@@ -162,7 +162,13 @@ export function resetAffinity(): void {
   }
 }
 
-/** 原始记录条数（未做时间衰减，仅供观测 / 上限判断） */
+/**
+ * 原始记录条数（未做时间衰减，仅供观测 / 上限判断）。
+ *
+ * ⚠️ 消费点仅测试脚本：`.tmp-affinity-verify/run.js`、`.tmp-affinity-ab-verify/verify.mjs`
+ * （验证「记录上限恒为 200」这一行为）。生产代码零消费 —— 保留是因为那两个脚本是验证资产，
+ * 删掉导出会让它们无法运行。新增生产调用前请先确认是否真的需要这个观测口径。
+ */
 export function getAffinitySize(): number {
   return readRecords().length;
 }

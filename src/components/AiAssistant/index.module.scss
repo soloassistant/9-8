@@ -143,8 +143,7 @@
   justify-content: center;
   border-radius: 50%;
   background: $color-bg-page;
-  color: $color-text-tertiary;
-  font-size: $font-size-sm;
+  @include text-tertiary-sm;
 }
 
 /* 深度合成-AI问答 类目「人工必查项」：AI 对话页需**全程固定展示**醒目提示。

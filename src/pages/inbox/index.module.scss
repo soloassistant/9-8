@@ -1,9 +1,7 @@
 @use '@/styles/variables.scss' as *;
 
 .page {
-  min-height: 100vh;
-  background: $color-bg-page;
-  padding: $spacing-md $page-padding $page-pad-bottom-tab;
+  @include page-root;
 }
 
 .howTo {
@@ -28,10 +26,7 @@
 }
 
 .inputCard {
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow-card;
-  padding: $spacing-lg;
+  @include card-surface;
   margin-bottom: $spacing-md;
 }
 
@@ -330,10 +325,7 @@
 }
 
 .resultCard {
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow-card;
-  padding: $spacing-lg;
+  @include card-surface;
   margin-bottom: $spacing-md;
 }
 
@@ -475,6 +467,7 @@
 }
 
 .historyTitle {
+  display: block;
   font-size: $font-size-md;
   font-weight: $font-weight-semibold;
   color: $color-text-secondary;
@@ -501,12 +494,14 @@
 }
 
 .historyText {
+  display: block;
   font-size: $font-size-md;
   color: $color-text-primary;
   @include text-ellipsis;
 }
 
 .historyMeta {
+  display: block;
   font-size: $font-size-xs;
   color: $color-text-tertiary;
   margin-top: 4rpx;

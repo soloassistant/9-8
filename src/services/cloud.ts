@@ -17,6 +17,63 @@ export function getHotspotMeta(): HotspotMeta | null {
   return hotspotMeta
 }
 
+/** ── 降级登记表（诚实性，2026-10-12）─────────────────────────────────────
+ *  H5 端多数云函数**没有可用的 RPC 通道**（services/dataSource.ts 的 RPC_ALLOWLIST 只放行
+ *  webSearch / chat / extract），拿不到就走 src/data/* 的本地实现；chat/extract 的本地 LLM 代理
+ *  也只在本机开发时存在。此前这一步是**静默**的：用户看到的是本地/演示数据，却以为来自云端。
+ *
+ *  这里把「哪些 action 发生了降级」登记成模块级状态，供 UI 订阅后如实提示。
+ *  ⚠️ 必须**可复位**：真实路径成功时清掉对应条目（clearDegraded），否则一次降级会永久显示提示。 */
+const degradedActions = new Set<string>()
+const degradedListeners = new Set<(actions: string[]) => void>()
+
+/** 本地实现返回的是**用户真实本地数据**（不是演示数据）的 action。
+ *  回退到这些 action 时**不**登记降级 —— 否则会出现「把用户真实收藏/购物清单谎报成演示数据」
+ *  的**反向不诚实**。这正是 src/data/getLibrary.ts 注释「不造演示数据」与
+ *  「src/data/* 一律被当作 mock 兜底目录」这一约定之间的既有语义矛盾：
+ *  该文件确实只读 collectionStore 里的真实本地数据（src/data/collectionStore.ts:19），
+ *  注释与**它自身的行为**一致，矛盾在于**调用路径把他当 mock**。
+ *  新增本地模块时请同步维护本表。 */
+const REAL_LOCAL_ACTIONS = new Set(['getLibrary', 'shopping', 'confirmItem', 'getUsage'])
+
+function emitDegraded(): void {
+  const snapshot = Array.from(degradedActions)
+  degradedListeners.forEach((cb) => {
+    try {
+      cb(snapshot)
+    } catch (err) {
+      console.warn('[Cloud] degraded listener failed:', err)
+    }
+  })
+}
+
+/** 登记一次降级（幂等；只在真正新增条目时通知订阅者） */
+export function markDegraded(name: string): void {
+  if (REAL_LOCAL_ACTIONS.has(name) || degradedActions.has(name)) return
+  degradedActions.add(name)
+  emitDegraded()
+}
+
+/** 复位一次降级（真实路径成功时调用；只在真正删除条目时通知订阅者） */
+export function clearDegraded(name: string): void {
+  if (!degradedActions.delete(name)) return
+  emitDegraded()
+}
+
+/** 当前处于降级状态的 action 快照（供非 React 代码读取） */
+export function getDegradedActions(): string[] {
+  return Array.from(degradedActions)
+}
+
+/** 订阅降级变化：订阅时**立即回调一次当前快照**，返回取消订阅函数（可直接作为 useEffect 的 cleanup） */
+export function subscribeDegraded(cb: (actions: string[]) => void): () => void {
+  degradedListeners.add(cb)
+  cb(Array.from(degradedActions))
+  return () => {
+    degradedListeners.delete(cb)
+  }
+}
+
 /** 线上实时热点 JSON（GitHub Actions 每 30 分钟刷新 gh-pages 上的这一份）。
  *
  *  为什么需要它（2026-09-29 发布正式版时发现）：**发布包与 gh-pages 是两份独立快照**。
@@ -234,9 +291,11 @@ export async function callFunction<T = unknown>(
         hotspotMeta = payload.updatedAt
           ? { updatedAt: payload.updatedAt, stale: payload.stale, sources: payload.sources }
           : null
+        clearDegraded('getHotspot')
         return payload.items as T
       }
       hotspotMeta = null
+      markDegraded('getHotspot')
       const mockModule = await import('../data/getHotspot')
       return mockModule.default() as T
     }
@@ -277,31 +336,43 @@ export async function callFunction<T = unknown>(
     // 线上必然落到 ③ —— 于是 H5 的"AI 对话"在生产环境其实一直是假规则。
     if (name === 'chat' || name === 'extract') {
       try {
-        return (await invoke(name, data)) as T
+        const viaCloud = (await invoke(name, data)) as T
+        clearDegraded(name)
+        return viaCloud
       } catch (err) {
         console.warn(`[Cloud] ${name} via cloud rpc failed, try local proxy:`, err)
       }
       const ai = await callLocalAI<T>(name, data)
-      if (ai) return ai
+      if (ai) {
+        clearDegraded(name)
+        return ai
+      }
       console.warn(`[Cloud] local AI proxy unavailable, fallback to mock: ${name}`)
+      markDegraded(name)
     }
     // 其余云函数（getLibrary / updateSettings / getUsage / shopping / confirmItem /
     // createOrder / deleteAccount …）：**先走云服务**，两端同一套实现；
     // 拿不到才降级本地 mock。src/data 下每个云函数都有同名模块，故回退路径不破。
     try {
-      return (await invoke(name, data)) as T
+      const viaCloud = (await invoke(name, data)) as T
+      clearDegraded(name)
+      return viaCloud
     } catch (err) {
       console.warn(`[Cloud] ${name} via cloud rpc failed, fallback to mock:`, err)
     }
+    markDegraded(name)
     const mockModule = await import(`../data/${name}`)
     return mockModule.default(data) as T
   }
   if (name === 'getHotspot') {
     // 热点资讯：真机走 webSearch 云函数（RSS 聚合，强制标注来源），失败降级本地 mock
     try {
-      return await callFunction<T>('webSearch', { action: 'hotspot' })
+      const viaCloud = await callFunction<T>('webSearch', { action: 'hotspot' })
+      clearDegraded('getHotspot')
+      return viaCloud
     } catch (err) {
       console.warn('[Cloud] getHotspot via webSearch failed, fallback to mock:', err)
+      markDegraded('getHotspot')
       const mockModule = await import('../data/getHotspot')
       return mockModule.default() as T
     }

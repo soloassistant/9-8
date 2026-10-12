@@ -103,7 +103,13 @@ export function canPromptSubscribe(): boolean {
   return !d.prompted && !d.rejected && !d.banned;
 }
 
-/** 诊断用：返回当前订阅授权画像（触达率排查） */
+/**
+ * 诊断用：返回当前订阅授权画像（触达率排查）。
+ *
+ * ⚠️ 消费点仅测试脚本：`.tmp-verify/lead-free-intel/sub-harness.js`（断言 attempts / accepts
+ * 计数与终态迁移）。生产代码零消费 —— 保留是因为该脚本是验证资产。**未接 UI 时不要在页面里
+ * 直接依赖它**；若将来要做触达率看板，请连同埋点一起设计，而不是直接读这两个私有 storage。
+ */
 export function getSubscribeProfile(): SubscribeDeny & SubscribeStat {
   return { ...readDeny(), ...readStat() };
 }

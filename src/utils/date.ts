@@ -21,9 +21,27 @@ export function formatEventTime(time: string): string {
   return d.format('M月D日 HH:mm');
 }
 
-/** 是否同一天 */
+/**
+ * 是否同一自然日（本地时区）。
+ *
+ * 实现口径：两个时刻各自 `format('YYYY-MM-DD')` 后字符串比较 —— 这是 habit.ts 原本
+ * 在用的语义（`utils/habit.ts:353`，被 `isLowRiskCandidate` 调用），保留它、不要在用的
+ * 那个语义先动；原 `dayjs(a).isSame(dayjs(b),'day')` 版本全仓无人调用，已删除死实现。
+ *
+ * ⚠️ 与 `isSame('day')` 的差异仅在**非法输入**：两个都非法时 format 比较返回 true
+ * （'Invalid Date' === 'Invalid Date'），而 isSame 返回 false。在用方传的都是合法时间串，
+ * 故采用 format 口径不改变既有行为。
+ */
 export function isSameDay(a: string | Date, b: string | Date): boolean {
-  return dayjs(a).isSame(dayjs(b), 'day');
+  return dayjs(a).format('YYYY-MM-DD') === dayjs(b).format('YYYY-MM-DD');
+}
+
+/**
+ * 当前自然月 'YYYY-MM'（本地时区，两位月）。
+ * 统一 learn / usage / subscription 三处散落的当月串拼装，输出格式不变。
+ */
+export function currentMonth(now?: Date): string {
+  return dayjs(now).format('YYYY-MM');
 }
 
 /** 相对时间显示：收藏列表用 */

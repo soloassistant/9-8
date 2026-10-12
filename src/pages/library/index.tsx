@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import classnames from 'classnames';
 import TagChip from '@/components/TagChip';
 import EmptyState from '@/components/EmptyState';
+import DemoDataHint from '@/components/DemoDataHint';
 import { NewsCardSkeleton } from '@/components/Skeleton';
 import { apiGetLibrary, apiGetHotspot, apiNewsSearch } from '@/services/api';
 import { getHotspotMeta, apiAiNewsFilter, apiGetAffinity, apiSaveAffinity } from '@/services/cloud';
@@ -65,6 +66,7 @@ const APP_NAME = '私人晨报助理';
 const LIBRARY_PAGE_PATH = '/pages/library/index';
 /** 竞品分析 L1：是否小程序端（决定分享按钮走原生转发还是 H5 复制链接） */
 const isWeapp = process.env.TARO_ENV === 'weapp';
+const isH5 = process.env.TARO_ENV === 'h5';
 /** 竞品分析 X11：未成年人模式屏蔽的话题关键词（命中任一 tag 即过滤） */
 const MINOR_BLOCK_KEYWORDS = ['财经', '股票', '投资', '社会'];
 
@@ -257,9 +259,10 @@ function LibraryPage() {
    * false），云同步不可用不影响任何本地行为与 UI。H5 无云函数通道时是 no-op。
    */
   const pushAffinity = () => {
-    const items = exportAffinityForSync();
-    if (!items.length) return;
-    apiSaveAffinity(items).catch(() => {
+    // 原名 items，会遮蔽本页的 items 状态（收藏列表），已改名以免误读。
+    const payload = exportAffinityForSync();
+    if (!payload.length) return;
+    apiSaveAffinity(payload).catch(() => {
       /* 静默：上云失败不影响本地偏好 */
     });
   };
@@ -379,9 +382,13 @@ function LibraryPage() {
   }, []);
 
   useEffect(() => {
-    const skeletonTimer = setTimeout(() => setShowSkeleton(true), SKELETON_DELAY_MS);
+    let alive = true;
+    const skeletonTimer = setTimeout(() => {
+      if (alive) setShowSkeleton(true);
+    }, SKELETON_DELAY_MS);
     Promise.all([apiGetLibrary(), apiGetHotspot().catch(() => [])])
       .then(([lib, hotspot]) => {
+        if (!alive) return;
         setItems(lib);
         setNews(hotspot);
         // 数据来源元信息（mock/真机 webSearch 路径为 null，不显示来源栏）
@@ -389,14 +396,23 @@ function LibraryPage() {
         refreshUsage();
       })
       .catch((err) => {
+        // 错误痕迹与是否已卸载无关，始终记录
         console.error('[LibraryPage] load failed:', err);
-        Taro.showToast({ title: '加载失败', icon: 'none' });
+        if (alive) Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
       })
       .finally(() => {
         clearTimeout(skeletonTimer);
-        setLoading(false);
-        setShowSkeleton(false);
+        if (alive) {
+          setLoading(false);
+          setShowSkeleton(false);
+        }
       });
+    return () => {
+      alive = false;
+      clearTimeout(skeletonTimer);
+    };
+    // 仅挂载执行一次：refreshUsage 为 store 动作、t 仅用于失败文案；本 effect 负责加载数据，语言切换无需重跑请求
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** 竞品分析 X11：命中屏蔽关键词的条目（tag 包含「财经/股票/投资/社会」任一即命中） */
@@ -409,13 +425,12 @@ function LibraryPage() {
   /** 竞品分析 X11：未成年人模式下的最终可见列表（在屏蔽清单之上再过滤敏感话题） */
   const minorVisibleNews = useMemo(
     () => (minorMode ? visibleNews.filter((n) => !hitMinorBlock(n)) : visibleNews),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [visibleNews, minorMode]
   );
 
   const tags = useMemo(() => {
     const set = new Set<string>();
-    items.forEach((item) => item.tags.forEach((t) => set.add(t)));
+    items.forEach((item) => item.tags.forEach((tag) => set.add(tag)));
     return ['全部', ...Array.from(set)];
   }, [items]);
 
@@ -427,7 +442,7 @@ function LibraryPage() {
           (!keyword ||
             item.title.includes(keyword) ||
             item.summary.includes(keyword) ||
-            item.tags.some((t) => t.includes(keyword)))
+            item.tags.some((tag) => tag.includes(keyword)))
       ),
     [items, activeTag, keyword]
   );
@@ -605,6 +620,8 @@ function LibraryPage() {
       logActivity(next === 'up' ? '👍' : '👎', `资讯反馈：${item.title.slice(0, 14)}`);
       Taro.showToast({ title: t('library.feedbackSaved'), icon: 'none', duration: 1200 });
       // 云端落库（真机生效；取消反馈只改本地，云端按最新一条聚合）
+      // 失败静默：apiNewsFeedback 内部已 catch 并记录云同步失败、永不 reject（services/api.ts:144），
+      // 此处仅为兜底；本地反馈已生效，线上落库失败无需打扰用户。
       apiNewsFeedback(item.id, next).catch(() => {});
     }
   };
@@ -631,6 +648,8 @@ function LibraryPage() {
       return bars;
     });
     persistFeedback(nextMap);
+    // 失败静默：同 handleFeedback —— apiNewsFeedback 内部已吞并记录云同步失败、永不 reject，
+    // 本地回滚已生效，云端聚合回滚失败无需打扰用户。
     if (bar.prev) apiNewsFeedback(item.id, bar.prev).catch(() => {});
   };
 
@@ -808,6 +827,11 @@ function LibraryPage() {
             mode='aspectFill'
             lazyLoad
             className={styles.newsImage}
+            // 无障碍（2026-10-12）：配图是**独立可点**的预览入口，读屏用户需要名字。
+            // Taro 的 Image 没有 alt 属性，H5 端唯一能透传到真实 <img> 的入口是 nativeProps
+            // （见 @tarojs/components/dist/esm/image-*.js 的 render：h("img", {...nativeProps})），
+            // 且 nativeProps 仅 h5 支持，故只在 H5 端传。取新闻标题作为等价文本。
+            nativeProps={isH5 ? { alt: item.title } : undefined}
             onClick={(e) => {
               e.stopPropagation();
               handleNewsImageTap(item);
@@ -890,6 +914,8 @@ function LibraryPage() {
 
   return (
     <View className={styles.page}>
+      {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
+      <DemoDataHint />
       {/* 竞品分析 X11：未成年人模式低调横幅 */}
       {minorMode ? (
         <View className={styles.minorBanner}>

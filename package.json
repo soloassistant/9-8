@@ -11,6 +11,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "lint": "eslint --report-unused-disable-directives \"src/**/*.{ts,tsx}\"",
     "selfcheck": "node .tools/selfcheck.js",
     "vet:sources": "node .tools/vet-feeds.js",
     "verify:boards": "node .tools/verify-boards.js",
@@ -70,7 +71,6 @@
     "@babel/preset-react": "^7.24.1",
     "@babel/plugin-proposal-class-properties": "7.14.5",
     "@babel/core": "^7.8.0",
-    "babel-plugin-import": "^1.13.8",
     "@tarojs/cli": "4.1.9",
     "@types/webpack-env": "^1.13.6",
     "@types/react": "^18.0.0",

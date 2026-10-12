@@ -30,6 +30,13 @@ const bundle = cands[0].f;
 const src = fs.readFileSync(path.join(JS_DIR, bundle), 'utf8');
 console.log(`产物: js/${bundle}  ${src.length} B\n`);
 
+/** 源码文本：**只给「产物里按设计就不该存在」的判据用**。
+ *  典型是裸语句形式的 console.*（见下方「外链拒绝日志」那条）——
+ *  config/prod.ts 的 terser `pure_funcs` 会把它们整条删除，去产物里搜必然 MISS，
+ *  那是判据写错了，不是修复丢了。这类判据要么改成搜产物里的**守卫函数**，
+ *  要么（像这条）退到源码层核对，并在标签里写明原因。 */
+const externalLinkSrc = fs.readFileSync(path.join(ROOT, 'src', 'utils', 'externalLink.ts'), 'utf8');
+
 /** 把「i18n 键在产物里出现过」拆成两件不同的事（2026-10-12 踩过）：
  *   · **字典条目** `"briefing.degraded":"当前为演示数据…"` —— 只证明翻译表里有这条
  *   · **调用点**   `…?le("briefing.degraded"):…`              —— 才证明页面真的消费了它
@@ -61,7 +68,13 @@ const marks = [
   ['同意勾选文案', src.includes('我已阅读并同意上述隐私说明')],
   // 外链白名单（本轮）
   ['外链协议白名单', src.includes('isSafeExternalUrl')],
-  ['外链拒绝日志', /拒绝非 http/.test(src)],
+  // ⚠️ 这条判据**不能**搜产物：`console.warn('[externalLink] 拒绝非 http(s) 外链：'…)`
+  //    是裸语句，会被 config/prod.ts 的 terser `pure_funcs` 整条删掉。
+  //    （2026-10-12 复核：标签从「外链拒绝日志」在产物里 MISS → 先确认过是判据老了，
+  //      不是修复丢了；产物里能证明该语义的是**守卫函数**本身，由上一行
+  //      `isSafeExternalUrl` 覆盖。）故此处退到源码层核对，并保留产物层那句作为
+  //    「pure_funcs 确实在生效」的**反向**观测。
+  ['外链拒绝日志（源码在、产物里按设计被 pure_funcs 剥离）', /拒绝非 http/.test(externalLinkSrc) && !/拒绝非 http/.test(src)],
   // 日期显示（本轮）
   ['更新时间格式 MM-DD HH:mm', src.includes('MM-DD HH:mm')],
   // ── UI / 增长修复（2026-10-12 第二批）────────────────────────────────

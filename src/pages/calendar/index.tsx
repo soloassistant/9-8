@@ -17,7 +17,6 @@ import { useT, useLanguageStore } from '@/store/language';
 import styles from './index.module.scss';
 
 const isWeapp = process.env.TARO_ENV === 'weapp';
-const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
 const WEEKDAYS_FULL_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const WEEKDAYS_FULL_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 /** 一键重排：空闲槽扫描步长（分钟） */
@@ -44,13 +43,15 @@ function CalendarPage() {
       setBriefing(await apiGetBriefing());
     } catch (err) {
       console.error('[CalendarPage] load failed:', err);
-      Taro.showToast({ title: '日历加载失败', icon: 'none' });
+      Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
     }
+    // t 仅用于失败提示文案；若列入 deps 会让下方 useEffect 随语言切换重跑并重复请求，故不列入
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     loadBriefing();
-  }, []);
+  }, [loadBriefing]);
 
   /** 42 格月视图：从当月首个所在周的周日开始 */
   const cells = useMemo(() => {
@@ -69,9 +70,9 @@ function CalendarPage() {
 
   const todosByDay = useMemo(() => {
     const map = new Map<string, number>();
-    (briefing?.todos || []).forEach((t) => {
-      if (doneIds.has(t.id)) return;
-      const key = t.dueDate ? dayjs(t.dueDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD');
+    (briefing?.todos || []).forEach((todo) => {
+      if (doneIds.has(todo.id)) return;
+      const key = todo.dueDate ? dayjs(todo.dueDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD');
       map.set(key, (map.get(key) || 0) + 1);
     });
     return map;
@@ -103,7 +104,8 @@ function CalendarPage() {
   const dayEvents = (briefing?.events || []).filter((e) => dayjs(e.startTime).format('YYYY-MM-DD') === selected);
   /** 无截止日期的待办默认归入今日（与晨报页"今日日程"口径一致） */
   const dayTodos = (briefing?.todos || []).filter(
-    (t) => (t.dueDate ? dayjs(t.dueDate).format('YYYY-MM-DD') === selected : selected === dayjs().format('YYYY-MM-DD'))
+    (todo) =>
+      todo.dueDate ? dayjs(todo.dueDate).format('YYYY-MM-DD') === selected : selected === dayjs().format('YYYY-MM-DD')
   );
 
   /** 冲突检测：当天日程两两做时间重叠判断（endTime 为空的按项目缺省时长语义处理——
@@ -159,7 +161,7 @@ function CalendarPage() {
   const handleQuickAdd = async () => {
     const title = addTitle.trim();
     if (!title) {
-      Taro.showToast({ title: '先填写事项名称', icon: 'none' });
+      Taro.showToast({ title: t('calendar.enterTitleFirst'), icon: 'none' });
       return;
     }
     const hm = /^([0-1]?\d|2[0-3]):[0-5]\d$/.test(addTime.trim()) ? addTime.trim() : '09:00';
@@ -170,21 +172,21 @@ function CalendarPage() {
       });
       setAddTitle('');
       await loadBriefing();
-      Taro.showToast({ title: `已添加日程（${res.saved} 条）`, icon: 'success' });
+      Taro.showToast({ title: t('calendar.addedEvents', { n: res.saved }), icon: 'success' });
     } catch (err) {
       console.error('[CalendarPage] quick add failed:', err);
-      Taro.showToast({ title: '添加失败，请重试', icon: 'none' });
+      Taro.showToast({ title: t('calendar.addFailed'), icon: 'none' });
     }
   };
 
   /** 单向写入手机系统日历（小程序支持写入、不支持读取） */
   const handleWriteSystemCalendar = async () => {
     if (!isWeapp) {
-      Taro.showToast({ title: '微信端可写入手机日历', icon: 'none' });
+      Taro.showToast({ title: t('calendar.weappOnlyCalendar'), icon: 'none' });
       return;
     }
     if (dayEvents.length === 0) {
-      Taro.showToast({ title: '当天没有日程', icon: 'none' });
+      Taro.showToast({ title: t('calendar.noEventsToday'), icon: 'none' });
       return;
     }
     try {
@@ -194,16 +196,16 @@ function CalendarPage() {
           startTime: dayjs(evt.startTime).unix(),
           endTime: evt.endTime ? dayjs(evt.endTime).unix() : dayjs(evt.startTime).add(1, 'hour').unix(),
           location: evt.location,
-          description: evt.source ? `来源：${evt.source}` : undefined,
+          description: evt.source ? `${t('calendar.sourcePrefix')}${evt.source}` : undefined,
           alarm: true,
           alarmOffset: 15 * 60
           // Taro 类型把 endTime 标为 string，微信运行时实际收 unix 秒（wx.addPhoneCalendar 文档），双段断言屏蔽该类型缺陷
         } as unknown as Taro.addPhoneCalendar.Option);
       }
-      Taro.showToast({ title: `已写入 ${dayEvents.length} 条日程`, icon: 'success' });
+      Taro.showToast({ title: t('calendar.writtenEvents', { n: dayEvents.length }), icon: 'success' });
     } catch (err) {
       console.error('[CalendarPage] addPhoneCalendar failed:', err);
-      Taro.showToast({ title: '写入失败，请检查日历权限', icon: 'none' });
+      Taro.showToast({ title: t('calendar.writeFailed'), icon: 'none' });
     }
   };
 
@@ -300,7 +302,7 @@ function CalendarPage() {
     }
   };
 
-  const monthLabel = month.format('YYYY年M月');
+  const monthLabel = t('calendar.monthFormat', { y: month.year(), m: month.month() + 1 });
 
   const renderCell = (d: Dayjs) => {
     const key = d.format('YYYY-MM-DD');
@@ -337,7 +339,7 @@ function CalendarPage() {
           <Button
             className={styles.navButton}
             onClick={() => setMonth((m) => m.subtract(1, 'month'))}
-            aria-label='上个月'
+            aria-label={t('calendar.prevMonth')}
           >
             ‹
           </Button>
@@ -345,15 +347,15 @@ function CalendarPage() {
           <Button
             className={styles.navButton}
             onClick={() => setMonth((m) => m.add(1, 'month'))}
-            aria-label='下个月'
+            aria-label={t('calendar.nextMonth')}
           >
             ›
           </Button>
         </View>
 
         <View className={styles.weekHead}>
-          {WEEK_HEAD.map((w) => (
-            <Text key={w} className={styles.weekDay}>
+          {t('calendar.weekdaysHead').split('|').map((w, i) => (
+            <Text key={i} className={styles.weekDay}>
               {w}
             </Text>
           ))}
@@ -404,12 +406,12 @@ function CalendarPage() {
       <View className={styles.dayPanel}>
         <View className={styles.dayHeader}>
           <Text className={styles.dayTitle}>
-            {selectedDate.isSame(dayjs(), 'day') ? '今天 · ' : ''}
-            {selectedDate.format('M月D日')}{' '}
-            {['周日', '周一', '周二', '周三', '周四', '周五', '周六'][selectedDate.day()]}
+            {selectedDate.isSame(dayjs(), 'day') ? `${t('calendar.today')} · ` : ''}
+            {t('calendar.dateFormat', { m: selectedDate.month() + 1, d: selectedDate.date() })}{' '}
+            {t('calendar.weekdays').split('|')[selectedDate.day()]}
           </Text>
           <Button className={styles.syncButton} onClick={handleWriteSystemCalendar}>
-            写入手机日历
+            {t('calendar.writeToPhone')}
           </Button>
         </View>
 
@@ -417,7 +419,7 @@ function CalendarPage() {
           <Input
             className={styles.qaTitle}
             value={addTitle}
-            placeholder='手动添加日程，如：产品评审会'
+            placeholder={t('calendar.manualAddPlaceholder')}
             maxlength={24}
             onInput={(e) => setAddTitle(e.detail.value)}
             confirmType='done'
@@ -431,7 +433,7 @@ function CalendarPage() {
             onConfirm={handleQuickAdd}
           />
           <View className={styles.qaBtn} onClick={handleQuickAdd}>
-            添加
+            {t('calendar.addBtn')}
           </View>
         </View>
 
@@ -455,7 +457,7 @@ function CalendarPage() {
         ) : null}
 
         {dayEvents.length === 0 && dayTodos.length === 0 ? (
-          <EmptyState icon='🗓' title='这一天没有安排' hint='转发消息到收件箱，或直接告诉助理帮你安排' />
+          <EmptyState icon='🗓' title={t('calendar.emptyDayTitle')} hint={t('calendar.emptyDayHint')} />
         ) : (
           <>
             {dayEvents.map((evt) => (

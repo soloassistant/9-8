@@ -257,10 +257,7 @@
 
 .section {
   margin: 0 $page-padding $spacing-md;
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow-card;
-  padding: $spacing-lg;
+  @include card-surface;
 }
 
 .sectionHeader {
@@ -413,6 +410,7 @@
 }
 
 .eventTitle {
+  display: block;
   font-size: $font-size-md;
   color: $color-text-primary;
   font-weight: $font-weight-medium;
@@ -420,6 +418,7 @@
 }
 
 .eventLocation {
+  display: block;
   font-size: $font-size-xs;
   color: $color-text-tertiary;
   margin-top: 4rpx;
@@ -723,8 +722,7 @@
   justify-content: center;
   border-radius: $radius-round;
   background: $color-bg-page;
-  color: $color-text-tertiary;
-  font-size: $font-size-sm;
+  @include text-tertiary-sm;
   transition: all $transition-fast;
 
   &:active {

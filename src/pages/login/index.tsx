@@ -107,6 +107,8 @@ export default function LoginPage() {
     return () => {
       alive = false;
     };
+    // t 仅用于「后端不可达」错误文案；本 effect 负责会话校验/加载，语言切换无需重跑请求
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -266,7 +268,10 @@ export default function LoginPage() {
   /** 进入应用：switchTab 跳首个 tab（登录页不是 tab 页，不能留在导航栈里） */
   function goToApp() {
     Taro.switchTab({ url: '/pages/briefing/index' }).catch(() => {
-      Taro.redirectTo({ url: '/pages/briefing/index' }).catch(() => {});
+      // 主通道（tab 跳转）失败时退回普通跳转；登录已成功，两条通道都失败会卡在登录页，必须留痕
+      Taro.redirectTo({ url: '/pages/briefing/index' }).catch((err) => {
+        console.error('[LoginPage] 登录后跳转晨报页失败:', err);
+      });
     });
   }
 

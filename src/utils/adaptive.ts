@@ -42,10 +42,15 @@ export function computeAdaptive(events: ScheduleEvent[], todos: TodoItem[]): Bri
   }
 
   // 3) 高优待办：今天 12:00 前到期，或标题含紧急词，取最早一条
+  // 用类型谓词把「dueDate 非空」写进类型（而不是靠 filter 恰好过滤掉空值后再加 `!`），
+  // 这样下面 .hour()/排序都不再需要非空断言，filter 条件被改动时类型系统会直接报错。
   const focus = todos
-    .filter((t) => t.status !== 'done' && t.dueDate && dayjs(t.dueDate).isSame(now, 'day'))
+    .filter(
+      (t): t is TodoItem & { dueDate: string } =>
+        t.status !== 'done' && Boolean(t.dueDate) && dayjs(t.dueDate).isSame(now, 'day')
+    )
     .filter((t) => dayjs(t.dueDate).hour() < 12 || URGENT_KEYWORDS.test(t.title))
-    .sort((a, b) => dayjs(a.dueDate!).valueOf() - dayjs(b.dueDate!).valueOf())[0];
+    .sort((a, b) => dayjs(a.dueDate).valueOf() - dayjs(b.dueDate).valueOf())[0];
 
   return {
     busyDay,

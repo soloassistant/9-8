@@ -4,8 +4,8 @@ import { LearnCourse } from '@/data/learn';
 import { buildGrammarQuestions, GrammarQuestion } from '@/utils/learnDrills';
 import { addDrillResult } from '@/utils/learn';
 import EmptyState from '@/components/EmptyState';
-import { DrillFinish, DrillOptions, DrillProgress, DrillReveal, vibrateCorrect } from './DrillShared';
 import { useT } from '@/store/language';
+import { DrillFinish, DrillOptions, DrillProgress, DrillReveal, vibrateCorrect } from './DrillShared';
 import styles from './index.module.scss';
 
 interface GrammarDrillProps {
@@ -20,6 +20,8 @@ function GrammarDrill({ course, accent, best }: GrammarDrillProps) {
   const t = useT();
   // round 用于「再来一轮」时重新洗牌
   const [round, setRound] = useState(0);
+  // round 只是「重洗牌」触发器：buildGrammarQuestions 内含随机 shuffle，必须随 round 重算才有效果，不能删
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const questions = useMemo(() => buildGrammarQuestions(course), [course, round]);
   const [idx, setIdx] = useState(0);
   const [picked, setPicked] = useState<string | null>(null);
@@ -57,14 +59,14 @@ function GrammarDrill({ course, accent, best }: GrammarDrillProps) {
 
   // L3-02 边界：可出题数 <3 时题料不足，显示空态而非 0/0 结算卡
   if (questions.length < 3) {
-    return <EmptyState icon="✏️" title={t('learn.grammarEmptyTitle')} hint={t('learn.grammarEmptyHint')} />;
+    return <EmptyState icon='✏️' title={t('learn.grammarEmptyTitle')} hint={t('learn.grammarEmptyHint')} />;
   }
 
   if (done || !q) {
     const pct = Math.round((correct / questions.length) * 100);
     return (
       <DrillFinish
-        emoji="✏️"
+        emoji='✏️'
         title={t('learn.grammarDone')}
         score={`${t('learn.correctCount', { count: correct, total: questions.length })} · ${pct}%`}
         best={Math.max(best, pct)}

@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Picker, Button, Image, Input, Switch, ScrollView } from '@tarojs/components';
+import type { CommonEvent, PickerSelectorProps, PickerTimeProps } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import classnames from 'classnames';
+import DemoDataHint from '@/components/DemoDataHint';
 import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore, THEME_PRESETS } from '@/store/theme';
 import { useUiScaleStore, UI_SCALE_PRESETS } from '@/store/uiScale';
@@ -207,6 +209,8 @@ function MinePage() {
 
   useEffect(() => {
     init();
+    // 仅挂载执行一次：init 为 store 动作，重渲染/语言切换无需重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // profile 就绪后回填设置项 + 读取本地自定义设置 / 个性化开关 / TTS 偏好 / 记忆 / 屏蔽清单 / 锁价与站内信
@@ -281,7 +285,10 @@ function MinePage() {
         if (!cloudPrefs) return;
         setAppPrefs(updatePrefs(cloudPrefs));
       })
-      .catch(() => {});
+      .catch(() => {
+        /* 静默：apiGetPrefs 内部已吞异常并记录、失败返回 null（services/cloud.ts:240），
+           拉不到云端偏好就沿用本地值，属预期降级，不打扰用户 */
+      });
   }, []);
 
   // 恢复本地头像（微信端为本地/临时图片路径，H5 端为 emoji）
@@ -319,7 +326,9 @@ function MinePage() {
           Taro.setStorageSync(AVATAR_KEY, next);
           Taro.showToast({ title: '头像已更新', icon: 'success' });
         })
-        .catch(() => {});
+        .catch(() => {
+          /* 静默：showActionSheet 被用户取消时 reject，是正常操作而非错误 */
+        });
     }
   };
 
@@ -330,7 +339,9 @@ function MinePage() {
         if (res.tapIndex === 0) doChangeAvatar();
         else if (res.tapIndex === 1) Taro.navigateTo({ url: '/pages/history/index' });
       })
-      .catch(() => {});
+      .catch(() => {
+        /* 静默：showActionSheet 被用户取消时 reject，是正常操作而非错误 */
+      });
   };
 
   const isEmojiAvatar = (val: string) => val.length <= 4;
@@ -350,6 +361,8 @@ function MinePage() {
   /** B-01：展示与续费取价——有生效中的锁价取锁定价，否则取方案基础价 */
   const effectivePrice = useMemo(
     () => getEffectivePrice(planId, EARLYBIRD_PRICE[planId]),
+    // locked 是「锁价变更后重算」的触发器：getEffectivePrice 内部读 localStorage 锁价，必须随 locked 重算才刷新，不能删
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [planId, locked]
   );
 
@@ -425,17 +438,18 @@ function MinePage() {
     saveSettings({ nickname: name });
   };
 
-  const handleChangeTime = (e) => {
-    saveSettings({ briefingTime: e.detail.value as string });
+  // Picker mode='time' 的 onChange 事件：value 即 'HH:mm'（Taro 官方事件类型）
+  const handleChangeTime = (e: CommonEvent<PickerTimeProps.ChangeEventDetail>) => {
+    saveSettings({ briefingTime: e.detail.value });
   };
 
   const handleTogglePref = (tag: string) => {
-    const next = prefs.includes(tag) ? prefs.filter((t) => t !== tag) : [...prefs, tag].slice(0, 5);
+    const next = prefs.includes(tag) ? prefs.filter((p) => p !== tag) : [...prefs, tag].slice(0, 5);
     setPrefs(next);
     saveSettings({ preferences: next });
   };
 
-  const handleReplyStyle = (e) => {
+  const handleReplyStyle = (e: CommonEvent<PickerSelectorProps.ChangeEventDetail>) => {
     const idx = Number(e.detail.value);
     persistCustom({ replyStyle: REPLY_STYLES[idx] || '均衡' });
   };
@@ -611,12 +625,12 @@ function MinePage() {
     commitPrefs({ pushFreq: freq });
   };
 
-  const handlePickDndStart = (e) => {
-    commitPrefs({ dndStart: e.detail.value as string });
+  const handlePickDndStart = (e: CommonEvent<PickerTimeProps.ChangeEventDetail>) => {
+    commitPrefs({ dndStart: e.detail.value });
   };
 
-  const handlePickDndEnd = (e) => {
-    commitPrefs({ dndEnd: e.detail.value as string });
+  const handlePickDndEnd = (e: CommonEvent<PickerTimeProps.ChangeEventDetail>) => {
+    commitPrefs({ dndEnd: e.detail.value });
   };
 
   const handleToggleModule = (key: (typeof PUSH_MODULES)[number], on: boolean) => {
@@ -721,7 +735,9 @@ function MinePage() {
       cancelText: t('cancel'),
       confirmText: t('mine.deleteSubmit'),
       confirmColor: DANGER_COLOR,
-      success: (res) => {
+      // showModal 的成功回调结果类型：confirm / cancel / errMsg 来自 Taro 官方类型；
+      // editable 输入框的回填字段 content 微信侧有、Taro 类型里没有，故下方仍显式断言读取。
+      success: (res: Taro.showModal.SuccessCallbackResult) => {
         if (!res.confirm) return;
         // 平台不支持 editable 时 content 缺失，退化为「一次确认」兜底，仍 ≤3 步
         const typed = (res as unknown as { content?: string }).content;
@@ -796,6 +812,8 @@ function MinePage() {
 
   return (
     <View className={styles.page} style={brandVars(theme)}>
+      {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
+      <DemoDataHint />
       <View className={styles.userCard}>
         <Button className={styles.avatarBtn} onClick={handleAvatarTap}>
           <View className={styles.avatar}>
@@ -803,7 +821,18 @@ function MinePage() {
               isEmojiAvatar(avatar) ? (
                 <Text className={styles.avatarText}>{avatar}</Text>
               ) : (
-                <Image className={styles.avatarImg} src={avatar} mode='aspectFill' />
+                // 无障碍（2026-10-12）：头像给**有意义的 alt**（此前是空 alt + aria-hidden，按纯装饰处理）。
+                // 理由：头像是「我是谁」的身份图像，给出名字比留白更有用；外层按钮的「点头像」文字
+                // 表达的是**动作**，不能替代头像自身的含义。
+                // Taro 的 Image 没有 alt 属性，H5 端唯一能透传到真实 <img> 的入口是 nativeProps
+                // （见 @tarojs/components/dist/esm/image-*.js 的 render：h("img", {...nativeProps})），
+                // 且 nativeProps 仅 h5 支持，故只在 H5 端传。
+                <Image
+                  className={styles.avatarImg}
+                  src={avatar}
+                  mode='aspectFill'
+                  nativeProps={isH5 ? { alt: t('mine.avatarAlt') } : undefined}
+                />
               )
             ) : (
               <Text className={styles.avatarText}>🌅</Text>
@@ -1484,6 +1513,9 @@ function MinePage() {
             </Text>
             <ScrollView scrollY className={styles.docBody}>
               <Text className={styles.docText}>
+                {/* 法务原文只有中文版：英文界面下必须先声明「以中文版为准」，
+                    不能让用户以为读到的是英文条款（诚实性，2026-10-12） */}
+                {lang === 'en' ? `${t('legal.langNotice')}\n\n` : ''}
                 {docView === 'terms' ? TERMS_TEXT : docView === 'privacy' ? PRIVACY_TEXT : AI_SERVICES_TEXT}
               </Text>
             </ScrollView>

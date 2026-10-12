@@ -1,9 +1,7 @@
 @use '@/styles/variables.scss' as *;
 
 .page {
-  min-height: 100vh;
-  background: $color-bg-page;
-  padding: $spacing-md $page-padding $page-pad-bottom-tab;
+  @include page-root;
   display: flex;
   flex-direction: column;
   gap: $spacing-md;
@@ -11,10 +9,7 @@
 
 .panel,
 .dayPanel {
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow-card;
-  padding: $spacing-lg;
+  @include card-surface;
 }
 
 .monthBar {

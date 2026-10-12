@@ -1,10 +1,10 @@
 import Taro from '@tarojs/taro';
+/** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
+import type { PlanProposalRaw } from '@/utils/schedule';
 import { callFunction, chatLocalStream } from './cloud';
 import { invoke, isWeapp } from './dataSource';
 import { getSession } from './cloudAuth';
 import { buildProfileFromSession, writeProfileSettings } from './localProfile';
-/** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
-import type { PlanProposalRaw } from '@/utils/schedule';
 import type {
   Briefing,
   CollectionItem,

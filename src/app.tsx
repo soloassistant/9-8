@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import AiAssistant from '@/components/AiAssistant';
 import Splash from '@/components/Splash';
@@ -65,7 +66,7 @@ function routeToContext(route: string): string {
   return '';
 }
 
-function App(props) {
+function App(props: PropsWithChildren) {
   const [context, setContext] = useState('');
   // 当前路由：用于把**应用外壳**（AI 悬浮球、开屏动画）挡在登录页之外。
   // 实测依据（2026-10-05 浏览器核对）：登录页上确实渲染了 🤖 悬浮球与「点击进入」开屏，
@@ -148,16 +149,22 @@ function App(props) {
   useDidShow(() => {
     const pages = Taro.getCurrentPages();
     const current = pages[pages.length - 1];
-    const route = current ? current.route || '' : '';
-    setRoute(route);
-    setContext(routeToContext(route));
+    const nextRoute = current ? current.route || '' : '';
+    setRoute(nextRoute);
+    setContext(routeToContext(nextRoute));
     // 门禁：未登录且不在登录页 → 送回登录页。放在 useDidShow 是因为它覆盖
     // 「切 tab / 深链 / 冷启动」所有进入路径。
     // 注意实现方式是**重定向**，而不是在 App 里不渲染 children —— 后者会打断
     // Taro 的页面生命周期（实测抛「没有找到页面实例」并整页白屏，只剩 Tab 栏）。
     if (needsAuthGate && route && !route.includes('login')) {
       getSession().then((s) => {
-        if (!s) Taro.redirectTo({ url: '/pages/login/index' }).catch(() => {});
+        if (!s) {
+          Taro.redirectTo({ url: '/pages/login/index' }).catch((err) => {
+            // 门禁重定向失败 = 未登录用户仍停留在受保护页，属真故障，必须留痕
+            // （用 console.error：console.warn 会被生产构建剔除）
+            console.error('[App] 门禁重定向登录页失败:', err);
+          });
+        }
       });
     }
   });

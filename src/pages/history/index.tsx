@@ -26,7 +26,7 @@ function HistoryPage() {
 
   useEffect(() => {
     loadHistory();
-  }, []);
+  }, [loadHistory]);
 
   const handleClear = () => {
     if (list.length === 0) return;

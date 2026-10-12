@@ -133,3 +133,29 @@ $transition-slow: 0.35s ease;
     border: none;
   }
 }
+
+// 卡片表面：白底 + 大圆角 + 卡片阴影 + 大内边距。
+// 只包含「全仓一字不差」的那 4 条声明；各处的 margin / position / transition
+// 等差异声明请留在 @include 之后，避免顺手改变视觉。
+@mixin card-surface {
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  padding: $spacing-lg;
+}
+
+// 页面根容器样板：撑满视口 + 页面底色 + 8px 网格纵向内边距。
+// $bottom：底部安全留白（tab 页传 $page-pad-bottom-tab；非 tab 页传 80rpx 等）。
+// $horizontal：左右安全边距，默认 $page-padding；子区块自行控制边距的页面传 0。
+// 注意：渐变底色的 .page（briefing / shopping / sxm）不属于此样板，未套用。
+@mixin page-root($bottom: $page-pad-bottom-tab, $horizontal: $page-padding) {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding: $spacing-md $horizontal $bottom;
+}
+
+// 次级说明文本：三级文字色 + 小号字
+@mixin text-tertiary-sm {
+  color: $color-text-tertiary;
+  font-size: $font-size-sm;
+}

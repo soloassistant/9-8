@@ -6,8 +6,8 @@ import { LearnCourse, LearnLangId } from '@/data/learn';
 import { buildSpeakingLines, langToAsr, langToTts, speechSimilarity } from '@/utils/learnDrills';
 import { addDrillResult } from '@/utils/learn';
 import { startSpeak, stopSpeak, TtsLang } from '@/utils/tts';
-import { DrillFinish, DrillProgress, DrillRevealBox, vibrateCorrect } from './DrillShared';
 import { useT } from '@/store/language';
+import { DrillFinish, DrillProgress, DrillRevealBox, vibrateCorrect } from './DrillShared';
 import styles from './index.module.scss';
 
 interface SpeakingDrillProps {
@@ -94,7 +94,7 @@ function SpeakingDrill({ course, langId, accent, best, audioSupported }: Speakin
   if (done || !line) {
     return (
       <DrillFinish
-        emoji="🗣"
+        emoji='🗣'
         title={t('learn.speakDone')}
         score={t('learn.speakProgress', { count: practiced.size, total: lines.length })}
         best={Math.max(best, 100)}

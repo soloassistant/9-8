@@ -1,9 +1,7 @@
 @use '@/styles/variables.scss' as *;
 
 .page {
-  min-height: 100vh;
-  background: $color-bg-page;
-  padding: $spacing-md $page-padding 80rpx;
+  @include page-root(80rpx);
 }
 
 .header {
@@ -41,10 +39,7 @@
   display: flex;
   align-items: center;
   gap: $spacing-md;
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow-card;
-  padding: $spacing-lg;
+  @include card-surface;
   margin-bottom: $spacing-md;
 }
 

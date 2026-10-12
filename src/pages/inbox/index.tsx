@@ -317,9 +317,10 @@ function InboxPage() {
   };
 
   /** 采用 AI 建议时段，并移除对应冲突提示 */
-  const applySuggestion = (draftKey: string, time: string) => {
-    editDraftTime(draftKey, time);
-    setConflicts((prev) => prev.filter((c) => c.draftKey !== draftKey));
+  // 参数原名 draftKey，会遮蔽模块级的 `let draftKey`（草稿自增序号），已改名。
+  const applySuggestion = (key: string, time: string) => {
+    editDraftTime(key, time);
+    setConflicts((prev) => prev.filter((c) => c.draftKey !== key));
     Taro.showToast({ title: `已改到 ${dayjs(time).format('HH:mm')}`, icon: 'none' });
   };
 
@@ -463,7 +464,15 @@ function InboxPage() {
               <View className={styles.imageRow}>
                 {images.map((src, idx) => (
                   <View key={src.slice(-24) + idx} className={styles.imageThumb}>
-                    <Image className={styles.imagePic} src={src} mode='aspectFill' />
+                    {/* 有信息量的图片（用户上传的待提取截图）：给可辨识的 alt。
+                        Taro 的 Image 无 alt 属性，只能经 nativeProps 透传到内层 <img>，且仅 H5 支持。
+                        ⚠️ 这里用的是字面量而非 i18n —— language.ts 目前没有对应 key（见交付说明）。 */}
+                    <Image
+                      className={styles.imagePic}
+                      src={src}
+                      mode='aspectFill'
+                      nativeProps={isH5 ? { alt: `已上传截图 ${idx + 1}` } : undefined}
+                    />
                     <View className={styles.imageRemove} onClick={() => removeImage(idx)}>
                       <Text className={styles.imageRemoveText}>×</Text>
                     </View>
@@ -588,9 +597,9 @@ function InboxPage() {
                   <>
                     <Text className={styles.itemSummary}>{draft.summary}</Text>
                     <View className={styles.tagRow}>
-                      {(draft.tags || []).map((t) => (
-                        <Text key={t} className={styles.miniTag}>
-                          {t}
+                      {(draft.tags || []).map((tag) => (
+                        <Text key={tag} className={styles.miniTag}>
+                          {tag}
                         </Text>
                       ))}
                     </View>

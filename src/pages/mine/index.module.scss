@@ -1,9 +1,7 @@
 @use '@/styles/variables.scss' as *;
 
 .page {
-  min-height: 100vh;
-  background: $color-bg-page;
-  padding: $spacing-md $page-padding $page-pad-bottom-tab;
+  @include page-root;
 }
 
 .userCard {
@@ -58,6 +56,7 @@
 }
 
 .nickname {
+  display: block;
   font-size: $font-size-xl;
   font-weight: $font-weight-semibold;
   color: $color-text-primary;
@@ -65,6 +64,7 @@
 }
 
 .userMeta {
+  display: block;
   font-size: $font-size-sm;
   color: $color-text-tertiary;
 }
@@ -92,6 +92,7 @@
 }
 
 .subTitle {
+  display: block;
   font-size: $font-size-xl;
   font-weight: $font-weight-semibold;
   color: $color-text-white;
@@ -99,6 +100,7 @@
 }
 
 .subDesc {
+  display: block;
   font-size: $font-size-sm;
   color: rgba(255, 255, 255, 0.9);
   line-height: $line-height-loose;
@@ -147,10 +149,7 @@
 }
 
 .quotaCard {
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow-card;
-  padding: $spacing-lg;
+  @include card-surface;
   margin-bottom: $spacing-md;
 }
 
@@ -208,10 +207,7 @@
 }
 
 .settingCard {
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow-card;
-  padding: $spacing-lg;
+  @include card-surface;
   margin-bottom: $spacing-md;
 }
 
@@ -472,14 +468,12 @@
 }
 
 .logCard {
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow-card;
-  padding: $spacing-lg;
+  @include card-surface;
   margin-bottom: $spacing-md;
 }
 
 .logTitle {
+  display: block;
   font-size: $font-size-lg;
   font-weight: $font-weight-semibold;
   color: $color-text-primary;
@@ -518,16 +512,14 @@
 }
 
 .logEmpty {
+  display: block;
   font-size: $font-size-sm;
   color: $color-text-tertiary;
   line-height: $line-height-loose;
 }
 
 .privacyCard {
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow-card;
-  padding: $spacing-lg;
+  @include card-surface;
 }
 
 .privacyText {

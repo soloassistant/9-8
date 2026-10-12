@@ -3,7 +3,6 @@ import { View, Text } from '@tarojs/components';
 import type { ITouchEvent } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import classnames from 'classnames';
-import styles from './index.module.scss';
 import { useT } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import PermissionDialog from '@/components/PermissionDialog';
@@ -25,6 +24,7 @@ import {
   shouldWarnRemaining
 } from '@/utils/voiceGesture';
 import type { VoiceGestureContext, VoiceGestureEvent, VoiceGestureState } from '@/utils/voiceGesture';
+import styles from './index.module.scss';
 
 const isWeapp = process.env.TARO_ENV === 'weapp';
 
@@ -577,7 +577,7 @@ export default function VoiceButton({ disabled = false, compact = false, asrLang
 
       <PermissionDialog
         visible={permVisible}
-        name="microphone"
+        name='microphone'
         onAgree={() => void handlePermAgree()}
         onCancel={handlePermDecline}
       />
