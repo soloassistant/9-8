@@ -17,6 +17,7 @@
     "verify:intel": "node .tools/analyze-intel.js",
     "verify:dedupe": "node .tools/dedupe-eval.js",
     "verify:extlink": "node .tools/verify-external-link.js",
+    "verify:trust": "node .tools/verify-trust-wiring.js",
     "verify:layout": "node .tools/verify-layout.mjs",
     "deploy:cloud": "node .tools/deploy-cloud.mjs",
     "build:weapp": "taro build --type weapp",

@@ -52,3 +52,24 @@ dist-weapp/
 
 # 项目记忆（含操作细节），仓库是 public，不入库
 MEMORY.md
+
+# ── 另一个独立项目 / 历史一次性产物 ──────────────────────────────────────────
+# 起因（2026-10-12）：工作区里躺着 307 个未跟踪文件，其中 **263 个属于另一个项目**
+# （`ai-course-teacher*`）。一次 `git add -A` 就会把它们连同 _backup/、deliverables/
+# 一起推到 **public** 仓库。靠"记得别用 git add -A"是守不住的，必须由忽略规则兜住。
+# 实测：加规则前 `git add -A -n` 暂存 307 个文件，加规则后应为 0。
+ai-course-teacher/
+ai-course-teacher-p0p4/
+ai-course-teacher*.zip
+AI网课老师_P0-P4全量.zip
+page_files.zip
+_tmp_page_files/
+_tmp_*.js
+.tsc_final.txt
+.learncheck/
+_backup/
+deliverables/
+项目源码整合.md
+
+# 工具本地状态（不是本仓内容；只忽略，不删除）
+.workbuddy/

@@ -10,6 +10,7 @@
 #   · verify:dedupe  96 对人工标注基准集上的 P/R/F1 回归（纯离线、确定性）
 #   · verify:intel   用仓库内的冻结夹具做条数/类目数/最大类目占比阈值回归（纯离线）
 #   · verify:extlink 外链门禁 isSafeExternalUrl 的判定矩阵回归（纯离线、就地转译源码）
+#   · verify:trust   信任过滤「接线」回归：三条产出链路是否都真的调到了过滤器（纯离线）
 #
 # **故意不放进这里**（与 lingxi-class 的取舍一致：联网的东西会让 CI 在 fork/PR 上不可靠）：
 #   · npm run vet:sources     要联网实测 16 个 RSS 源；外网抖动会让 CI 变红且结论不可信
@@ -76,3 +77,10 @@ jobs:
         # 后是前缀判断被 `"/\t/evil.com"` 绕过 —— URL 解析器会静默删除 \t \n \r）。
         # 判定矩阵固化后，谁再调松谁当场变红。
         run: npm run verify:extlink
+
+      - name: 信任过滤接线回归
+        # 这条守的是「过滤器被**接上**」而不是「过滤器能过滤」：过滤逻辑本身对了，
+        # 但三条产出链路（云函数 / fetch-data / 构建期）只要有一条没调用它，
+        # 内容就照样带着投毒条目上线 —— 2026-10-12 就出过这个缺口，且当时没有任何自动拦截。
+        # 纯离线（用 Module._load 给 wx-server-sdk 打桩），可安全进 CI。
+        run: npm run verify:trust
