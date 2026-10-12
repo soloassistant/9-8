@@ -126,18 +126,35 @@ check('3/3 全毒 → kept 为 0（护栏不得放行）', r2.kept.length === 0)
 
 console.log('');
 console.log('== D. 真实语料不误杀（回归） ==');
-const dataPath = process.argv[2] || path.join(ROOT, 'dist', 'api', 'hotspot.json');
-try {
-  const parsed = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-  const items = Array.isArray(parsed) ? parsed : parsed.items || [];
-  const r3 = filterNewsItems(items, { label: 'probe' });
-  check(
-    `线上语料 ${items.length} 条零误杀`,
-    r3.dropped.length === 0,
-    r3.dropped.slice(0, 5).map((d) => `[${d.source}] ${d.reason} ${d.title}`).join(' | ')
-  );
-} catch (e) {
-  check('读取线上语料 ' + dataPath, false, String(e.message || e));
+// 语料按优先级挑一份，并**明确打印用的是哪一份** —— 免得"测过了"却不知道测的是谁：
+//   · 有参数就用参数
+//   · 本机构建后优先用 dist/api/hotspot.json（最新真实产物，信号最强）
+//   · **CI 里没有 dist/**（被 .gitignore 排除、也不会先 build），回落到**已入库**的冻结夹具
+//     —— 与 verify:intel 用的是同一份设计（`.tools/fixtures/hotspot-sample.json`）
+//   · 两者都没有 → **判失败，而不是跳过**：静默跳过会得到一个"永远绿但什么都没验"的假闸门
+//     （这正是 verify-layout-pages.mjs 不能进 CI 的原因）
+const CORPUS_CANDIDATES = [
+  process.argv[2],
+  path.join(ROOT, 'dist', 'api', 'hotspot.json'),
+  path.join(ROOT, '.tools', 'fixtures', 'hotspot-sample.json'),
+].filter(Boolean);
+const dataPath = CORPUS_CANDIDATES.find((p) => fs.existsSync(p));
+if (!dataPath) {
+  check('找到可用的真实语料', false, '都不存在：' + CORPUS_CANDIDATES.join(' , '));
+} else {
+  console.log('语料来源: ' + dataPath);
+  try {
+    const parsed = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+    const items = Array.isArray(parsed) ? parsed : parsed.items || [];
+    const r3 = filterNewsItems(items, { label: 'probe' });
+    check(
+      `真实语料 ${items.length} 条零误杀`,
+      r3.dropped.length === 0,
+      r3.dropped.slice(0, 5).map((d) => `[${d.source}] ${d.reason} ${d.title}`).join(' | ')
+    );
+  } catch (e) {
+    check('读取真实语料 ' + dataPath, false, String(e.message || e));
+  }
 }
 
 console.log('');
