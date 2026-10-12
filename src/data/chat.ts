@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import type { ScheduleEvent, TodoItem } from '../types';
 import { readPlan, writePlan, nextId } from './dailyPlan';
 import getHotspot from './getHotspot';
+import { SHOP_PLATFORMS } from '../config/sxmPlatforms';
 
 const SHOPPING_STORAGE_KEY = 'shoppingList';
 
@@ -454,36 +455,60 @@ function handleShoppingList(msg: string): string {
 
 /**
  * 购物分析（离线兜底形态）：
- * 真实联网比价需搜索 API + 云函数，当前为常识层参考估算；合规要求：绝不冒充实时报价。
+ * 拿不到实时价格（没有比价数据源），所以**不给任何具体价格**，只给
+ * 「去哪个平台查 + 各平台适合什么」，把判断交回用户，价格以下单页为准。
+ *
+ * ⚠️ 2026-10-12 修：这里原来对**任何**商品都返回同一组硬编码价格
+ * （京东自营 ￥2,899 / 天猫 ￥2,949 / 拼多多 ￥2,659 / 实体店 ￥3,099，还带星级）。
+ * 那跟本函数注释里写的「绝不冒充实时报价」自相矛盾，也跟省心买「不编数字」的原则冲突 ——
+ * 编造的价格比没有价格更糟：用户会照着它下判断。所以整组删掉，改成明说拿不到。
+ * 平台特点改为复用省心买的静态字典（一处收口，避免两边描述各自漂移）。
  */
+/**
+ * 从一句话里尽量提取商品名。
+ *
+ * ⚠️ 2026-10-12 修：原来的朴素正则 /买[:：]?\s*(...{2,12})/ 是**贪婪**的，
+ * 「买个空气炸锅值不值」会把意图词一起吞进去，得到「个空气炸锅值不值」。
+ * 旧实现里这个错误商品名被淹没在一堆编造价格里不显眼，删掉价格后就格外扎眼了。
+ * 现在：先按意图词截断，再剥掉开头的量词（个/件/台…）。
+ */
+const ITEM_INTENT_CUT =
+  /(值不值|值不值得|划算|性价比|好不好|怎么样|怎么选|哪[个家]|对比|比较|推荐|可以吗|好吗|行吗|吗)/;
+
+function extractShopItem(msg: string): string {
+  const m = msg.match(/买[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()]{2,12})/);
+  let s = m ? m[1] : '';
+  const cut = s.search(ITEM_INTENT_CUT);
+  if (cut >= 2) s = s.slice(0, cut);
+  s = s.replace(/^[个件台只条双套张部瓶盒袋]/, '');
+  return s || '该商品';
+}
+
 function shoppingAnalyze(msg: string): string {
-  const item = (msg.match(/买[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()]{2,12})/) || [])[1] || '该商品';
+  const item = extractShopItem(msg);
   const budget = (msg.match(/预算[^0-9]{0,3}(\d+)/) || [])[1] || null;
-  const rows = [
-    ['京东自营', '￥2,899', '★★★★☆', '次日达 · 官方售后'],
-    ['天猫官方旗舰', '￥2,949', '★★★★☆', '赠品较多 · 7天无理由'],
-    ['拼多多百亿补贴', '￥2,659', '★★★☆☆', '价格最低 · 需蹲券'],
-    ['实体线下门店', '￥3,099', '★★★★★', '可上手体验 · 报价可谈']
-  ];
-  const cheapest = rows.reduce((a, b) => {
-    const p = (s: string) => Number(s.replace(/[^\d]/g, ''));
-    return p(a[1]) < p(b[1]) ? a : b;
-  });
+
   const lines = [
-    `🔍 帮你从常识层面梳理「${item}」的选购思路（离线参考，非实时报价）…`,
+    `🔍 「${item}」的选购思路（离线参考）`,
     '',
-    '📊 平台对比（参考价 · 非实时，以下单页面实际价格为准）',
-    ...rows.map((r) => `${r[0]}  ${r[1]}  ${r[2]}  ${r[3]}`),
+    '⚠️ 当前没有接入比价数据源 —— 我查不到实时价格，所以不给你编一个。',
+    '价格请以各平台下单页为准。这几个平台各自适合什么：',
     '',
-    `✅ 参考结论：示例价位中 ${cheapest[0]} 最低（${cheapest[1]}），适合预算敏感的入手。`
+    ...SHOP_PLATFORMS.map((p) => `· ${p.name}（${p.tag}）${p.desc ?? ''}`),
+    '',
+    `✅ 怎么用：把「${item}」在几个平台都搜一遍再决定。同款价差经常比想象中大，`,
+    '   尤其是官方旗舰店与第三方店之间、以及大促前后。'
   ];
   if (budget) {
-    const b = Number(budget);
-    lines.push(`\n按你 ${budget} 元预算看，${rows.every((r) => b < Number(r[1].replace(/[^\d]/g, ''))) ? '各平台都超了预算，建议加一点预算或换个型号。' : '首选在预算内 + 售后好的那一档。'}`);
+    lines.push(
+      '',
+      `💰 你提到预算 ${budget} 元：先按这个上限在各平台筛，再看旗舰店与第三方的差价。`,
+      '   超预算的往往是上一代或规格差异，对照参数再决定更稳。'
+    );
   }
   lines.push(
-    '\n💡 需要的话我可以：1) 把它加进购物清单跟进降价  2) 换个价格区间继续比。',
-    '（提示：以上为参考估算，非实时报价；下单前请以平台实际价格为准。）'
+    '',
+    '💡 需要的话我可以：1) 把它加进购物清单、设个目标价跟进  2) 记下你比出来的价格再帮你算均价。'
   );
   return lines.join('\n');
 }
