@@ -675,7 +675,11 @@ const zh = {
   'library.abReset': '重置统计',
   'library.abResetDone': '已重置效果统计',
 
-  // 进入门禁（登录）文案。Web 端支持邮箱与手机号两种标识，二者互斥（SDK 硬性要求）。
+  // 进入门禁（登录）文案。★ Web 端**只支持邮箱**标识（2026-10-05 平台文档校正：Web 应用不支持
+  //   手机号/微信登录，加了 UI 也会编译通过、运行时必然失败）。手机号走微信小程序那条线。
+  //   `auth.idPhone` / `auth.phone` / `auth.phonePlaceholder` / `auth.errPhone*` / `auth.smsSentHint`
+  //   均为历史遗留 key，当前 src/ 内**无任何渲染点**；保留只为不让 zh/en key 数变化。
+  //   ★ 不要在登录页把手机号选项加回来（详见 src/pages/login/index.tsx 顶部注释）。
   'auth.checking': '正在校验登录状态…',
   'auth.title': '需要登录',
   // 注册前唯一能看到的「产品是什么」。原文是「这是一个私人应用，登录后才能进入。」
