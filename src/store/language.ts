@@ -1006,7 +1006,7 @@ const en: Record<keyof typeof zh, string> = {
   'settings.minorModeDesc': 'Hides finance & hot-topic pushes; managed with parent PIN',
   'settings.parentPin': 'Parent PIN',
   'settings.parentPinSet': 'Parent PIN set',
-  'settings.memoryPrivacy': 'Memories stay on this device and are used only for conversation context. They are never used for model training or profiling, and are deleted when the feature is disabled.',
+  'settings.memoryPrivacy': 'Memories are stored on this device and synced to your account so they carry across devices; they are used only for conversation context and task continuity, never for model training or profiling, and are deleted when the feature is disabled.',
   'subscribe.renew': 'Subscription is expiring — renew to keep receiving morning brief alerts',
   /* ---- Competitor improvements wrap-up: X11 minor banner / X6 weekend edition desc / X3 DND active / parent PIN ---- */
   'library.minorBanner': 'Minor mode is on',
