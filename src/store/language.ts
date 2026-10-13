@@ -158,7 +158,7 @@ const zh = {
   'sxm.savePlaybookTitle': '火车票省钱打法',
 
   'mine.shoppingDesc': '记想买的东西 · 多平台比价',
-  'mine.privacyNote': '隐私说明：转发的内容仅用于生成你的日程、待办与摘要，存储于境内服务器；数据删除与客服入口见上方设置区。',
+  'mine.privacyNote': '隐私说明：转发的内容仅用于生成你的日程、待办与摘要，存储于境内服务器；天气定位的坐标会发送至第三方境外服务解析城市名（不存储）；数据删除与客服入口见上方设置区。',
   'mine.docRead': '我已阅读',
   'mine.badgeSubscribed': '订阅中',
   // 用户读完应该知道自己省了什么。原版全是形容词（不限次/无限量/优先体验），
@@ -280,7 +280,10 @@ const zh = {
   'settings.minorModeDesc': '开启后隐藏财经与热点推送，需家长密码管理',
   'settings.parentPin': '家长密码',
   'settings.parentPinSet': '已设置家长密码',
-  'settings.memoryPrivacy': '记忆仅保存在本设备，用于对话上下文与任务连续性，不用于模型训练或用户画像；关闭后停止收集并删除。',
+  // ★ 2026-10-13 修正：原文写「记忆仅保存在本设备」——但 `ai-memory` 在 cloudSync 的 SYNC_KEYS 里
+  //   （src/services/cloudSync.ts:32），H5 上会随其他数据一起推送至 /api/user/sync。
+  //   这与《隐私政策》一.6「浏览历史仅保存在你的设备本地」是同一类错误，一并改正。
+  'settings.memoryPrivacy': '记忆保存在本设备，并同步到你的账号以便跨设备延续；仅用于对话上下文与任务连续性，不用于模型训练或用户画像；关闭后停止收集并删除。',
   'subscribe.renew': '订阅即将到期，请续订以继续接收晨报提醒',
   /* ---- 竞品改进收尾：X11 未成年人横幅 / X6 周末版说明 / X3 免打扰激活 / 家长密码弹层 ---- */
   'library.minorBanner': '未成年人模式已开启',
@@ -297,11 +300,12 @@ const zh = {
   'briefing.audioPlay': '听晨报',
   'briefing.audioStop': '停止播报',
 
-  /* ---- v1.3 · AI 生成合成内容标识（P0-2 合规硬门槛，2025-09-01 强制施行）---- */
+  /* ---- v1.3 · AI 生成合成内容标识（P0-2 合规硬门槛，2025-09-01 强制施行）----
+     2026-10-13：删掉 `ai.labelAudio` / `ai.labelSummary` —— 它们只被 aiLabel.ts 的
+     buildExplicitLabel（零调用的死函数）引用，**任何组件都没有渲染点**。
+     留着等于"看似有标识、实则永不显示"的假合规。现在这里的每个 key 都有真实渲染点。 */
   'ai.labelText': '— AI 生成内容，仅供参考 —',
-  'ai.labelAudio': '— 以下语音由 AI 合成 —',
   'ai.labelExtract': '— 由 AI 提取整理，请核对 —',
-  'ai.labelSummary': '— 由 AI 摘要生成，仅供参考 —',
   'ai.audioIntro': '以下内容由 AI 生成，仅供参考。',
   // 深度合成-AI问答 类目「人工必查项」：AI 对话页需**全程固定展示**的醒目提示
   // （官方明确禁止「角落小字 / 仅弹窗一次 / 浅色隐藏」）。仅气泡底部角标不算。
@@ -402,7 +406,7 @@ const zh = {
   'search.noDue': '无截止',
 
   'history.title': '浏览历史',
-  'history.hint': '你看过的热点资讯都会留在这里，只保存在你的手机上',
+  'history.hint': '你看过的热点资讯都会留在这里，并同步到你的账号以便跨设备恢复',
 
   'shopping.title': '购物清单',
   'shopping.addPlaceholder': '想买什么，如「蓝牙耳机」',
@@ -417,7 +421,7 @@ const zh = {
   'perm.micTitle': '需要麦克风权限',
   'perm.micBody': '用于把你「按住说话」的内容转成文字。仅在你主动按住时录音，不会在后台录音；音频仅用于本次转写，不会长期保存；你可以随时在系统设置中关闭。',
   'perm.locTitle': '需要位置权限',
-  'perm.locBody': '用于获取你所在城市的天气，以及在你说「去上海出差」时自动带出目的地天气。位置信息仅用于天气查询，不会与你的日程内容关联上传；你可以随时在系统设置中关闭。',
+  'perm.locBody': '用于获取你所在城市的天气，以及在你说「去上海出差」时自动带出目的地天气。位置信息仅用于天气查询，不会与你的日程内容关联；解析城市名由第三方境外地图服务完成，坐标不存储；你可以随时在系统设置中关闭。',
   'perm.decline': '暂不使用',
   'perm.agree': '同意并开启',
   'perm.goSettings': '去设置开启',
@@ -720,7 +724,7 @@ const zh = {
   'auth.errResetEmailOnly': '改密暂只支持邮箱，请切到「邮箱登录」',
   'auth.otpSentHint': '没收到？先看垃圾邮件箱，再确认邮箱地址没写错',
   // 个保法要求的「明示同意」：登录前必须让用户看到收集范围并主动勾选，不能默认勾、也不能藏在协议里
-  'auth.privacyNotice': '邮箱仅用于账号登录与晨报推送；位置信息只在你开启相关功能后采集，且不会用于广告。数据存放在你自己的账号下，可在「我的 - 注销账号」一键删除。',
+  'auth.privacyNotice': '邮箱仅用于账号登录与晨报推送；位置信息只在你开启天气功能后采集，且不会用于广告，解析城市名由第三方境外地图服务完成。数据存放在你自己的账号下，可在「我的 - 注销账号」一键删除。',
   'auth.privacyAgree': '我已阅读并同意上述隐私说明',
   'auth.errPrivacy': '请先勾选同意隐私说明',
   'auth.smsSentHint': '没收到？确认手机号无误，并检查是否被短信拦截',
@@ -885,7 +889,7 @@ const en: Record<keyof typeof zh, string> = {
   'sxm.savePlaybookTitle': 'Train ticket saving tactics',
 
   'mine.shoppingDesc': 'Save items to buy · compare prices',
-  'mine.privacyNote': 'Privacy: forwarded content is only used to generate your schedule, to-dos and summaries, stored on domestic servers; data deletion & support entries are above.',
+  'mine.privacyNote': 'Privacy: forwarded content is only used to generate your schedule, to-dos and summaries, stored on domestic servers; for weather, your coordinates are sent to a third-party overseas service to resolve the city name (not stored); data deletion & support entries are above.',
   'mine.docRead': "I've read it",
   'mine.badgeSubscribed': 'Subscribed',
   'mine.subDesc': 'Voice 20→unlimited · saves 50→unlimited · habit guard · early access',
@@ -1019,11 +1023,11 @@ const en: Record<keyof typeof zh, string> = {
   'briefing.audioPlay': 'Listen',
   'briefing.audioStop': 'Stop',
 
-  /* ---- v1.3 · AI-generated content labeling (P0-2 compliance, mandatory since 2025-09-01) ---- */
+  /* ---- v1.3 · AI-generated content labeling (P0-2 compliance, mandatory since 2025-09-01) ----
+     2026-10-13: removed `ai.labelAudio` / `ai.labelSummary` — they were referenced only by the
+     zero-call dead function buildExplicitLabel and had no render point anywhere. */
   'ai.labelText': '— AI-generated content, for reference only —',
-  'ai.labelAudio': '— The following audio is AI-synthesized —',
   'ai.labelExtract': '— Extracted and organized by AI, please verify —',
-  'ai.labelSummary': '— AI-generated summary, for reference only —',
   'ai.audioIntro': 'The following content is AI-generated, for reference only.',
   // Deep-synthesis (AI Q&A) category requirement: a persistent, always-visible notice on AI chat.
   'ai.notice': 'AI-generated. For reference only — not professional advice.',
@@ -1123,7 +1127,7 @@ const en: Record<keyof typeof zh, string> = {
   'search.noDue': 'No due date',
 
   'history.title': 'Browsing History',
-  'history.hint': 'Everything you viewed stays here, only on your phone',
+  'history.hint': 'Everything you viewed stays here, and syncs to your account for cross-device restore',
 
   'shopping.title': 'Shopping List',
   'shopping.addPlaceholder': 'What to buy, e.g. "Bluetooth earbuds"',
@@ -1138,7 +1142,7 @@ const en: Record<keyof typeof zh, string> = {
   'perm.micTitle': 'Microphone access',
   'perm.micBody': 'Used to turn what you say into text. Records only while you hold the button, never in the background; audio is used for this transcription only and not stored. You can turn it off in system settings anytime.',
   'perm.locTitle': 'Location access',
-  'perm.locBody': 'Used for your city\'s weather and for destination weather when you say "business trip to Shanghai". Location is used for weather lookup only and is never linked to your schedule or uploaded. You can turn it off in system settings anytime.',
+  'perm.locBody': 'Used for your city\'s weather and for destination weather when you say "business trip to Shanghai". Location is used for weather lookup only and is never linked to your schedule; resolving the city name is done by a third-party overseas map service and the coordinates are not stored. You can turn it off in system settings anytime.',
   'perm.decline': 'Not now',
   'perm.agree': 'Allow',
   'perm.goSettings': 'Open settings',
@@ -1428,7 +1432,7 @@ const en: Record<keyof typeof zh, string> = {
   'auth.errResetEmailOnly': 'Password reset is email-only for now — switch to Email',
   'auth.otpSentHint': 'Not seeing it? Check your spam folder first, then confirm the address is correct',
   // 个保法要求的「明示同意」：登录前必须让用户看到收集范围并主动勾选
-  'auth.privacyNotice': 'Your email is used only to sign in and deliver your briefing. Location is collected only after you turn the related feature on, and is never used for advertising. Your data lives under your own account and can be deleted at any time under My - Delete account.',
+  'auth.privacyNotice': 'Your email is used only to sign in and deliver your briefing. Location is collected only after you turn the weather feature on, is never used for advertising, and the city name is resolved by a third-party overseas map service. Your data lives under your own account and can be deleted at any time under My - Delete account.',
   'auth.privacyAgree': 'I have read and agree to the privacy notice above',
   'auth.errPrivacy': 'Please agree to the privacy notice first',
   'auth.smsSentHint': 'Not seeing it? Confirm the number, then check your SMS blocker',

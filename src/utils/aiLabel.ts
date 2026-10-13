@@ -91,24 +91,25 @@ export function serializeAiMeta(meta: AiLabelMeta): string {
 }
 
 /**
- * 返回**显式标识文案的 i18n key**（不返回硬编码中文，保证 zh/en 双语）。
- * 组件层用 `useT()(buildExplicitLabel(kind))` 取值即可，禁止在此硬编码文案。
+ * ★ 显式标识的「文案 key ↔ 真实渲染点」对照表（2026-10-13 移除 buildExplicitLabel 死函数后补）。
+ *
+ * 为什么删掉原来的 `buildExplicitLabel(kind)`：它是**零调用**的死函数，而它返回的四个 key 里
+ * 有两个（`ai.labelAudio` / `ai.labelSummary`）**在任何组件里都没有渲染点** ——
+ * 留着会给人一种「标识已经接好了」的错觉，属于**假合规**，比没有更危险。
+ * 现在每个仍在使用的 key 都能在下表里找到可验证的渲染点：
+ *
+ * | key                | 文案                          | 真实渲染点                                   |
+ * |--------------------|-------------------------------|----------------------------------------------|
+ * | `ai.labelText`     | — AI 生成内容，仅供参考 —     | `components/AiAssistant/index.tsx`（assistant 气泡）|
+ * | `ai.labelExtract`  | — 由 AI 提取整理，请核对 —    | `pages/inbox/index.tsx`（提取结果卡片）      |
+ * | `ai.audioIntro`    | 以下内容由 AI 生成，仅供参考。| `utils/tts.ts`（播报首块前**念出来**）       |
+ * | `ai.notice`        | AI 生成，内容仅供参考…       | `components/AiAssistant/index.tsx`（面板常驻）|
+ * | `briefing.aiTag`           | — AI 生成内容，仅供参考 — | `pages/briefing/index.tsx`（两处）    |
+ * | `briefing.intelGroupLead`  | — 以下导语由 AI 生成 —    | `pages/briefing/index.tsx`             |
+ * | `library.aiLabel`          | — AI 筛选结果，仅供参考 — | `pages/library/index.tsx`              |
+ *
+ * 新增标识类型时：**先确认渲染点存在，再加 key**；只加 key 不算标识。
  */
-export function buildExplicitLabel(kind: AiLabelKind): 'ai.labelText' | 'ai.labelAudio' | 'ai.labelExtract' | 'ai.labelSummary' {
-  switch (kind) {
-    case 'audio':
-      return 'ai.labelAudio';
-    case 'summary':
-      return 'ai.labelSummary';
-    case 'extract':
-      return 'ai.labelExtract';
-    // text / image 统一落到通用文本标识
-    case 'text':
-    case 'image':
-    default:
-      return 'ai.labelText';
-  }
-}
 
 /**
  * 判断某播报场景是否必须附加音频显式标识（前导语音声明）。
