@@ -1,4 +1,4 @@
-# 离线检查：把 selfcheck（25 项）与两个回归入口接到 push / PR 上。
+# 离线检查：把 selfcheck（全量验收断言）与两个回归入口接到 push / PR 上。
 #
 # 为什么存在：这些检查原本只能在本地手动跑 —— 项目是 Taro 小程序 + H5、没有独立的测试阶段，
 # 一旦有人改坏（最容易出事的是「去重规则被后人调松」和「类目 i18n 漏键」），没有任何自动拦截。
@@ -6,7 +6,7 @@
 #
 # 只跑**不依赖外网**的检查：
 #   · typecheck      tsc --noEmit（全仓 0 错误）
-#   · selfcheck      25 项验收断言。CI 里 spawn 可用，所以 tsc 那一项会真跑而不是 SKIP
+#   · selfcheck      全量验收断言（2026-10-13 为 27 项）。CI 里 spawn 可用，所以 tsc 那一项会真跑而不是 SKIP
 #   · verify:dedupe  96 对人工标注基准集上的 P/R/F1 回归（纯离线、确定性）
 #   · verify:intel   用仓库内的冻结夹具做条数/类目数/最大类目占比阈值回归（纯离线）
 #   · verify:extlink 外链门禁 isSafeExternalUrl 的判定矩阵回归（纯离线、就地转译源码）
@@ -49,7 +49,9 @@ jobs:
       - name: 类型检查
         run: npm run typecheck
 
-      - name: 自检（25 项）
+      # 名字里**不写条数**：写死条数在这类断言集上是维护陷阱（加一项就要改名字，
+      # 忘了改就变成一个会骗人的标签 —— 本项目已因「判据写死字面量」吃过一次假红）。
+      - name: 自检（全量验收断言）
         run: |
           set +e
           node .tools/selfcheck.js

@@ -28,6 +28,27 @@ interface PendingOtp {
 const RESEND_SECONDS = 60;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** 翻译函数的最小结构类型（只为下面那个错误归一用，避免为此把 LangKey 拖进来） */
+type TranslateFn = (key: 'auth.errSdkUnavailable') => string;
+
+/**
+ * 错误归一（**一处收口**）：`cloudAuth.safeAuth` 在「SDK 根本没加载 / 连不上后端」时
+ * 返回 `error.kind === 'backend-unavailable'`，它和「凭证错」「验证码错」是**完全不同的事实**。
+ * 如果不在展示层把它识别出来，各提交分支就会各写各的文案 —— 实测过：CDN 被屏蔽时
+ * 用户填**完全正确**的邮箱密码点登录，拿到的是「账号或密码不正确」，于是去重置密码（同样会失败），
+ * 把「依赖挂了」误判成「自己记错了」。那是不实告知。
+ *
+ * 所有提交分支都必须过这个函数；返回 null 时才用各自的兜底文案。
+ * 注意不要顺手把 `error.message` 透出去 —— 密码登录刻意不区分"账号不存在/密码错"，
+ * 透传 SDK 原文会破坏这个反枚举口径（见 submitPassword）。
+ */
+function sdkDownText(
+  error: { kind?: string; message?: string } | null | undefined,
+  t: TranslateFn
+): string | null {
+  return error && error.kind === 'backend-unavailable' ? t('auth.errSdkUnavailable') : null;
+}
+
 /** 隐私同意的本地留存键。**默认不勾选** —— 未经用户主动同意不得发起任何登录/取码动作。 */
 const PRIVACY_CONSENT_KEY = 'sxm-privacy-consent';
 
@@ -168,7 +189,7 @@ export default function LoginPage() {
     const res = await sendLoginCode({ email: email.trim() });
     setBusy(false);
     if (res.error) {
-      setError(res.error.message || t('auth.errGeneric'));
+      setError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
       return;
     }
     setPending({
@@ -203,7 +224,7 @@ export default function LoginPage() {
     });
     setBusy(false);
     if (res.error) {
-      setError(res.error.message || t('auth.errGeneric'));
+      setError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
       return;
     }
     setPending(null);
@@ -222,8 +243,9 @@ export default function LoginPage() {
     const res = await signInWithPassword({ email: email.trim() }, password);
     setBusy(false);
     if (res.error) {
-      // 不区分「邮箱不存在」与「密码错」—— 避免暴露账号是否存在
-      setError(t('auth.errWrongCredentials'));
+      // 不区分「邮箱不存在」与「密码错」—— 避免暴露账号是否存在。
+      // 但「后端根本没连上」不是凭证问题，必须单独说清楚（否则是误导用户去改密码）。
+      setError(sdkDownText(res.error, t) || t('auth.errWrongCredentials'));
       return;
     }
     goToApp();
@@ -237,7 +259,7 @@ export default function LoginPage() {
     const res = await requestPasswordReset(email.trim());
     setBusy(false);
     if (res.error) {
-      setError(res.error.message || t('auth.errGeneric'));
+      setError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
       return;
     }
     setResetTicket({ updateUser: res.data.updateUser });
@@ -256,7 +278,7 @@ export default function LoginPage() {
     const res = await resetTicket.updateUser({ nonce: code.trim(), password });
     setBusy(false);
     if (res.error) {
-      setError(res.error.message || t('auth.errGeneric'));
+      setError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
       return;
     }
     // 重置成功后 SDK 会直接建立会话；再取一次确认，取不到就回登录页（不放行）

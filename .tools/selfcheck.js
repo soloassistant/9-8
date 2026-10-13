@@ -438,16 +438,28 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
   // 假身份兜底：一个都不许有（先剥块注释，避免把说明文字当违规代码 —— 已踩过一次）
   const stripBlockComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
   const noFake = !/signInAnonymously|mockSession/i.test(stripBlockComments(auth) + stripBlockComments(page));
-  const sdkLoaded = /workbuddy-cloud-sdk@dev/.test(html || '');
-  const ok = redirects && registered && flows && noPhoneOnWeb && submitNoResend && rendersChildren && noFake && sdkLoaded;
+  // SDK 引入形态（2026-10-13 收紧；此前这里写死 `/workbuddy-cloud-sdk@dev/`，判据本身是坏的）：
+  //  · 渠道必须是 **dev 线**：`latest`(0.1.3) 是旧构建，功能不全（见 src/index.html 的说明）。
+  //  · 2026-10-13 起渠道由 `@dev`（浮动）改为**固定到具体 dev 版本 + SRI + crossorigin**。
+  //    于是原来那个 `@dev` 字面量判据立刻报假红：把"渠道收紧"误报成"SDK 没了"（当天实测到）。
+  //    ⇒ 判据改成按**形状**判定，不认死渠道写法：
+  //       ① 有 SDK 的 <script> 标签；② 渠道是 dev 线（`@dev/` 或 `@x.y.z-dev.xxx/`）；
+  //       ③ 带 integrity 与 crossorigin —— 这条是新加的**漂移守卫**：把 SRI 随手删掉会被立刻抓住。
+  const sdkTag = ((html || '').match(/<script[^>]*workbuddy-cloud-sdk[^>]*>/) || [''])[0];
+  const sdkLoaded = !!sdkTag;
+  const sdkDevChannel = /workbuddy-cloud-sdk@dev\/|workbuddy-cloud-sdk@\d[^"']*-dev\./.test(sdkTag);
+  const sdkPinnedWithSri = /integrity="sha(256|384|512)-/.test(sdkTag) && /crossorigin=/.test(sdkTag);
+  const ok = redirects && registered && flows && noPhoneOnWeb && submitNoResend && rendersChildren && noFake
+    && sdkLoaded && sdkDevChannel && sdkPinnedWithSri;
   return ok
-    ? { pass: true, detail: '未登录重定向到已注册的登录页；四条流程齐备；提交不重发；App 正常渲染 children；无假身份兜底；SDK 已加载' }
+    ? { pass: true, detail: '未登录重定向到已注册的登录页；四条流程齐备；提交不重发；App 正常渲染 children；无假身份兜底；SDK 在 dev 线且已固定版本 + SRI + crossorigin' }
     : {
         pass: false,
         detail: 'redirect=' + redirects + ' registered=' + registered + ' flows=' + flows
           + ' noPhoneOnWeb=' + noPhoneOnWeb
           + ' submitNoResend=' + submitNoResend + ' rendersChildren=' + rendersChildren
-          + ' noFake=' + noFake + ' sdk=' + sdkLoaded
+          + ' noFake=' + noFake + ' sdk=' + sdkLoaded + ' sdkDevChannel=' + sdkDevChannel
+          + ' sdkPinnedWithSri=' + sdkPinnedWithSri
       };
 });
 
