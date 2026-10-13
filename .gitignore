@@ -33,6 +33,10 @@ Thumbs.db
 .tmp/
 .tmp-*/
 .swc/
+# 【2026-10-13】清晨续跑用的本地临时目录（构建/门禁日志、探针副本、commitmsg）。
+# 里面有非 .log 文件（commitmsg.txt / run-probe.mjs / taro-stub.mjs），
+# 靠上面的 `*.log` 盖不住，会一直以 ?? 出现在 git status，也容易被一次 `git add -A` 误带进 public 仓库。
+_tmp_morning/
 
 # local toolchain & artifacts
 # 【2026-10-12 修正】这里原本是整目录忽略 `.tools/`，但 `git ls-files .tools` 显示**已有 43 个
