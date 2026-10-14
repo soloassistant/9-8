@@ -125,3 +125,10 @@ deliverables/
 
 # 工具本地状态（不是本仓内容；只忽略，不删除）
 .workbuddy/
+
+# ── 与本项目无关的一次性 HTML 分享包（2026-10-14 补充）──────────────────────
+# 起因：工作区里出现 `.trae-html-share-packages/star-empire-qa-2026-10-14/`
+# （另一个 QA 任务的导出物，含 _shared/assets/html）。与本仓无关，
+# 但会一直以 ?? 出现在 git status，且会被一次 `git add -A` 带进 public 仓库。
+.trae-html-share-packages/
+star-empire-qa-*/
