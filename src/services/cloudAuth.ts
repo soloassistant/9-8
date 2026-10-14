@@ -84,9 +84,55 @@ interface CloudAuthApi {
 }
 
 /** 云函数调用面（PostgREST 风格）：H5 走它，小程序走 Taro.cloud —— 契约相同，见 services/dataSource */
+export interface DbError {
+  code?: string;
+  message?: string;
+}
+export interface DbResponse<T> {
+  data: T;
+  error: DbError | null;
+  /** 仅 count 查询（select(..., { count:'exact', head:true })）有值 */
+  count?: number | null;
+}
+
+/**
+ * PostgREST 查询构建器（supabase-js 形状，见 cloud-service 技能 database/code-generation.md）：
+ * thenable —— `await from(...)` 得到 `{ data, error }`；链式方法返回构建器本身。
+ * 这里只声明本应用用到的面；运行时对象由 CDN SDK 提供，按结构匹配。
+ */
+export interface DbQuery<T = unknown> extends Promise<DbResponse<T>> {
+  select(columns?: string, opts?: { count?: 'exact'; head?: boolean }): DbQuery<T>;
+  insert(rows: Record<string, unknown> | Array<Record<string, unknown>>): DbQuery<T>;
+  upsert(
+    values: Record<string, unknown>,
+    opts?: { onConflict?: string; ignoreDuplicates?: boolean }
+  ): DbQuery<T>;
+  update(values: Record<string, unknown>): DbQuery<T>;
+  delete(): DbQuery<T>;
+  eq(column: string, value: unknown): DbQuery<T>;
+  neq(column: string, value: unknown): DbQuery<T>;
+  gt(column: string, value: unknown): DbQuery<T>;
+  gte(column: string, value: unknown): DbQuery<T>;
+  lt(column: string, value: unknown): DbQuery<T>;
+  lte(column: string, value: unknown): DbQuery<T>;
+  like(column: string, pattern: string): DbQuery<T>;
+  ilike(column: string, pattern: string): DbQuery<T>;
+  is(column: string, value: unknown): DbQuery<T>;
+  in(column: string, values: unknown[]): DbQuery<T>;
+  or(filters: string): DbQuery<T>;
+  match(obj: Record<string, unknown>): DbQuery<T>;
+  order(column: string, opts?: { ascending?: boolean }): DbQuery<T>;
+  limit(n: number): DbQuery<T>;
+  range(from: number, to: number): DbQuery<T>;
+  single(): DbQuery<T>;
+  maybeSingle(): DbQuery<T>;
+  abortSignal(signal: AbortSignal): DbQuery<T>;
+}
+
 interface CloudDatabaseApi {
-  rpc<T = unknown>(fn: string, params?: Record<string, unknown>): Promise<T>;
-  from(table: string): unknown;
+  /** PostgreSQL 函数调用：返回 thenable 的 `{ data, error }`（可再链 .select/.limit） */
+  rpc<T = unknown>(fn: string, params?: Record<string, unknown>): DbQuery<T>;
+  from(table: string): DbQuery<unknown>;
 }
 
 interface CloudClient {
@@ -94,8 +140,10 @@ interface CloudClient {
   /** 2026-10-05 实测 SDK 内部结构：WorkBuddyCloudClient 同时挂 auth / database / storage / llm。
    *  database 复用 auth 的 access token，因此必须在登录之后调用。 */
   database?: CloudDatabaseApi;
-  /** OpenAI 兼容的 chat.completions，替代原先只能本地跑的 .tools/llm-proxy.mjs */
-  llm?: { chat: { completions: { create(input: Record<string, unknown>): Promise<unknown> } } };
+  /** OpenAI 兼容的 chat.completions，替代原先只能本地跑的 .tools/llm-proxy.mjs。
+   *  2026-10-13 按 llm/code-generation.md 补真形状：只支持 stream:true，
+   *  create() 返回**异步可迭代**的 SSE chunk 流（for await 消费）。 */
+  llm?: CloudLlmApi;
   storage?: unknown;
 }
 interface CloudGlobal {
@@ -217,14 +265,60 @@ export function verifyLoginCode(input: {
   return safeAuth((c) => c.auth.verifyOtp({ ...id, ...rest }), {} as CloudSession);
 }
 
-/** 供 dataSource 层取已登录的云函数调用面。**未登录返回 null** —— 调用方据此决定降级。 */
+/** 供 dataSource 层取已登录的云函数调用面。**未登录返回 null** —— 调用方据此决定降级。
+ *  注意返回的是 PostgREST 构建器：await 得到 `{ data, error }` 信封，不是裸业务值
+ *  （2026-10-13 按 database/code-generation.md 更正，此前类型标成 Promise<T> 是错的）。 */
 export async function getCloudRpc(): Promise<CloudDatabaseApi['rpc'] | null> {
   const c = await getCloudClient();
   return c?.database?.rpc?.bind(c.database) || null;
 }
 
+/** 取 database 模块本体（from() 直表查询用）。未登录/SDK 缺失返回 null。 */
+export async function getCloudDatabase(): Promise<CloudDatabaseApi | null> {
+  const c = await getCloudClient();
+  return c?.database || null;
+}
+
+/** LLM 模型的公开字段（llm/code-generation.md：稀疏字段，缺失≠false） */
+export interface LlmModel {
+  id: string;
+  name?: string;
+  disabled?: boolean;
+}
+
+/** 一条 chat 消息。系统提示必须由应用提供且位于 messages[0]（SDK 不插默认值）。 */
+export interface LlmMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+/** create() 入参（本应用用到的面；只支持 stream:true） */
+export interface LlmCreateInput {
+  model: string;
+  messages: LlmMessage[];
+  stream: true;
+  conversationId?: string;
+  temperature?: number;
+  top_p?: number;
+  signal?: AbortSignal;
+}
+
+/** SSE chunk（OpenAI 兼容形状） */
+export interface LlmChunk {
+  choices?: Array<{
+    delta?: { content?: string | null; reasoning_content?: string | null; refusal?: string | null };
+    finish_reason?: string | null;
+  }>;
+  usage?: { total_tokens?: number };
+}
+
+interface CloudLlmApi {
+  models?: { list(): Promise<LlmModel[]> };
+  chat: { completions: { create(input: LlmCreateInput): Promise<AsyncIterable<LlmChunk>> } };
+}
+
 /** 供 dataSource 层取 LLM 调用面（OpenAI 兼容 completions）。未登录/SDK 缺失返回 null。 */
-export async function getCloudLlm(): Promise<NonNullable<CloudClient['llm']> | null> {
+export async function getCloudLlm(): Promise<CloudLlmApi | null> {
   const c = await getCloudClient();
   return c?.llm || null;
 }

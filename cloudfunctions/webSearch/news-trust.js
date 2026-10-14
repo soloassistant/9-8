@@ -285,8 +285,14 @@ function filterNewsItems(items, opts) {
   }
   const dropped = high
     .concat(guardrailTriggered ? [] : low)
-    .map((r) => ({ title: r.title, source: r.source, reason: r.reason }));
-  return { kept, dropped };
+    .map((r) => ({ title: r.title, source: r.source, reason: r.reason, item: r.item }));
+  // softItems：低精度启发式丢弃、且未被护栏放回的条目（高置信条目永不进入）。
+  // 用途：免费档「今日情报」在被高置信过滤后不足 3 条时，用它们兜底补源，
+  // 但高置信（投毒/注入/可执行残留）条目绝不进入兜底池。
+  const softItems = (guardrailTriggered ? [] : low)
+    .map((r) => r.item)
+    .filter(Boolean);
+  return { kept, dropped, softItems };
 }
 
 module.exports = {

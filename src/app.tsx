@@ -12,17 +12,20 @@ import { initCloudSync } from '@/services/cloudSync';
 // 全局样式
 import './app.scss';
 
-// 用户数据轻云同步（仅 H5）：必须在任何页面读取 storage 之前完成云端恢复，故模块加载即执行
-initCloudSync();
+// 用户数据轻云同步（仅 H5）：必须在任何页面读取 storage 之前完成云端恢复，故模块加载即执行。
+// 返回的 Promise 在**启动拉取结束后** resolve —— 重放必须挂在它后面（.then），
+// 否则重放读到的是「恢复前」的 storage，跨设备改过的语言/主题/字号在首刷不生效。
+void initCloudSync().then(() => rehydrateStoresAfterCloudPull());
 
 /**
  * 云端恢复**重放**（2026-10-05 实测缺陷）：ESM 会把被 import 的 store 模块体求值提到
  * 上面 `initCloudSync()` 之前 —— 三个 store 在创建时读到的是「恢复前」的 storage，
  * 之后也不会自己重读。结果是**跨设备改过的语言/主题/字号在首刷不生效**：
- * 数据其实已经从云端拉回来了（pullRemote 是同步 XHR），但界面仍是默认值。
+ * 数据其实已经从云端拉回来了，但界面仍是默认值。
  *
- * 所以在同步拉取完成后，按同一份 storage 重放一次。**不要去改 store 模块体**去解决 ——
- * 那会把「什么时候读」的时序问题散到三个文件里，而且下次加 store 又会漏。
+ * 所以在启动拉取完成后（initCloudSync().then），按同一份 storage 重放一次。
+ * **不要去改 store 模块体**去解决 —— 那会把「什么时候读」的时序问题散到三个文件里，
+ * 而且下次加 store 又会漏。
  */
 function rehydrateStoresAfterCloudPull(): void {
   try {
@@ -36,7 +39,6 @@ function rehydrateStoresAfterCloudPull(): void {
     console.warn('[App] rehydrate stores after cloud pull failed:', err);
   }
 }
-rehydrateStoresAfterCloudPull();
 
 /** TabBar 文案：语言切换时同步更新（index 与 app.config.ts tabBar list 顺序一致） */
 const TAB_KEYS = ['tab.briefing', 'tab.inbox', 'tab.hotspot', 'tab.calendar', 'tab.mine'] as const;

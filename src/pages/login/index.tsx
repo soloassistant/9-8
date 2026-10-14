@@ -9,24 +9,31 @@ import {
   signInWithPassword,
   sendLoginCode,
   verifyLoginCode,
-  requestPasswordReset
+  requestPasswordReset,
+  isPhoneIdentifier,
+  type AuthIdentifier
 } from '@/services/cloudAuth';
 import styles from './index.module.scss';
 
 /** 阶段：校验中 → 显示登录表单。已登录不在这里"放行渲染"，而是**跳转到应用首页**。 */
 type Phase = 'checking' | 'form';
 type Tab = 'password' | 'otp' | 'signup' | 'forgot';
+/** 登录标识通道：邮箱 或 手机号（短信验证码）。默认手机号（产品决策）。 */
+type IdChannel = 'email' | 'phone';
 
 /** 「获取验证码」同一次流程里的凭据。**必须活在事件之外** ——
  *  SDK 约定：获取验证码与提交验证是两个独立动作，提交时**不得再次发送**（否则每个码都作废）。 */
 interface PendingOtp {
-  email: string;
+  id: AuthIdentifier;
   verificationId: string;
   isExistingUser: boolean;
 }
 
 const RESEND_SECONDS = 60;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** 大陆手机号：恰好 11 位、以 1 开头（auth 规范的 mainland-number UI 规则）。
+ *  校验不过就不发请求，输入框下提示，编辑时清错。 */
+const PHONE_RE = /^1\d{10}$/;
 
 /** 翻译函数的最小结构类型（只为下面那个错误归一用，避免为此把 LangKey 拖进来） */
 type TranslateFn = (key: 'auth.errSdkUnavailable') => string;
@@ -60,19 +67,29 @@ function readPrivacyConsent(): boolean {
   }
 }
 
+/** 两个 AuthIdentifier 是否指向同一账号（同通道且同值）。用于「换了通道/号码必须重新取码」。 */
+function sameId(a: AuthIdentifier | null, b: AuthIdentifier): boolean {
+  if (!a) return false;
+  if (isPhoneIdentifier(a) && isPhoneIdentifier(b)) return a.phone === b.phone;
+  if (!isPhoneIdentifier(a) && !isPhoneIdentifier(b)) return a.email === b.email;
+  return false;
+}
+
 /**
  * 进入门禁：**未登录一律不得进入应用**（H5 / 发布版）。
  *
  * 为什么要有它：发布版是公开链接，此前任何人拿到链接就能进入，而 H5 的数据隔离用的是
- * localStorage 里自生成的 UUID —— 等于没有身份。现在进入前必须通过云服务邮箱认证。
+ * localStorage 里自生成的 UUID —— 等于没有身份。现在进入前必须通过云服务认证。
  *
- * ⚠️ 本页**只允许邮箱**（2026-10-05 按平台文档校正）：Web 应用不支持手机号/微信登录，
- *   文档原文「A web app supports email login only … the provider is not available there,
- *   so the UI would compile and then fail at runtime」。手机号须走微信小程序那条线
- *   （且需已认证的非个人主体）。**不要把手机号选项加回这一页** —— 那是一个必然运行时失败的死选项。
+ * ⚠️ 2026-10-13 更正（此前注释有误）：早期注释称「Web 应用不支持手机号登录、别加手机号」——
+ *   那是 2026-10-05 对旧 SDK 的读数。**当前 cloud-service 的 auth 规范明确 Phone (SMS) OTP
+ *   在 Web app 受支持**（能力表 Phone (SMS) OTP: Web=yes），且 `services/cloudAuth.ts` 的
+ *   `sendOtp/verifyOtp` 早已按 `{ phone }` 实现。故本页提供**邮箱 / 手机号双通道**，默认手机号。
+ *   ⚠️ 运行前提：手机号短信 Provider 需在 WorkBuddy 管理后台为「私人晨报助理」**打开开关**；
+ *     未打开时手机号取码会在服务端报错（UI 会给明确提示，可切回邮箱）。
  *
  * 平台差异（有意为之）：
- *   · H5 / 发布版：走云服务邮箱认证。未登录时**由 app.tsx 重定向到本页**（独立页面，
+ *   · H5 / 发布版：走云服务认证（邮箱 / 手机号）。未登录时**由 app.tsx 重定向到本页**（独立页面，
  *     不是"在 App 里不渲染 children"—— 那种做法会打断 Taro 的页面生命周期，
  *     实测抛「没有找到页面实例」并整页白屏）。
  *   · 微信小程序：身份由微信提供（云函数 login 拿 openid），无需再让用户登一次，
@@ -84,8 +101,9 @@ function readPrivacyConsent(): boolean {
 export default function LoginPage() {
   const t = useT();
   const [phase, setPhase] = useState<Phase>('checking');
-  const [tab, setTab] = useState<Tab>('password');
-  const [email, setEmail] = useState('');
+  const [channel, setChannel] = useState<IdChannel>('phone');
+  const [tab, setTab] = useState<Tab>('otp');
+  const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [pending, setPending] = useState<PendingOtp | null>(null);
@@ -162,7 +180,22 @@ export default function LoginPage() {
     if (next) setError('');
   };
 
-  /** 切页签时清空验证码凭据：换了方式/邮箱就必须重新取码，不能拿旧 challenge 去提交 */
+  /** 当前通道的登录标识。手机号**原样传入**（国际区号归一由 SDK 内部完成，前端不重复归一）。 */
+  const currentId = (): AuthIdentifier =>
+    channel === 'phone' ? { phone: account.trim() } : { email: account.trim() };
+
+  /** 切通道：清空验证码凭据与已填内容，页签复位到该通道可用的首个。换通道必须重新取码。 */
+  const switchChannel = (next: IdChannel) => {
+    setChannel(next);
+    setTab(next === 'phone' ? 'otp' : 'password');
+    setPending(null);
+    setResetTicket(null);
+    setCode('');
+    setPassword('');
+    clearMsg();
+  };
+
+  /** 切页签时清空验证码凭据：换了方式/账号就必须重新取码，不能拿旧 challenge 去提交 */
   const switchTab = (next: Tab) => {
     setTab(next);
     setPending(null);
@@ -172,8 +205,25 @@ export default function LoginPage() {
     clearMsg();
   };
 
-  const ensureEmail = (): boolean => {
-    if (!EMAIL_RE.test(email.trim())) {
+  /** 账号输入框编辑：清掉字段级错误（邮箱格式 / 手机号格式） */
+  const onAccountInput = () => {
+    setError('');
+  };
+
+  const ensureAccount = (): boolean => {
+    const v = account.trim();
+    if (channel === 'phone') {
+      if (!v) {
+        setError(t('auth.errPhoneEmpty'));
+        return false;
+      }
+      if (!PHONE_RE.test(v)) {
+        setError(t('auth.errPhone'));
+        return false;
+      }
+      return true;
+    }
+    if (!EMAIL_RE.test(v)) {
       setError(t('auth.errEmail'));
       return false;
     }
@@ -183,44 +233,41 @@ export default function LoginPage() {
   const doSendCode = async () => {
     if (busy || countdown > 0) return;
     if (!requirePrivacy()) return;
-    if (!ensureEmail()) return;
+    if (!ensureAccount()) return;
     clearMsg();
     setBusy(true);
-    const res = await sendLoginCode({ email: email.trim() });
+    const res = await sendLoginCode(currentId());
     setBusy(false);
     if (res.error) {
       setError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
       return;
     }
-    setPending({
-      email: email.trim(),
-      verificationId: res.data.verificationId,
-      isExistingUser: !!res.data.isExistingUser
-    });
+    setPending({ id: currentId(), verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
     setCountdown(RESEND_SECONDS);
-    setNotice(t('auth.otpSent'));
+    setNotice(channel === 'phone' ? t('auth.smsSent') : t('auth.otpSent'));
   };
 
-  /** 提交验证码。**这里绝不调用 sendEmailCode** —— 重发只在「获取验证码」按钮上发生。 */
+  /** 提交验证码。**这里绝不调用 sendLoginCode** —— 重发只在「获取验证码」按钮上发生。 */
   const submitOtp = async (withPassword: boolean) => {
     if (busy) return;
-    if (!pending || pending.email !== email.trim()) {
+    const id = currentId();
+    if (!pending || !sameId(pending.id, id)) {
       setError(t('auth.errCodeNeeded'));
       return;
     }
-    if (withPassword && password.length < 8) {
+    // 仅邮箱新账号必须有密码；手机号注册按 SDK 约定无密码；老账号登录不传密码
+    if (withPassword && channel === 'email' && !pending.isExistingUser && password.length < 8) {
       setError(t('auth.errPassword'));
       return;
     }
     clearMsg();
     setBusy(true);
     const res = await verifyLoginCode({
-      id: { email: pending.email },
+      id: pending.id,
       verificationId: pending.verificationId,
       isExistingUser: pending.isExistingUser,
       token: code.trim(),
-      // 邮箱新账号必须有密码；老账号登录不传 —— 由服务端返回的 isExistingUser 决定，不看当前页签
-      password: pending.isExistingUser ? undefined : password
+      password: withPassword && channel === 'email' && !pending.isExistingUser ? password : undefined
     });
     setBusy(false);
     if (res.error) {
@@ -233,14 +280,14 @@ export default function LoginPage() {
 
   const submitPassword = async () => {
     if (busy) return;
-    if (!ensureEmail()) return;
+    if (!ensureAccount()) return;
     if (password.length < 8) {
       setError(t('auth.errPassword'));
       return;
     }
     clearMsg();
     setBusy(true);
-    const res = await signInWithPassword({ email: email.trim() }, password);
+    const res = await signInWithPassword({ email: account.trim() }, password);
     setBusy(false);
     if (res.error) {
       // 不区分「邮箱不存在」与「密码错」—— 避免暴露账号是否存在。
@@ -253,10 +300,10 @@ export default function LoginPage() {
 
   const startReset = async () => {
     if (busy) return;
-    if (!ensureEmail()) return;
+    if (!ensureAccount()) return;
     clearMsg();
     setBusy(true);
-    const res = await requestPasswordReset(email.trim());
+    const res = await requestPasswordReset(account.trim());
     setBusy(false);
     if (res.error) {
       setError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
@@ -316,6 +363,8 @@ export default function LoginPage() {
   }
 
   const canResend = countdown <= 0 && !busy;
+  // 手机号通道没有「密码登录 / 忘记密码」（SDK 改密仅邮箱），只留 验证码登录 / 注册
+  const tabs: Tab[] = channel === 'phone' ? ['otp', 'signup'] : ['password', 'otp', 'signup', 'forgot'];
 
   return (
     <View className={styles.screen}>
@@ -324,8 +373,23 @@ export default function LoginPage() {
         <Text className={styles.title}>{t('auth.title')}</Text>
         <Text className={styles.subtitle}>{t('auth.subtitle')}</Text>
 
+        {/* 通道切换：邮箱 / 手机号（短信验证码）。默认手机号。 */}
         <View className={styles.tabs}>
-          {(['password', 'otp', 'signup', 'forgot'] as Tab[]).map((k) => (
+          {(['phone', 'email'] as IdChannel[]).map((k) => (
+            <View
+              key={k}
+              className={`${styles.tab} ${channel === k ? styles.tabActive : ''}`}
+              onClick={() => switchChannel(k)}
+            >
+              <Text className={channel === k ? styles.tabTextActive : styles.tabText}>
+                {t(k === 'phone' ? 'auth.idPhone' : 'auth.idEmail')}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        <View className={styles.tabs}>
+          {tabs.map((k) => (
             <View
               key={k}
               className={`${styles.tab} ${tab === k ? styles.tabActive : ''}`}
@@ -347,13 +411,16 @@ export default function LoginPage() {
         </View>
 
         <View className={styles.field}>
-          <Text className={styles.label}>{t('auth.email')}</Text>
+          <Text className={styles.label}>{channel === 'phone' ? t('auth.phone') : t('auth.email')}</Text>
           <Input
             className={styles.input}
-            type='text'
-            value={email}
-            placeholder={t('auth.emailPlaceholder')}
-            onInput={(e) => setEmail(String(e.detail.value || ''))}
+            type={channel === 'phone' ? 'number' : 'text'}
+            value={account}
+            placeholder={channel === 'phone' ? t('auth.phonePlaceholder') : t('auth.emailPlaceholder')}
+            onInput={(e) => {
+              setAccount(String(e.detail.value || ''));
+              onAccountInput();
+            }}
           />
         </View>
 
@@ -379,7 +446,7 @@ export default function LoginPage() {
                   className={`${styles.input} ${styles.codeInput}`}
                   type='number'
                   value={code}
-                  placeholder={t('auth.codePlaceholder')}
+                  placeholder={channel === 'phone' ? t('auth.smsCodePlaceholder') : t('auth.codePlaceholder')}
                   onInput={(e) => setCode(String(e.detail.value || ''))}
                 />
                 <View
@@ -392,8 +459,8 @@ export default function LoginPage() {
                 </View>
               </View>
             </View>
-            {/* 老账号用验证码登录不需要密码；新邮箱必须有密码（否则账号永远无法用密码登录） */}
-            {tab === 'signup' || (pending && !pending.isExistingUser) ? (
+            {/* 仅邮箱新账号必须有密码；手机号注册按 SDK 约定无密码 */}
+            {channel === 'email' && (tab === 'signup' || (pending && !pending.isExistingUser)) ? (
               <View className={styles.field}>
                 <Text className={styles.label}>{t('auth.password')}</Text>
                 <Input
@@ -413,7 +480,7 @@ export default function LoginPage() {
             <View className={styles.field}>
               <Text className={styles.label}>{t('auth.code')}</Text>
               <Input
-                className={styles.input}
+                className={`${styles.input} ${styles.codeInput}`}
                 type='number'
                 value={code}
                 placeholder={t('auth.codePlaceholder')}
@@ -434,10 +501,9 @@ export default function LoginPage() {
         ) : null}
 
         {notice ? <Text className={styles.notice}>{notice}</Text> : null}
-        {/* 用户报「收不到验证码」时，最常见的原因就是进了垃圾箱或地址写错 —— 直接给排查方向，
-            而不是让用户在"已发送"和"没收到"之间干等 */}
+        {/* 用户报「收不到验证码」时，最常见的原因就是进了垃圾箱或地址/号码写错 —— 直接给排查方向 */}
         {notice && (tab === 'otp' || tab === 'signup') ? (
-          <Text className={styles.hint}>{t('auth.otpSentHint')}</Text>
+          <Text className={styles.hint}>{channel === 'phone' ? t('auth.smsSentHint') : t('auth.otpSentHint')}</Text>
         ) : null}
         {error ? <Text className={styles.error}>{error}</Text> : null}
 

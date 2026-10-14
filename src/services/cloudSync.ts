@@ -1,23 +1,34 @@
 /**
- * 用户数据轻云同步：微信云开发就绪前的过渡方案。
- * 数据流：localStorage ←→ 同源 /api/user/data(拉) /api/user/sync(推)，服务端按 userId 隔离存 JSON 文件。
- * 策略：per-key 时间戳 + 服务端保留较新版本（防旧设备覆盖新数据）；启动时远端较新的 key 覆盖本地（跨设备恢复）。
+ * 用户数据云同步：localStorage ←→ WorkBuddy 云数据库（user_kv 表）。
+ *
+ * 数据流（2026-10-13 H5 迁移后）：本地 storage ←→ 云数据库 user_kv（一行一个同步键），
+ * 身份由 cloud.auth 会话在请求层自动附带，服务端按 owner_id（RLS）隔离。
+ * 策略不变：per-key 时间戳 + 服务端「新者赢」（防旧设备覆盖新数据）；
+ * 启动/登录后拉取远端较新的 key 覆盖本地（跨设备恢复）。
+ *
+ * 【迁移前是什么】此前走同源 `/api/user/data`(拉) / `/api/user/sync`(推)，
+ * 而发布环境是静态文件网关，这两个端点恒 404/501 —— **跨设备同步从未真正工作过**
+ * （2026-10-05 实测：登录页 172 秒内失败 9 次、控制台零输出）。现已整体换成云数据库。
  *
  * 重要：本模块运行于 Taro 引擎就绪之前的模块加载期，因此一律使用原生 localStorage 直读直写，
  * 绝不经过 Taro.setStorageSync——模块加载期 Taro API 可能尚未注入，会静默失败导致恢复失效（已踩坑验证）。
  * 仅 H5 生效：weapp 走微信 openid + 云数据库，不进本模块。
  *
- * 恢复时序（2026-10-12 变更）：启动拉取已由**同步 XHR** 改为**异步 fetch**（同步 XHR 会阻塞主线程、
- * 拖慢首屏，且已被规范标记废弃）。恢复因此**不再保证「先于首屏」**——调用方须 `await initCloudSync()`
+ * 登录态门禁：云数据库请求必须带会话。未登录 → 推送直接跳过（不是故障）；
+ * 登录成功 → onAuthStateChange 触发「先拉后推」；会话过期 → 推送自然停。
+ *
+ * 恢复时序：启动拉取是异步的，**不保证「先于首屏」**——调用方须 `await initCloudSync()`
  * 或 `await cloudSyncReady()` 之后，再渲染 / 重放依赖云端恢复的界面（语言 / 主题 / 字号等）。
  */
 import Taro from '@tarojs/taro';
+import { getSession, onAuthStateChange } from './cloudAuth';
+import { kvGetAll, kvSetMany } from './cloudDb';
+import type { KvRow } from './cloudDb';
 
-const USER_ID_KEY = 'cloud-user-id';
 const META_KEY = 'cloud-sync-meta'; // { [storageKey]: ts } 本地各 key 最后一次确认同步的时间
 const SYNC_INTERVAL = 30_000; // 兜底轮询：每 30 秒推一次变更
 const DEBOUNCE = 1500; // 写入后防抖 1.5 秒再推，合并连续写入
-const PULL_TIMEOUT_MS = 8000; // 启动拉取超时（异步 fetch 需要自己兜底，避免悬挂）
+const PULL_TIMEOUT_MS = 8000; // 启动拉取超时（SDK 请求自行 abort，避免悬挂）
 
 /** 需要上云的 key（与 src 内实际使用一一对应；设备级隐私同意不上云） */
 const SYNC_KEYS = [
@@ -84,12 +95,18 @@ const REMOVE_PLACEHOLDER: Record<string, unknown> = {
   'ui-scale': ''
 };
 
-let userId = '';
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let pulling = false;
 /** 「启动恢复完成」信号：initCloudSync() 返回它，也供 cloudSyncReady() 读取 */
 let readyPromise: Promise<void> | null = null;
+/** 连续「硬失败」次数：带 PostgreSQL 错误码的失败（表不存在 42P01 / 权限 42501 等）
+ *  属于**不会自愈**的故障 —— 与网络抖动（抛错，下一轮照常重试）区分开。
+ *  为什么需要它：云数据库若缺表/缺策略，每次防抖+轮询都会打一次，30 秒一次地刷 warn
+ *  既查不到重点也耗流量。连续 DB_FAIL_LIMIT 次就停掉轮询并 console.error 一次说清楚。 */
+let hardFailures = 0;
+let syncDisabled = false;
+const DB_FAIL_LIMIT = 5;
 
 // ---- 原生 localStorage 封装（模块加载期可用，不依赖 Taro） ----
 // 注意：Taro H5 的存储是信封格式——setStorageSync 写入 JSON.stringify({ data: 值 })，
@@ -123,22 +140,6 @@ function rawGetJSON<T>(key: string, fallback: T): T {
   try { return JSON.parse(s) as T; } catch { return fallback; }
 }
 
-function ensureUserId(): string {
-  if (userId) {
-    // localStorage 被清（模拟换设备/清缓存）时重新生成，保持内存态与存储一致
-    if (!rawGet(USER_ID_KEY)) userId = '';
-  }
-  if (!userId) {
-    let id = rawGet(USER_ID_KEY);
-    if (!id || id.length < 6) {
-      id = 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      rawSet(USER_ID_KEY, id);
-    }
-    userId = id;
-  }
-  return userId;
-}
-
 function readMeta(): Record<string, number> {
   return rawGetJSON<Record<string, number>>(META_KEY, {});
 }
@@ -146,21 +147,18 @@ function writeMeta(meta: Record<string, number>) {
   rawSet(META_KEY, JSON.stringify(meta));
 }
 
-/** 收集本地需推送的 key → { key: { v, ts } }；ts 取本地记录时间（无记录用 1 兜底，输给远端真实版本） */
-function collectLocal(): { data: Record<string, { v: unknown; ts: number }>; keys: string[] } {
+/** 收集本地需推送的 key → [{ key, value, ts }]；ts 取本地记录时间（无记录用 1 兜底，输给远端真实版本） */
+function collectLocal(): Array<{ key: string; value: unknown; ts: number }> {
   const meta = readMeta();
-  const data: Record<string, { v: unknown; ts: number }> = {};
-  const keys: string[] = [];
+  const items: Array<{ key: string; value: unknown; ts: number }> = [];
   for (const k of SYNC_KEYS) {
     const s = rawGet(k);
     if (!s) continue;
     const v = taroUnwrap(s);
     if (v === '' || v === null || v === undefined) continue;
-    const ts = Math.max(Number(meta[k]) || 1, 1);
-    data[k] = { v, ts };
-    keys.push(k);
+    items.push({ key: k, value: v, ts: Math.max(Number(meta[k]) || 1, 1) });
   }
-  return { data, keys };
+  return items;
 }
 
 function schedulePush(delay = DEBOUNCE) {
@@ -171,85 +169,69 @@ function schedulePush(delay = DEBOUNCE) {
   }, delay);
 }
 
-/** 连续「硬失败」次数：404 / 501 = 路由不存在，属于**永久性**失败。
- *
- *  为什么需要它（2026-10-05 实测）：发布环境是静态文件网关，`/api/user/sync` 返回
- *  501 Not Implemented，而原实现是 `if (!res.ok) return;` —— 既不记录也不停。
- *  实测登录页上 172 秒内失败 9 次（30s 轮询 + 1.5s 防抖两条路径都在打），
- *  控制台零输出，用户和排障者都看不到任何线索，只是白耗流量与电量。
- *
- *  语义划分：404/501 = 不会再好 → 连续 3 次就**停掉轮询**；
- *  5xx / 网络错 = 可能自愈 → 只清计数，下一轮照常重试。 */
-let hardFailures = 0;
-let syncDisabled = false;
-const HARD_FAIL_LIMIT = 3;
-
-function disableSync(status: number) {
+function disableSync(reason: string) {
   syncDisabled = true;
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
   }
   console.error(
-    `[cloudSync] /api/user/sync 返回 ${status}，该接口在当前部署不存在。` +
-      `已停止轮询（跨设备同步当前不可用），本地数据不受影响。`
+    `[cloudSync] 连续 ${DB_FAIL_LIMIT} 次云数据库失败，已停止轮询（跨设备同步当前不可用），本地数据不受影响。` +
+      `首次失败原因：${reason}`
   );
 }
 
-/** 推送本地数据到云端 */
+/** 推送本地数据到云端（云数据库 kv_set_many，服务端新者赢）。
+ *
+ *  未登录 → 直接跳过：这不是故障，是「还没到能同步的时候」。
+ *  登录后由 onAuthStateChange 补一次「先拉后推」，本地积累的写入不会丢。 */
 async function pushNow(): Promise<void> {
   if (syncDisabled) return;
-  const { data, keys } = collectLocal();
-  if (!keys.length) return;
+  if (!(await getSession())) return; // 未登录：跳过（不计失败）
+  const items = collectLocal();
+  if (items.length === 0) return;
   try {
-    const res = await fetch('/api/user/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: ensureUserId(), data })
-    });
-    if (res.status === 404 || res.status === 501) {
+    const written = await kvSetMany(items);
+    if (written === null) {
+      // null = 真故障（SDK 不可用 / 数据库报错）。区分「写不进去」与「被更新的远端挡住」：
+      // 后者返回 0 是正常的（旧设备推送陈旧版本），不计失败。
       hardFailures += 1;
-      if (hardFailures >= HARD_FAIL_LIMIT) disableSync(res.status);
-      return;
-    }
-    if (!res.ok) {
-      hardFailures = 0; // 5xx 等瞬时错误：下一轮照常重试
+      if (hardFailures >= DB_FAIL_LIMIT) disableSync('kv_set_many 返回 null（详见上方 warn）');
       return;
     }
     hardFailures = 0;
-    const j = await res.json().catch(() => null);
-    if (j && j.ok) {
-      const now = Date.now();
-      const meta = readMeta();
-      for (const k of keys) meta[k] = now; // 记录确认时间，后续只推更新的
-      writeMeta(meta);
-    }
-  } catch {
-    // 网络失败静默：下轮轮询再试（属于瞬时错误，不计入硬失败）
+    // 确认时间落本地 meta：后续只推比这个时间更新的写入。
+    // 注意「写入 0 行」也要落 —— 那意味着云端已有更新版本，拉取会对齐，不会把旧值推回去。
+    const now = Date.now();
+    const meta = readMeta();
+    for (const it of items) meta[it.key] = now;
+    writeMeta(meta);
+  } catch (err) {
+    // 网络失败等瞬时错误：下一轮轮询再试，不计入硬失败
+    console.warn('[cloudSync] push failed (transient):', err);
   }
 }
 
 /**
- * 纯函数：把远端数据合并进本地（只认 SYNC_KEYS，且只覆盖 ts 比本地已确认值更新的 key）。
+ * 纯函数：把远端数据合并进本地（只认 SYNC_KEYS，且只覆盖 clientTs 比本地已确认值更新的 key）。
  * 按 Taro 信封格式写入本地，页面 getStorageSync 才能读到。返回本次恢复的 key 数。
  *
- * 抽成纯函数是为了可单测：异步改造后拉取时机变了，但**合并口径必须与改造前完全一致**。
+ * 抽成纯函数是为了可单测：传输层从 /api 换成云数据库后，**合并口径保持不变**。
  */
-function applyRemoteData(remote: Record<string, { v: unknown; ts: number }>): number {
+function applyRemoteData(remote: KvRow[]): number {
   const meta = readMeta();
   let restored = 0;
-  for (const k of Object.keys(remote)) {
-    if (!(SYNC_KEYS as readonly string[]).includes(k)) continue;
-    const r = remote[k];
-    if (!r || !('v' in r)) continue;
-    if ((Number(r.ts) || 0) > (Number(meta[k]) || 0)) {
+  for (const row of remote) {
+    if (!(SYNC_KEYS as readonly string[]).includes(row.key)) continue;
+    if (!row || !('value' in row)) continue;
+    if ((Number(row.clientTs) || 0) > (Number(meta[row.key]) || 0)) {
       // 远端比本机已确认的新 → 覆盖本地（按 Taro 信封格式写入，页面 getStorageSync 才能读到）
       try {
-        rawSet(k, JSON.stringify({ data: r.v }));
-        meta[k] = Number(r.ts) || 0; // 与远端对齐，避免下轮把旧值又推回去
+        rawSet(row.key, JSON.stringify({ data: row.value }));
+        meta[row.key] = Number(row.clientTs) || 0; // 与远端对齐，避免下轮把旧值又推回去
         restored++;
       } catch (err) {
-        console.warn('[cloudSync] apply failed for', k, err);
+        console.warn('[cloudSync] apply failed for', row.key, err);
       }
     }
   }
@@ -258,45 +240,26 @@ function applyRemoteData(remote: Record<string, { v: unknown; ts: number }>): nu
 }
 
 /**
- * 启动拉取：远端 ts 较新的 key 覆盖本地（跨设备恢复）。
- *
- * 【2026-10-12 同步 XHR → 异步 fetch】原实现 `xhr.open('GET', ..., false)` 是同步 XHR：
- * 它阻塞主线程直到响应返回，只为保证「恢复先于首屏」；代价是首屏被网络 RTT 拖住，且同步 XHR
- * 已被规范标记废弃。现改为 fetch + 超时中止，恢复完成时机落在首屏之后 —— 调用方须 await
- * `initCloudSync()` / `cloudSyncReady()`（见文件头「恢复时序」）。
+ * 启动/登录后拉取：远端 clientTs 较新的 key 覆盖本地（跨设备恢复）。
+ * 未登录 → 直接返回（不是故障）；拉取失败 → warn 一次，本地数据不受影响。
  */
 async function pullRemote(): Promise<void> {
+  if (syncDisabled) return; // 熔断后停的是「整个跨设备同步」：缺表/缺策略不会自愈，拉取每次都会同样失败
   if (pulling) return;
   pulling = true;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PULL_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), PULL_TIMEOUT_MS);
-    let res: Response;
-    try {
-      res = await fetch('/api/user/data?userId=' + encodeURIComponent(ensureUserId()), {
-        method: 'GET',
-        signal: controller.signal
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-    if (res.status !== 200) {
-      console.info('[cloudSync] pull skipped, status', res.status);
-      return;
-    }
-    let j: { data?: Record<string, { v: unknown; ts: number }> };
-    try {
-      j = JSON.parse((await res.text()) || '{}') as { data?: Record<string, { v: unknown; ts: number }> };
-    } catch (err) {
-      console.warn('[cloudSync] pull response parse failed:', err);
-      return;
-    }
-    const restored = applyRemoteData(j.data || {});
+    if (!(await getSession())) return; // 未登录：无云端数据可拉
+    const rows = await kvGetAll(controller.signal);
+    if (rows === null) return; // 真故障，kvGetAll 内已 warn
+    const restored = applyRemoteData(rows);
     if (restored) console.info('[cloudSync] restored', restored, 'keys from cloud');
   } catch (err) {
     // 网络失败 / 超时中止：有意静默降级（本地数据不受影响），warn 一次便于排查。
     console.warn('[cloudSync] pull failed:', err);
   } finally {
+    clearTimeout(timer);
     pulling = false;
   }
 }
@@ -332,16 +295,27 @@ function hookStorage(): void {
 }
 
 /**
- * 应用入口调用：仅 H5。启动恢复（异步）→ 接管写入 → 启动轮询兜底。
+ * 应用入口调用：仅 H5。启动恢复（异步）→ 接管写入 → 登录态订阅 → 轮询兜底。
  *
  * 返回的 Promise 在**恢复完成后** resolve。调用方若在首屏渲染 / 存储重放前依赖云端恢复的数据
- * （语言 / 主题 / 字号等），必须 await 或 .then() 这个 Promise —— 原同步 XHR 版本靠阻塞主线程
- * 换取该时序保证，现已移除。
+ * （语言 / 主题 / 字号等），必须 await 或 .then() 这个 Promise。
  */
 export function initCloudSync(): Promise<void> {
   if (process.env.TARO_ENV !== 'h5') return Promise.resolve();
-  readyPromise = pullRemote(); // 异步恢复，不再阻塞首屏
   hookStorage();
+  // 启动恢复：已登录就拉（未登录立即 resolve；登录后的拉取走下面的订阅）
+  readyPromise = getSession()
+    .then((s) => (s ? pullRemote() : undefined))
+    .catch((err) => {
+      console.warn('[cloudSync] bootstrap session check failed:', err);
+    });
+  // 登录成功 → 先拉后推：把另一台设备上的较新数据合进来，再把本机积累的推送上去。
+  // 不挑事件名（SIGNED_IN / INITIAL_SESSION 都以「带会话」为准）——SDK 的事件名字面
+  // 没有在文档里承诺，按「有没有会话」判最稳。
+  onAuthStateChange((session) => {
+    if (!session) return;
+    void pullRemote().then(() => pushNow());
+  });
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(() => void pushNow(), SYNC_INTERVAL);
   // 页面隐藏/关闭前兜底推送一次

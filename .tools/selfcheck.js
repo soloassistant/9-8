@@ -92,14 +92,22 @@ check('L3-08 learn 键 zh/en 双语齐备（30+1）', 'L3-08', () => {
     : { pass: false, detail: '缺失：' + miss.join(', ') };
 });
 
-/* ---------- 6. F-03 AI 流式：代理端点 + 前端消费 + 降级 ---------- */
-check('F-03 AI 流式：/stream 端点 + 前端消费', 'F-03', () => {
+/* ---------- 6. F-03 AI 流式：cloud.llm 流式消费 + 降级链 ----------
+ * 2026-10-13 H5 迁移：主路径由「本地 llm-proxy /stream（fetch+getReader）」改为 cloud.llm
+ * （流式-only）。前端改为「异步迭代器手动驱动」（cloudLlm.ts），避开 regenerator/ES2018
+ * 构建目标依赖；原始 JSON 绝不直接进气泡，由 cloud.ts 打字机揭示。llm-proxy 的 /stream
+ * 退为 dev 级兜底（②级）。检查目标随之平移：① 兜底代理仍在；② 前端真的在流式逐块消费；
+ * ③ 原始 JSON 不直出气泡（打字机在）。 */
+check('F-03 AI 流式：cloud.llm 流式消费 + 降级链', 'F-03', () => {
   const proxy = read('.tools/llm-proxy.mjs');
+  const llm = read('src/services/cloudLlm.ts');
   const cloud = read('src/services/cloud.ts');
-  if (!proxy || !/['"]\/stream['"]/.test(proxy)) return { pass: false, detail: 'llm-proxy 缺 /stream 端点' };
-  if (!proxy.includes('stream: true')) return { pass: false, detail: 'llm-proxy 未启用 DeepSeek stream' };
-  if (!cloud || !/getReader\s*\(/.test(cloud)) return { pass: false, detail: '前端无流式读取（getReader）' };
-  return { pass: true, detail: '代理 /stream + 前端 getReader 均在' };
+  if (!proxy || !/['"]\/stream['"]/.test(proxy)) return { pass: false, detail: 'llm-proxy 缺 /stream 端点（dev 兜底链断）' };
+  if (!proxy.includes('stream: true')) return { pass: false, detail: 'llm-proxy 未启用 stream' };
+  if (!llm || !/Symbol\.asyncIterator/.test(llm)) return { pass: false, detail: 'cloudLlm 无流式消费（asyncIterator）' };
+  if (!/stream:\s*true/.test(llm)) return { pass: false, detail: 'cloudLlm 请求未带 stream:true' };
+  if (!cloud || !/typewriter/.test(cloud)) return { pass: false, detail: 'cloud.ts 无打字机（原始 JSON 可能直出气泡）' };
+  return { pass: true, detail: 'cloud.llm 流式(asyncIterator)+打字机+llm-proxy 降级均在' };
 });
 
 /* ---------- 7. F-04 晨报当日缓存 + force 重拉 ---------- */
@@ -426,10 +434,7 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
     && /sendLoginCode/.test(page)
     && /verifyLoginCode/.test(page)
     && /requestPasswordReset/.test(page);
-  // ★ Web 端不得出现手机号登录（2026-10-05 平台文档校正）：
-  //   Web 应用只支持邮箱，手机号 provider 在 web 上不存在 —— 加了就是"编译通过、运行时必失败"的死选项。
-  //   这条断言就是防止它被重新加回来（当天确实发生过一次）。
-  const noPhoneOnWeb = !/idKind|IdKind/.test(page) && !/auth\.phone/.test(page) && !/\{\s*phone:/.test(page);
+  // （手机号登录断言已反转为 phoneLoginWired，见下方 noFake 之后 —— 2026-10-13 由「禁止」改为「必须接上」）
   // 提交验证码时不得再次发码（获取与提交是两个独立动作）
   const submitNoResend = !/submitOtp[\s\S]{0,600}?sendLoginCode\(/.test(page);
   // ★ 不得再回到「在 App 里不渲染 children」的写法：实测会打断 Taro 页面生命周期
@@ -438,6 +443,13 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
   // 假身份兜底：一个都不许有（先剥块注释，避免把说明文字当违规代码 —— 已踩过一次）
   const stripBlockComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
   const noFake = !/signInAnonymously|mockSession/i.test(stripBlockComments(auth) + stripBlockComments(page));
+  // ★ 2026-10-13 反转：手机号登录必须在 Web 上被正确接上（产品决策 + 当前 auth 规范支持 Phone SMS OTP on Web）。
+  //   这条断言 2026-10-05 写成"禁止"（那时读的是旧规范），当天发现规范已更新、产品也要手机号登录，
+  //   于是整体反转为"必须接上"，并补 `!/\+86/` 漂移守卫：前端不得自行拼 +86（SDK 自己会拼）。
+  const phoneLoginWired = /auth\.idPhone/.test(page)
+    && /\{\s*phone:/.test(page)
+    && /\^1\\d\{10\}\$/.test(page)
+    && !/\+86/.test(stripBlockComments(page));
   // SDK 引入形态（2026-10-13 收紧；此前这里写死 `/workbuddy-cloud-sdk@dev/`，判据本身是坏的）：
   //  · 渠道必须是 **dev 线**：`latest`(0.1.3) 是旧构建，功能不全（见 src/index.html 的说明）。
   //  · 2026-10-13 起渠道由 `@dev`（浮动）改为**固定到具体 dev 版本 + SRI + crossorigin**。
@@ -449,14 +461,14 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
   const sdkLoaded = !!sdkTag;
   const sdkDevChannel = /workbuddy-cloud-sdk@dev\/|workbuddy-cloud-sdk@\d[^"']*-dev\./.test(sdkTag);
   const sdkPinnedWithSri = /integrity="sha(256|384|512)-/.test(sdkTag) && /crossorigin=/.test(sdkTag);
-  const ok = redirects && registered && flows && noPhoneOnWeb && submitNoResend && rendersChildren && noFake
+  const ok = redirects && registered && flows && phoneLoginWired && submitNoResend && rendersChildren && noFake
     && sdkLoaded && sdkDevChannel && sdkPinnedWithSri;
   return ok
-    ? { pass: true, detail: '未登录重定向到已注册的登录页；四条流程齐备；提交不重发；App 正常渲染 children；无假身份兜底；SDK 在 dev 线且已固定版本 + SRI + crossorigin' }
+    ? { pass: true, detail: '未登录重定向到已注册的登录页；四条流程齐备；手机号登录已接上且不拼 +86；提交不重发；App 正常渲染 children；无假身份兜底；SDK 在 dev 线且已固定版本 + SRI + crossorigin' }
     : {
         pass: false,
         detail: 'redirect=' + redirects + ' registered=' + registered + ' flows=' + flows
-          + ' noPhoneOnWeb=' + noPhoneOnWeb
+          + ' phoneLoginWired=' + phoneLoginWired
           + ' submitNoResend=' + submitNoResend + ' rendersChildren=' + rendersChildren
           + ' noFake=' + noFake + ' sdk=' + sdkLoaded + ' sdkDevChannel=' + sdkDevChannel
           + ' sdkPinnedWithSri=' + sdkPinnedWithSri

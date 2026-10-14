@@ -1,7 +1,7 @@
 import Taro from '@tarojs/taro';
 /** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
 import type { PlanProposalRaw } from '@/utils/schedule';
-import { callFunction, chatLocalStream } from './cloud';
+import { callFunction, chatCloudStream } from './cloud';
 import { invoke, isWeapp } from './dataSource';
 import { getSession } from './cloudAuth';
 import { buildProfileFromSession, writeProfileSettings } from './localProfile';
@@ -85,10 +85,10 @@ export function apiChat(
 }
 
 /**
- * H5 AI 流式对话（F-03）：onDelta 打字机增量回调，返回最终 reply/action；
- * 返回 null = 流式不可用（weapp / 代理未启动 / 读取失败），调用方降级 apiChat 整段。
+ * H5 AI 流式对话（F-03）：cloud.llm 流式收集 + 客户端打字机增量回调，返回最终 reply/action；
+ * 返回 null = 云端 LLM 不可用（未登录 / 无可用模型 / 流失败），调用方降级 apiChat 整段。
  * weapp 端受云函数非流式限制维持整段返回。
- * memories 为记忆回灌：随请求透传给 llm-proxy 注入 system 提示。
+ * memories 为记忆回灌：随请求进入 system 契约与用户上下文。
  */
 export function apiChatStream(
   message: string,
@@ -96,7 +96,7 @@ export function apiChatStream(
   onDelta: (chunk: string) => void,
   memories?: string[]
 ): Promise<{ reply: string; action: string } | null> {
-  return chatLocalStream(message, deep, onDelta, memories);
+  return chatCloudStream(message, deep, onDelta, memories);
 }
 
 /** 收藏列表 */

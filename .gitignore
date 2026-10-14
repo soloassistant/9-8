@@ -53,6 +53,8 @@ _tmp_morning/
 !.tools/*.py
 !.tools/fixtures/
 !.tools/fixtures/**
+!.tools/sql/
+!.tools/sql/**
 !.tools/stubs/
 !.tools/stubs/**
 # 但下面这些**继续忽略**（规则顺序：后者覆盖前者），否则「放行脚本」会把一堆本地垃圾一并放出来：

@@ -96,7 +96,9 @@ const RSS_SOURCES = [
   { name: '机核', url: 'https://www.gcores.com/rss', tag: '游戏' },
   // [audit] 汽车/新能源 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.08 天）
   { name: '车东西', url: 'https://chedongxi.com/rss', tag: '汽车' },
-  // [audit] 消费/导购 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.0 天）
+  // [audit] 消费/导购 · 实测 2026-09-28 10/10 存活；⚠️ 2026-10-13 真实抓取复核：该源返回 HTML 落地页
+  //   （非 RSS，reason=http-200-non-rss），已被健康/新鲜度守卫排除 —— 疑源改版或需换 feed。
+  //   暂不移除以保留消费类目多样性，但元数据已过期，待重新校准或替换。(QA-2 real-data 复核)
   { name: '什么值得买', url: 'https://post.smzdm.com/feed', tag: '消费' },
   // [audit] 教育/职教 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.1 天）
   { name: '芥末堆', url: 'https://www.jiemodui.com/feed', tag: '教育' },
@@ -185,6 +187,9 @@ function stripHtml(s) {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    // QA-2 真实数据复核：RSS 摘要里的 <a>点击查看原文></a> 链接文字是 CTA 噪声，整块去掉（含内文），
+    // 否则会泄漏进情报正文；摘要场景链接不可点击，去掉无损。
+    .replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, ' ')
     .replace(/<\/?[a-zA-Z][^>]*>/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ')
@@ -209,7 +214,13 @@ function parseFeed(xml, sourceName, tag) {
       pickTag(b, 'description') || pickTag(b, 'summary') || pickTag(b, 'content')
     );
     // 部分源 description 以标题开头，去重避免摘要重复
-    if (title && summary.startsWith(title)) summary = summary.slice(title.length).trim();
+    // （兼容标题与摘要之间夹的不可见/零宽字符差异 —— QA-2 实测中新网标题被重复输出）
+    if (title) {
+      const esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const invis = '[\\s\\u00a0\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*';
+      const m = summary.match(new RegExp('^' + invis + esc + invis));
+      if (m) summary = summary.slice(m[0].length).trim();
+    }
     const dateStr = pickTag(b, 'pubDate') || pickTag(b, 'updated') || pickTag(b, 'published');
     const ts = dateStr ? new Date(dateStr).getTime() : 0;
     return { title, link, image, summary: clampSummary(summary, 120), ts, sourceName, tag };
@@ -518,8 +529,8 @@ async function fetchAllSources() {
   // 内容信任过滤放在**这个出口**：早于 writeHotspotCache、早于 summarize(weather, ranked)，
   // 也早于全部消费路径（热点页缓存 / 免费档 / 订阅限额档 / 订阅降级档）。
   // 放晚一步毒条目已经进了缓存，也已经进过 LLM 的 prompt。
-  const { kept: items } = filterNewsItems(raw, { label: 'webSearch' }); // filterNewsItems 返回 { kept, dropped }
-  return { items, sourceHealth };
+  const { kept: items, softItems } = filterNewsItems(raw, { label: 'webSearch' }); // 返回 { kept, dropped, softItems }
+  return { items, sourceHealth, softItems: softItems || [] };
 }
 
 /* ---------------- hotspot：热点页资讯流 ---------------- */
@@ -551,12 +562,13 @@ async function readHotspotCache() {
 }
 
 /** 写缓存：固定 _id + set = 幂等 upsert（并发下最后一次写胜出，不产生重复文档） */
-async function writeHotspotCache(items, sourceHealth) {
+async function writeHotspotCache(items, sourceHealth, softItems) {
   try {
     const data = {
       key: 'hotspot',
       items,
       sourceHealth: sourceHealth || [],
+      softItems: softItems || [],
       updateTime: new Date().toISOString()
     };
     await db.collection('hotspotCache').doc(HOTSPOT_CACHE_ID).set({ data });
@@ -568,16 +580,16 @@ async function writeHotspotCache(items, sourceHealth) {
 async function getHotspotNews() {
   const cache = await readHotspotCache();
   if (cache && cache.updateTime && Date.now() - new Date(cache.updateTime).getTime() < HOTSPOT_CACHE_MS) {
-    return { items: cache.items || [], sourceHealth: cache.sourceHealth || [], fromCache: true };
+    return { items: cache.items || [], sourceHealth: cache.sourceHealth || [], softItems: cache.softItems || [], fromCache: true };
   }
-  const { items, sourceHealth } = await fetchAllSources(); // allSettled，不会 throw
+  const { items, sourceHealth, softItems } = await fetchAllSources(); // allSettled，不会 throw
   if (items.length > 0) {
-    await writeHotspotCache(items, sourceHealth);
-    return { items, sourceHealth, fromCache: false };
+    await writeHotspotCache(items, sourceHealth, softItems);
+    return { items, sourceHealth, softItems: softItems || [], fromCache: false };
   }
   // 全源抓取失败：有旧缓存就降级用旧的（不阻塞前端）
   if (cache && cache.items && cache.items.length > 0) {
-    return { items: cache.items, sourceHealth: cache.sourceHealth || [], fromCache: true, degraded: true };
+    return { items: cache.items, sourceHealth: cache.sourceHealth || [], softItems: cache.softItems || [], fromCache: true, degraded: true };
   }
   throw new Error('所有 RSS 源抓取失败');
 }
@@ -829,10 +841,29 @@ function clampSummary(s, max) {
 /** 降级：LLM 不可用时直接用原始资讯（标注来源，不编造）。
  *  limit 默认 5（订阅档 LLM 降级路径），免费档显式传 FREE_INTEL_ITEMS_LIMIT=3。 */
 function fallbackIntel(newsItems, limit = 5) {
-  return (Array.isArray(newsItems) ? newsItems : []).slice(0, limit).map((n) => ({
-    text: clampByCodePoint(`${n.title}${n.summary ? '：' + n.summary : ''}`, INTEL_ITEM_TEXT_MAX),
-    source: n.source
-  }));
+  const list = Array.isArray(newsItems) ? newsItems : [];
+  return list.slice(0, limit).map((n) => {
+    const it = n && typeof n === 'object' ? n : {};
+    const title = String(it.title || '');
+    const summary = String(it.summary || '');
+    // 5b/5c：畸形/缺失字段不得把字面量 "undefined" 或 null 来源泄漏给用户
+    const body = title || summary ? `${title}${summary ? '：' + summary : ''}` : '暂无内容';
+    return {
+      text: clampByCodePoint(body, INTEL_ITEM_TEXT_MAX),
+      source: it.source != null && it.source !== '' ? String(it.source) : '综合'
+    };
+  });
+}
+
+/** 5e：免费档/降级档兜底补源。先取主池 ranked 上限 limit 条；不足时从 soft 池
+ *  （被低精度信任规则丢弃、非投毒的条目）补到 limit，避免过滤过严时用户看到空场。
+ *  高置信（投毒/注入/可执行残留）条目不在 soft 池，绝不进入兜底。 */
+function topUpFallback(ranked, softRanked, limit) {
+  const main = fallbackIntel(ranked, limit);
+  if (main.length >= limit) return main;
+  const seen = new Set(main.map((x) => x.text));
+  const extra = fallbackIntel(softRanked, limit).filter((x) => !seen.has(x.text));
+  return main.concat(extra).slice(0, limit);
 }
 
 /* ---------------- 身份解析 ---------------- */
@@ -1041,14 +1072,17 @@ exports.main = async (event) => {
       // （与热点页同源，可接受）。抓取全失败时它 throw，这里降级为空资讯，不阻塞情报返回。
       let news = [];
       let newsFromCache = false;
+      let softPool = [];
       try {
         const pooled = await getHotspotNews();
         news = Array.isArray(pooled.items) ? pooled.items : [];
         newsFromCache = !!pooled.fromCache;
+        softPool = Array.isArray(pooled.softItems) ? pooled.softItems : [];
       } catch (err) {
         console.warn('[webSearch] briefing news unavailable:', err && err.message);
       }
       const ranked = rankByPreferences(news, user && user.preferences);
+      const softRanked = rankByPreferences(softPool, user && user.preferences);
 
       if (!subscribed) {
         // 免费档：零 LLM 成本。公开 RSS 原始条目 + 天气，**按设计**不做 AI 提炼。
@@ -1060,7 +1094,7 @@ exports.main = async (event) => {
         //   degraded:false —— 语义正确：没有东西失败；
         //   aiEnabled:false —— 前端据此把标识换成「免费版·来自公开 RSS」这类**档位说明**，
         //                       而不是错误提示（前端 utils/intelGroups.ts 已按此字段分叉）。
-        const intelItems = fallbackIntel(ranked, FREE_INTEL_ITEMS_LIMIT);
+        const intelItems = topUpFallback(ranked, softRanked, FREE_INTEL_ITEMS_LIMIT);
         console.log(
           `[webSearch] briefing tier=free items=${intelItems.length} weather=${!!weather} fromCache=${newsFromCache}`
         );
@@ -1101,7 +1135,7 @@ exports.main = async (event) => {
       let groups = [];
       let degraded = true;
       if (quota.limited) {
-        intelItems = fallbackIntel(ranked);
+        intelItems = topUpFallback(ranked, softRanked, 5);
         console.log(
           `[webSearch] briefing tier=pro limited=true items=${intelItems.length} fromCache=${newsFromCache}`
         );
@@ -1113,7 +1147,7 @@ exports.main = async (event) => {
           degraded = false;
         } catch (err) {
           console.warn('[webSearch] summarize degraded:', err && err.message);
-          intelItems = fallbackIntel(ranked);
+          intelItems = topUpFallback(ranked, softRanked, 5);
         }
         await consumeIntelQuota(quota.usage).catch((err) =>
           console.warn('[webSearch] consume quota failed:', err && err.message)
@@ -1146,4 +1180,4 @@ exports.FETCH_RETRY_BACKOFF_MS = FETCH_RETRY_BACKOFF_MS;
 exports.FREE_INTEL_ITEMS_LIMIT = FREE_INTEL_ITEMS_LIMIT;
 exports.INTEL_ITEM_TEXT_MAX = INTEL_ITEM_TEXT_MAX;
 exports.RSS_SOURCES = RSS_SOURCES;
-exports.__internals = { fetchText, parseFeed, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, rankByPreferences, clampByCodePoint, clampSummary, resolveCallerOpenid, internalTokenOk, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken };
+exports.__internals = { fetchText, parseFeed, stripHtml, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, topUpFallback, rankByPreferences, clampByCodePoint, clampSummary, resolveCallerOpenid, internalTokenOk, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken };

@@ -5,6 +5,7 @@ import { fetchWeatherDirect } from '../utils/weather'
 import { evaluatePriceAlerts, type PricedItem, type PriceAlert } from '../utils/price'
 import { categoryOf } from '../utils/categoryLabel'
 import { invoke, isWeapp } from './dataSource'
+import { chatViaCloudLlm, typewriter } from './cloudLlm'
 
 /** 热点数据来源元信息（服务端 /api/hotspot 附带，mock/真机路径为 null） */
 export interface HotspotMeta {
@@ -129,7 +130,38 @@ async function loadWeather(city: string): Promise<{ text: string; updateTime: st
   return fetchWeatherDirect(city)
 }
 
-/** H5 真实 AI：转发到本地 llm-proxy（8138）。chat → POST /，extract → POST /extract；失败返回 null 由调用方降级 */
+/** 流式 chat 结果（F-03）：与 apiChat 最小公共字段对齐 */
+export interface ChatStreamResult {
+  reply: string
+  action: string
+}
+
+/**
+ * H5 AI 流式对话（F-03）：cloud.llm 流式收集 → 解析出 reply → 客户端打字机增量回调。
+ *
+ * 为什么要「先收完再打字」（2026-10-13）：模型输出是 JSON 契约（reply/action/proposals…），
+ * 原始分片直接灌进气泡会把 JSON 结构露给用户。因此整条流收完、解析、再按 onDelta
+ * 复刻打字机动效（cloudLlm.typewriter）—— 动效一致，且绝不显示 JSON。
+ * onDelta 契约与旧 llm-proxy 路径完全相同，调用方无感。
+ *
+ * 返回 null = 云端 LLM 不可用（未登录/无可用模型/流失败），调用方降级 apiChat 整段。
+ * weapp 端受云函数非流式限制维持整段返回。
+ */
+export async function chatCloudStream(
+  message: string,
+  deep: boolean,
+  onDelta: (chunk: string) => void,
+  memories?: string[]
+): Promise<ChatStreamResult | null> {
+  if (isWeapp) return null
+  const res = await chatViaCloudLlm({ message, deep, memories })
+  if (!res) return null
+  await typewriter(res.reply, onDelta)
+  return { reply: res.reply, action: res.action }
+}
+
+/** H5 开发态兜底：本地 llm-proxy（8138）。chat → POST /，extract → POST /extract；
+ *  只在开发机存在，线上必然不可达 —— 因此它只是 ② 级兜底，不再是主路径。 */
 const LLM_PROXY_BASE = 'http://localhost:8138'
 async function callLocalAI<T>(name: string, data?: Record<string, unknown>): Promise<T | null> {
   try {
@@ -151,57 +183,16 @@ async function callLocalAI<T>(name: string, data?: Record<string, unknown>): Pro
   }
 }
 
-/** 流式 chat 结果（F-03）：与 apiChat 最小公共字段对齐 */
-export interface ChatStreamResult {
-  reply: string
-  action: string
-}
-
-/**
- * H5 AI 流式对话（F-03）：POST llm-proxy /stream（NDJSON 增量行），
- * onDelta 逐段回调 reply 文本（打字机追加），末行 done 给最终 reply/action 校正。
- * 仅 H5 生效（weapp 云函数非流式维持整段）；任何失败返回 null，由调用方降级 apiChat 整段。
- */
-export async function chatLocalStream(
-  message: string,
-  deep: boolean,
-  onDelta: (chunk: string) => void,
-  memories?: string[]
-): Promise<ChatStreamResult | null> {
-  if (isWeapp) return null
-  try {
-    const res = await fetch(`${LLM_PROXY_BASE}/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, deep, memories })
-    })
-    if (!res.ok || !res.body) return null
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    let result: ChatStreamResult | null = null
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() || ''
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed) continue
-        const parsed = JSON.parse(trimmed) as { t?: string; done?: boolean; reply?: string; action?: string }
-        if (parsed.done) {
-          result = { reply: parsed.reply || '', action: parsed.action || 'chat' }
-        } else if (parsed.t) {
-          onDelta(parsed.t)
-        }
-      }
-    }
-    return result
-  } catch (err) {
-    console.warn('[Cloud] chat stream failed:', err)
-    return null
+/** H5 真实 AI：cloud.llm 直连（2026-10-13 起生产可用的真 AI 路径）→ 本地 LLM 代理（开发态）
+ *  → 本地规则 mock。2026-10-05 之前只有 ②③，而 ② 的代理只在开发机跑，
+ *  线上必然落到 ③ —— 于是 H5 的"AI 对话"在生产环境其实一直是假规则。 */
+async function callChatOrExtract<T>(name: string, data?: Record<string, unknown>): Promise<T | null> {
+  if (name === 'chat') {
+    const viaCloud = await chatViaCloudLlm(data)
+    if (viaCloud) return viaCloud as T
+    console.warn('[Cloud] chat via cloud.llm unavailable, try local proxy')
   }
+  return callLocalAI<T>(name, data)
 }
 
 /**
@@ -331,24 +322,23 @@ export async function callFunction<T = unknown>(
       }
       return briefing as T
     }
-    // AI 能力：① 云函数（与小程序同一套实现）→ ② 本地 LLM 代理（开发态）
-    // → ③ 本地规则 mock。2026-10-05 之前只有 ②③，而 ② 的代理只在开发机跑，
-    // 线上必然落到 ③ —— 于是 H5 的"AI 对话"在生产环境其实一直是假规则。
+    // AI 能力（chat / extract）：① cloud.llm 直连（2026-10-13 起 H5 生产可用的真 AI 路径）
+    // → ② 本地 LLM 代理（开发态）→ ③ 本地规则 mock。
+    // 2026-10-05 之前只有 ②③，而 ② 的代理只在开发机跑，线上必然落到 ③
+    // —— 于是 H5 的"AI 对话"在生产环境其实一直是假规则。
+    // ⚠️ 这里**直接落到 mock，不再 fallthrough 到下面的通用 rpc 分支**：
+    //   chat/extract 是微信云函数，没有注册为应用数据库的 PG 函数，rpc 必败；
+    //   老代码在这里 fallthrough，等于每个失败请求多打一发注定失败的 rpc（已修）。
     if (name === 'chat' || name === 'extract') {
-      try {
-        const viaCloud = (await invoke(name, data)) as T
-        clearDegraded(name)
-        return viaCloud
-      } catch (err) {
-        console.warn(`[Cloud] ${name} via cloud rpc failed, try local proxy:`, err)
-      }
-      const ai = await callLocalAI<T>(name, data)
+      const ai = await callChatOrExtract<T>(name, data)
       if (ai) {
         clearDegraded(name)
         return ai
       }
-      console.warn(`[Cloud] local AI proxy unavailable, fallback to mock: ${name}`)
+      console.warn(`[Cloud] all AI paths unavailable, fallback to mock: ${name}`)
       markDegraded(name)
+      const mockModule = await import(`../data/${name}`)
+      return mockModule.default(data) as T
     }
     // 其余云函数（getLibrary / updateSettings / getUsage / shopping / confirmItem /
     // createOrder / deleteAccount …）：**先走云服务**，两端同一套实现；
