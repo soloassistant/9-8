@@ -612,7 +612,7 @@ function InboxPage() {
                     onInput={(e) => editDraftTime(draft.key, e.detail.value)}
                   />
                 )}
-                <Text className={styles.miniTag} style={{ marginTop: '8rpx', display: 'inline-block' }}>
+                <Text className={styles.miniTag} style={{ marginTop: '0.213rem', display: 'inline-block' }}>
                   {kindLabel[draft.kind]}
                 </Text>
               </View>

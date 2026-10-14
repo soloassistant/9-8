@@ -33,7 +33,6 @@ import { readPlan, writePlan } from '@/data/dailyPlan';
 import { computeAdaptive } from '@/utils/adaptive';
 import { sceneByHour, splitTtsChunks, startSpeak, stopSpeak } from '@/utils/tts';
 import { loadChatLog, saveChatLog } from '@/utils/chatLog';
-import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT, hasAgreedConsent, saveConsent } from '@/data/legal';
 import {
   beginReadSession,
   markSectionSeen,
@@ -186,16 +185,6 @@ function BriefingPage() {
   const habitToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // briefing 引用：useDidShow 时可能尚未拿到最新 briefing，用 ref 兜住「返回页面」场景
   const briefingRef = useRef<Briefing | null>(null);
-
-  // H5 首启合规同意（小程序端依赖微信平台隐私弹窗机制，仅网页端启用）
-  const [showConsent, setShowConsent] = useState(() => isH5 && !hasAgreedConsent());
-  const [consentDeclined, setConsentDeclined] = useState(false);
-  const handleConsentAgree = () => {
-    saveConsent();
-    setConsentDeclined(false);
-    setShowConsent(false);
-  };
-  const handleConsentDecline = () => setConsentDeclined(true);
 
   // 对话变化落 storage（截断由 saveChatLog 兜底）
   useEffect(() => {
@@ -1328,41 +1317,6 @@ function BriefingPage() {
 
       {/* C-02 位置权限说明弹窗：仅用户点击定位时触发，App 启动不弹 */}
       <PermissionDialog visible={showLocDialog} name='location' onAgree={handleLocAgree} onCancel={handleLocCancel} />
-
-      {/* H5 首启合规同意层：未同意前阻断使用（仅网页端渲染） */}
-      {showConsent ? (
-        <View className={styles.consentMask}>
-          <View className={styles.consentPanel}>
-            <Text className={styles.consentTitle}>{t('consent.title')}</Text>
-            {consentDeclined ? (
-              <View className={styles.consentDeclinedBox}>
-                <Text className={styles.consentDeclinedText}>{t('consent.declinedBody')}</Text>
-              </View>
-            ) : (
-              <ScrollView scrollY className={styles.consentBody}>
-                {/* 法务原文只有中文版：英文界面下必须先声明「以中文版为准」 */}
-                {lang === 'en' ? (
-                  <Text className={styles.consentText}>{`${t('legal.langNotice')}\n\n`}</Text>
-                ) : null}
-                <Text className={styles.consentText}>{PRIVACY_TEXT}</Text>
-                <Text className={styles.consentText}>{'\n\n'}</Text>
-                <Text className={styles.consentText}>{TERMS_TEXT}</Text>
-                <Text className={styles.consentText}>{'\n\n'}</Text>
-                <Text className={styles.consentText}>{AI_SERVICES_TEXT}</Text>
-              </ScrollView>
-            )}
-            <Text className={styles.consentHint}>{t('consent.hint')}</Text>
-            <View className={styles.consentActions}>
-              <Button className={styles.consentDecline} onClick={handleConsentDecline}>
-                {t('consent.decline')}
-              </Button>
-              <Button className={styles.consentAgree} onClick={handleConsentAgree}>
-                {t('consent.agree')}
-              </Button>
-            </View>
-          </View>
-        </View>
-      ) : null}
     </View>
   );
 }

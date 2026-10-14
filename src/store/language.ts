@@ -727,6 +727,11 @@ const zh = {
   'auth.privacyNotice': '邮箱仅用于账号登录与晨报推送；位置信息只在你开启天气功能后采集，且不会用于广告，解析城市名由第三方境外地图服务完成。数据存放在你自己的账号下，可在「我的 - 注销账号」一键删除。',
   'auth.privacyAgree': '我已阅读并同意上述隐私说明',
   'auth.errPrivacy': '请先勾选同意隐私说明',
+  'auth.bindPhoneTitle': '绑定手机号',
+  'auth.bindPhoneSubtitle': '为了账号安全与接收短信提醒，建议绑定手机号',
+  'auth.bindPhoneConfirm': '验证并绑定',
+  'auth.bindPhoneSkip': '稍后再说',
+  'auth.bindPhoneSent': '验证码已发送，请查收短信',
   'auth.smsSentHint': '没收到？确认手机号无误，并检查是否被短信拦截',
 
   /* ---- 法务文本与 H5 首启同意层（诚实性：英文界面下必须说明以中文条款为准）---- */
@@ -1433,6 +1438,11 @@ const en: Record<keyof typeof zh, string> = {
   'auth.otpSentHint': 'Not seeing it? Check your spam folder first, then confirm the address is correct',
   // 个保法要求的「明示同意」：登录前必须让用户看到收集范围并主动勾选
   'auth.privacyNotice': 'Your email is used only to sign in and deliver your briefing. Location is collected only after you turn the weather feature on, is never used for advertising, and the city name is resolved by a third-party overseas map service. Your data lives under your own account and can be deleted at any time under My - Delete account.',
+  'auth.bindPhoneTitle': 'Link a phone number',
+  'auth.bindPhoneSubtitle': 'For account security and SMS alerts, we recommend linking a phone number',
+  'auth.bindPhoneConfirm': 'Verify & link',
+  'auth.bindPhoneSkip': 'Maybe later',
+  'auth.bindPhoneSent': 'Code sent — check your messages',
   'auth.privacyAgree': 'I have read and agree to the privacy notice above',
   'auth.errPrivacy': 'Please agree to the privacy notice first',
   'auth.smsSentHint': 'Not seeing it? Confirm the number, then check your SMS blocker',

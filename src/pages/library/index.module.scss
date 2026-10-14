@@ -640,7 +640,7 @@
   right: 0;
   bottom: 0;
   background: rgba(0, 0, 0, 0.45);
-  z-index: 900;
+  z-index: var(--z-dialog);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;

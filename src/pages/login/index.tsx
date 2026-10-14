@@ -59,6 +59,9 @@ function sdkDownText(
 /** 隐私同意的本地留存键。**默认不勾选** —— 未经用户主动同意不得发起任何登录/取码动作。 */
 const PRIVACY_CONSENT_KEY = 'sxm-privacy-consent';
 
+/** 绑定手机号弹窗「稍后再说」的本地留存键。用户主动跳过则本次不再强弹（仅本地偏好，不阻塞登录）。 */
+const PHONE_BIND_DISMISSED_KEY = 'sxm-phone-bind-dismissed';
+
 function readPrivacyConsent(): boolean {
   try {
     return Taro.getStorageSync(PRIVACY_CONSENT_KEY) === true;
@@ -117,6 +120,18 @@ export default function LoginPage() {
   // 个保法要求的明示同意：默认 false，用户主动勾选后才允许提交
   const [privacyOk, setPrivacyOk] = useState(readPrivacyConsent);
 
+  // 邮箱登录后「绑定手机号」弹窗状态
+  const [bindPhone, setBindPhone] = useState(false);
+  const [bindPhoneVal, setBindPhoneVal] = useState('');
+  const [bindCode, setBindCode] = useState('');
+  const [bindPending, setBindPending] = useState<PendingOtp | null>(null);
+  const [bindCountdown, setBindCountdown] = useState(0);
+  const [bindBusy, setBindBusy] = useState(false);
+  const [bindError, setBindError] = useState('');
+  const [bindNotice, setBindNotice] = useState('');
+  /** 仅当手机号取码失败（短信 Provider 未开等）才置真，用于露出「稍后再说」逃生口 —— 正常流程不显示跳过 */
+  const [bindSendFailed, setBindSendFailed] = useState(false);
+
   // 挂载校验：已有会话就进应用；否则显示登录表单。微信端身份由微信提供，直接放行。
   useEffect(() => {
     if (!needsAuthGate) {
@@ -155,6 +170,12 @@ export default function LoginPage() {
     const timer = setTimeout(() => setCountdown((n) => n - 1), 1000);
     return () => clearTimeout(timer);
   }, [countdown]);
+
+  useEffect(() => {
+    if (bindCountdown <= 0) return;
+    const timer = setTimeout(() => setBindCountdown((n) => n - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [bindCountdown]);
 
   const clearMsg = () => {
     setError('');
@@ -275,7 +296,7 @@ export default function LoginPage() {
       return;
     }
     setPending(null);
-    goToApp();
+    void afterLogin();
   };
 
   const submitPassword = async () => {
@@ -295,7 +316,7 @@ export default function LoginPage() {
       setError(sdkDownText(res.error, t) || t('auth.errWrongCredentials'));
       return;
     }
-    goToApp();
+    void afterLogin();
   };
 
   const startReset = async () => {
@@ -343,6 +364,105 @@ export default function LoginPage() {
       });
     });
   }
+
+  /** 登录成功后：所有用户都必须用手机号登录（产品硬约束）。
+   *  · 手机号通道：会话 user.phone 已存在 → 直接进应用。
+   *  · 邮箱通道：会话没有 phone → 跳出「绑定手机号」弹窗，验证通过才算完成登录。
+   *  用户曾因短信不可用而跳过 → 不再强弹（本地留存 PHONE_BIND_DISMISSED_KEY）。 */
+  async function afterLogin() {
+    try {
+      const s = await getSession();
+      if (s?.user?.phone) {
+        goToApp();
+        return;
+      }
+    } catch {
+      /* 取不到会话也走绑定弹窗 */
+    }
+    try {
+      if (Taro.getStorageSync(PHONE_BIND_DISMISSED_KEY) === true) {
+        goToApp();
+        return;
+      }
+    } catch {
+      /* 存储不可用 → 仍弹窗 */
+    }
+    setBindPhone(true);
+  }
+
+  /** 绑定弹窗遮罩（H5 内联，px/rgba，不写 rpx 以免被丢弃） */
+  const overlayStyle: React.CSSProperties = {
+    position: 'fixed',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    background: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 'var(--z-dialog)',
+    padding: '0 24px'
+  };
+
+  const doBindSendCode = async () => {
+    if (bindBusy || bindCountdown > 0) return;
+    const v = bindPhoneVal.trim();
+    if (!PHONE_RE.test(v)) {
+      setBindError(t('auth.errPhone'));
+      return;
+    }
+    setBindError('');
+    setBindNotice('');
+    setBindSendFailed(false);
+    setBindBusy(true);
+    const res = await sendLoginCode({ phone: v });
+    setBindBusy(false);
+    if (res.error) {
+      setBindError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
+      setBindSendFailed(true);
+      return;
+    }
+    setBindPending({ id: { phone: v }, verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
+    setBindCountdown(RESEND_SECONDS);
+    setBindNotice(t('auth.bindPhoneSent'));
+  };
+
+  const doBindVerify = async () => {
+    if (bindBusy || !bindPending) return;
+    const id = { phone: bindPhoneVal.trim() };
+    if (!sameId(bindPending.id, id)) {
+      setBindError(t('auth.errCodeNeeded'));
+      return;
+    }
+    setBindError('');
+    setBindBusy(true);
+    const res = await verifyLoginCode({
+      id: bindPending.id,
+      verificationId: bindPending.verificationId,
+      isExistingUser: bindPending.isExistingUser,
+      token: bindCode.trim()
+    });
+    setBindBusy(false);
+    if (res.error) {
+      setBindError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
+      return;
+    }
+    setBindPhone(false);
+    setBindPending(null);
+    goToApp();
+  };
+
+  /** 仅短信发送失败时才可达：本地留存「已跳过」，下次不再强弹，并放行进应用 */
+  const skipBind = () => {
+    try {
+      Taro.setStorageSync(PHONE_BIND_DISMISSED_KEY, true);
+    } catch {
+      /* 存储不可用也不阻塞 */
+    }
+    setBindPhone(false);
+    goToApp();
+  };
 
   const handleSubmit = () => {
     if (busy) return;
@@ -533,6 +653,57 @@ export default function LoginPage() {
           </Text>
         </View>
       </View>
+      {bindPhone ? (
+        <View style={overlayStyle}>
+          <View className={styles.card}>
+            <Text className={styles.title}>{t('auth.bindPhoneTitle')}</Text>
+            <Text className={styles.subtitle}>{t('auth.bindPhoneSubtitle')}</Text>
+            <View className={styles.field}>
+              <Text className={styles.label}>{t('auth.phone')}</Text>
+              <Input
+                className={styles.input}
+                type='number'
+                value={bindPhoneVal}
+                placeholder={t('auth.phonePlaceholder')}
+                onInput={(e) => {
+                  setBindPhoneVal(String(e.detail.value || ''));
+                  setBindError('');
+                }}
+              />
+            </View>
+            <View className={styles.field}>
+              <Text className={styles.label}>{t('auth.code')}</Text>
+              <View className={styles.codeRow}>
+                <Input
+                  className={`${styles.input} ${styles.codeInput}`}
+                  type='number'
+                  value={bindCode}
+                  placeholder={t('auth.smsCodePlaceholder')}
+                  onInput={(e) => setBindCode(String(e.detail.value || ''))}
+                />
+                <View
+                  className={`${styles.codeBtn} ${bindCountdown <= 0 && !bindBusy ? '' : styles.btnDisabled}`}
+                  onClick={doBindSendCode}
+                >
+                  <Text className={styles.codeBtnText}>
+                    {bindCountdown > 0 ? t('auth.resend').replace('{s}', String(bindCountdown)) : t('auth.sendCode')}
+                  </Text>
+                </View>
+              </View>
+            </View>
+            {bindNotice ? <Text className={styles.notice}>{bindNotice}</Text> : null}
+            {bindError ? <Text className={styles.error}>{bindError}</Text> : null}
+            <View className={`${styles.submit} ${bindBusy ? styles.btnDisabled : ''}`} onClick={doBindVerify}>
+              <Text className={styles.submitText}>{t('auth.bindPhoneConfirm')}</Text>
+            </View>
+            {bindSendFailed ? (
+              <View style={{ marginTop: '12px', textAlign: 'center' }} onClick={skipBind}>
+                <Text style={{ color: '#888', fontSize: '14px' }}>{t('auth.bindPhoneSkip')}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -1,0 +1,113 @@
+@use '@/styles/variables.scss' as *;
+
+/* H5 首启合规同意层（应用级）：全屏覆盖，同意前阻断使用 */
+.consentMask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: var(--z-consent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-lg;
+}
+
+.consentPanel {
+  width: 100%;
+  max-width: 640rpx;
+  max-height: 82vh;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  display: flex;
+  flex-direction: column;
+}
+
+.consentTitle {
+  font-size: $font-size-lg;
+  font-weight: 600;
+  color: $color-text-primary;
+  text-align: center;
+  margin-bottom: $spacing-sm;
+}
+
+.consentBody {
+  flex: 1;
+  min-height: 320rpx;
+  max-height: 52vh;
+  margin-bottom: $spacing-sm;
+  border-bottom: 1rpx solid $color-divider;
+}
+
+.consentText {
+  display: block;
+  font-size: $font-size-xs;
+  line-height: 1.7;
+  color: $color-text-secondary;
+  white-space: pre-wrap;
+}
+
+.consentDeclinedBox {
+  flex: 1;
+  min-height: 200rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-lg;
+  background: $color-bg-page;
+  border-radius: $radius-md;
+  margin-bottom: $spacing-sm;
+}
+
+.consentDeclinedText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.consentHint {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  text-align: center;
+  margin-bottom: $spacing-sm;
+}
+
+.consentActions {
+  display: flex;
+  gap: $spacing-sm;
+}
+
+.consentDecline {
+  @include button-reset;
+  flex: 1;
+  width: auto;
+  height: 80rpx;
+  line-height: 80rpx;
+  border-radius: $radius-round;
+  background: $color-bg-page;
+  color: $color-text-secondary;
+  font-size: $font-size-md;
+  text-align: center;
+}
+
+.consentAgree {
+  @include button-reset;
+  flex: 1;
+  width: auto;
+  height: 80rpx;
+  line-height: 80rpx;
+  border-radius: $radius-round;
+  background: var(--brand, #{$color-primary});
+  color: #fff;
+  font-size: $font-size-md;
+  font-weight: 600;
+  text-align: center;
+
+  &:active {
+    opacity: 0.9;
+  }
+}

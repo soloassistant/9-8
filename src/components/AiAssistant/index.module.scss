@@ -4,12 +4,21 @@
   position: fixed;
   left: 0;
   right: 0;
-  z-index: 900;
+  z-index: var(--z-fab);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   padding-right: 24rpx;
   pointer-events: none;
+}
+
+/* P1：桌面端（≥500px）内容限宽居中为 20rem 卡片，悬浮球须跟随内容栏右缘，
+   而非视口右缘 —— 否则大屏下浮球会漂到页面右侧空白区，与内容脱节（2026-10-14 实测）。
+   24rpx 为 content padding，使浮球与内容右缘留同等间距。 */
+@media (min-width: 500px) {
+  .wrapper {
+    right: calc(50% - 10rem);
+  }
 }
 
 .fab {

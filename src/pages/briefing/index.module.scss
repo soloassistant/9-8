@@ -644,7 +644,7 @@
   left: $spacing-md;
   right: $spacing-md;
   bottom: 16rpx; // 略抬离底部，不贴手势条/TabBar
-  z-index: 700;
+  z-index: var(--z-tabbar);
   padding: $spacing-sm $spacing-md;
   background: $color-bg-card;
   border-radius: $radius-lg; // 浮岛造型
@@ -849,117 +849,6 @@
   border-radius: $radius-md;
 }
 
-/* H5 首启合规同意层：全屏覆盖，同意前阻断使用 */
-.consentMask {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 1200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: $spacing-lg;
-}
-
-.consentPanel {
-  width: 100%;
-  max-width: 640rpx;
-  max-height: 82vh;
-  background: $color-bg-card;
-  border-radius: $radius-lg;
-  padding: $spacing-lg;
-  display: flex;
-  flex-direction: column;
-}
-
-.consentTitle {
-  font-size: $font-size-lg;
-  font-weight: 600;
-  color: $color-text-primary;
-  text-align: center;
-  margin-bottom: $spacing-sm;
-}
-
-.consentBody {
-  flex: 1;
-  min-height: 320rpx;
-  max-height: 52vh;
-  margin-bottom: $spacing-sm;
-  border-bottom: 1rpx solid $color-border;
-}
-
-.consentText {
-  display: block;
-  font-size: $font-size-xs;
-  line-height: 1.7;
-  color: $color-text-secondary;
-  white-space: pre-wrap;
-}
-
-.consentDeclinedBox {
-  flex: 1;
-  min-height: 200rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: $spacing-lg;
-  background: $color-bg-page;
-  border-radius: $radius-md;
-  margin-bottom: $spacing-sm;
-}
-
-.consentDeclinedText {
-  font-size: $font-size-sm;
-  color: $color-text-secondary;
-  text-align: center;
-  line-height: 1.6;
-}
-
-.consentHint {
-  font-size: $font-size-xs;
-  color: $color-text-tertiary;
-  text-align: center;
-  margin-bottom: $spacing-sm;
-}
-
-.consentActions {
-  display: flex;
-  gap: $spacing-sm;
-}
-
-.consentDecline {
-  @include button-reset;
-  flex: 1;
-  width: auto;
-  height: 80rpx;
-  line-height: 80rpx;
-  border-radius: $radius-round;
-  background: $color-bg-page;
-  color: $color-text-secondary;
-  font-size: $font-size-md;
-  text-align: center;
-}
-
-.consentAgree {
-  @include button-reset;
-  flex: 1;
-  width: auto;
-  height: 80rpx;
-  line-height: 80rpx;
-  border-radius: $radius-round;
-  background: var(--brand, #{$color-primary});
-  color: #fff;
-  font-size: $font-size-md;
-  font-weight: 600;
-  text-align: center;
-
-  &:active {
-    opacity: 0.9;
-  }
-}
 
 /* v2.1 高风险习惯调整方案：容器与提示 */
 .habitProposalWrap {
@@ -989,7 +878,7 @@
   border: 1rpx solid rgba(255, 122, 69, 0.28);
   border-radius: $radius-md;
   box-shadow: $shadow-float;
-  z-index: 900;
+  z-index: var(--z-dialog);
 }
 
 .habitToastText {

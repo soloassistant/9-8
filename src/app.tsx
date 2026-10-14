@@ -3,8 +3,10 @@ import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import AiAssistant from '@/components/AiAssistant';
 import Splash from '@/components/Splash';
+import ConsentGate from '@/components/ConsentGate';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
 import { needsAuthGate, getSession } from '@/services/cloudAuth';
+import { hasAgreedConsent } from '@/data/legal';
 import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/language';
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
 import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
@@ -80,6 +82,12 @@ function App(props: PropsWithChildren) {
   });
   const isLoginPage = route.indexOf('login') >= 0;
   const lang = useLanguageStore((s) => s.lang);
+
+  // 应用级合规同意（H5 首启）：未同意前整屏遮罩，覆盖所有 tab 与 AI 悬浮球。
+  // 小程序端依赖微信平台隐私弹窗，此处恒为 true 不参与。
+  const [consentAgreed, setConsentAgreed] = useState(() =>
+    process.env.TARO_ENV === 'h5' ? hasAgreedConsent() : true
+  );
 
   /**
    * H5 路由跟随 —— **必须自己订阅导航，不能依赖 useDidShow**。
@@ -177,8 +185,12 @@ function App(props: PropsWithChildren) {
       {/* 应用外壳一律不进登录页：未登录时它既无用又泄漏"应用已就绪"的错觉 */}
       {isLoginPage ? null : (
         <React.Fragment>
-          {/* 晨报页有常驻输入栏（含快捷指令条），AI 悬浮球需额外抬升避让 */}
-          <AiAssistant context={context} offset={context === 'briefing' ? 240 : 40} />
+          {/* 合规同意层（H5 首启）未通过前，不挂载 AI 悬浮球 —— 全屏遮罩已阻断 TabBar 与面板交互 */}
+          {consentAgreed ? (
+            <AiAssistant context={context} offset={context === 'briefing' ? 240 : 40} />
+          ) : null}
+          {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页与 AI 面板 */}
+          {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
           {/* 开屏动画：每次冷启动展示，点击可跳过 */}
           <Splash />
         </React.Fragment>
