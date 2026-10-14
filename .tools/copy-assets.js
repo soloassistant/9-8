@@ -22,7 +22,10 @@ const HOTSPOT_OUT = path.join(dist, 'api/hotspot.json');
 const jobs = [
   { from: path.join(src, 'tabbar-png'), to: path.join(dist, 'assets/tabbar-png') },
   { from: path.join(src, 'logo.png'), to: path.join(dist, 'assets/logo.png') },
-  { from: path.join(src, 'share-cover.png'), to: path.join(dist, 'assets/share-cover.png') }
+  { from: path.join(src, 'share-cover.png'), to: path.join(dist, 'assets/share-cover.png') },
+  // 2026-10-14 自托管云服务 SDK：不再从 jsdelivr CDN 拉取（中国大陆常被墙 → 登录不可用）。
+  // 同源 ./assets/wb-sdk.js，随产物上线，去掉对外部 CDN 的运行时依赖。
+  { from: path.join(src, 'wb-sdk.js'), to: path.join(dist, 'assets/wb-sdk.js') }
 ];
 
 let copied = 0;
