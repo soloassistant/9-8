@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
  * reg-full.mjs — 真实 Chrome 端到端回归（一次性会话内完成所有多步交互）。
- * 流程：邮箱登录(OTP 回贴) → 强制绑手机弹窗「短信失败→稍后再说」跳过 →
- *       P0 同意层拦截 Tab/FAB 测试 → 点「同意并继续」 → P1 五 Tab FAB 遮挡 + 桌面定位 → P2。
+ * 流程：邮箱登录(OTP 回贴) → 强制绑手机弹窗（短信成功→无跳过入口→带会话重载进应用；
+ *      短信失败→「稍后再说」跳过）→ P0 同意层拦截 Tab/FAB 测试 → 点「同意并继续」 →
+ *      P1 五 Tab FAB 遮挡 + 桌面定位 → P2。
  * 关键状态写入 OUT/status.txt：OTP_REQUESTED（此时把邮箱收到的码写进 REG_OTP_FILE）→ LOGGED_IN → DONE / FAIL:...
  *
  * 环境变量：
  *   REG_URL       站点根（默认线上）
  *   REG_EMAIL     登录邮箱（必填，无默认值 —— 本仓库是 public，不把个人邮箱硬编码进来）
+ *   REG_PHONE     绑定手机号（默认 13800138000，仅用于短信通道探测；真机收码才能过绑定点）
  *   REG_OTP_FILE  回贴验证码文件（脚本轮询；默认 OUT/otp.txt）
  *   REG_OUT       输出目录（默认 <repo>/.tmp-verify/reg，Windows 风格绝对路径）
  */
@@ -20,6 +22,7 @@ const CHROME = process.env.CHROME_BIN || 'C:\\Users\\geral\\.agent-browser\\brow
 const BASE = process.env.REG_URL || 'https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host/';
 const EMAIL = process.env.REG_EMAIL || '';
 if (!EMAIL) { console.error('REG_EMAIL is required (no default: this repo is public)'); process.exit(2); }
+const PHONE = process.env.REG_PHONE || '13800138000';
 // 输出目录默认**必须由 __dirname 推导**：曾写成 Git-Bash 风格 '/d/Agent/.tmp-verify/reg'，
 // path.join 在 Windows 上会把它变成当前盘根下的相对路径 '\d\Agent\...' → Chrome 的
 // --user-data-dir 建不出来 → 进程静默死亡 → CDP endpoint 永远连不上（表现为
@@ -67,16 +70,38 @@ async function shot(name) { try { const s = await cdp.send('Page.captureScreensh
 async function dismissSplash() { const s = await evalJs(`(()=>{const e=document.querySelector('[class*="splash"],[class*="Splash"]'); if(!e) return null; const r=e.getBoundingClientRect(); if(r.width<10) return null; return {x:r.left+r.width/2,y:r.top+r.height/2};})()`); if (s && !s.__err && s && s.x !== undefined) { await realClick(s.x, s.y); await sleep(1600); log('splash dismissed'); } else log('no splash'); }
 async function hash() { return await evalJs('location.hash'); }
 
-// P1: 找到 AiAssistant 里最小的 fixed 元素（FAB 按钮），返回其 rect + 与之相交的文字叶子
+// P1: 找到 AiAssistant 里最小的 fixed 元素（FAB 按钮），返回其 rect + 与之相交的文字叶子。
+// ★ 2026-10-15 修：原来按 `[class*="AiAssistant"]` 找根元素，但编译后 CSS modules 把类名变成
+//   `index-module__assistant___GJ7SZ` 这类哈希名，**源码类名根本不在产物里** → 全部返回
+//   fab:null，而截图里 FAB 好端端在（假故障，差点被当成"FAB 没上线"）。
+//   改成按仓库级不变量定位：z-index 令牌 --z-fab=900（六个令牌有 selfcheck 断言兜底），
+//   取那个 fixed 容器里最小的 20-220px 元素。类名随便改，这条都成立。
 async function fabOverlap() {
   return evalJs(`(() => {
-    const root=document.querySelector('[class*="AiAssistant"]'); if(!root) return {fab:null,hits:[]};
+    let root=null;
+    for(const e of Array.from(document.querySelectorAll('body *'))){
+      const cs=getComputedStyle(e);
+      if(cs.position==='fixed'&&cs.zIndex==='900'){ root=e; break; }
+    }
+    if(!root) return {fab:null,hits:[],rootFound:false};
     let best=null;
-    for(const e of [root,...root.querySelectorAll('*')]){ const cs=getComputedStyle(e); if(cs.position!=='fixed'&&cs.position!=='absolute') continue; const r=e.getBoundingClientRect(); if(r.width<20||r.width>220||r.height<20||r.height>220) continue; const a=r.width*r.height; if(!best||a<best.a) best={a,x:r.left,y:r.top,w:r.width,h:r.height}; }
-    if(!best) return {fab:null,hits:[]};
+    for(const e of [root,...root.querySelectorAll('*')]){
+      const r=e.getBoundingClientRect();
+      if(r.width<20||r.width>220||r.height<20||r.height>220) continue;
+      const a=r.width*r.height;
+      if(!best||a<best.a) best={a,x:r.left,y:r.top,w:r.width,h:r.height};
+    }
+    if(!best) return {fab:null,hits:[],rootFound:true};
     const fr={x:best.x,y:best.y,w:best.w,h:best.h}; const hits=[];
-    for(const e of Array.from(document.querySelectorAll('body *'))){ if(e.closest('[class*="AiAssistant"]')) continue; if(e.children.length) continue; const t=(e.textContent||'').trim(); if(!t) continue; const r=e.getBoundingClientRect(); if(r.width<2||r.height<2) continue; if(r.right>fr.x+2 && r.left<fr.x+fr.w-2 && r.bottom>fr.y+2 && r.top<fr.y+fr.h-2){ hits.push(t.slice(0,28)); } }
-    return {fab:fr, hits:[...new Set(hits)].slice(0,12)};
+    for(const e of Array.from(document.querySelectorAll('body *'))){
+      if(root.contains(e)) continue;
+      if(e.children.length) continue;
+      const t=(e.textContent||'').trim(); if(!t) continue;
+      const r=e.getBoundingClientRect();
+      if(r.width<2||r.height<2) continue;
+      if(r.right>fr.x+2 && r.left<fr.x+fr.w-2 && r.bottom>fr.y+2 && r.top<fr.y+fr.h-2){ hits.push(t.slice(0,28)); }
+    }
+    return {fab:fr, hits:[...new Set(hits)].slice(0,12), rootFound:true};
   })()`);
 }
 
@@ -188,18 +213,47 @@ async function loginInputValues() {
     if (!loggedIn) fail('OTP 登录连续 ' + MAX_OTP + ' 次失败，最终 hash=' + RESULTS.login.afterSubmitHash_a3);
 
 
-    // 4) 强制绑手机弹窗 → 短信失败 → 稍后再说
+    // 4) 强制绑手机弹窗。2026-10-15 实测：短信 Provider **已开通**，发送成功 →
+    //    「稍后再说」逃生口（只在发送失败时出现）不露面。两条路都要处理：
+    //    a) 发送失败 → 稍后再说 → 点它跳过（原假设，已过时）
+    //    b) 发送成功 → 显示「验证码已发送」+ 重发倒计时 → 没有跳过入口，
+    //       只能等外部把真机收到的短信码写进 OTP 文件（BIND_SMS_REQUESTED）。
     const bindHit = (await findText('稍后再说', false)) || (await findText('绑定手机', false));
     RESULTS.login.bindModal = !!(bindHit && !bindHit.__err);
     log('bind modal present', RESULTS.login.bindModal);
     if (RESULTS.login.bindModal) {
       const nInputs = await evalJs(`document.querySelectorAll('input').length`);
       log('input count with modal', nInputs);
-      await fillInput(Number(nInputs) - 2, '13800138000'); await sleep(400); // 弹窗里的手机号输入（登录页 2 个在前）
-      await clickText('获取验证码', false); await sleep(5000); // SMS 未开 → 发码失败 → 露出「稍后再说」
-      const skip = await findText('稍后再说', false);
-      if (skip && !skip.__err) { await realClick(skip.x, skip.y); log('clicked 稍后再说'); } else log('稍后再说 NOT FOUND after failed send');
-      await sleep(3500);
+      await fillInput(Number(nInputs) - 2, PHONE); await sleep(400); // 弹窗里的手机号输入（登录页 2 个在前）
+      await clickText('获取验证码', false);
+      let smsSent = false;
+      for (let i = 0; i < 15; i++) {
+        await sleep(1000);
+        if (await findText('稍后再说', false)) break;
+        if (await findText('验证码已发送', false)) { smsSent = true; break; }
+      }
+      RESULTS.login.bindSmsSent = smsSent;
+      if (smsSent) {
+        // 短信真发出去了 → 没有跳过入口。但**带会话重载**时登录页挂载效验走的是
+        // getSession()→goToApp() 直连（不经 afterLogin），弹窗不再出现 ——
+        // 这与真实回访用户完全同路径。2026-10-15 实测：Provider 已开通，
+        // 「稍后再说」只在发送失败时出现，正常流程只能等真机短信码（需有人值守）。
+        log('SMS sent, no skip entry -> reload with session (same path as a returning user)');
+        await shot('03-bind-modal-sms-sent.png');
+        await cdp.send('Page.navigate', { url: BASE });
+        let inApp = false;
+        for (let i = 0; i < 30; i++) {
+          await sleep(1000);
+          const h = await hash();
+          if (String(h || '').includes('briefing')) { inApp = true; break; }
+        }
+        RESULTS.login.bindBypass = inApp ? 'reload-session' : 'reload-failed';
+        log('after reload hash', await hash(), 'inApp', inApp);
+      } else {
+        const skip = await findText('稍后再说', false);
+        if (skip && !skip.__err) { await realClick(skip.x, skip.y); log('clicked 稍后再说'); } else log('稍后再说 NOT FOUND after failed send');
+        await sleep(3500);
+      }
     }
     RESULTS.login.finalHash = await hash();
     log('final hash', RESULTS.login.finalHash);
@@ -211,7 +265,7 @@ async function loginInputValues() {
     const consentHit = await findText('同意并继续', false);
     RESULTS.p0.consentPresent = !!(consentHit && !consentHit.__err);
     log('P0 consent gate present', RESULTS.p0.consentPresent);
-    const fabHiddenPre = await evalJs(`!!document.querySelector('[class*="AiAssistant"]')`);
+    const fabHiddenPre = await evalJs(`(()=>{for(const e of Array.from(document.querySelectorAll('body *'))){const cs=getComputedStyle(e);if(cs.position==='fixed'&&cs.zIndex==='900')return true;}return false;})()`);
     RESULTS.p0.fabMountedPreConsent = fabHiddenPre;
     // 尝试点 Tab（应被遮罩拦截）
     await clickText('收件箱', false, 0.6); await sleep(2500);
@@ -244,7 +298,14 @@ async function loginInputValues() {
     await sleep(1500);
     await clickText('晨报', false, 0.6); await sleep(2600);
     const desk = await evalJs(`(() => {
-      const ov = (function(){ const root=document.querySelector('[class*="AiAssistant"]'); if(!root) return null; let best=null; for(const e of [root,...root.querySelectorAll('*')]){ const cs=getComputedStyle(e); if(cs.position!=='fixed'&&cs.position!=='absolute') continue; const r=e.getBoundingClientRect(); if(r.width<20||r.width>220||r.height<20||r.height>220) continue; const a=r.width*r.height; if(!best||a<best.a) best={x:r.left,y:r.top,w:r.width,h:r.height}; } return best?{x:best.x,y:best.y,w:best.w,h:best.h}:null; })();
+      const ov = (function(){ // 同 fabOverlap：按 z-index:900(--z-fab) 找，不靠类名（编译后是哈希类名）
+        let root=null;
+        for(const e of Array.from(document.querySelectorAll('body *'))){ const cs=getComputedStyle(e); if(cs.position==='fixed'&&cs.zIndex==='900'){ root=e; break; } }
+        if(!root) return null;
+        let best=null;
+        for(const e of [root,...root.querySelectorAll('*')]){ const r=e.getBoundingClientRect(); if(r.width<20||r.width>220||r.height<20||r.height>220) continue; const a=r.width*r.height; if(!best||a<best.a) best={a,x:r.left,y:r.top,w:r.width,h:r.height}; }
+        return best?{x:best.x,y:best.y,w:best.w,h:best.h}:null;
+      })();
       // 内容栏：找最宽的居中主容器（taro page）
       let col=null; const pages=document.querySelectorAll('[class*="page_"], [class*="__page"], #app > div'); for(const p of pages){ const r=p.getBoundingClientRect(); if(r.width>200 && r.width<760){ if(!col || r.width>col.w) col={x:r.left,y:r.top,w:r.width,h:r.height}; } }
       return { fab: ov, contentCol: col };
