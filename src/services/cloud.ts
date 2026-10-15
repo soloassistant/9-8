@@ -5,7 +5,7 @@ import { fetchWeatherDirect } from '../utils/weather'
 import { evaluatePriceAlerts, type PricedItem, type PriceAlert } from '../utils/price'
 import { categoryOf } from '../utils/categoryLabel'
 import { invoke, isWeapp } from './dataSource'
-import { chatViaCloudLlm, typewriter } from './cloudLlm'
+import { chatViaCloudLlm, extractViaCloudLlm, typewriter } from './cloudLlm'
 
 /** 热点数据来源元信息（服务端 /api/hotspot 附带，mock/真机路径为 null） */
 export interface HotspotMeta {
@@ -185,12 +185,24 @@ async function callLocalAI<T>(name: string, data?: Record<string, unknown>): Pro
 
 /** H5 真实 AI：cloud.llm 直连（2026-10-13 起生产可用的真 AI 路径）→ 本地 LLM 代理（开发态）
  *  → 本地规则 mock。2026-10-05 之前只有 ②③，而 ② 的代理只在开发机跑，
- *  线上必然落到 ③ —— 于是 H5 的"AI 对话"在生产环境其实一直是假规则。 */
+ *  线上必然落到 ③ —— 于是 H5 的"AI 对话"在生产环境其实一直是假规则。
+ *
+ *  ⚠️ 2026-10-15 修：`extract` 原先和 chat 一样会落到 ③（mock）—— 因为这里只对
+ *  name==='chat' 走云端，extract 被直接送去 callLocalAI 打 localhost:8138（线上不可达）。
+ *  后果是收件箱「AI 提取」在生产环境**恒返回 src/data/extract.ts 的固定示例**
+ *  （「产品评审会 / 评审前更新演示文稿」），用户看到"提取成功"却是假数据。
+ *  这正是 2026-10-14 测试报告 P1-02 怀疑的形态，已在代码层坐实。 */
 async function callChatOrExtract<T>(name: string, data?: Record<string, unknown>): Promise<T | null> {
   if (name === 'chat') {
     const viaCloud = await chatViaCloudLlm(data)
     if (viaCloud) return viaCloud as T
     console.warn('[Cloud] chat via cloud.llm unavailable, try local proxy')
+  } else if (name === 'extract') {
+    const viaCloud = await extractViaCloudLlm(data as { content?: string; images?: string[] })
+    if (viaCloud) return viaCloud as T
+    // 走到这里的两种情况：① 云端真的不可用 ② 只有截图、无文字（该通道无多模态）。
+    // 两者都还有本地 mock 兜底（mock 至少能从截图旁的文字里认时间），故继续往下走。
+    console.warn('[Cloud] extract via cloud.llm unavailable, try local proxy')
   }
   return callLocalAI<T>(name, data)
 }

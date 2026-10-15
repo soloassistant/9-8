@@ -25,6 +25,7 @@ import { getCloudLlm } from './cloudAuth';
 import type { LlmMessage } from './cloudAuth';
 import { llmEventInsert } from './cloudDb';
 import { readPlan } from '../data/dailyPlan';
+import type { ExtractResult } from '../types';
 
 /* ---------------- 系统提示（与 cloudfunctions/chat 同口径） ---------------- */
 
@@ -307,4 +308,176 @@ export function typewriter(
       i += chunkSize;
     }, intervalMs);
   });
+}
+
+/* ---------------- 收件箱提取（extract）---------------- */
+
+type CollectionItemSourceType = 'article' | 'message' | 'link';
+
+/**
+ * extract 的系统提示。
+ *
+ * 契约与 ExtractResult（src/types/index.ts:117）严格对齐，**不用类型断言蒙混** ——
+ * 下游 inbox/index.tsx 会直接读 result.events[].title / startTime，字段缺失会在渲染时炸。
+ * 时间一律要求 'YYYY-MM-DD HH:mm'：日程页与 formatEventTime 都按这个形状解析。
+ *
+ * ⚠️ 为什么只处理文字、不声称能看图：cloud.llm 的 LlmMessage.content 是 **string**
+ *   （cloudAuth.ts:290），SDK 这条通道**不支持多模态**。截图（base64）传不过去。
+ *   所以截图场景必须**明说做不到**，绝不能让模型编一个「从截图识别到的时间」——
+ *   那是本产品反复强调的不诚实（见 src/data/chat.ts 里删掉硬编码价格的那次修复）。
+ */
+const EXTRACT_SYSTEM_PROMPT =
+  '你是私人晨报助理的文本信息提取器。用户会给你一段杂乱文本（可能来自聊天转发、邮件、通知、备忘录）。' +
+  '从这段文本里提取结构化条目，**只提取文本里真实存在的信息，绝不编造**：\n' +
+  '① events（日程）：有明确时间与动作的安排。title 用原文措辞（去掉「提醒我」之类前缀）；' +
+  'startTime/endTime 为 "YYYY-MM-DD HH:mm"；只有日期没有具体时刻时，该时刻留空字符串 ""，' +
+  '**不要臆造一个时间点**。\n' +
+  '② todos（待办）：需要去做的事，没有截止时间时 dueDate 留空字符串 ""。\n' +
+  '③ collection（收藏）：值得留存的链接/文章/长文摘要，此时给出 summary 与 tags（1-3 个短标签）。\n' +
+  '④ note：文本里**无法归类**的有用信息原文；没有就省略该字段。\n' +
+  '每条的 source 填原文前 50 字。文本里没有任何可提取内容时，三个数组都返回空数组。\n' +
+  '输出 JSON（不要 markdown 代码块、不要任何解释文字）：' +
+  '{"events":[{"title":"","startTime":"","endTime":"","location":"","source":""}],' +
+  '"todos":[{"title":"","dueDate":"","source":""}],' +
+  '"collection":{"title":"","summary":"","tags":[],"url":"","sourceType":"article|message|link"},' +
+  '"note":""}';
+
+/** 提取结果的原始形状（字段都还没过校验） */
+interface RawExtract {
+  events?: unknown;
+  todos?: unknown;
+  collection?: unknown;
+  note?: unknown;
+}
+
+/** 时间字符串：只接受 'YYYY-MM-DD HH:mm' / 'YYYY-MM-DDTHH:mm'（后者换空格）。非法 → ''。 */
+function normalizeTime(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  const s = v.trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (!m) return '';
+  const [, y, mo, d, h, mi] = m;
+  // 越界值直接丢弃：把 2026-13-45 交给日历页只会渲染出一个不存在的日期
+  if (Number(mo) < 1 || Number(mo) > 12 || Number(d) < 1 || Number(d) > 31) return '';
+  if (Number(h) > 23 || Number(mi) > 59) return '';
+  return `${y}-${mo}-${d} ${h}:${mi}`;
+}
+
+/** 短文本：非字符串→''，超长截断（标题类字段被模型塞进整段原文是常见失败模式）。 */
+function shortText(v: unknown, max: number): string {
+  if (typeof v !== 'string') return '';
+  const s = v.trim();
+  if (!s) return '';
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+/**
+ * 把模型返回的 JSON 逐字段校成 ExtractResult。
+ *
+ * 为什么必须逐字段校验而不是 `as ExtractResult`：
+ *   模型输出不可信（可能缺字段、类型错、时间格式乱、塞 HTML）。一个 `as` 断言等于
+ *   把所有风险推迟到渲染期炸掉，而收件箱是核心链路。这里宁可**丢掉一条坏条目**，
+ *   也不能让整页崩 —— 单条无效就跳过，全部无效返回 null（交给上层降级）。
+ */
+function coerceExtract(parsed: RawExtract): ExtractResult | null {
+  const events: ExtractResult['events'] = [];
+  if (Array.isArray(parsed.events)) {
+    for (const it of parsed.events) {
+      if (!it || typeof it !== 'object') continue;
+      const o = it as Record<string, unknown>;
+      const title = shortText(o.title, 60);
+      if (!title) continue; // 没标题的日程没有意义
+      const endTime = normalizeTime(o.endTime);
+      const location = shortText(o.location, 40);
+      const source = shortText(o.source, 50);
+      // startTime 缺失也保留：用户粘贴的常是「周四下午跟客户吃饭」这种，
+      // 丢掉是信息损失，留给用户手动补时间。
+      events.push({
+        title,
+        startTime: normalizeTime(o.startTime),
+        ...(endTime ? { endTime } : {}),
+        ...(location ? { location } : {}),
+        ...(source ? { source } : {})
+      });
+    }
+  }
+
+  const todos: ExtractResult['todos'] = [];
+  if (Array.isArray(parsed.todos)) {
+    for (const it of parsed.todos) {
+      if (!it || typeof it !== 'object') continue;
+      const o = it as Record<string, unknown>;
+      const title = shortText(o.title, 60);
+      if (!title) continue;
+      const dueDate = normalizeTime(o.dueDate);
+      const source = shortText(o.source, 50);
+      todos.push({ title, ...(dueDate ? { dueDate } : {}), ...(source ? { source } : {}) });
+    }
+  }
+
+  let collection: ExtractResult['collection'];
+  if (parsed.collection && typeof parsed.collection === 'object' && !Array.isArray(parsed.collection)) {
+    const o = parsed.collection as Record<string, unknown>;
+    const title = shortText(o.title, 60);
+    const summary = shortText(o.summary, 500);
+    if (title && summary) {
+      const tags = (Array.isArray(o.tags) ? o.tags : []).map((t) => shortText(t, 12)).filter(Boolean).slice(0, 3);
+      const rawType = shortText(o.sourceType, 20);
+      const sourceType: CollectionItemSourceType =
+        rawType === 'article' || rawType === 'link' || rawType === 'message' ? rawType : 'message';
+      const url = shortText(o.url, 300);
+      collection = { title, summary, tags, ...(url ? { url } : {}), sourceType };
+    }
+  }
+
+  const note = shortText(parsed.note, 200);
+  // 三者全空且无备注 → 视为「模型没提取到东西」，返回 null 让上层降级，
+  // 而不是给用户一个空结果页让他以为「确实没有可提取的内容」。
+  if (events.length === 0 && todos.length === 0 && !collection && !note) return null;
+
+  return { events, todos, ...(collection ? { collection } : {}), ...(note ? { note } : {}) };
+}
+
+/**
+ * H5 提取主路径（2026-10-15）：收件箱文本 → cloud.llm → 结构化日程/待办/收藏。
+ *
+ * 修复的正是 2026-10-14 测试报告 P1-02：`callChatOrExtract` 只对 name==='chat'
+ * 走云端，`extract` 直接打 `localhost:8138`（线上不可达）→ 回退 `src/data/extract.ts`
+ * 的固定示例（恒返回「产品评审会 / 评审前更新演示文稿」）。于是 H5 生产环境的
+ * 「AI 提取」**一直是假数据**，且因 UI 零宽此前连按钮都点不到。
+ *
+ * 与 chat 的差别：
+ *   · 不带 `我的数据：…` 上下文 —— 提取是从原文抽结构，不是回答问题，带上下文反而干扰。
+ *   · **图片不参与**：LlmMessage.content 是 string，这条通道不支持多模态。
+ *     带图且无字时返回 null（上层降级到本地 mock 的视觉识别），**不假装看懂了图**。
+ *   · 记账复用 cloudLlmChat 内部的 `llmEventInsert('chat')`，不新增 kind
+ *     （cloudDb 的 LlmEventKind 只允许 'chat' | 'voice'，服务端按此计费）。
+ */
+export async function extractViaCloudLlm(data?: {
+  content?: string;
+  images?: string[];
+}): Promise<ExtractResult | null> {
+  const content = String((data && data.content) || '').trim();
+  const imageCount = Array.isArray(data && data.images) ? data!.images!.length : 0;
+  if (!content && imageCount === 0) return null;
+  if (!content) {
+    console.warn('[cloudLlm] extract: only images given — cloud.llm channel has no multimodal support, skip');
+    return null;
+  }
+  // 相对日期（明天下午/下周五）需要基准，模型自己不知道今天几号
+  const now = new Date();
+  const today = now.toLocaleDateString('sv-SE'); // YYYY-MM-DD，不受 locale 影响
+  const hm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const userContent =
+    `现在的日期时间：${today} ${hm}\n` +
+    '请以该时间为基准推算原文里的相对日期（如「明天下午」「下周五」）。\n' +
+    '待提取原文：\n"""\n' +
+    content.slice(0, 6000) +
+    '\n"""';
+  const raw = await cloudLlmChat({ system: EXTRACT_SYSTEM_PROMPT, userContent });
+  if (!raw) return null;
+  const parsed = safeParseReply<RawExtract>(raw);
+  if (!parsed || typeof parsed !== 'object') return null;
+  return coerceExtract(parsed);
 }

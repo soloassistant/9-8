@@ -4,6 +4,7 @@ import Taro from '@tarojs/taro';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
 import EmptyState from '@/components/EmptyState';
+import DemoDataHint from '@/components/DemoDataHint';
 import { apiExtract, apiConfirmItem, apiGetBriefing, apiChat, type WorkAction } from '@/services/api';
 import { useUserStore } from '@/store/user';
 import { fromNow } from '@/utils/date';
@@ -429,6 +430,13 @@ function InboxPage() {
             : '群里的会议安排、快递通知、孩子的作业——长按微信消息复制，粘贴到这里，它们就变成你的日程和待办；也可把截屏图从相册添加进来。'}
         </Text>
       </View>
+
+      {/* 降级提示（2026-10-15 补挂）：本方法是 extract 的**唯一**消费方，
+          却是唯一没挂 DemoDataHint 的地方。extract 一旦回退到 src/data/extract.ts，
+          用户会看到一份"看起来很合理"的固定示例（产品评审会 / 评审前更新演示文稿），
+          完全无法分辨这不是自己粘贴的内容 —— 于是"AI 提取成功"成了假象。
+          挂上之后，真实路径成功时提示自动消失（cloud.ts 的 clearDegraded）。 */}
+      <DemoDataHint />
 
       <View className={styles.inputCard}>
         <Text className={styles.inputTitle}>{t('inbox.pasteTitle')}</Text>
