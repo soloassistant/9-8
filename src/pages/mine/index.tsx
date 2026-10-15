@@ -11,6 +11,7 @@ import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiCreateOrder, apiDeleteAccount, apiApplyPlan } from '@/services/api';
 import { signOut } from '@/services/cloudAuth';
+import { kvClear } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { fromNow } from '@/utils/date';
@@ -756,14 +757,36 @@ function MinePage() {
           Taro.showToast({ title: t('mine.deleteDone'), icon: 'none' });
           setTimeout(() => Taro.reLaunch({ url: '/pages/briefing/index' }), 1200);
         };
-        // C-04 注销分端语义（2026-10-08 修正 H5 死路）：
+        // C-04 注销分端语义（2026-10-08 修正 H5 死路，2026-10-15 修正数据保留）：
         //   · h5：没有微信上下文（deleteAccount 云函数只认 getWXContext().OPENID，必抛 no openid），
-        //     且应用数据库未建表、服务端本就没有账号数据可删 —— 故 H5 的「注销」= 登出 + 清空本机数据，
-        //     不再调用注定失败的云函数（否则用户只会收到「注销失败」，且永远走不到清本地那一步）。
+        //     故 H5 不再调那个注定失败的云函数 —— 但**不等于服务端没有数据可删**。
+        //     2026-10-13 H5 迁移后，cloudSync 的 18 个 SYNC_KEYS（购物清单/日程/浏览历史/
+        //     学习进度/AI 记忆/聊天记录/设置…）是真写进云数据库 user_kv 的，owner_id 由
+        //     DEFAULT auth.uid() 填充。此前这里只登出 + 清本机，**云端那份原封不动留着**
+        //     （cloudDb.kvClear 有定义、零调用点），用户以为注销了，数据还在。
+        //     故 H5 的「注销」= 先清云端同步键 → 登出 → 清本机。
+        //     ⚠️ 顺序不可换：kvClear 依赖会话身份（RLS 按 auth.uid() 过滤），
+        //        先 signOut 会让删除请求被数据库侧拒绝，data 变成「登出但云端还在」。
         //   · weapp：保持原逻辑，调 deleteAccount 真删服务端数据。
         if (process.env.TARO_ENV === 'h5') {
-          // signOut 自身吞掉登出失败；即便登出异常也继续清本机数据并回到门禁
-          signOut().then(finishDelete).catch(finishDelete);
+          // 清云端同步键。失败**不阻断**注销（不能因为云端抖动把用户卡在注销页），
+          // 但必须留痕 —— 静默失败会变成又一份「以为删了其实没删」的数据。
+          kvClear()
+            .then((n) => {
+              if (n === null) {
+                console.warn('[MinePage] kvClear returned null — 云端同步键可能未清除，需人工核查');
+              } else {
+                console.info('[MinePage] cloud user_kv cleared, rows =', n);
+              }
+            })
+            .catch((err) => {
+              console.error('[MinePage] kvClear failed:', err);
+            })
+            // 无论云端结果如何都继续：signOut 自身吞掉登出失败；
+            // 即便登出异常也继续清本机数据并回到门禁
+            .then(() => signOut())
+            .then(finishDelete)
+            .catch(finishDelete);
         } else {
           apiDeleteAccount()
             .then(finishDelete)

@@ -10,6 +10,36 @@
 .searchBar {
   padding: $spacing-sm $page-padding;
 
+  // 显式返回入口（2026-10-15 补）：H5 的 TabRouter 不渲染原生导航栏，
+  // 页内没有返回控件时用户会走进死路。做成 searchBar 内的首行，
+  // 不占搜索框宽度（独立一行），点击区够大。
+  // ⚠️ 高度必须用 rpx：h5 的 pxtransform baseFontSize=37.5，写 `min-height: 32px`
+  //    会被当 32 设计像素换算成 0.85333rem ≈ 17px 实际高度 —— 点击区偏小一半。
+  .backButton {
+    display: flex;
+    align-items: center;
+    gap: $spacing-xs;
+    // 80rpx = 移动端 40px 高的可点区，与 $button-height-md 同档
+    min-height: $button-height-md;
+    margin-bottom: $spacing-xs;
+    color: $color-text-secondary;
+    cursor: pointer;
+    user-select: none;
+
+    &:active {
+      opacity: 0.6;
+    }
+
+    .backIcon {
+      font-size: $font-size-xl;
+      line-height: 1;
+    }
+
+    .backText {
+      font-size: $font-size-md;
+    }
+  }
+
   .searchInput {
     width: 100%;
     height: $button-height-md;

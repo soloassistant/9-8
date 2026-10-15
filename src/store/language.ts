@@ -433,6 +433,7 @@ const zh = {
   'cancel': '取消',
   'common.loadFailed': '加载失败，请稍后重试',
   'common.writeFailed': '暂时无法写入，请稍后再试',
+  'common.back': '返回',
 
   /* ---- v1.2 · 语音交互（V-01~V-04）---- */
   'voice.listening': '正在聆听…',
@@ -1159,6 +1160,7 @@ const en: Record<keyof typeof zh, string> = {
   'cancel': 'Cancel',
   'common.loadFailed': 'Failed to load, please try again',
   'common.writeFailed': 'Unable to save right now, please try again later',
+  'common.back': 'Back',
 
   /* ---- v1.2 · 语音交互（V-01~V-04）---- */
   'voice.listening': 'Listening…',

@@ -226,6 +226,7 @@
 
   .extractButton {
     flex: 1;
+    min-width: 0; // 允许收缩到内容以下，避免长文案把兄弟按钮挤没
     width: auto; // 覆盖默认 width:100%，由 flex 分配宽度
     margin-top: 0;
   }
@@ -233,6 +234,11 @@
 
 .addButton {
   @include button-reset;
+  // ⚠️ 显式定宽：taro-button-core 默认 width:100%。此处若不覆盖，addButton 会取满
+  // actionRow 整行宽度，把 flex:1 的 extractButton 挤成 0px —— 实测线上「AI 提取」
+  // 按钮因此 isVisible=false / tabIndex=-1，剪贴板→提取→日历整条核心链路无法启动。
+  // 与 briefing/index.module.scss:26 的 searchButton 同一范式。
+  width: auto;
   flex-shrink: 0;
   height: $button-height-md;
   padding: 0 $spacing-lg;

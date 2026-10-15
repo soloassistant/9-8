@@ -9,7 +9,7 @@
  *   REG_URL       站点根（默认线上）
  *   REG_EMAIL     登录邮箱（必填，无默认值 —— 本仓库是 public，不把个人邮箱硬编码进来）
  *   REG_OTP_FILE  回贴验证码文件（脚本轮询；默认 OUT/otp.txt）
- *   REG_OUT       输出目录（默认 /d/Agent/.tmp-verify/reg）
+ *   REG_OUT       输出目录（默认 <repo>/.tmp-verify/reg，Windows 风格绝对路径）
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -20,7 +20,11 @@ const CHROME = process.env.CHROME_BIN || 'C:\\Users\\geral\\.agent-browser\\brow
 const BASE = process.env.REG_URL || 'https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host/';
 const EMAIL = process.env.REG_EMAIL || '';
 if (!EMAIL) { console.error('REG_EMAIL is required (no default: this repo is public)'); process.exit(2); }
-const OUT = process.env.REG_OUT || '/d/Agent/.tmp-verify/reg';
+// 输出目录默认**必须由 __dirname 推导**：曾写成 Git-Bash 风格 '/d/Agent/.tmp-verify/reg'，
+// path.join 在 Windows 上会把它变成当前盘根下的相对路径 '\d\Agent\...' → Chrome 的
+// --user-data-dir 建不出来 → 进程静默死亡 → CDP endpoint 永远连不上（表现为
+// 「CDP endpoint 未就绪」，极易误判成 Chrome/网络问题）。2026-10-15 实测踩到。
+const OUT = process.env.REG_OUT || path.join(__dirname, '..', '.tmp-verify', 'reg');
 const OTP_FILE = process.env.REG_OTP_FILE || path.join(OUT, 'otp.txt');
 fs.mkdirSync(OUT, { recursive: true });
 if (fs.existsSync(OTP_FILE)) fs.unlinkSync(OTP_FILE); // 清掉上一次的码

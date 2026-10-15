@@ -65,9 +65,32 @@ function SearchPage() {
     [t]
   );
 
+  /**
+   * 明确的返回入口（2026-10-15 补）。
+   *
+   * 此前本页只有顶部一个 Input，**页内没有任何返回控件**；H5 下 TabRouter 不渲染原生
+   * 导航栏，所以空结果态下用户「看不到回去的路」——实测巡检只能靠敲首页地址退出。
+   * 这里显式放一个返回键：优先 navigateBack（保留来源页状态），栈里只剩本页时
+   * 兜底 reLaunch 回晨报，避免走进死路。
+   */
+  const handleBack = useCallback(() => {
+    const pages = Taro.getCurrentPages();
+    if (pages.length > 1) {
+      Taro.navigateBack().catch(() => {
+        Taro.reLaunch({ url: '/pages/briefing/index' });
+      });
+      return;
+    }
+    Taro.reLaunch({ url: '/pages/briefing/index' });
+  }, []);
+
   return (
     <View className={styles.page} style={brandVars(theme)}>
       <View className={styles.searchBar}>
+        <View className={styles.backButton} onClick={handleBack}>
+          <Text className={styles.backIcon}>‹</Text>
+          <Text className={styles.backText}>{t('common.back')}</Text>
+        </View>
         <Input
           className={styles.searchInput}
           value={keyword}
