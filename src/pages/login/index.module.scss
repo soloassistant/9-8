@@ -170,6 +170,44 @@
   margin-right: $spacing-xs;
 }
 
+/* 「下次自动登录」（2026-10-15）
+ * 与 .privacyRow 同构（整块可点、扩大勾选热区），但语义不同故独立一套class：
+ *   隐私同意 —— 合法性前提，默认未勾选，两行文字；
+ *   记住登录 —— 便利偏好，默认已勾选，一行标题 + 一行小字说明。
+ * 尺寸全部用 rpx：h5 的 pxtransform baseFontSize=37.5，写 px 会被折半。 */
+.rememberRow {
+  display: flex;
+  align-items: flex-start;
+  margin-top: $spacing-xs;
+  padding: $spacing-xs;
+}
+
+.rememberBox {
+  font-size: $font-size-md;
+  line-height: $line-height-normal;
+  margin-right: $spacing-xs;
+}
+
+.rememberBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.rememberText {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.rememberHint {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+  margin-top: 2rpx;
+}
+
 .privacyBody {
   flex: 1;
 }

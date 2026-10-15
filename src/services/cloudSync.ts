@@ -49,7 +49,13 @@ const SYNC_KEYS = [
   'aiAssistantLog',   // 悬浮球 AI 对话（限长 60）
   'brand-theme',      // 主题
   'app-lang',         // 语言
-  'ui-scale'          // 字号
+  'ui-scale',          // 字号
+  // 记账（v2.0 F23）：刻意**拆成三个 key**而不是一个 ledger 对象。
+  // 分类/预算的写入频率远低于条目，分开后 per-key「新者赢」互不干扰 ——
+  // 否则在别的设备加一笔账，会把这一端的预算设置一起覆盖掉。
+  'ledgerEntries',    // 记账条目
+  'ledger-categories', // 记账分类（含用户增删改）
+  'ledgerBudget'      // 记账预算（日/月上限）
 ] as const;
 
 /**

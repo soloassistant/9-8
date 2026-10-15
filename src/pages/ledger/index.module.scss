@@ -1,0 +1,379 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding-bottom: calc(#{180rpx} + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+/* 顶部：今日概览 */
+.head {
+  padding: $spacing-md $page-padding $spacing-sm;
+}
+
+.monthRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: $spacing-xs;
+}
+
+.monthLabel {
+  @include text-tertiary-sm;
+}
+
+.monthAmount {
+  font-size: $font-size-xxl;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.incomeLabel {
+  font-size: $font-size-sm;
+  color: var(--brand-deep, #{$color-primary-dark});
+  font-weight: $font-weight-medium;
+}
+
+.overHint {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin-top: $spacing-xs;
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $radius-button;
+  background: rgba(232, 93, 42, 0.1);
+  color: $color-warning;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+}
+
+/* 预算条 */
+.budgetRow {
+  display: flex;
+  gap: $spacing-sm;
+  margin-top: $spacing-sm;
+}
+
+.budgetChip {
+  flex: 1;
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $radius-button;
+  background: $color-bg-card;
+  border: 1rpx solid $color-border;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.budgetChipOver {
+  border-color: $color-warning;
+  background: rgba(232, 93, 42, 0.06);
+}
+
+.budgetCap {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.budgetVal {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.bar {
+  height: 12rpx;
+  border-radius: 6rpx;
+  background: $color-bg-hover;
+  overflow: hidden;
+  margin-top: $spacing-xs;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 6rpx;
+  background: var(--brand, #{$color-primary});
+}
+
+.barFillOver {
+  background: $color-warning;
+}
+
+/* 分类分布 */
+.catBlock {
+  margin: $spacing-sm $page-padding 0;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $radius-md;
+  background: $color-bg-card;
+}
+
+.catTitle {
+  @include text-tertiary-sm;
+  margin-bottom: $spacing-xs;
+}
+
+.catItem {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: 8rpx 0;
+}
+
+.catIcon {
+  font-size: $font-size-lg;
+  width: 56rpx;
+  text-align: center;
+}
+
+.catName {
+  flex: 1;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.catCount {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.catAmount {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+/* 明细列表 */
+.list {
+  padding: $spacing-sm $page-padding 0;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.dayHeader {
+  padding: $spacing-xs 0 4rpx;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+  font-weight: $font-weight-medium;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $radius-md;
+  background: $color-bg-card;
+}
+
+.rowIcon {
+  font-size: $font-size-lg;
+  width: 64rpx;
+  text-align: center;
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0; // 允许收缩，避免长备注把金额挤出屏幕
+}
+
+.rowTitle {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowNote {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowAmount {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.rowAmountIncome {
+  color: var(--brand-deep, #{$color-primary-dark});
+}
+
+/* 录入区 */
+.addBar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: $spacing-sm;
+  align-items: center;
+  padding: $spacing-sm $page-padding calc(#{$spacing-sm} + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1rpx solid $color-border;
+  backdrop-filter: blur(12rpx);
+}
+
+.addInput {
+  flex: 1;
+  height: $button-height-md;
+  padding: 0 $spacing-sm;
+  border-radius: $radius-button;
+  background: $color-bg-card;
+  border: 1rpx solid $color-border;
+  font-size: $font-size-md;
+  box-sizing: border-box;
+}
+
+.addBtn {
+  @include button-reset;
+  width: auto; //覆盖 taro-button-core 默认 width:100%，否则挤掉输入框
+  height: $button-height-md;
+  padding: 0 $spacing-lg;
+  border-radius: $radius-button;
+  background: var(--brand, #{$color-primary});
+  color: #fff;
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  flex-shrink: 0;
+}
+
+/* 分类选择弹层 */
+.mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  z-index: 1000;
+}
+
+.sheet {
+  width: 100%;
+  max-height: 76vh;
+  background: $color-bg-page;
+  border-radius: $radius-md $radius-md 0 0;
+  padding: $spacing-md $page-padding calc(#{$spacing-xl} + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.sheetTitle {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+  margin-bottom: $spacing-sm;
+}
+
+.tabs {
+  display: flex;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-sm;
+}
+
+.tab {
+  @include button-reset;
+  width: auto;
+  height: 64rpx;
+  padding: 0 $spacing-md;
+  border-radius: $radius-button;
+  background: $color-bg-card;
+  color: $color-text-secondary;
+  font-size: $font-size-md;
+  flex-shrink: 0;
+}
+
+.tabActive {
+  background: var(--brand, #{$color-primary});
+  color: #fff;
+}
+
+.catGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  overflow-y: auto;
+}
+
+.catChip {
+  @include button-reset;
+  width: auto; // 同 addBtn：覆盖 taro-button-core 的 width:100%
+  height: 88rpx;
+  min-width: 150rpx;
+  padding: 0 $spacing-md;
+  border-radius: $radius-button;
+  background: $color-bg-card;
+  border: 2rpx solid transparent;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.catChipActive {
+  border-color: var(--brand, #{$color-primary});
+  background: var(--brand-soft, #{$color-bg-hover});
+}
+
+.catManage {
+  margin-top: $spacing-md;
+  padding-top: $spacing-sm;
+  border-top: 1rpx solid $color-border;
+}
+
+.manageRow {
+  display: flex;
+  gap: $spacing-xs;
+  align-items: center;
+  padding: 6rpx 0;
+  flex-wrap: wrap;
+}
+
+.manageName {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  min-width: 120rpx;
+}
+
+.delBtn {
+  font-size: $font-size-sm;
+  color: $color-error;
+  padding: 6rpx $spacing-xs;
+}
+
+.addCatRow {
+  display: flex;
+  gap: $spacing-xs;
+  margin-top: $spacing-xs;
+  align-items: center;
+}
+
+.addCatInput {
+  flex: 1;
+  height: 64rpx;
+  padding: 0 $spacing-sm;
+  border-radius: $radius-button;
+  background: $color-bg-card;
+  border: 1rpx solid $color-border;
+  font-size: $font-size-sm;
+  box-sizing: border-box;
+}
+
+.smallBtn {
+  @include button-reset;
+  width: auto;
+  height: 64rpx;
+  padding: 0 $spacing-md;
+  border-radius: $radius-button;
+  background: var(--brand, #{$color-primary});
+  color: #fff;
+  font-size: $font-size-sm;
+  flex-shrink: 0;
+}

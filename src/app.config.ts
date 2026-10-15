@@ -20,6 +20,7 @@ export default defineAppConfig({
     'pages/search/index',
     'pages/history/index',
     'pages/shopping/index',
+    'pages/ledger/index',
     // 省心买 · 小程序原生页（阶段 B 第一期）：小程序端不再复制外链，改为跳本页
     'pages/sxm/index',
     'pages/learn/index',

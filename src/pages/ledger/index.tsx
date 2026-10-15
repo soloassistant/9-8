@@ -1,0 +1,411 @@
+import { useCallback, useMemo, useState } from 'react';
+import { View, Text, Input, Button, ScrollView } from '@tarojs/components';
+import Taro, { useDidShow } from '@tarojs/taro';
+import EmptyState from '@/components/EmptyState';
+import { brandVars, useThemeStore } from '@/store/theme';
+import { useT } from '@/store/language';
+import {
+  apiLedgerAdd,
+  apiLedgerAddCategory,
+  apiLedgerBudget,
+  apiLedgerCategories,
+  apiLedgerEntries,
+  apiLedgerInit,
+  apiLedgerRemove,
+  apiLedgerRemoveCategory,
+  apiLedgerSaveBudget
+} from '@/services/api';
+import type { LedgerBudget, LedgerCategory, LedgerEntry, LedgerKind } from '@/types';
+import {
+  currentMonthStr,
+  filterByRange,
+  prevMonthStr,
+  resolveCategory,
+  summarize,
+  todayStr
+} from '@/utils/ledgerAggregate';
+import styles from './index.module.scss';
+
+/** 金额展示：整数部分带千分位，小数只在有值时显示（¥80 而不是 ¥80.00）。 */
+function formatMoney(n: number): string {
+  const v = Math.round(n * 100) / 100;
+  const intPart = Math.floor(Math.abs(v));
+  const frac = Math.abs(v) - intPart;
+  const grouped = String(intPart).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const sign = v < 0 ? '-' : '';
+  return frac > 0.004 ? `${sign}¥${grouped}.${String(Math.round(frac * 100)).padStart(2, '0')}` : `${sign}¥${grouped}`;
+}
+
+/** 预算条：已用占比。超过上限时把进度截到 100%（不能让条超出容器宽度）。 */
+function budgetRatio(used: number, limit?: number): number {
+  if (!limit || limit <= 0) return 0;
+  return Math.max(0, Math.min(1, used / limit));
+}
+
+/**
+ * 记账页。
+ *
+ * 设计取向：**首笔账只要两步**（金额 + 分类），备注/日期都可留空。
+ * 记账功能最大的失败模式是「录入太麻烦所以没人用」，
+ * 所以分类是横向 chip 一键选、预置 9 个常用项，备注收进「更多」而非必填。
+ */
+function LedgerPage() {
+  const t = useT();
+  const { theme } = useThemeStore();
+
+  const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [categories, setCategories] = useState<LedgerCategory[]>([]);
+  const [budget, setBudget] = useState<LedgerBudget>({});
+  const [amount, setAmount] = useState('');
+  const [tab, setTab] = useState<LedgerKind>('expense');
+  const [pickedCategory, setPickedCategory] = useState('');
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+
+  const reload = useCallback(async () => {
+    apiLedgerInit();
+    const [e, c, b] = await Promise.all([apiLedgerEntries(), apiLedgerCategories(), apiLedgerBudget()]);
+    setEntries(e);
+    setCategories(c);
+    setBudget(b);
+  }, []);
+
+  useDidShow(() => {
+    void reload();
+  });
+
+  const today = todayStr();
+  const month = currentMonthStr();
+
+  const monthList = useMemo(() => filterByRange(entries, `${month}-01`, `${month}-31`), [entries, month]);
+  const monthSum = useMemo(() => summarize(monthList, budget), [monthList, budget]);
+  const todaySum = useMemo(() => summarize(filterByRange(entries, today, today), budget), [entries, today, budget]);
+  const prevSum = useMemo(() => {
+    const pm = prevMonthStr();
+    return summarize(filterByRange(entries, `${pm}-01`, `${pm}-31`), {});
+  }, [entries]);
+
+  const tabCategories = useMemo(
+    () => categories.filter((c) => c.kind === tab),
+    [categories, tab]
+  );
+
+  // 切换支出/收入时把选中分类重置：两类分类 id 不同，
+  // 保留旧选择会让 addEntry 因「分类方向不匹配」静默失败（data/ledger.ts 有此校验）。
+  const switchTab = useCallback(
+    (next: LedgerKind) => {
+      setTab(next);
+      setPickedCategory('');
+    },
+    []
+  );
+
+  const submit = useCallback(async () => {
+    const n = Number(amount);
+    if (!Number.isFinite(n) || n <= 0) {
+      Taro.showToast({ title: t('ledger.invalidAmount'), icon: 'none' });
+      return;
+    }
+    if (!pickedCategory) {
+      Taro.showToast({ title: t('ledger.pickCategory'), icon: 'none' });
+      return;
+    }
+    const created = await apiLedgerAdd({ amount: n, kind: tab, categoryId: pickedCategory });
+    if (!created) {
+      Taro.showToast({ title: t('ledger.addFailed'), icon: 'none' });
+      return;
+    }
+    setAmount('');
+    await reload();
+    // 超预算即时提示：晨报卡片是「事后呈报」，这里给「当场反馈」，
+    // 避免用户记完超支了却要等到第二天才知道。
+    const after = await summarize(filterByRange(await apiLedgerEntries(), today, today), await apiLedgerBudget());
+    if (after.overDaily) {
+      Taro.showToast({ title: t('ledger.overDailyNow'), icon: 'none', duration: 2200 });
+    } else {
+      Taro.showToast({ title: t('ledger.added'), icon: 'success' });
+    }
+  }, [amount, pickedCategory, tab, today, reload, t]);
+
+  const remove = useCallback(
+    (id: string) => {
+      void (async () => {
+        const ok = await apiLedgerRemove(id);
+        if (ok) await reload();
+      })();
+    },
+    [reload]
+  );
+
+  const saveBudgetFor = useCallback(
+    async (key: 'daily' | 'monthly') => {
+      // showModal 的 editable / 回填字段 content 是微信基础库 2.17.1+ 的扩展，
+      // Taro 的类型定义滞后 —— 与 shopping/index.tsx:150-155 同一范式，断言绕过。
+      const res = (await Taro.showModal({
+        title: key === 'daily' ? t('ledger.budgetDailyTitle') : t('ledger.budgetMonthlyTitle'),
+        editable: true,
+        placeholderText: t('ledger.budgetPlaceholder'),
+        confirmText: t('ledger.saveBudget'),
+        cancelText: t('cancel')
+      } as unknown as Taro.showModal.Option)) as Taro.showModal.SuccessCallbackResult & { content?: string };
+      if (!res.confirm) return;
+      const raw = String(res.content || '').trim();
+      if (!raw) {
+        // 空 = 取消限制；传 0 也会被 loadBudget 当成「未设置」，语义一致
+        const next: LedgerBudget = { ...budget };
+        delete next[key];
+        setBudget(await apiLedgerSaveBudget(next));
+        return;
+      }
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n <= 0) {
+        Taro.showToast({ title: t('ledger.invalidAmount'), icon: 'none' });
+        return;
+      }
+      setBudget(await apiLedgerSaveBudget({ ...budget, [key]: n }));
+    },
+    [budget, t]
+  );
+
+  const addCat = useCallback(async () => {
+    const name = newCatName.trim();
+    if (!name) return;
+    const created = await apiLedgerAddCategory(name, tab);
+    if (!created) {
+      Taro.showToast({ title: t('ledger.catDuplicate'), icon: 'none' });
+      return;
+    }
+    setNewCatName('');
+    const c = await apiLedgerCategories();
+    setCategories(c);
+    setPickedCategory(created.id);
+  }, [newCatName, tab, t]);
+
+  const delCat = useCallback(
+    async (id: string) => {
+      const ok = await apiLedgerRemoveCategory(id);
+      if (!ok) {
+        Taro.showToast({ title: t('ledger.catInUse'), icon: 'none', duration: 2000 });
+        return;
+      }
+      setCategories(await apiLedgerCategories());
+    },
+    [t]
+  );
+
+  // 明细按日分组展示；月内已有数据则不再显示全部（避免长列表淹没概览）
+  const grouped = useMemo(() => {
+    const map = new Map<string, LedgerEntry[]>();
+    monthList.forEach((e) => {
+      const arr = map.get(e.date) || [];
+      arr.push(e);
+      map.set(e.date, arr);
+    });
+    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [monthList]);
+
+  return (
+    <View className={styles.page} style={brandVars(theme)}>
+      <View className={styles.head}>
+        <View className={styles.monthRow}>
+          <Text className={styles.monthLabel}>
+            {month} · {t('ledger.monthExpense')}
+          </Text>
+          <View>
+            <Text className={styles.monthAmount}>{formatMoney(monthSum.expense)}</Text>
+            {monthSum.income > 0 ? (
+              <Text className={styles.incomeLabel}>　{t('ledger.income')} {formatMoney(monthSum.income)}</Text>
+            ) : null}
+          </View>
+        </View>
+        <Text className={styles.monthLabel}>
+          {t('ledger.lastMonth')} {formatMoney(prevSum.expense)}
+        </Text>
+
+        <View className={styles.budgetRow}>
+          <View
+            className={budget.daily !== undefined && todaySum.overDaily ? `${styles.budgetChip} ${styles.budgetChipOver}` : styles.budgetChip}
+            onClick={() => void saveBudgetFor('daily')}
+          >
+            <Text className={styles.budgetCap}>{t('ledger.dailyBudget')}</Text>
+            <Text className={styles.budgetVal}>
+              {formatMoney(todaySum.expense)}
+              {budget.daily !== undefined ? ` / ${formatMoney(budget.daily)}` : ''}
+            </Text>
+            {budget.daily !== undefined ? (
+              <View className={styles.bar}>
+                <View
+                  className={todaySum.overDaily ? `${styles.barFill} ${styles.barFillOver}` : styles.barFill}
+                  style={{ width: `${budgetRatio(todaySum.expense, budget.daily) * 100}%` }}
+                />
+              </View>
+            ) : null}
+          </View>
+
+          <View
+            className={budget.monthly !== undefined && monthSum.overMonthly ? `${styles.budgetChip} ${styles.budgetChipOver}` : styles.budgetChip}
+            onClick={() => void saveBudgetFor('monthly')}
+          >
+            <Text className={styles.budgetCap}>{t('ledger.monthlyBudget')}</Text>
+            <Text className={styles.budgetVal}>
+              {formatMoney(monthSum.expense)}
+              {budget.monthly !== undefined ? ` / ${formatMoney(budget.monthly)}` : ''}
+            </Text>
+            {budget.monthly !== undefined ? (
+              <View className={styles.bar}>
+                <View
+                  className={monthSum.overMonthly ? `${styles.barFill} ${styles.barFillOver}` : styles.barFill}
+                  style={{ width: `${budgetRatio(monthSum.expense, budget.monthly) * 100}%` }}
+                />
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        {todaySum.overDaily || monthSum.overMonthly ? (
+          <View className={styles.overHint}>
+            <Text>⚠️</Text>
+            <Text>
+              {todaySum.overDaily && budget.daily !== undefined
+                ? t('ledger.overDaily', { amount: formatMoney(budget.daily) })
+                : t('ledger.overMonthly', { amount: formatMoney(budget.monthly ?? 0) })}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      {monthSum.byCategory.length > 0 ? (
+        <View className={styles.catBlock}>
+          <Text className={styles.catTitle}>{t('ledger.monthByCategory')}</Text>
+          {monthSum.byCategory.slice(0, 5).map((c) => {
+            const cat = resolveCategory(categories, c.categoryId);
+            return (
+              <View key={c.categoryId} className={styles.catItem}>
+                <Text className={styles.catIcon}>{cat.icon}</Text>
+                <Text className={styles.catName}>{cat.name}</Text>
+                <Text className={styles.catCount}>×{c.count}</Text>
+                <Text className={styles.catAmount}>{formatMoney(c.amount)}</Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {grouped.length === 0 ? (
+        <EmptyState icon='🧾' title={t('ledger.empty')} hint={t('ledger.emptyHint')} />
+      ) : (
+        <View className={styles.list}>
+          {grouped.map(([date, list]) => (
+            <View key={date}>
+              <View className={styles.dayHeader}>
+                {date === today ? t('ledger.today') : date}
+              </View>
+              {list.map((e) => {
+                const cat = resolveCategory(categories, e.categoryId);
+                return (
+                  <View key={e.id} className={styles.row} onClick={() => remove(e.id)}>
+                    <Text className={styles.rowIcon}>{cat.icon}</Text>
+                    <View className={styles.rowMain}>
+                      <Text className={styles.rowTitle}>{cat.name}</Text>
+                      {e.note ? <Text className={styles.rowNote}>{e.note}</Text> : null}
+                    </View>
+                    <Text className={e.kind === 'income' ? `${styles.rowAmount} ${styles.rowAmountIncome}` : styles.rowAmount}>
+                      {e.kind === 'income' ? '+' : '-'}
+                      {formatMoney(e.amount)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* 录入区：金额输入 + 分类选择 + 记账 */}
+      <View className={styles.addBar}>
+        <Input
+          className={styles.addInput}
+          type='digit'
+          value={amount}
+          placeholder={t('ledger.amountPlaceholder')}
+          focus={false}
+          onInput={(e) => setAmount(e.detail.value)}
+        />
+        <Button className={styles.addBtn} onClick={() => setSheetOpen(true)}>
+          {pickedCategory ? resolveCategory(categories, pickedCategory).name : t('ledger.pickCategory')}
+        </Button>
+        <Button className={styles.addBtn} onClick={() => void submit()}>
+          {t('ledger.record')}
+        </Button>
+      </View>
+
+      {sheetOpen ? (
+        <View className={styles.mask} onClick={() => setSheetOpen(false)}>
+          <View className={styles.sheet} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.sheetTitle}>{t('ledger.pickCategory')}</Text>
+            <View className={styles.tabs}>
+              <Button
+                className={tab === 'expense' ? `${styles.tab} ${styles.tabActive}` : styles.tab}
+                onClick={() => switchTab('expense')}
+              >
+                {t('ledger.kindExpense')}
+              </Button>
+              <Button
+                className={tab === 'income' ? `${styles.tab} ${styles.tabActive}` : styles.tab}
+                onClick={() => switchTab('income')}
+              >
+                {t('ledger.kindIncome')}
+              </Button>
+            </View>
+
+            <ScrollView className={styles.catGrid} scrollY>
+              {tabCategories.map((c) => (
+                <Button
+                  key={c.id}
+                  className={pickedCategory === c.id ? `${styles.catChip} ${styles.catChipActive}` : styles.catChip}
+                  onClick={() => setPickedCategory(c.id)}
+                >
+                  {c.icon} {c.name}
+                </Button>
+              ))}
+            </ScrollView>
+
+            <View className={styles.catManage}>
+              <Text className={styles.budgetCap} onClick={() => setManageOpen(!manageOpen)}>
+                {t('ledger.manageCategories')}
+              </Text>
+              {manageOpen ? (
+                <View>
+                  {tabCategories.map((c) => (
+                    <View key={c.id} className={styles.manageRow}>
+                      <Text className={styles.manageName}>
+                        {c.icon} {c.name}
+                      </Text>
+                      <Text className={styles.delBtn} onClick={() => void delCat(c.id)}>
+                        {t('ledger.delete')}
+                      </Text>
+                    </View>
+                  ))}
+                  <View className={styles.addCatRow}>
+                    <Input
+                      className={styles.addCatInput}
+                      value={newCatName}
+                      placeholder={t('ledger.newCatPlaceholder')}
+                      onInput={(e) => setNewCatName(e.detail.value)}
+                    />
+                    <Button className={styles.smallBtn} onClick={() => void addCat()}>
+                      {t('ledger.addCat')}
+                    </Button>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export default LedgerPage;

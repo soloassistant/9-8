@@ -10,6 +10,7 @@ import {
   sendLoginCode,
   verifyLoginCode,
   requestPasswordReset,
+  signOut,
   isPhoneIdentifier,
   type AuthIdentifier
 } from '@/services/cloudAuth';
@@ -58,6 +59,36 @@ function sdkDownText(
 
 /** 隐私同意的本地留存键。**默认不勾选** —— 未经用户主动同意不得发起任何登录/取码动作。 */
 const PRIVACY_CONSENT_KEY = 'sxm-privacy-consent';
+
+/**
+ * 「下次自动登录」的本地留存键。
+ *
+ * ⚠️ 这里存的**不是令牌** —— 会话令牌由云 SDK 的 SessionStore 持有，
+ * 写在其内部的 localStorage（key 前缀 `workbuddy-cloud.session.`），本应用不碰。
+ * 本键只记「用户是否希望被记住」这一个偏好值。
+ *
+ * 为什么要做这个开关：会话**本来就会**被持久化（关掉页面再打开仍然是登录态）。
+ * 若 UI 上不给选择，等于替用户默认做了决定 —— 那既不合《个人信息保护法》的
+ * 「自主决定权」，也让「换人用这台电脑」变得不可控。
+ * 取消勾选 = 登出时**主动清掉 SDK 的会话**，下次必须重新走验证码。
+ */
+const REMEMBER_LOGIN_KEY = 'sxm-remember-login';
+
+/** 默认记住：与实际行为一致（SDK 侧本来就持久化），且登录态是本应用的门禁前提。 */
+function readRememberLogin(): boolean {
+  try {
+    const v = Taro.getStorageSync(REMEMBER_LOGIN_KEY);
+    // ⚠️ Taro 对**不存在的键返回空串 ''，不是 undefined**（证据：cloudSync.ts:156
+    // 「rawGet 为空串 '' 时也跳过」）。所以这里必须把 '' / null / undefined 都
+    // 当成「用户从没设置过」→ 默认 true。
+    // 踩过一次：最初写成 `v === undefined ? true : v === true`，
+    // 而空串走else 分支得false → 首访就是未勾选，与设计意图相反。
+    if (v === undefined || v === null || v === '') return true;
+    return v === true;
+  } catch {
+    return true;
+  }
+}
 
 /** 绑定手机号弹窗「稍后再说」的本地留存键。用户主动跳过则本次不再强弹（仅本地偏好，不阻塞登录）。 */
 const PHONE_BIND_DISMISSED_KEY = 'sxm-phone-bind-dismissed';
@@ -119,6 +150,9 @@ export default function LoginPage() {
   const [countdown, setCountdown] = useState(0);
   // 个保法要求的明示同意：默认 false，用户主动勾选后才允许提交
   const [privacyOk, setPrivacyOk] = useState(readPrivacyConsent);
+  // 「下次自动登录」：默认 true —— 与 SDK 侧的实际行为一致（会话本就持久化）。
+  // 用户取消勾选时，下次登录成功后会主动清掉 SDK 会话。
+  const [rememberLogin, setRememberLogin] = useState(readRememberLogin);
 
   // 邮箱登录后「绑定手机号」弹窗状态
   const [bindPhone, setBindPhone] = useState(false);
@@ -199,6 +233,38 @@ export default function LoginPage() {
       /* 存储不可用也不影响本次会话内的门禁 —— 状态在 React 里 */
     }
     if (next) setError('');
+  };
+
+  /**
+   * 切换「下次自动登录」。
+   *
+   * ⚠️ 取消勾选必须**真的清掉 SDK 的会话**，否则这个开关是假的：
+   *   会话由 SDK 的 SessionStore 存在 localStorage，本应用无法「只在内存里保留」。
+   *   所以「不记住」的唯一诚实实现就是**立即登出**。
+   *
+   * 因此语义是：用户取消勾选 = 「我不想被记住，请把我登出」。
+   * 此刻若本来就没登录（正常首访场景），什么都不做。
+   */
+  const toggleRememberLogin = () => {
+    const next = !rememberLogin;
+    setRememberLogin(next);
+    try {
+      Taro.setStorageSync(REMEMBER_LOGIN_KEY, next);
+    } catch {
+      /* 存储不可用：本次会话内仍以 React state 为准 */
+    }
+    if (next) return;
+    void (async () => {
+      try {
+        const s = await getSession();
+        // 没有会话 = 本来就没登录，取消勾选不需要任何副作用
+        if (!s) return;
+        await signOut();
+        setNotice(t('auth.rememberLoggedOut'));
+      } catch {
+        /* 登出失败不打扰用户：开关状态已记住，下次登录时按新偏好走 */
+      }
+    })();
   };
 
   /** 当前通道的登录标识。手机号**原样传入**（国际区号归一由 SDK 内部完成，前端不重复归一）。 */
@@ -634,6 +700,20 @@ export default function LoginPage() {
           <View className={styles.privacyBody}>
             <Text className={styles.privacyText}>{t('auth.privacyNotice')}</Text>
             <Text className={styles.privacyAgree}>{t('auth.privacyAgree')}</Text>
+          </View>
+        </View>
+
+        {/* 「下次自动登录」（2026-10-15）：独立于隐私同意，且**默认勾选**。
+            两者性质不同，不能共用一个开关：
+              · 隐私同意 = 处理个人信息的合法性前提，默认必须「未同意」；
+              · 记住登录 = 纯便利偏好，默认「已记住」（因为 SDK 侧本来就会持久化会话），
+                不给选择等于替用户默认做了决定。
+            取消勾选 → 下次登录成功后会主动清除 SDK 会话，必须重新验证码。 */}
+        <View className={styles.rememberRow} onClick={toggleRememberLogin}>
+          <Text className={styles.rememberBox}>{rememberLogin ? '☑' : '☐'}</Text>
+          <View className={styles.rememberBody}>
+            <Text className={styles.rememberText}>{t('auth.rememberLogin')}</Text>
+            <Text className={styles.rememberHint}>{t('auth.rememberLoginHint')}</Text>
           </View>
         </View>
 

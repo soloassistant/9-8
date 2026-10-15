@@ -1,4 +1,17 @@
 import Taro from '@tarojs/taro';
+import type { LedgerBudget, LedgerCategory, LedgerEntry } from '@/types';
+import {
+  addCategory as ledgerAddCategory,
+  addEntry as ledgerAddEntry,
+  ensureCategories as ledgerEnsureCategories,
+  loadBudget as ledgerLoadBudget,
+  loadCategories as ledgerLoadCategories,
+  loadEntries as ledgerLoadEntries,
+  removeCategory as ledgerRemoveCategory,
+  removeEntry as ledgerRemoveEntry,
+  saveBudget as ledgerSaveBudget,
+  updateEntry as ledgerUpdateEntry
+} from '@/data/ledger';
 /** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
 import type { PlanProposalRaw } from '@/utils/schedule';
 import { callFunction, chatCloudStream } from './cloud';
@@ -349,4 +362,60 @@ export function apiShoppingSetTargetPrice(
 /** 清除心理价位（P-01） */
 export function apiShoppingClearTargetPrice(id: string): Promise<{ id: string } | null> {
   return callFunction<{ id: string } | null>('shopping', { action: 'clearTargetPrice', id });
+}
+
+/* ---------------- 记账（v2.0 F23）----------------
+ * 形态与购物清单一致：H5 走 src/data/ledger.ts 的本地实现（callFunction 会先试
+ * invoke，而 ledger 不在 RPC 白名单，必然失败后落到本地）。
+ * 记账是**用户真实本地数据**，故已在 services/cloud.ts 的 REAL_LOCAL_ACTIONS
+ * 语义内处理 —— 不登记降级，UI 不会误标成「演示数据」。 */
+export type { LedgerBudget, LedgerCategory, LedgerEntry, LedgerKind, LedgerSummary } from '@/types';
+/* ⚠️ `export type { … } from` **不会**把类型引入本模块作用域，
+   下面的函数签名要用它们，必须另写一条import —— 否则 tsc 报
+   "Cannot find name 'LedgerEntry'"（2026-10-15 踩到）。 */
+
+export interface LedgerAddPayload {
+  amount: number;
+  kind: 'expense' | 'income';
+  categoryId: string;
+  note?: string;
+  date?: string;
+}
+
+export function apiLedgerInit(): void {
+  ledgerEnsureCategories();
+}
+export function apiLedgerEntries(): Promise<LedgerEntry[]> {
+  return Promise.resolve(ledgerLoadEntries());
+}
+export function apiLedgerCategories(): Promise<LedgerCategory[]> {
+  return Promise.resolve(ledgerLoadCategories());
+}
+export function apiLedgerBudget(): Promise<LedgerBudget> {
+  return Promise.resolve(ledgerLoadBudget());
+}
+export function apiLedgerAdd(payload: LedgerAddPayload): Promise<LedgerEntry | null> {
+  return Promise.resolve(ledgerAddEntry(payload));
+}
+export function apiLedgerUpdate(
+  id: string,
+  patch: Partial<Pick<LedgerEntry, 'amount' | 'categoryId' | 'note' | 'date'>>
+): Promise<LedgerEntry | null> {
+  return Promise.resolve(ledgerUpdateEntry(id, patch));
+}
+export function apiLedgerRemove(id: string): Promise<boolean> {
+  return Promise.resolve(ledgerRemoveEntry(id));
+}
+export function apiLedgerSaveBudget(budget: LedgerBudget): Promise<LedgerBudget> {
+  return Promise.resolve(ledgerSaveBudget(budget));
+}
+export function apiLedgerAddCategory(
+  name: string,
+  kind: 'expense' | 'income',
+  icon?: string
+): Promise<LedgerCategory | null> {
+  return Promise.resolve(ledgerAddCategory(name, kind, icon));
+}
+export function apiLedgerRemoveCategory(id: string): Promise<boolean> {
+  return Promise.resolve(ledgerRemoveCategory(id));
 }

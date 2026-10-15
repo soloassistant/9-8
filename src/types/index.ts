@@ -202,3 +202,59 @@ export interface PayOrder {
   price: number;
   status: 'created' | 'paid' | 'expired';
 }
+
+/* ---------------- 记账（v2.0 F23 记账 / 晨报呈报） ---------------- */
+
+/** 记账条目类型：支出或收入。
+ *  ⚠️ 不用 enum —— Taro H5 端枚举在跨端打包时容易出undefined，
+ *  且这里与 storage 里持久化的值必须严格一致，用字符串联合更安全。 */
+export type LedgerKind = 'expense' | 'income';
+
+/** 内置分类（用户可增删改，改动存在 ledger-categories 这个独立 key 里）。
+ *  icon 存 emoji 而非图片路径 —— 无需额外资源、无上传、跨端一致。 */
+export interface LedgerCategory {
+  id: string;
+  name: string;
+  icon: string;
+  kind: LedgerKind;
+}
+
+/** 一笔记账 */
+export interface LedgerEntry {
+  id: string;
+  /** 金额，单位元。**恒为正数**，方向由 kind 表达 —— 避免「负数支出」这类
+   *  在求和/展示/CSV 导出时反复出错的历史包袱。 */
+  amount: number;
+  kind: LedgerKind;
+  categoryId: string;
+  /** 备注，可空 */
+  note?: string;
+  /** 记账日期 'YYYY-MM-DD'（**按记账发生日**，不是写入日 ——
+   *  支持补记昨天，前端按这个字段做日/月聚合） */
+  date: string;
+  createdAt: string;
+}
+
+/** 预算（按自然月，可只设其一） */
+export interface LedgerBudget {
+  /** 月预算上限（元）。空/未设 = 不限制 */
+  monthly?: number;
+  /** 日预算上限（元）。空/未设 = 不限制 */
+  daily?: number;
+}
+
+/** 聚合结果（晨报卡片与记账页共用；纯函数产出，不持久化） */
+export interface LedgerSummary {
+  /** 区间内支出合计 */
+  expense: number;
+  /** 区间内收入合计 */
+  income: number;
+  /** 支出笔数 */
+  expenseCount: number;
+  /** 按分类汇总的支出，降序（仅含金额 > 0 的分类） */
+  byCategory: Array<{ categoryId: string; amount: number; count: number }>;
+  /** 是否已超日预算 */
+  overDaily: boolean;
+  /** 是否已超月预算 */
+  overMonthly: boolean;
+}

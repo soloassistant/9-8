@@ -11,7 +11,8 @@ import HabitGuardBar from '@/components/HabitGuardBar';
 import PlanProposalCard from '@/components/PlanProposalCard';
 import { BriefingSkeleton } from '@/components/Skeleton';
 import { resolveIntelGroups } from '@/utils/intelGroups';
-import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan } from '@/services/api';
+import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries } from '@/services/api';
+import { buildTodayBrief, resolveCategory, type TodayBrief } from '@/utils/ledgerAggregate';
 import { buildPlanProposal } from '@/utils/schedule';
 import type { PlanProposal, PlanApplyEvent } from '@/utils/schedule';
 import { guardHabitsOnOpen, commitHabitGuards, listRestorableRecords, undoHabitGuard, createHabit } from '@/utils/habit';
@@ -47,7 +48,7 @@ import {
 } from '@/utils/readStreak';
 import type { ReadSectionKind, ReadSession } from '@/utils/readStreak';
 import { canPromptSubscribe, promptSubscribe, isSubscriptionStale } from '@/utils/subscribe';
-import type { Briefing, ChatMessage, ScheduleEvent, TodoItem } from '@/types';
+import type { Briefing, ChatMessage, LedgerBudget, LedgerCategory, LedgerEntry, ScheduleEvent, TodoItem } from '@/types';
 import { useT, useLanguageStore } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { readPrefs } from '@/utils/prefs';
@@ -140,6 +141,16 @@ function BriefingPage() {
   const lang = useLanguageStore((s) => s.lang);
   const { theme } = useThemeStore();
   const [briefing, setBriefing] = useState<Briefing | null>(null);
+  /* 记账（v2.0 F23 · 晨报呈报）：**刻意不放进 Briefing 类型**。
+     记账数据是本地 storage 里的高频可写数据，若塞进 briefing 会连带触发
+     briefingDailyCache 的当日缓存 —— 而缓存会把当天首次取到的 briefing 冻住
+     （briefing/index.tsx:80-88），于是「下午记了一笔、晚上重开晨报仍看不到」，
+     且用户无从得知。独立 state + 每次 useDidShow 重读，语义才对。 */
+  const [ledgerBrief, setLedgerBrief] = useState<TodayBrief | null>(null);
+  /** 最近一次算出的账单摘要。仅供 useDidShow 里的日志读 —— React state 在闭包里是stale 的，
+   *  直接打ledgerBrief 永远打出 null，排查时会误判成「没算出来」。 */
+  const ledgerBriefRef = useRef<TodayBrief | null>(null);
+  const [ledgerCats, setLedgerCats] = useState<LedgerCategory[]>([]);
   // AI 对话本地持久化：重进恢复上下文（上限 60 条，超限截旧）
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const restored = loadChatLog<ChatMessage>(BRIEFING_CHAT_LOG_KEY);
@@ -389,6 +400,30 @@ function BriefingPage() {
    */
   useDidShow(() => {
     stopSpeak();
+    // 记账呈报：每次进入前台都重读（而不是只读一次）——
+    // 用户可能在别的页面（购物页/我的页）之外直接加了一笔，也可能跨了零点。
+    void (async () => {
+      try {
+        const [entries, cats, budget] = await Promise.all([
+          apiLedgerEntries(),
+          apiLedgerCategories(),
+          apiLedgerBudget()
+        ]);
+        setLedgerCats(cats);
+        const brief = buildTodayBrief(entries as LedgerEntry[], budget as LedgerBudget);
+        ledgerBriefRef.current = brief;
+        setLedgerBrief(brief);
+        // 用 console.error 而非 warn：生产构建会剔除 console.warn（app.tsx:174 有注释），
+        // 用 warn 的话线上排查时这条痕迹根本不存在。
+        console.error(
+          '[BriefingPage] ledger brief loaded:',
+          JSON.stringify({ entries: (entries as LedgerEntry[]).length, cats: cats.length, brief: ledgerBriefRef.current })
+        );
+      } catch (err) {
+        // 记账读失败**不阻塞晨报**：整张卡片不显示即可，绝不能因此白屏
+        console.warn('[BriefingPage] ledger brief load failed:', err);
+      }
+    })();
     // 首次进入标记旧 learn streak 已归档（幂等，仅标记不迁移天数）
     migrateFromLearnStreak();
     const settled = settleReadStreakOnOpen();
@@ -903,7 +938,83 @@ function BriefingPage() {
             </View>
           </View>
           <View className={styles.headerActions}>
-            {hasContent ? (
+            {/* 记账卡片：独立于 hasContent 门禁 —— 记账与日程无关，
+           用户「今天没安排日程但记了账」时也必须能看到账单。
+           早前把它放进 contentFade 内，结果被 hasContent（仅看日程/待办/收藏）挡住，
+           实测：数据算对了、state 更新了，卡片就是不渲染（2026-10-15）。 */}
+{/* 记账卡片（v2.0 F23 · 「每天早上呈报」的落点）：
+    位置在「今日日程」之后、「待办」之前 —— 与调研建议一致：记账属「当日概览」，
+    排在待办/收藏/情报这些参考类之前符合信息优先级。
+    ⚠️ 一律「有数据才渲染」：今天没记账时显示空态卡会占掉晨报首屏黄金位，
+    而记账又是新功能、多数用户初期没有数据 —— 那里应该留给日程。 */}
+      {ledgerBrief && ledgerBrief.count > 0 ? (
+        <View className={styles.section}>
+          <View className={styles.sectionHeader}>
+            <Text className={styles.sectionIcon}>🧾</Text>
+            <Text className={styles.sectionTitle}>{t('briefing.sectionLedger')}</Text>
+            <Text className={styles.sectionCount}>
+              {ledgerBrief.count} {t('briefing.ledgerCount')}
+            </Text>
+          </View>
+
+          <View style={{ display: 'flex', alignItems: 'baseline', gap: '16rpx', padding: '0 32rpx' }}>
+            <Text style={{ fontSize: '44rpx', fontWeight: '700', color: 'var(--brand, #e85d2a)' }}>
+              ¥{ledgerBrief.expense.toFixed(2)}
+            </Text>
+            <Text style={{ fontSize: '26rpx', color: '#86909c' }}>{t('briefing.ledgerToday')}</Text>
+          </View>
+
+          {/* 较昨日：昨日为 0 时 deltaFromYesterday 为 null，此时**整行不渲染** ——
+              显示成「+100%」会是误导性的百分比（分母为 0）。 */}
+          {ledgerBrief.deltaFromYesterday !== null ? (
+            <Text style={{ fontSize: '26rpx', color: '#86909c', padding: '8rpx 32rpx 0' }}>
+              {ledgerBrief.deltaFromYesterday > 0
+                ? `${t('briefing.ledgerMore')} ¥${Math.abs(ledgerBrief.deltaFromYesterday).toFixed(2)}`
+                : ledgerBrief.deltaFromYesterday < 0
+                  ? `${t('briefing.ledgerLess')} ¥${Math.abs(ledgerBrief.deltaFromYesterday).toFixed(2)}`
+                  : t('briefing.ledgerSame')}
+            </Text>
+          ) : null}
+
+          {ledgerBrief.income > 0 ? (
+            <Text style={{ fontSize: '26rpx', color: 'var(--brand-deep, #e85d2a)', padding: '8rpx 32rpx 0' }}>
+              {t('briefing.ledgerIncome')} ¥{ledgerBrief.income.toFixed(2)}
+            </Text>
+          ) : null}
+
+          {ledgerBrief.topCategories.length > 0 ? (
+            <View style={{ padding: '12rpx 32rpx 0' }}>
+              {ledgerBrief.topCategories.map((c) => {
+                const cat = resolveCategory(ledgerCats, c.categoryId);
+                return (
+                  <Text
+                    key={c.categoryId}
+                    style={{ fontSize: '26rpx', color: '#4e5969', display: 'block', padding: '2rpx 0' }}
+                  >
+                    {cat.icon} {cat.name} ¥{c.amount.toFixed(2)}
+                  </Text>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {ledgerBrief.overDaily ? (
+            <View style={{ padding: '12rpx 32rpx 0' }}>
+              <Text style={{ fontSize: '26rpx', color: '#f53f3f' }}>
+                ⚠️ {t('ledger.overDaily', { amount: `¥${(ledgerBrief.dailyBudget ?? 0).toFixed(2)}` })}
+              </Text>
+            </View>
+          ) : null}
+
+          <Text
+            style={{ fontSize: '26rpx', color: 'var(--brand, #e85d2a)', padding: '12rpx 32rpx 0' }}
+            onClick={() => Taro.navigateTo({ url: '/pages/ledger/index' })}
+          >
+            {t('briefing.ledgerViewAll')} ›
+          </Text>
+        </View>
+      ) : null}
+      {hasContent ? (
               <Button
                 className={classnames(styles.audioButton, isSpeaking && styles.audioButtonActive)}
                 onClick={handleAudioToggle}
@@ -1077,6 +1188,8 @@ function BriefingPage() {
               })}
             </View>
           ) : null}
+
+          
 
           {briefing && briefing.todos.length > 0 ? (
             <View className={styles.section}>

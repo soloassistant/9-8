@@ -726,6 +726,41 @@ function MinePage() {
    * C-04 注销：我的（Tab）→ 账号与合规区块 → 账号注销行 → 弹窗内输入「注销」并确认 = 3 步。
    * 输入校验与确认合并在同一个 editable showModal 内，不新增层级。
    */
+  /**
+   * 退出登录（2026-10-15）。
+   *
+   * 与「注销账号」的分工（本条存在的全部理由）：
+   *   · **登出** = 清掉云SDK 会话 + 本机的登录偏好，**保留全部业务数据**
+   *     （日程/记账/购物清单/学习进度都在，换号登录后还在）；
+   *   · **注销** = 不可逆，清本机 + 清云端 user_kv。
+   * 此前只有后者，用户想换个账号只能注销，代价与意图严重不匹配。
+   *
+   * ⚠️ 清本机时**只删登录态相关键，不碰数据键**：
+   *   一律用 removeStorageSync 精确删，而不是 Taro.clearStorageSync() ——
+   *   后者会把记账、日程这些同步键一起清掉，用户重登后数据全没了，
+   *   那就不是「退出登录」而是「注销账号」了。
+   */
+  const handleSignOut = () => {
+    void (async () => {
+      try {
+        await signOut();
+        // 清「下次自动登录」偏好：既然用户主动登出了，下次不该再被自动记住。
+        // 反过来不清会让下次打开又被自动登录 —— 与「我刚退出了」的意图相反。
+        try {
+          Taro.removeStorageSync('sxm-remember-login');
+        } catch {
+          /* 存储不可用不影响登出本身 */
+        }
+        // 回到登录页：必须走 reLaunch 而非 navigateBack ——
+        // 门禁在 App 层（app.tsx 的 useDidShow），留在栈里会显示一堆受保护页面。
+        Taro.reLaunch({ url: '/pages/login/index' });
+      } catch (err) {
+        console.error('[MinePage] signOut failed:', err);
+        Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
+      }
+    })();
+  };
+
   const handleDeleteAccount = () => {
     // Taro 类型滞后：editable 尚未进入 showModal.Option 类型定义，需断言（沿用既有写法）
     Taro.showModal({
@@ -1503,6 +1538,15 @@ function MinePage() {
         )}
       </View>
 
+      {/* 退出登录（2026-10-15）：与「注销账号」严格分开的两件事。
+          此前**只有注销、没有登出** —— 用户想只是退出登录（换账号、把设备给别人），
+          唯一的出口是「注销账号」，那会连带清空本机数据与云端同步键，代价过大。
+          独立成条后：登出 = 清会话、留数据；注销 = 清数据、不可逆。
+          放在「其他入口」之前、注销区块之后，保持「危险度递减」的阅读顺序。 */}
+      <View className={styles.settingCard}>
+        {renderRow(t('mine.signOut'), <Text>{t('mine.signOutHint')}</Text>, handleSignOut)}
+      </View>
+
       {/* 其他入口 */}
       <View className={styles.settingCard}>
         <View className={styles.settingRow} onClick={() => Taro.navigateTo({ url: '/pages/learn/index' })}>
@@ -1516,6 +1560,15 @@ function MinePage() {
           <Text className={styles.settingLabel}>{t('mine.shopping')}</Text>
           <View className={styles.settingValue}>
             <Text>{t('mine.shoppingDesc')}</Text>
+            <Text className={styles.entryArrow}>›</Text>
+          </View>
+        </View>
+        {/* 记账（v2.0 F23）：放在购物清单正下方 —— 两者的心智模型相邻（都是「花钱」相关），
+            且这是记账页唯一的常驻入口；晨报卡片另有「查看全部」直达。 */}
+        <View className={styles.settingRow} onClick={() => Taro.navigateTo({ url: '/pages/ledger/index' })}>
+          <Text className={styles.settingLabel}>{t('mine.ledger')}</Text>
+          <View className={styles.settingValue}>
+            <Text>{t('mine.ledgerDesc')}</Text>
             <Text className={styles.entryArrow}>›</Text>
           </View>
         </View>
