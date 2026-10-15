@@ -450,28 +450,33 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
     && /\{\s*phone:/.test(page)
     && /\^1\\d\{10\}\$/.test(page)
     && !/\+86/.test(stripBlockComments(page));
-  // SDK 引入形态（2026-10-13 收紧；此前这里写死 `/workbuddy-cloud-sdk@dev/`，判据本身是坏的）：
-  //  · 渠道必须是 **dev 线**：`latest`(0.1.3) 是旧构建，功能不全（见 src/index.html 的说明）。
-  //  · 2026-10-13 起渠道由 `@dev`（浮动）改为**固定到具体 dev 版本 + SRI + crossorigin**。
-  //    于是原来那个 `@dev` 字面量判据立刻报假红：把"渠道收紧"误报成"SDK 没了"（当天实测到）。
-  //    ⇒ 判据改成按**形状**判定，不认死渠道写法：
-  //       ① 有 SDK 的 <script> 标签；② 渠道是 dev 线（`@dev/` 或 `@x.y.z-dev.xxx/`）；
-  //       ③ 带 integrity 与 crossorigin —— 这条是新加的**漂移守卫**：把 SRI 随手删掉会被立刻抓住。
-  const sdkTag = ((html || '').match(/<script[^>]*workbuddy-cloud-sdk[^>]*>/) || [''])[0];
+  // SDK 引入形态（2026-10-14 改为**同源自托管**；2026-10-13 曾是 CDN 固定版本 + SRI）：
+  //  · 必须从同源 `./assets/wb-sdk.js` 加载，且标签里**不得出现任何外部 URL** ——
+  //    2026-10-14 线上故障「登录服务连不上」根因：jsdelivr 在中国大陆被墙 →
+  //    window.WorkBuddyCloud 永不定义。同源加载就是修复本身，谁把它改回 CDN
+  //    （哪怕重新加上 integrity）都会被这条立刻抓住。
+  //  · src/assets/wb-sdk.js 必须存在且真的定义全局（换成空壳/桩文件 = 登录照样挂）。
+  //  · copy-assets 必须负责把它拷进 dist —— 少这一行，线上就是 404，同样登录不可用。
+  //    （判据只认 jobs 里的功能行形状：`from: path.join(src, 'wb-sdk.js')`。
+  //      2026-10-15 变异对照抓到过一版宽松写法 —— 注释里也含 wb-sdk.js，
+  //      删掉功能行照样 PASS，那种判据等于没有。）
+  const sdkTag = ((html || '').match(/<script[^>]*wb-sdk\.js[^>]*>/) || [''])[0];
   const sdkLoaded = !!sdkTag;
-  const sdkDevChannel = /workbuddy-cloud-sdk@dev\/|workbuddy-cloud-sdk@\d[^"']*-dev\./.test(sdkTag);
-  const sdkPinnedWithSri = /integrity="sha(256|384|512)-/.test(sdkTag) && /crossorigin=/.test(sdkTag);
+  const sdkSameOrigin = /src="\.\/assets\/wb-sdk\.js"/.test(sdkTag) && !/https?:\/\//.test(sdkTag);
+  const sdkSrc = read('src/assets/wb-sdk.js');
+  const sdkVendored = !!sdkSrc && /WorkBuddyCloud/.test(sdkSrc);
+  const sdkCopied = /from:\s*path\.join\(src,\s*'wb-sdk\.js'\)/.test(read('.tools/copy-assets.js') || '');
   const ok = redirects && registered && flows && phoneLoginWired && submitNoResend && rendersChildren && noFake
-    && sdkLoaded && sdkDevChannel && sdkPinnedWithSri;
+    && sdkLoaded && sdkSameOrigin && sdkVendored && sdkCopied;
   return ok
-    ? { pass: true, detail: '未登录重定向到已注册的登录页；四条流程齐备；手机号登录已接上且不拼 +86；提交不重发；App 正常渲染 children；无假身份兜底；SDK 在 dev 线且已固定版本 + SRI + crossorigin' }
+    ? { pass: true, detail: '未登录重定向到已注册的登录页；四条流程齐备；手机号登录已接上且不拼 +86；提交不重发；App 正常渲染 children；无假身份兜底；SDK 同源自托管（无外部 CDN、落地文件在、copy-assets 已接线）' }
     : {
         pass: false,
         detail: 'redirect=' + redirects + ' registered=' + registered + ' flows=' + flows
           + ' phoneLoginWired=' + phoneLoginWired
           + ' submitNoResend=' + submitNoResend + ' rendersChildren=' + rendersChildren
-          + ' noFake=' + noFake + ' sdk=' + sdkLoaded + ' sdkDevChannel=' + sdkDevChannel
-          + ' sdkPinnedWithSri=' + sdkPinnedWithSri
+          + ' noFake=' + noFake + ' sdk=' + sdkLoaded + ' sdkSameOrigin=' + sdkSameOrigin
+          + ' sdkVendored=' + sdkVendored + ' sdkCopied=' + sdkCopied
       };
 });
 
