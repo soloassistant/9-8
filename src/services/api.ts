@@ -4,6 +4,7 @@ import {
   addCategory as ledgerAddCategory,
   addEntry as ledgerAddEntry,
   ensureCategories as ledgerEnsureCategories,
+  exportLedgerData as ledgerExportData,
   loadBudget as ledgerLoadBudget,
   loadCategories as ledgerLoadCategories,
   loadEntries as ledgerLoadEntries,
@@ -12,6 +13,9 @@ import {
   saveBudget as ledgerSaveBudget,
   updateEntry as ledgerUpdateEntry
 } from '@/data/ledger';
+/** 导出结果四态（H5 真下载 / weapp 剪贴板降级 / 空数据 / 失败），
+ *  双端能力差异的依据见 data/ledger.ts 的导出段注释 */
+import type { LedgerExportResult } from '@/data/ledger';
 /** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
 import type { PlanProposalRaw } from '@/utils/schedule';
 import { callFunction, chatCloudStream } from './cloud';
@@ -418,4 +422,8 @@ export function apiLedgerAddCategory(
 }
 export function apiLedgerRemoveCategory(id: string): Promise<boolean> {
   return Promise.resolve(ledgerRemoveCategory(id));
+}
+/** 导出记账数据（CSV/JSON）。四态语义与双端能力差异见 data/ledger.ts。 */
+export function apiLedgerExport(format: 'csv' | 'json'): Promise<LedgerExportResult> {
+  return ledgerExportData(format);
 }

@@ -20,6 +20,7 @@
  */
 import Taro from '@tarojs/taro';
 import type { LedgerCategory, LedgerEntry, LedgerKind, LedgerBudget } from '../types';
+import { buildLedgerCsv, buildLedgerExportJson, buildExportFilename } from '../utils/ledgerExport';
 
 export const LEDGER_KEYS = {
   entries: 'ledgerEntries',
@@ -246,4 +247,59 @@ export function removeCategory(id: string): boolean {
   if (used) return false;
   writeRaw(LEDGER_KEYS.categories, list.filter((c) => c.id !== id));
   return true;
+}
+
+/* ---------------- 导出（CSV / JSON） ----------------
+ * 双端能力差异（如实说明，别让后人以为漏做了）：
+ *   · H5：浏览器有完整的 Blob + a[download] 下载通道，任意文本都能落到
+ *     用户文件系统，是真导出。
+ *   · 微信小程序（移动端）：**没有任何公开 API 能把任意文本文件导出到
+ *     用户手机文件系统**：
+ *       - wx.openDocument 只收 doc/docx/xls/xlsx/ppt/pptx/pdf，不收 csv/txt/json；
+ *       - wx.saveFileToDisk 仅 PC 微信（基础库 3.4.1+），移动端调用即失败；
+ *       - wx.saveFile 只能写进小程序自己的 USER_DATA_PATH，用户在文件管理器里
+ *         根本找不到，等于没导出。
+ *     故 weapp 端**降级为复制到剪贴板**，并由 UI 如实告知用户
+ *     （ledger.exportCopied）——不假装成功。用户可粘贴到备忘录/文件传输助手
+ *     再自行保存，这是当前平台约束下的诚实最优解。
+ */
+export type LedgerExportResult = 'ok' | 'copied' | 'empty' | 'failed';
+
+/** 导出记账数据。四态：ok=已开始下载(H5) / copied=已复制到剪贴板(weapp 降级) /
+ *  empty=无数据（不产生任何文件/剪贴板）/ failed=失败（已留痕，绝不静默）。 */
+export async function exportLedgerData(format: 'csv' | 'json'): Promise<LedgerExportResult> {
+  try {
+    const entries = loadEntries();
+    // 空数据直接返回：导出一个只有表头的 CSV 只会让用户以为功能坏了
+    if (entries.length === 0) return 'empty';
+    const categories = loadCategories();
+    const budget = loadBudget();
+    const content =
+      format === 'csv'
+        ? buildLedgerCsv(entries, categories)
+        : buildLedgerExportJson(entries, categories, budget, new Date().toISOString());
+
+    if (process.env.TARO_ENV === 'h5') {
+      const mime = format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8';
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = buildExportFilename(format, new Date());
+      // 必须先挂到 DOM 再 click：个别浏览器对游离节点不触发下载
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return 'ok';
+    }
+
+    // 小程序端：复制全文到剪贴板（双端能力差异见上方注释）
+    await Taro.setClipboardData({ data: content });
+    return 'copied';
+  } catch (err) {
+    // 绝不静默：留痕 + 返回 failed，UI 侧明确提示用户重试
+    console.warn('[ledger] export failed:', err);
+    return 'failed';
+  }
 }

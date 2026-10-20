@@ -10,6 +10,7 @@ import {
   apiLedgerBudget,
   apiLedgerCategories,
   apiLedgerEntries,
+  apiLedgerExport,
   apiLedgerInit,
   apiLedgerRemove,
   apiLedgerRemoveCategory,
@@ -62,6 +63,7 @@ function LedgerPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  const [exportBusy, setExportBusy] = useState(false);
 
   const reload = useCallback(async () => {
     apiLedgerInit();
@@ -194,6 +196,43 @@ function LedgerPage() {
     [t]
   );
 
+  // 导出：ActionSheet 选 CSV / JSON → apiLedgerExport → 四态各自 toast。
+  // busy 守卫防连点（导出中再点会叠出第二个 ActionSheet/第二次下载）。
+  const exportData = useCallback(async () => {
+    if (exportBusy) return;
+    setExportBusy(true);
+    try {
+      let format: 'csv' | 'json';
+      try {
+        const res = await Taro.showActionSheet({ itemList: [t('ledger.exportCsv'), t('ledger.exportJson')] });
+        // index 0=CSV / 1=JSON；越界值按取消处理（不导出）
+        if (res.tapIndex !== 0 && res.tapIndex !== 1) return;
+        format = res.tapIndex === 0 ? 'csv' : 'json';
+      } catch (err) {
+        // 用户取消（errMsg 含 cancel）不做事；ActionSheet 打开失败本身留痕
+        const msg = (err as { errMsg?: string })?.errMsg || '';
+        if (!msg.includes('cancel')) console.warn('[LedgerPage] showActionSheet failed:', err);
+        return;
+      }
+      const result = await apiLedgerExport(format);
+      if (result === 'ok') {
+        Taro.showToast({
+          title: t(format === 'csv' ? 'ledger.exportCsvOk' : 'ledger.exportJsonOk'),
+          icon: 'success'
+        });
+      } else if (result === 'copied') {
+        // 小程序端降级剪贴板：如实告知用户，不假装下载成功
+        Taro.showToast({ title: t('ledger.exportCopied'), icon: 'none', duration: 3000 });
+      } else if (result === 'empty') {
+        Taro.showToast({ title: t('ledger.exportEmpty'), icon: 'none' });
+      } else {
+        Taro.showToast({ title: t('ledger.exportFailed'), icon: 'none' });
+      }
+    } finally {
+      setExportBusy(false);
+    }
+  }, [exportBusy, t]);
+
   // 明细按日分组展示；月内已有数据则不再显示全部（避免长列表淹没概览）
   const grouped = useMemo(() => {
     const map = new Map<string, LedgerEntry[]>();
@@ -277,7 +316,19 @@ function LedgerPage() {
 
       {monthSum.byCategory.length > 0 ? (
         <View className={styles.catBlock}>
-          <Text className={styles.catTitle}>{t('ledger.monthByCategory')}</Text>
+          <View className={styles.catTitleRow}>
+            <Text className={styles.catTitle}>{t('ledger.monthByCategory')}</Text>
+            {/* 导出入口：照 briefing habitAdd 的 Text 文字按钮范式 ——
+                flex 行里用 Button 会被 taro-button-core 默认 width:100% 挤爆布局
+                （见本文件 SCSS 的 .addBtn:233-244 注释），故用 Text + onClick */}
+            <Text
+              className={styles.catExport}
+              style={exportBusy ? { opacity: 0.5 } : undefined}
+              onClick={() => void exportData()}
+            >
+              {t('ledger.export')}
+            </Text>
+          </View>
           {monthSum.byCategory.slice(0, 5).map((c) => {
             const cat = resolveCategory(categories, c.categoryId);
             return (

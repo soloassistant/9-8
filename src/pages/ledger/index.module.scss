@@ -108,9 +108,25 @@
   background: $color-bg-card;
 }
 
+.catTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-xs;
+}
+
 .catTitle {
   @include text-tertiary-sm;
-  margin-bottom: $spacing-xs;
+}
+
+/* 导出入口（区块标题行右侧文字按钮）—— 范式同 briefing 的 habitAdd：
+   Text + onClick，不用 Button（flex 行里 Button 默认 width:100% 会挤爆布局，
+   见下方 .addBtn:233-244 的注释） */
+.catExport {
+  font-size: $font-size-xs;
+  color: var(--brand, #{$color-primary});
+  margin-left: $spacing-sm;
+  flex-shrink: 0;
 }
 
 .catItem {
