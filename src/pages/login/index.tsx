@@ -14,6 +14,7 @@ import {
   isPhoneIdentifier,
   type AuthIdentifier
 } from '@/services/cloudAuth';
+import { decidePostLogin } from '@/services/bindPhoneGate';
 import styles from './index.module.scss';
 
 /** 阶段：校验中 → 显示登录表单。已登录不在这里"放行渲染"，而是**跳转到应用首页**。 */
@@ -92,6 +93,25 @@ function readRememberLogin(): boolean {
 
 /** 绑定手机号弹窗「稍后再说」的本地留存键。用户主动跳过则本次不再强弹（仅本地偏好，不阻塞登录）。 */
 const PHONE_BIND_DISMISSED_KEY = 'sxm-phone-bind-dismissed';
+
+/** 本机「手机号已绑定」的本地留存键。成功绑定 / 成功手机号登录后置 true —— 此后进入不再强弹。
+ *
+ * 为什么需要它（2026-10-21 根因修复）：此前的代码只在「跳过」时写 PHONE_BIND_DISMISSED_KEY，
+ * **成功绑定后什么都不记**。而 H5 会话的 `user`（`wb-sdk.js` 的 `userFromSessionPayload`）恒为
+ * `{ id, name, avatarUrl, isAnonymous, raw }`，**不含 phone**（`src/services/localProfile.ts:108` 已坐实），
+ * 所以 `afterLogin` 的 `session.user.phone` 判据是死代码 —— 邮箱账号即便"绑过手机"也永远触发弹窗，
+ * 形成"每次邮箱登录都重绑一次"的循环。本键把"本机已绑定"这个事实落盘，破掉循环。
+ * 这是本机级标记（与 SKIP 同性质）；跨设备仍需各端各绑一次，属已知的产品约束。 */
+const PHONE_BIND_DONE_KEY = 'sxm-phone-bind-done';
+
+/** 记录本机"手机号已绑定"：成功绑定或成功以手机号登录后调用，后续进入不再强弹。 */
+function markPhoneBound(): void {
+  try {
+    Taro.setStorageSync(PHONE_BIND_DONE_KEY, true);
+  } catch {
+    /* 存储不可用也不阻塞：最坏只是下次多弹一次，不致命 */
+  }
+}
 
 function readPrivacyConsent(): boolean {
   try {
@@ -362,6 +382,8 @@ export default function LoginPage() {
       return;
     }
     setPending(null);
+    // 手机号通道登录成功 = 本机已持有手机号，落"已绑定"标记，避免之后邮箱登录再被强弹
+    if (channel === 'phone') markPhoneBound();
     void afterLogin();
   };
 
@@ -432,26 +454,38 @@ export default function LoginPage() {
   }
 
   /** 登录成功后：所有用户都必须用手机号登录（产品硬约束）。
-   *  · 手机号通道：会话 user.phone 已存在 → 直接进应用。
-   *  · 邮箱通道：会话没有 phone → 跳出「绑定手机号」弹窗，验证通过才算完成登录。
-   *  用户曾因短信不可用而跳过 → 不再强弹（本地留存 PHONE_BIND_DISMISSED_KEY）。 */
+   *  放行判据按可信度从高到低（2026-10-21 修复，详见 PHONE_BIND_DONE_KEY 注释）：
+   *   1) session.user.phone —— 当前 SDK 的 H5 会话 user 不含 phone，恒 undefined（前向兼容，未来 SDK 下发才生效）；
+   *   2) user.raw 里的 phone 声明（phone 通道登录时服务端令牌载荷可能带 phone_number / phone）；
+   *   3) 本机曾成功绑定 / 跳过 → PHONE_BIND_DONE_KEY / PHONE_BIND_DISMISSED_KEY。
+   *  以上都不满足（邮箱账号且本机从未绑过）→ 跳出「绑定手机号」弹窗，验证通过才算完成登录。 */
   async function afterLogin() {
+    let phone: string | null = null;
     try {
       const s = await getSession();
-      if (s?.user?.phone) {
-        goToApp();
-        return;
-      }
+      const raw = (s?.user as unknown as
+        | { raw?: { phone_number?: string; phone?: string; user?: { phone?: string } } }
+        | undefined)?.raw;
+      phone =
+        s?.user?.phone ||
+        raw?.phone_number ||
+        raw?.phone ||
+        raw?.user?.phone ||
+        null;
     } catch {
       /* 取不到会话也走绑定弹窗 */
     }
+    let boundDone = false;
+    let dismissed = false;
     try {
-      if (Taro.getStorageSync(PHONE_BIND_DISMISSED_KEY) === true) {
-        goToApp();
-        return;
-      }
+      boundDone = Taro.getStorageSync(PHONE_BIND_DONE_KEY) === true;
+      dismissed = Taro.getStorageSync(PHONE_BIND_DISMISSED_KEY) === true;
     } catch {
       /* 存储不可用 → 仍弹窗 */
+    }
+    if (decidePostLogin({ phone, boundDone, dismissed }) === 'enter-app') {
+      goToApp();
+      return;
     }
     setBindPhone(true);
   }
@@ -516,6 +550,7 @@ export default function LoginPage() {
     }
     setBindPhone(false);
     setBindPending(null);
+    markPhoneBound(); // 成功绑定后置标记，本机后续进入不再强弹
     goToApp();
   };
 
