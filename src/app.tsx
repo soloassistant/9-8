@@ -169,7 +169,12 @@ function App(props: PropsWithChildren) {
     if (needsAuthGate && route && !route.includes('login')) {
       getSession().then((s) => {
         if (!s) {
-          Taro.redirectTo({ url: '/pages/login/index' }).catch((err) => {
+          // ⚠️ 用 reLaunch 而非 redirectTo：前者只 unload 当前页但不清理 tabBar 缓存，
+          // 导致 briefing 页一直留在 DOM 里且带 .taro_page_show.taro_page_stationed，
+          // CSS 规则 `:not(.taro_tabbar_page)` 又不会隐藏 tabBar 页 → 真实访客跳登录后
+          // 视觉上仍看着晨报页、完全登不了录（2026-10-20 CDP 实测）。reLaunch 会同步
+          // 卸载 tabBar 缓存的页面实例，清掉双 stationed 导致的层层叠。
+          Taro.reLaunch({ url: '/pages/login/index' }).catch((err) => {
             // 门禁重定向失败 = 未登录用户仍停留在受保护页，属真故障，必须留痕
             // （用 console.error：console.warn 会被生产构建剔除）
             console.error('[App] 门禁重定向登录页失败:', err);
