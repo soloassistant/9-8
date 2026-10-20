@@ -168,6 +168,27 @@ export async function pickModel(): Promise<string | null> {
 
 /* ---------------- 流式对话 ---------------- */
 
+/** 单次流式调用的整体超时。
+ *
+ *  2026-10-20 实测（晨报会话接真 cloud.llm）：hy4-preview 是推理模型，
+ *  正常 20~25s 出完（reasoning_content 先跑、content 最后到）。但偶发
+ *  **流不终止**：SSE 无 [DONE]、无 error、SDK 迭代器 pending ——
+ *  `await it.next()` 永远挂着，调用方（askAssistant）无限等待，
+ *  用户零反馈、零兜底、零错误日志（静默挂死，实测 75s+ 无任何反应）。
+ *
+ *  60s = 观测到的正常最慢（25s）× 2.4 余量。超时后由调用方既有兜底链处理
+ *  （callChatOrExtract → 本地代理 → mock + markDegraded），**不在这里静默**。 */
+const CLOUD_LLM_TIMEOUT_MS = 60_000;
+
+/** 熔断时长：一次超时/断流后，这段时间内直接返 null、不再打云端。
+ *
+ *  为什么需要：askAssistant 的降级路径是 apiChatStream(null) → apiChat →
+ *  callChatOrExtract → chatViaCloudLlm，会**二次调用**本函数。若服务端正在
+ *  卡死，二次调用同样超时 → 用户要等 2×60s。熔断让第二次立即失败，
+ *  把总等待压回一次超时。 */
+const CLOUD_LLM_COOLDOWN_MS = 30_000;
+let cloudLlmCooldownUntil = 0;
+
 export interface CloudLlmChatOpts {
   /** 系统提示（调用方用 pickSystemPrompt 选；空值直接拒绝 —— system 必须在 messages[0]） */
   system: string;
@@ -195,6 +216,11 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
     console.error('[cloudLlm] refused: empty system prompt');
     return null;
   }
+  if (Date.now() < cloudLlmCooldownUntil) {
+    // 熔断期内：不重复打一个刚卡死过的服务端。兜底链照常走，用户侧有降级提示。
+    console.warn('[cloudLlm] cooldown after recent failure, skip cloud call');
+    return null;
+  }
   const llm = await getCloudLlm();
   if (!llm) return null;
   const model = await pickModel();
@@ -207,14 +233,18 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
     ...(opts.history || []),
     { role: 'user', content: opts.userContent }
   ];
-  let text = '';
-  try {
+  // 超时用「race + signal」双保险：race 是客户端硬保证（SDK 可能根本不响应 signal）；
+  // signal 尽量让底层连接也被中断，避免超时后 SDK 仍在后台收流。
+  const timeoutSignal = AbortSignal.timeout(CLOUD_LLM_TIMEOUT_MS);
+  const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutSignal]) : timeoutSignal;
+  const collect = async (): Promise<string> => {
+    let text = '';
     const stream = await llm.chat.completions.create({
       model,
       messages,
       stream: true,
       conversationId: getConversationId(),
-      ...(opts.signal ? { signal: opts.signal } : {})
+      signal
     });
     // 手动驱动异步迭代器而不用 for await：不依赖 regenerator/构建目标对 ES2018 的支持，
     // 且能对「流已开始但中途断」保留已收到内容（SDK 抛 gateway_stream_interrupted）。
@@ -228,14 +258,28 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
       // content 正常累积；reasoning_content 是思考过程，与可见回复分开，不混入 text
       if (delta && typeof delta.content === 'string' && delta.content) text += delta.content;
     }
+    return text;
+  };
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    const text = await Promise.race([
+      collect(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`cloud.llm stream timeout after ${CLOUD_LLM_TIMEOUT_MS}ms`)), CLOUD_LLM_TIMEOUT_MS);
+      })
+    ]);
+    if (!text) return null;
+    // 记账只计**成功完成**的调用：失败attempt不耗用户免费额度（网络抖动不该扣配额）
+    void llmEventInsert('chat').catch(() => {});
+    return text;
   } catch (err) {
     console.warn('[cloudLlm] stream failed:', err);
+    // 超时与断流都进熔断：二者都意味着「这次云端调用不可靠」，短期内重试大概率同样失败
+    cloudLlmCooldownUntil = Date.now() + CLOUD_LLM_COOLDOWN_MS;
     return null;
+  } finally {
+    clearTimeout(timer!);
   }
-  if (!text) return null;
-  // 记账只计**成功完成**的调用：失败attempt不耗用户免费额度（网络抖动不该扣配额）
-  void llmEventInsert('chat').catch(() => {});
-  return text;
 }
 
 /** 解析 LLM 的 JSON 回复契约（与 chat 云函数 safeParse 同口径：失败返回 null） */
