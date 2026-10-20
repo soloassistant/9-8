@@ -1,7 +1,7 @@
 # AGENTS.md — 私人晨报助理（Personal Morning Brief Assistant）
 
 > 本文件给在本仓库工作的 AI 代理/开发者。只写**可验证的事实与硬约束**，不写愿景。
-> 最后更新：2026-10-09
+> 最后更新：2026-10-20
 
 ## 1. 这是什么
 
@@ -191,11 +191,40 @@ node .tools/test-chat-seccheck.js         # chat 的 msgSecCheck（输入/输出
 node .tools/test-trust-filter-corpus.js <语料.json>   # 对真实语料跑，防过度修复
 node .tools/verify-intel-degraded-semantics.cjs
 node .tools/cdp-probe.mjs <url> <w> <h> [--init-script …] [--block-url …] [--dismiss-splash] [--expr …] [--png …]
+node .tools/mutation-verify.mjs .tools/mutations-share.mjs   # 变异验证（见 6.1）
 ```
 
 **给过滤器/守卫类代码加验收清单时，必须同时给「必拦」和「必放」两份** ——
 只测「攻击能否拦住」(recall) 而从不测「正常内容会不会被误杀」(precision)，
 会让每轮修复都在悄悄引入误杀且无人发现（本项目此模块曾因此返工 3 轮）。
+
+### 6.1 变异验证与提交流水线铁律（2026-10-20，用 `.tools/mutation-verify.mjs` 落地）
+
+背景：2026-10-20 一天内连出三次同类事故——sed 做变异时替换串没匹配上（尾逗号差异）
+导致"恢复"静默失败、仓库被留在变异态；变异检查点写得太弱，变异没被抓到也显示通过；
+断言阈值是拍脑袋拍的，返工一轮。**靠"下次小心"防不住，改为机制兜底。**
+
+1. **变异只用工具，不许手 sed**。一律 `node .tools/mutation-verify.mjs <case文件>`：
+   锚点必须正好出现 1 次（工具断言）→ 目标文件必须无未提交改动（拒绝变异别人在飞的
+   工作）→ 变异 → 跑验证 → **恢复并 sha256 逐字节校验**（失配即退出码 3 并明示仓库
+   被留在变异态）→ 恢复态复跑必须绿。非要手改源码做变异，必须能出示「恢复后 sha256
+   与变异前一致」的证据，否则视为没恢复。
+2. **断言规约**：`ok === true` 才算过，失败分支返回原因字符串（禁止 `!!ok` —— 非空
+   字符串 truthy 会把失败判成 PASS，本项目因此永久假绿过一次）；每个数字阈值必须在
+   注释里写依据，没有依据的阈值是拍脑袋；harness 首跑先拿基线再下结论。
+3. **harness 编写环境坑**：vm 沙箱要补 `process` / `window` 等全局（Taro runtime 会
+   摸它们）；浏览器 bundle 里不许出现 `node:fs` 等 builtins（esbuild 平台默认
+   browser）；同目录验证产物注意时间戳，新旧混杂会造假差异。
+4. **提交纪律**：只 `git add` 精确路径，严禁 `-A` / `.`；提交前 `git status
+   --porcelain` 核对、提交后复查。遇到**外来未提交改动或外来新提交**（同仓其他工作流
+   在飞）→ 原样保留、只报告、不动它，并确认与自己的提交无文件重叠。
+5. **本机命令坑**：复合 bash 命令可能被沙箱中心拒（报 sandbox-center 相关错误）→
+   拆成多条或改用 PowerShell；长命令（构建 / 多 harness 串联）必须
+   `run_in_background` + 日志；node 一律用绝对路径
+   `/c/Users/geral/.workbuddy/binaries/node/versions/22.22.2-6/node.exe`（`.bin` 无 shim）。
+6. **变异用例即回归资产**：`.tools/mutations-*.mjs` 是三个既有 harness 的变异集
+   （share 3 例 / sync 4 例 / ledger 3 例），改对应模块后重跑一遍，10/10 CAUGHT
+   才算断言仍有判别力。新 harness 落地时应同步补一份 mutations 文件。
 
 ## 7. 合规硬约束（微信小程序发布前必读）
 
