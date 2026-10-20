@@ -19,6 +19,7 @@ import type { LedgerExportResult } from '@/data/ledger';
 /** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
 import type { PlanProposalRaw } from '@/utils/schedule';
 import { callFunction, chatCloudStream } from './cloud';
+import type { ChatStreamHooks } from './cloud';
 import { invoke, isWeapp } from './dataSource';
 import { getSession } from './cloudAuth';
 import { buildProfileFromSession, writeProfileSettings } from './localProfile';
@@ -111,9 +112,10 @@ export function apiChatStream(
   message: string,
   deep: boolean,
   onDelta: (chunk: string) => void,
-  memories?: string[]
+  memories?: string[],
+  hooks?: ChatStreamHooks
 ): Promise<{ reply: string; action: string } | null> {
-  return chatCloudStream(message, deep, onDelta, memories);
+  return chatCloudStream(message, deep, onDelta, memories, hooks);
 }
 
 /** 收藏列表 */

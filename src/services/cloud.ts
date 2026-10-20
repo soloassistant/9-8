@@ -147,15 +147,29 @@ export interface ChatStreamResult {
  * 返回 null = 云端 LLM 不可用（未登录/无可用模型/流失败），调用方降级 apiChat 整段。
  * weapp 端受云函数非流式限制维持整段返回。
  */
+/** 流式对话的过程钩子（可选，调用方不传则无过程反馈）。 */
+export interface ChatStreamHooks {
+  /** 云端流开始前调用（此时气泡已挂出）——用于把空气泡置为「正在思考…」占位 */
+  onThinking?: () => void;
+  /** 云端流成功返回、打字机开始前调用——清掉思考态占位文本 */
+  onClear?: () => void;
+}
+
 export async function chatCloudStream(
   message: string,
   deep: boolean,
   onDelta: (chunk: string) => void,
-  memories?: string[]
+  memories?: string[],
+  hooks?: ChatStreamHooks
 ): Promise<ChatStreamResult | null> {
   if (isWeapp) return null
+  // hy4-preview 是推理模型：reasoning 阶段实测可达 ~20s（2026-10-20），期间
+  // content 为空、气泡毫无变化 —— 用户视角像卡死。先用占位文本明确告知
+  // 「在思考」，流回来再清空走打字机（动效不脏）。
+  if (hooks && hooks.onThinking) hooks.onThinking()
   const res = await chatViaCloudLlm({ message, deep, memories })
   if (!res) return null
+  if (hooks && hooks.onClear) hooks.onClear()
   await typewriter(res.reply, onDelta)
   return { reply: res.reply, action: res.action }
 }
