@@ -798,7 +798,40 @@ const zh = {
   'consent.declinedBody': '你未同意上述协议，暂时无法使用本服务。\n如改变主意，可点击下方「同意并继续」。',
   'consent.hint': '继续使用前，请阅读并同意以上协议',
   'consent.decline': '不同意',
-  'consent.agree': '同意并继续'
+  'consent.agree': '同意并继续',
+
+  /* ---- 同步冲突（cloudSync「新者赢」不再静默覆盖，2026-10-19）---- */
+  'syncConflict.title': '数据同步冲突',
+  'syncConflict.desc': '另一台设备也修改过以下数据，本机有尚未上传的修改。请逐条选择保留哪一份；未选择前两端数据都不会被覆盖，该条目的同步会暂停。',
+  'syncConflict.keepLocal': '保留本机',
+  'syncConflict.takeRemote': '采用云端',
+  'syncConflict.toastLocal': '已保留本机版本，正在上传',
+  'syncConflict.toastRemote': '已采用云端版本',
+  'syncConflict.failed': '操作失败，请稍后再试',
+  // 21 个 SYNC_KEYS 的可读名（冲突提示逐条列出）；新增同步键时必须同步补这里，
+  // 否则列表里会露出 storageKey 原文。
+  'sync.key.shoppingList': '购物清单',
+  'sync.key.dailyPlanStore': '日程与待办',
+  'sync.key.browseHistory': '浏览历史',
+  'sync.key.newsFeedback': '资讯反馈',
+  'sync.key.news-interests': '兴趣标签',
+  'sync.key.news-interests-custom': '自定义关键词',
+  'sync.key.activity-log': '活动记录',
+  'sync.key.learnStore': '学习进度',
+  'sync.key.ai-memory': 'AI 记忆',
+  'sync.key.user-settings': '偏好设置',
+  'sync.key.user-city': '所在城市',
+  'sync.key.collectionStore': '收藏库',
+  'sync.key.usage-voice': '语音用量',
+  'sync.key.briefingChatLog': '晨报对话',
+  'sync.key.aiAssistantLog': '助手对话',
+  'sync.key.brand-theme': '主题',
+  'sync.key.app-lang': '语言',
+  'sync.key.ui-scale': '字号',
+
+  'sync.key.ledgerEntries': '记账条目',
+  'sync.key.ledger-categories': '记账分类',
+  'sync.key.ledgerBudget': '记账预算'
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -1563,7 +1596,39 @@ const en: Record<keyof typeof zh, string> = {
   'consent.declinedBody': 'You have not agreed to the terms above, so the service is unavailable for now.\nChanged your mind? Tap "Agree and continue" below.',
   'consent.hint': 'Please read and agree to the terms above before continuing',
   'consent.decline': 'Decline',
-  'consent.agree': 'Agree and continue'
+  'consent.agree': 'Agree and continue',
+
+  /* ---- Sync conflicts (cloudSync "newest wins" no longer overwrites silently, 2026-10-19) ---- */
+  'syncConflict.title': 'Data sync conflict',
+  'syncConflict.desc': 'Another device also modified the data below, and this device has changes not yet uploaded. Choose which copy to keep for each item; until you choose, neither copy is overwritten and that item pauses syncing.',
+  'syncConflict.keepLocal': 'Keep this device',
+  'syncConflict.takeRemote': 'Use cloud copy',
+  'syncConflict.toastLocal': 'Kept local copy — uploading now',
+  'syncConflict.toastRemote': 'Cloud copy applied',
+  'syncConflict.failed': 'Action failed, please try again later',
+  // Readable names for the 21 SYNC_KEYS (listed per item in the conflict notice). When adding
+  // a new sync key, add its label here too — otherwise the raw storageKey leaks into the UI.
+  'sync.key.shoppingList': 'Shopping list',
+  'sync.key.dailyPlanStore': 'Schedule & to-dos',
+  'sync.key.browseHistory': 'Browse history',
+  'sync.key.newsFeedback': 'News feedback',
+  'sync.key.news-interests': 'Interest tags',
+  'sync.key.news-interests-custom': 'Custom keywords',
+  'sync.key.activity-log': 'Activity log',
+  'sync.key.learnStore': 'Learning progress',
+  'sync.key.ai-memory': 'AI memory',
+  'sync.key.user-settings': 'Preferences',
+  'sync.key.user-city': 'City',
+  'sync.key.collectionStore': 'Collections',
+  'sync.key.usage-voice': 'Voice usage',
+  'sync.key.briefingChatLog': 'Briefing chat',
+  'sync.key.aiAssistantLog': 'Assistant chat',
+  'sync.key.brand-theme': 'Theme',
+  'sync.key.app-lang': 'Language',
+  'sync.key.ui-scale': 'Text size',
+  'sync.key.ledgerEntries': 'Ledger entries',
+  'sync.key.ledger-categories': 'Ledger categories',
+  'sync.key.ledgerBudget': 'Ledger budget'
 };
 
 export type LangKey = keyof typeof zh;

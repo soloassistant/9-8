@@ -1,0 +1,65 @@
+@use '@/styles/variables.scss' as *;
+
+// 同步冲突提示卡：与 DemoDataHint 同族的克制警示样式（浅底 + 警示色描边），
+// 但内容更重（要逐条裁决），故用卡片而非提示条。
+.hint {
+  margin-bottom: $spacing-md;
+  padding: $spacing-md;
+  background: $color-event-bg;
+  border: 2rpx solid $color-warning;
+  border-radius: $radius-md;
+}
+
+.title {
+  display: block;
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.desc {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: $spacing-sm;
+  padding-top: $spacing-sm;
+  border-top: 1rpx solid $color-divider;
+}
+
+.itemLabel {
+  flex: 1;
+  min-width: 0; // flex 行里防文字把操作区挤出屏幕
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+}
+
+.itemActions {
+  display: flex;
+  flex-shrink: 0;
+  margin-left: $spacing-sm;
+}
+
+.action,
+.actionRemote {
+  font-size: $font-size-sm;
+  line-height: $line-height-normal;
+}
+
+.action {
+  margin-right: $spacing-md;
+  color: var(--brand-deep, $color-secondary);
+  font-weight: $font-weight-medium;
+}
+
+.actionRemote {
+  color: $color-warning;
+  font-weight: $font-weight-medium;
+}

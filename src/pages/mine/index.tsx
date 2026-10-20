@@ -4,6 +4,7 @@ import type { CommonEvent, PickerSelectorProps, PickerTimeProps } from '@tarojs/
 import Taro, { useDidShow } from '@tarojs/taro';
 import classnames from 'classnames';
 import DemoDataHint from '@/components/DemoDataHint';
+import SyncConflictHint from '@/components/SyncConflictHint';
 import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore, THEME_PRESETS } from '@/store/theme';
 import { useUiScaleStore, UI_SCALE_PRESETS } from '@/store/uiScale';
@@ -872,6 +873,8 @@ function MinePage() {
     <View className={styles.page} style={brandVars(theme)}>
       {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
       <DemoDataHint />
+      {/* 跨设备同步冲突（本机未上传的修改 vs 云端较新版本）：未裁决前挂着，不静默丢数据 */}
+      <SyncConflictHint />
       <View className={styles.userCard}>
         <Button className={styles.avatarBtn} onClick={handleAvatarTap}>
           <View className={styles.avatar}>

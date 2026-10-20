@@ -24,8 +24,11 @@ import Taro from '@tarojs/taro';
 import { getSession, onAuthStateChange } from './cloudAuth';
 import { kvGetAll, kvSetMany } from './cloudDb';
 import type { KvRow } from './cloudDb';
+import { classifyPull, mergeConflicts, withoutConflicts, valueHash, type SyncConflict } from '../utils/syncConflict';
 
 const META_KEY = 'cloud-sync-meta'; // { [storageKey]: ts } 本地各 key 最后一次确认同步的时间
+const CONFIRM_KEY = 'cloud-sync-confirm'; // { [storageKey]: hash } 各 key 上次成功推送的值哈希（冲突检测用）
+const CONFLICT_KEY = 'cloud-sync-conflict'; // SyncConflict[] 待用户裁决的同步冲突（持久化，刷新不丢提示）
 const SYNC_INTERVAL = 30_000; // 兜底轮询：每 30 秒推一次变更
 const DEBOUNCE = 1500; // 写入后防抖 1.5 秒再推，合并连续写入
 const PULL_TIMEOUT_MS = 8000; // 启动拉取超时（SDK 请求自行 abort，避免悬挂）
@@ -153,11 +156,68 @@ function writeMeta(meta: Record<string, number>) {
   rawSet(META_KEY, JSON.stringify(meta));
 }
 
+/** 读「上次成功推送的值哈希」表（2026-10-19 新增，旧版本没有此键 → 空表） */
+function readConfirm(): Record<string, string> {
+  return rawGetJSON<Record<string, string>>(CONFIRM_KEY, {});
+}
+function writeConfirm(confirm: Record<string, string>) {
+  rawSet(CONFIRM_KEY, JSON.stringify(confirm));
+}
+
+/**
+ * 待裁决的同步冲突（内存缓存 + 持久化）。
+ * 持久化的理由：冲突常在「登录后拉取」时发现，用户可能先离开页面再处理；
+ * 只存内存的话刷新一次提示就没了，而未裁决意味着该键同步一直停着。
+ */
+let conflictCache: SyncConflict[] = readConflictsFromStorage();
+const conflictListeners = new Set<(list: SyncConflict[]) => void>();
+
+function readConflictsFromStorage(): SyncConflict[] {
+  const raw = rawGetJSON<unknown>(CONFLICT_KEY, []);
+  if (!Array.isArray(raw)) return [];
+  // 形状校验：只认带 string key 的条目，脏数据整条丢弃（冲突提示丢了可以再检测，不可信数据不能留）
+  return raw.filter(
+    (c): c is SyncConflict =>
+      !!c && typeof c === 'object' && typeof (c as { key?: unknown }).key === 'string'
+  );
+}
+function writeConflicts(list: SyncConflict[]) {
+  rawSet(CONFLICT_KEY, JSON.stringify(list));
+}
+function emitConflicts() {
+  const snapshot = conflictCache.slice();
+  conflictListeners.forEach((cb) => {
+    try {
+      cb(snapshot);
+    } catch (err) {
+      console.warn('[cloudSync] conflict listener failed:', err);
+    }
+  });
+}
+
+/** 当前待裁决的同步冲突快照（供 UI 订阅前读取） */
+export function getSyncConflicts(): SyncConflict[] {
+  return conflictCache.slice();
+}
+
+/** 订阅同步冲突变化：订阅时立即回调一次当前快照，返回取消订阅函数 */
+export function subscribeSyncConflicts(cb: (list: SyncConflict[]) => void): () => void {
+  conflictListeners.add(cb);
+  cb(conflictCache.slice());
+  return () => {
+    conflictListeners.delete(cb);
+  };
+}
+
 /** 收集本地需推送的 key → [{ key, value, ts }]；ts 取本地记录时间（无记录用 1 兜底，输给远端真实版本） */
 function collectLocal(): Array<{ key: string; value: unknown; ts: number }> {
   const meta = readMeta();
   const items: Array<{ key: string; value: unknown; ts: number }> = [];
+  // 未裁决的冲突键**不推**：它的 ts 必然旧于远端（否则不会被判成冲突），推上去也是 0 行，
+  // 白耗一次 RPC；且用户明确选「保留本机」时会抬 ts 再推，选「采用云端」则本机就该被覆盖。
+  const conflicted = new Set(conflictCache.map((c) => c.key));
   for (const k of SYNC_KEYS) {
+    if (conflicted.has(k)) continue;
     const s = rawGet(k);
     if (!s) continue;
     const v = taroUnwrap(s);
@@ -208,10 +268,16 @@ async function pushNow(): Promise<void> {
     hardFailures = 0;
     // 确认时间落本地 meta：后续只推比这个时间更新的写入。
     // 注意「写入 0 行」也要落 —— 那意味着云端已有更新版本，拉取会对齐，不会把旧值推回去。
+    // 同时落确认哈希：这条 key 现在相对「已推送状态」是干净的，下次拉取若远端更新可直接覆盖。
     const now = Date.now();
     const meta = readMeta();
-    for (const it of items) meta[it.key] = now;
+    const confirm = readConfirm();
+    for (const it of items) {
+      meta[it.key] = now;
+      confirm[it.key] = valueHash(it.value);
+    }
     writeMeta(meta);
+    writeConfirm(confirm);
   } catch (err) {
     // 网络失败等瞬时错误：下一轮轮询再试，不计入硬失败
     console.warn('[cloudSync] push failed (transient):', err);
@@ -222,27 +288,110 @@ async function pushNow(): Promise<void> {
  * 纯函数：把远端数据合并进本地（只认 SYNC_KEYS，且只覆盖 clientTs 比本地已确认值更新的 key）。
  * 按 Taro 信封格式写入本地，页面 getStorageSync 才能读到。返回本次恢复的 key 数。
  *
+ * 冲突检测（2026-10-19）：远端较新、但**本机该键有尚未推送的修改**时，不再静默覆盖 ——
+ * 记入待裁决冲突（两端数据都保留），由 UI 提示用户选择。判定矩阵见 utils/syncConflict.ts。
+ *
  * 抽成纯函数是为了可单测：传输层从 /api 换成云数据库后，**合并口径保持不变**。
  */
 function applyRemoteData(remote: KvRow[]): number {
   const meta = readMeta();
+  const confirm = readConfirm();
+  const newConflicts: SyncConflict[] = [];
   let restored = 0;
   for (const row of remote) {
     if (!(SYNC_KEYS as readonly string[]).includes(row.key)) continue;
     if (!row || !('value' in row)) continue;
-    if ((Number(row.clientTs) || 0) > (Number(meta[row.key]) || 0)) {
-      // 远端比本机已确认的新 → 覆盖本地（按 Taro 信封格式写入，页面 getStorageSync 才能读到）
-      try {
-        rawSet(row.key, JSON.stringify({ data: row.value }));
-        meta[row.key] = Number(row.clientTs) || 0; // 与远端对齐，避免下轮把旧值又推回去
-        restored++;
-      } catch (err) {
-        console.warn('[cloudSync] apply failed for', row.key, err);
-      }
+    const remoteTs = Number(row.clientTs) || 0;
+    const metaTs = Number(meta[row.key]) || 0;
+    if (remoteTs <= metaTs) continue; // 远端不比本地已确认的新：廉价先行判断，省掉后面的本地值读取
+    const localRaw = rawGet(row.key);
+    const localValue = localRaw ? taroUnwrap(localRaw) : undefined;
+    const outcome = classifyPull({ remoteTs, metaTs, localValue, confirmedHash: confirm[row.key] });
+    if (outcome === 'skip') continue;
+    if (outcome === 'conflict') {
+      // 双端都有未同步修改：不覆盖任何一端，留给用户裁决（remoteValue 快照供「采用云端」落地）
+      newConflicts.push({
+        key: row.key,
+        remoteTs,
+        remoteValue: row.value,
+        localTs: metaTs,
+        at: Date.now()
+      });
+      continue;
+    }
+    // restore / overwrite：本地无值或相对上次推送无新修改，安全采用远端
+    try {
+      rawSet(row.key, JSON.stringify({ data: row.value }));
+      meta[row.key] = remoteTs; // 与远端对齐，避免下轮把旧值又推回去
+      confirm[row.key] = valueHash(row.value);
+      restored++;
+    } catch (err) {
+      console.warn('[cloudSync] apply failed for', row.key, err);
     }
   }
   if (restored) writeMeta(meta);
+  if (restored || newConflicts.length > 0) writeConfirm(confirm);
+  if (newConflicts.length > 0) {
+    conflictCache = mergeConflicts(conflictCache, newConflicts);
+    writeConflicts(conflictCache);
+    console.warn(
+      '[cloudSync] 检测到同步冲突（本机未上传的修改已保留，未被覆盖）:',
+      newConflicts.map((c) => c.key).join(', ')
+    );
+    emitConflicts();
+  }
   return restored;
+}
+
+/**
+ * 裁决同步冲突（UI 的「保留本机 / 采用云端」按钮调用）。
+ *
+ * - `remote`：把云端版本落到本机。**会放弃该键在本机未上传的修改**（这正是按钮的语义），
+ *   云端值取拉取时记录的快照，并尽量重新拉一次最新值——设备 B 在提示挂起期间可能又写过，
+ *   用过期快照落地会「复活」旧版本。
+ * - `local`：保留本机版本。把 meta 抬到当前时间，下一次推送必能盖过云端旧版本。
+ *
+ * keys 省略 = 处理全部冲突。未裁决前该键不推送（collectLocal 跳过），
+ * 因此冲突会一直挂着直到用户选择——这是有意的：宁停同步，不静默丢数据。
+ */
+export async function resolveSyncConflicts(choice: 'local' | 'remote', keys?: string[]): Promise<void> {
+  const targets = keys && keys.length > 0
+    ? conflictCache.filter((c) => keys.includes(c.key))
+    : conflictCache.slice();
+  if (targets.length === 0) return;
+
+  const meta = readMeta();
+  const confirm = readConfirm();
+  const now = Date.now();
+
+  if (choice === 'remote') {
+    // 尽量拿当前云端值；拉取失败（未登录/网络）才退回记录时的快照
+    let rows: KvRow[] | null = null;
+    try {
+      rows = await kvGetAll();
+    } catch (err) {
+      console.warn('[cloudSync] resolve(remote): refresh pull failed, using snapshot:', err);
+    }
+    for (const c of targets) {
+      const fresh = rows?.find((r) => r.key === c.key);
+      const value = fresh && 'value' in fresh ? fresh.value : c.remoteValue;
+      rawSet(c.key, JSON.stringify({ data: value }));
+      meta[c.key] = Number(fresh?.clientTs) || Number(c.remoteTs) || now;
+      confirm[c.key] = valueHash(value);
+    }
+  } else {
+    for (const c of targets) {
+      // 抬到最新：下一次推送的 ts 必大于云端已存版本，服务端新者赢会放行
+      meta[c.key] = now;
+    }
+  }
+
+  writeMeta(meta);
+  writeConfirm(confirm);
+  conflictCache = withoutConflicts(conflictCache, targets.map((c) => c.key));
+  writeConflicts(conflictCache);
+  emitConflicts();
+  if (choice === 'local') schedulePush(0); // 保留本机：立刻推上去，别等下一个防抖/轮询
 }
 
 /**
