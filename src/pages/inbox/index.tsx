@@ -297,7 +297,10 @@ function InboxPage() {
 
   const copyWorkResult = () => {
     if (!workResult) return;
-    Taro.setClipboardData({ data: workResult });
+    // 剪贴板导出同样要带显式 AI 标识（合规：导出场景在标识办法覆盖范围内，
+    // 且粘贴出去后页内角标就丢了 —— 标识必须跟着内容走）。
+    // 复用 ai.labelText，与 assistant 气泡角标同一句话，避免两处文案漂移。
+    Taro.setClipboardData({ data: `${workResult}\n\n${t('ai.labelText')}` });
   };
 
   const switchMode = (next: 'extract' | 'work') => {

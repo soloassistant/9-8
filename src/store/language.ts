@@ -319,6 +319,9 @@ const zh = {
   'ai.labelVersion': 'AI 标识规范 {version}',
 
   'share.title': '私人晨报助理 · 把明天，安排明白',
+  // 分享标题 AI 显式标识（合规硬门槛）：晨报内容由 AI 整理，转发到外部会话时标题须自带标识。
+  // 品牌口号用 {title} 插值传入，保持 share.title 为单一事实来源，避免两处文案漂移。
+  'share.titleAI': 'AI 整理｜{title}',
 
   'inbox.pasteTitle': '粘贴要处理的内容',
   'inbox.tabExtract': '📅 提取日程待办',
@@ -1098,6 +1101,7 @@ const en: Record<keyof typeof zh, string> = {
   'ai.labelVersion': 'AI labeling spec {version}',
 
   'share.title': 'My Morning Briefing · Plan tomorrow tonight',
+  'share.titleAI': 'AI-curated｜{title}',
 
   'inbox.pasteTitle': 'Paste content to process',
   'inbox.tabExtract': '📅 Extract schedule & to-dos',

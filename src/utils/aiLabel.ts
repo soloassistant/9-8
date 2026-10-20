@@ -100,13 +100,17 @@ export function serializeAiMeta(meta: AiLabelMeta): string {
  *
  * | key                | 文案                          | 真实渲染点                                   |
  * |--------------------|-------------------------------|----------------------------------------------|
- * | `ai.labelText`     | — AI 生成内容，仅供参考 —     | `components/AiAssistant/index.tsx`（assistant 气泡）|
+ * | `ai.labelText`     | — AI 生成内容，仅供参考 —     | `components/AiAssistant/index.tsx`（assistant 气泡）；`pages/inbox/index.tsx`（工作助手结果复制导出）|
  * | `ai.labelExtract`  | — 由 AI 提取整理，请核对 —    | `pages/inbox/index.tsx`（提取结果卡片）      |
  * | `ai.audioIntro`    | 以下内容由 AI 生成，仅供参考。| `utils/tts.ts`（播报首块前**念出来**）       |
  * | `ai.notice`        | AI 生成，内容仅供参考…       | `components/AiAssistant/index.tsx`（面板常驻）|
  * | `briefing.aiTag`           | — AI 生成内容，仅供参考 — | `pages/briefing/index.tsx`（两处）    |
  * | `briefing.intelGroupLead`  | — 以下导语由 AI 生成 —    | `pages/briefing/index.tsx`             |
  * | `library.aiLabel`          | — AI 筛选结果，仅供参考 — | `pages/library/index.tsx`              |
+ * | `share.titleAI`            | AI 整理｜<标题>              | `pages/briefing/index.tsx`（转发分享标题）  |
+ *
+ * 注：分享链路另有 `pages/library/index.tsx` 的「（来自${APP_NAME}·AI 精选）」后缀，
+ * 与 `share.titleAI` 同为转发场景的显式标识。
  *
  * 新增标识类型时：**先确认渲染点存在，再加 key**；只加 key 不算标识。
  */

@@ -203,8 +203,10 @@ function BriefingPage() {
   }, [messages]);
 
   // 转发分享（F30）：带品牌分享封面
+  // 标题带 AI 显式标识（合规硬门槛）：晨报内容由 AI 整理，转发到外部会话时标题须自带标识。
+  // 与页内导语署名（briefing.aiTag）、免责页脚（common.disclaimerAI）同一口径。
   useShareAppMessage(() => ({
-    title: t('share.title'),
+    title: t('share.titleAI', { title: t('share.title') }),
     path: '/pages/briefing/index',
     imageUrl: shareCover
   }));
