@@ -21,6 +21,9 @@
  *   }]
  *
  * 每个 case 的执行顺序（任何一步失败都不静默）：
+ *   ⓪ **基线先行**：每个不同的 cmd 先在干净状态跑一次，必须退出码 0
+ *      （基线就红 / harness 不存在 → 直接判工具级 ERROR 退出，绝不变异 ——
+ *       否则"跑不起来"会被误判成"变异被抓到"，是经典假绿）；
  *   ① 锚点必须正好出现 1 次（0 或多次 → 该 case 判 ERROR，不动文件）；
  *   ② 目标文件必须没有未提交改动（`git status --porcelain` 非空 → 拒绝变异，
  *      避免变异同仓其他在飞的工作）；
@@ -190,6 +193,23 @@ async function main() {
       console.error(`ERROR  加载 ${f} 失败: ${err.message}`);
       process.exit(EXIT.CASE_ERROR);
     }
+  }
+
+  // ⓪ 基线先行：每个 cmd 在干净状态必须绿。基线红/harness 缺失 → 直接退出，
+  // 绝不变异（否则非零退出会被当成"变异被抓到"，假绿）。
+  const cmdsForBaseline = [...new Set(allCases.map((c) => c.cmd))];
+  for (const cmd of cmdsForBaseline) {
+    const r = runCmd(cmd);
+    if (r.status !== 0) {
+      console.error(
+        `ERROR  基线就是红的（signal=${r.signal}, exit=${r.status}），拒绝变异 —— ` +
+          `先修好验证命令本身：${cmd}`
+      );
+      const t = `${tailOf(r.stdout)}\n${tailOf(r.stderr)}`.trim();
+      if (t) console.error(`  --- 基线输出尾部 ---\n${t}\n  ---`);
+      process.exit(EXIT.CASE_ERROR);
+    }
+    console.log(`BASELINE    ${cmd}  —— 干净态退出码 0`);
   }
 
   const results = [];
