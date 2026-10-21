@@ -35,6 +35,13 @@ const sessionStub = noSession
   ? null
   : fs.readFileSync(path.join(ROOT, '.tools', 'cdp-probe-session.js'), 'utf8');
 
+// 预置「已同意隐私协议」：legal.ts 的 CONSENT_KEY='privacy-consent'、LEGAL_VERSION='v1.5-20261013'，
+// Taro H5 storage 是 {data:...} 包装。不预置则每次全新 user-data-dir 都弹协议窗，
+// 等它消失 + 点掉要多花 ~3s，会把「8s 自动收起的建议气泡」挤出截图窗口，验证不了遮挡问题。
+const consentSeed =
+  `(function(){try{localStorage.setItem('privacy-consent',JSON.stringify({data:{agreed:true,version:'v1.5-20261013',time:Date.now()}}))}catch(e){}})();`;
+const initSource = consentSeed + (sessionStub ? '\n' + sessionStub : '');
+
 const udd = path.join(os.tmpdir(), `visual-pass-${Date.now()}`);
 const port = 9333 + Math.floor(Math.random() * 200);
 const child = spawn(CHROME, [
@@ -119,8 +126,8 @@ function cleanup(code) {
   const cdp = new Cdp(ws);
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
-  if (sessionStub) {
-    await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: sessionStub });
+  if (initSource) {
+    await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: initSource });
   }
   await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true });
 

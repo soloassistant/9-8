@@ -802,6 +802,12 @@
   display: flex;
   align-items: center;
   gap: $spacing-sm;
+  // 2026-10-21 视觉巡检：AI 悬浮建议气泡（AiAssistant wrapper，z-index: var(--z-fab)=900）
+  // 在 414px 手机宽度下会盖住本常驻条右侧文字「…建议把小程序添加」。把本条抬到 900 之上：
+  // 气泡 8s 自动收起且可手动关闭，是瞬时装饰；订阅提示是常驻信息，优先保证可读。
+  // position:relative 是让 z-index 生效的前提（静态元素不参与 stacking）。
+  position: relative;
+  z-index: 910;
 }
 
 .tipIcon {

@@ -110,7 +110,8 @@
 |---|---|
 | `f5edece` | P1a：定时推送尊重 briefingTime（分桶触发器 + 分流） |
 | `8fdc553` | cloudLlm.ts 3 处非空断言收口（Task #205） |
-| 待提交 | D2 修复：`briefing.inputPlaceholder` 改短为「说点什么…」（414px 截断复现后修）；新增 `.tools/visual-pass.mjs` 视觉巡检工具；建本归档文件夹 |
+| `d45b860` | D2 修复（placeholder 改「说点什么…」）+ `.tools/visual-pass.mjs` 视觉巡检工具 + 建本归档文件夹 |
+| 续修 | 晨报订阅提示条遮挡修复（`.subscribeTip` z-index:910，重拍验证）+ 清理空目录 settings/index + 驱动预置协议同意注入（详见 `参考资料.md`） |
 
 ## 同步方式（改完原位代码后刷新副本）
 
