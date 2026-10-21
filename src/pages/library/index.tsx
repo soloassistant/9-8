@@ -195,7 +195,7 @@ function LibraryPage() {
 
   // C-03 内容侧：右上角常驻「关闭个性化推荐」入口（与「我的」页开关共享 mb_personalization）
   const [personalOn, setPersonalOn] = useState<boolean>(() => getPersonalization());
-  const { refreshUsage } = useUserStore();
+  const { refreshUsage, profile } = useUserStore();
 
   // 竞品分析 L2/X11 读取侧：偏好单次读取（设置页改后重进页面生效，与 storage 读写约定一致）
   const [aiFilterEnabled] = useState(() => readPrefs().aiFilterEnabled);
@@ -785,6 +785,13 @@ function LibraryPage() {
     Taro.showToast({ title: t('library.personalOffToast'), icon: 'none', duration: 2000 });
   };
 
+  /** PRO 角标 / 空态 CTA 点击：跳 mine 订阅页（switchTab 因为 mine 是 TabBar） */
+  const handleGoSubscribe = () => {
+    Taro.switchTab({ url: '/pages/mine/index' }).catch(() => {
+      Taro.navigateTo({ url: '/pages/mine/index' });
+    });
+  };
+
   /** N-01 反馈条：降权/加权文案 + 5s 内「撤销」+（负反馈时）「不再展示此类」 */
   const renderFeedbackBar = (item: HotspotNews) => {
     const bar = feedbackBars[item.id];
@@ -1127,6 +1134,10 @@ function LibraryPage() {
       <View className={styles.sectionBar}>
         <Text className={styles.sectionBarIcon}>🔖</Text>
         <Text className={styles.sectionBarTitle}>{t('library.favTitle')}</Text>
+        {/* PRO 角标：仅非订阅用户可见，点击跳订阅 */}
+        {!profile?.subscribed ? (
+          <Text className={styles.proBadge} onClick={handleGoSubscribe}>⚡ PRO</Text>
+        ) : null}
         <Text className={styles.sectionBarHint}>{t('library.favHint')}</Text>
       </View>
 
@@ -1164,12 +1175,20 @@ function LibraryPage() {
       {!loading && filtered.length === 0 ? (
         <EmptyState
           icon='🔖'
-          title={keyword ? '没有找到相关内容' : activeTag === '全部' ? '还没有收藏' : '这个标签下还没有内容'}
+          title={
+            keyword
+              ? t('library.favSearchEmptyTitle')
+              : activeTag === '全部'
+                ? t('library.favEmptyAllTitle')
+                : t('library.favEmptyTagTitle')
+          }
           hint={
             keyword
-              ? '换个关键词试试，支持匹配标题、摘要和标签'
-              : '在收件箱粘贴内容时勾选「收藏」，AI 摘要会存到这里'
+              ? t('library.favSearchEmptyHint')
+              : t('library.favEmptyAllHint')
           }
+          action={!profile?.subscribed ? t('library.favEmptyProCta') : undefined}
+          onAction={!profile?.subscribed ? handleGoSubscribe : undefined}
         />
       ) : null}
 

@@ -563,6 +563,52 @@
   color: #999;
 }
 
+// intelNote 免费档：flex 容器，左边提示文字 + 右边 CTA
+.intelNoteText {
+  font-size: $font-size-xs;
+  color: #999;
+}
+
+.intelNoteCta {
+  font-size: $font-size-xs;
+  color: $color-primary;
+  font-weight: $font-weight-semibold;
+  padding: 0 4rpx;
+  margin-left: auto;
+}
+
+// ========== PRO 角标体系（订阅态标识 + 升级引导） ==========
+.proBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 16rpx;
+  height: 36rpx;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  color: #5a3200;
+  background: linear-gradient(135deg, #ffd24a, #ff9d2d);
+  border-radius: $radius-button;
+  letter-spacing: 1rpx;
+  transition: transform $transition-fast;
+
+  &:active {
+    transform: scale(0.94);
+  }
+}
+
+// sectionHeader 内 PRO 角标（比顶部小一号）
+.sectionProTag {
+  margin-left: $spacing-xs;
+  padding: 0 12rpx;
+  font-size: 20rpx;
+  font-weight: $font-weight-semibold;
+  color: #5a3200;
+  background: linear-gradient(135deg, #ffd24a, #ff9d2d);
+  border-radius: $radius-button;
+  letter-spacing: 1rpx;
+  align-self: center;
+}
+
 /* 增量 2：分组导语为 AI 生成内容的显式标识（挂在分组卡片之后、降级说明之前） */
 .intelLeadTag {
   display: block;

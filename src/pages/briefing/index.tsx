@@ -626,6 +626,14 @@ function BriefingPage() {
     return true;
   };
 
+  /** PRO 角标点击：直接跳 mine 订阅页（switchTab 因为 mine 是 TabBar） */
+  const handleGoSubscribe = () => {
+    Taro.switchTab({ url: '/pages/mine/index' }).catch(() => {
+      // 理论上 switchTab 对 TabBar 页面不会失败；兜底 navigateTo 防止编译目标缺 TabBar
+      Taro.navigateTo({ url: '/pages/mine/index' });
+    });
+  };
+
   const handleVoiceResult = (result: VoiceResult) => {
     if (!result.confirmed) return;
     if (!checkVoiceQuota()) return;
@@ -925,7 +933,13 @@ function BriefingPage() {
                 {lang === 'en' ? dayjs().format('MMM D') : dayjs().format('M月D日')}{' '}
                 {(lang === 'en' ? WEEKDAYS_EN : WEEKDAYS_ZH)[dayjs().day()]}
               </Text>
-              {profile?.subscribed ? <Text className={styles.badge}>{t('mine.badgeSubscribed')}</Text> : null}
+              {profile?.subscribed ? (
+                <Text className={styles.badge}>{t('mine.badgeSubscribed')}</Text>
+              ) : (
+                <Text className={styles.proBadge} onClick={handleGoSubscribe}>
+                  ⚡ PRO
+                </Text>
+              )}
               {/* v2.1：晨报连续阅读打卡（主 streak 已改挂晨报；今日未读时以呼吸态提示） */}
               <View className={classnames(styles.readStreak, todayRead && styles.readStreakDone)}>
                 <Text className={styles.readStreakFlame}>🔥</Text>
@@ -1240,6 +1254,10 @@ function BriefingPage() {
               <View className={styles.sectionHeader}>
                 <Text className={styles.sectionIcon}>🌐</Text>
                 <Text className={styles.sectionTitle}>{t('briefing.sectionIntel')}</Text>
+                {/* 订阅用户 + AI 启用中 → PRO 角标（AI 提炼专属标识） */}
+                {profile?.subscribed && intelResolved.aiEnabled && !intelResolved.degraded ? (
+                  <Text className={styles.sectionProTag}>PRO</Text>
+                ) : null}
               </View>
               {/* X2 栏目署名：早报员人设挂在情报（AI 精选）区块标题下方 */}
               <Text className={styles.curatorTag}>{t('library.curator')}</Text>
@@ -1288,15 +1306,19 @@ function BriefingPage() {
               {intelResolved.groups.length > 0 && intelResolved.aiEnabled && !intelResolved.degraded ? (
                 <Text className={styles.intelLeadTag}>{t('briefing.intelGroupLead')}</Text>
               ) : null}
-              <Text className={styles.intelNote}>
-                {/* 三态而非两态（2026-10-08）：「本档位没有 AI」是档位说明，
-                    「本该有 AI 却没拿到」才是错误提示 —— 两者对用户是天壤之别。 */}
-                {!intelResolved.aiEnabled
-                  ? t('briefing.intelFreeNote')
-                  : intelResolved.degraded
-                    ? t('briefing.intelRawNote')
-                    : t('briefing.aiTag')}
-              </Text>
+              {/* intelNote：三态文案（免费档/降级/正常）；免费档带内联 CTA 跳订阅 */}
+              {!intelResolved.aiEnabled ? (
+                <View className={styles.intelNote}>
+                  <Text className={styles.intelNoteText}>{t('briefing.intelFreeNote')}</Text>
+                  <Text className={styles.intelNoteCta} onClick={handleGoSubscribe}>
+                    ⚡ {t('briefing.intelFreeCta')} →
+                  </Text>
+                </View>
+              ) : intelResolved.degraded ? (
+                <Text className={styles.intelNote}>{t('briefing.intelRawNote')}</Text>
+              ) : (
+                <Text className={styles.intelNote}>{t('briefing.aiTag')}</Text>
+              )}
             </View>
           ) : null}
         </View>

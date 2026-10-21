@@ -11,6 +11,25 @@
   padding: $spacing-md $page-padding $spacing-sm;
 }
 
+// PRO 角标：sectionBar 内非订阅用户可见；浅色页上保持金渐变（跨页统一识别）
+.proBadge {
+  flex-shrink: 0;
+  padding: 2rpx 14rpx;
+  height: 34rpx;
+  font-size: 20rpx;
+  font-weight: $font-weight-semibold;
+  color: #5a3200;
+  background: linear-gradient(135deg, #ffd24a, #ff9d2d);
+  border-radius: $radius-button;
+  letter-spacing: 1rpx;
+  align-self: center;
+  transition: transform $transition-fast;
+
+  &:active {
+    transform: scale(0.94);
+  }
+}
+
 .searchBar {
   display: flex;
   align-items: center;

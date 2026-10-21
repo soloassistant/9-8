@@ -1,0 +1,9 @@
+{
+  "name": "pay-douyin",
+  "version": "1.0.0",
+  "description": "抖音小程序 JSAPI 支付云函数 — POST /v1/pay/jsapi/order + RSA-SHA256 Authorization",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

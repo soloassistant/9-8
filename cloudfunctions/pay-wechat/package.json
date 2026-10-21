@@ -1,0 +1,9 @@
+{
+  "name": "pay-wechat",
+  "version": "1.0.0",
+  "description": "微信小程序支付云函数 — wx.cloudPay.unifiedOrder",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

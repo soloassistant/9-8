@@ -10,7 +10,9 @@ import { brandVars, useThemeStore, THEME_PRESETS } from '@/store/theme';
 import { useUiScaleStore, UI_SCALE_PRESETS } from '@/store/uiScale';
 import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
-import { apiCreateOrder, apiDeleteAccount, apiApplyPlan } from '@/services/api';
+import { apiCreateOrder, apiDeleteAccount, apiApplyPlan, type CreateOrderPayload } from '@/services/api';
+import { getPayChannel, getChannelAuth, invokePayment } from '@/services/pay';
+import type { PayChannel } from '@/types';
 import { signOut } from '@/services/cloudAuth';
 import { kvClear } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
@@ -24,7 +26,6 @@ import type { TtsPrefs, TtsVoiceMode } from '@/utils/tts';
 import {
   EARLYBIRD_PRICE,
   formatPrice,
-  getEffectivePrice,
   listInboxNotices,
   lockPrice,
   markNoticeRead,
@@ -57,6 +58,21 @@ const isH5 = process.env.TARO_ENV === 'h5';
 const AVATAR_KEY = 'user-avatar';
 /** H5 预览端可选的预设头像 */
 const AVATAR_PRESETS = ['🌅', '🌞', '🌱', '🐳', '🦊', '🐼'];
+
+/** 通道标签 i18n key 映射 */
+const CHANNEL_LABEL_KEY: Record<PayChannel, LangKey> = {
+  wechat: 'mine.payChannelWechat',
+  alipay: 'mine.payChannelAlipay',
+  douyin: 'mine.payChannelDouyin'
+};
+/** 通道图标 emoji 映射（跨端零依赖，避免额外资源） */
+const CHANNEL_ICON: Record<PayChannel, string> = {
+  wechat: '💬',
+  alipay: '💰',
+  douyin: '🎵'
+};
+const channelIconMap = CHANNEL_ICON;
+const channelLabelKey = CHANNEL_LABEL_KEY;
 
 /** 危险操作确认按钮统一色值（设计文档第六章 B） */
 const DANGER_COLOR = '#E85D2A';
@@ -360,42 +376,59 @@ function MinePage() {
     return Math.min(100, Math.round((usage.collectionCount / usage.collectionQuota) * 100));
   }, [usage]);
 
-  /** B-01：展示与续费取价——有生效中的锁价取锁定价，否则取方案基础价 */
-  const effectivePrice = useMemo(
-    () => getEffectivePrice(planId, EARLYBIRD_PRICE[planId]),
-    // locked 是「锁价变更后重算」的触发器：getEffectivePrice 内部读 localStorage 锁价，必须随 locked 重算才刷新，不能删
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [planId, locked]
-  );
+  /** 当前编译目标的支付通道（三端自动识别；H5 为 null） */
+  const currentPayChannel: PayChannel | null = getPayChannel();
 
   /** B-02：只展示未读的调价站内信 */
   const unreadNotices = useMemo(() => notices.filter((n) => !n.read), [notices]);
 
+  /** 立即订阅：自动识别三端通道 → 下单 → 拉起支付 */
   const handleSubscribe = async () => {
     if (paying) return;
+
+    // 1. 自动识别当前编译目标对应的支付通道
+    const channel = getPayChannel();
+    if (!channel) {
+      // H5 端无真实支付能力：提示用户到小程序端
+      Taro.showToast({ title: '请在微信/支付宝/抖音小程序中打开', icon: 'none', duration: 2500 });
+      return;
+    }
     setPaying(true);
+
     try {
-      const order = await apiCreateOrder(planId);
-      console.info('[MinePage] order created:', order.orderId);
-      // B-01：首次成功订阅 → 打标早鸟锁价（已锁价时内部自动跳过覆盖）
-      setLocked(lockPrice(order.planId, order.price));
-      // TODO：微信支付需要主体资质与商户号，接入后替换为 Taro.requestPayment(order.payment)
-      //
-      // ⚠️ 2026-10-12 增长审计发现的公开事故隐患：
-      //   原文案是「开发环境提示 / 已创建模拟订单」，它**没有区分环境**。
-      //   线上有真实流量的站点上，用户点「立即订阅」看到「开发环境」四个字，
-      //   截图一传就是公关事故。而且全仓库 `subscribed: true` 零命中 ——
-      //   没有任何代码路径能把用户真正置为订阅者，所以这条路径目前 100% 收款失败。
-      //   现在按环境分流：非生产环境才说「开发环境」，生产环境只说「支付尚未开放」，
-      //   避免把内部实现细节暴露给付费意愿最强的用户。
-      const isProd = process.env.NODE_ENV === 'production';
-      Taro.showModal({
-        title: isProd ? '支付功能即将开放' : '开发环境提示',
-        content: isProd
-          ? `${PLAN_LIST.find((p) => p.id === planId)?.label} ¥${order.price} 已为你预留。微信支付正在开通中，开放后我们会第一时间通知你。`
-          : `已创建模拟订单：${PLAN_LIST.find((p) => p.id === planId)?.label} ¥${order.price}。微信支付将在主体资质就绪后接入。`,
-        showCancel: false
-      });
+      // 2. 通道特定鉴权（alay→buyerId, douyin→openid, wechat→无）
+      const auth = await getChannelAuth(channel);
+      const payload: CreateOrderPayload = { planId, channel };
+      if (channel === 'alipay') payload.buyerId = auth?.buyerId || '';
+      if (channel === 'douyin') payload.openid = auth?.openid || '';
+
+      // 3. 调云函数下单（小程序端走真云函数，H5 端在 services/cloud.ts 自动降级到 src/data/createOrder.ts mock）
+      const result = await apiCreateOrder(payload);
+      if (!result.ok) throw new Error('createOrder 返回 ok=false');
+      console.info('[MinePage] order created:', result.orderId, 'channel:', channel, 'plan:', result.planId);
+
+      // 4. 锁价（B-01：首次成功订阅自动早鸟锁价；已锁时内部跳过）
+      setLocked(lockPrice(result.planId, result.price));
+
+      // 5. 拉起小程序原生支付
+      try {
+        const payRes = await invokePayment(channel, result.payment);
+        if (payRes.success) {
+          Taro.showToast({ title: '支付成功', icon: 'success' });
+          // 订阅状态由 pay-callback 云函数异步回写 users.expiredAt，
+          // 前端下一次进入「我的」页会通过 useUserStore().init() 拉到最新状态
+        }
+      } catch (payErr) {
+        const msg = String(payErr?.message || payErr || '');
+        // 用户主动取消（微信：cancel；支付宝/douyin：canceled、用户取消）不算失败
+        if (/cancel|取消/i.test(msg)) {
+          console.info('[MinePage] user cancelled payment');
+          Taro.showToast({ title: '已取消', icon: 'none' });
+        } else {
+          console.error('[MinePage] invokePayment failed:', payErr);
+          Taro.showToast({ title: '支付未完成，请重试', icon: 'none' });
+        }
+      }
     } catch (err) {
       console.error('[MinePage] createOrder failed:', err);
       Taro.showToast({ title: '下单失败，请稍后再试', icon: 'none' });
@@ -921,28 +954,41 @@ function MinePage() {
         ) : null}
       </View>
 
-      {/* ===== 订阅区（B-01 锁价文案 / B-02 涨价通知） ===== */}
+      {/* ===== 订阅区（B-01 锁价文案 / B-02 涨价通知 / 三通道支付） ===== */}
       <View className={styles.subCard}>
         <Text className={styles.subTitle}>{t('mine.subTitle')}</Text>
         <Text className={styles.subDesc}>{t('mine.subDesc')}</Text>
-        <View className={styles.subActions}>
-          <Picker
-            mode='selector'
-            range={PLAN_LIST.map((p) => t(PLAN_LABEL_KEY[p.id]))}
-            value={PLAN_LIST.findIndex((p) => p.id === planId)}
-            onChange={(e) => setPlanId(PLAN_LIST[Number(e.detail.value)].id)}
-          >
-            <View className={styles.priceTag}>
-              <Text>
-                <Text className={styles.price}>{formatPrice(effectivePrice)}</Text>
-                <Text className={styles.priceNote}>
-                  {t('mine.priceNote', { plan: t(PLAN_LABEL_KEY[planId]) })}
+
+        {/* ① 方案卡片横排（替换原 Picker） */}
+        <View className={styles.planList}>
+          {PLAN_LIST.map((p) => {
+            const active = p.id === planId;
+            const isEarlyBird = p.id === 'earlybird_monthly';
+            const priceYuan = EARLYBIRD_PRICE[p.id] / 100;
+            return (
+              <View
+                key={p.id}
+                className={classnames(
+                  styles.planCard,
+                  active && styles.planCardActive,
+                  isEarlyBird && styles.planCardEarlyBird
+                )}
+                onClick={() => setPlanId(p.id)}
+              >
+                {isEarlyBird ? <Text className={styles.planBadge}>{t('mine.planEarlyBirdTag')}</Text> : null}
+                <Text className={styles.planLabel}>{t(PLAN_LABEL_KEY[p.id])}</Text>
+                <Text className={styles.planPrice}>
+                  ¥{priceYuan}
+                  <Text className={styles.planUnit}>
+                    {p.id === 'yearly' ? t('mine.planPerYear') : t('mine.planPerMonth')}
+                  </Text>
                 </Text>
-              </Text>
-            </View>
-          </Picker>
+              </View>
+            );
+          })}
         </View>
-        {/* B-01：锁价文案常驻在「价格下方、支付按钮上方」 */}
+
+        {/* ② 锁价文案常驻（B-01：价格下方、支付按钮上方） */}
         <View className={styles.lockBlock}>
           <View className={styles.lockHead}>
             <Text className={styles.lockTitle}>{t('mine.lockTitle')}</Text>
@@ -951,10 +997,20 @@ function MinePage() {
           <Text className={styles.lockBody}>{t('mine.lockBody')}</Text>
           <Text className={styles.lockLose}>{t('mine.lockLose')}</Text>
         </View>
+
+        {/* ③ 支付按钮 + 通道提示 */}
         <View className={styles.subButtonRow}>
-          <Button className={styles.subButton} onClick={handleSubscribe}>
-            {paying ? t('mine.subscribing') : t('mine.subscribe')}
-          </Button>
+          <View className={styles.subButtonGroup}>
+            <Button className={styles.subButton} onClick={handleSubscribe} loading={paying} disabled={paying}>
+              {paying ? t('mine.subscribing') : t('mine.subscribe')}
+            </Button>
+            {currentPayChannel ? (
+              <View className={styles.channelTag}>
+                <Text className={styles.channelIcon}>{channelIconMap[currentPayChannel]}</Text>
+                <Text className={styles.channelText}>{t(channelLabelKey[currentPayChannel])}</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
       </View>
 

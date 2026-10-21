@@ -28,6 +28,8 @@ import type {
   CollectionItem,
   ExtractResult,
   HotspotNews,
+  CreateOrderResult,
+  PayChannel,
   PayOrder,
   Usage,
   UserProfile
@@ -197,9 +199,19 @@ export function apiGetUsage(): Promise<Usage> {
   return callFunction<Usage>('getUsage');
 }
 
-/** 创建订阅订单 */
-export function apiCreateOrder(planId: PayOrder['planId']): Promise<PayOrder> {
-  return callFunction<PayOrder>('createOrder', { planId });
+/** 创建订阅订单（三通道路由） */
+export interface CreateOrderPayload {
+  planId: PayOrder['planId'];
+  channel: PayChannel;
+  /** alipay 通道：buyerId（2088 开头 userId） */
+  buyerId?: string;
+  /** douyin 通道：openid（服务端 code2Session 换得） */
+  openid?: string;
+  /** callFunction 的 Record<string, unknown> 索引签名要求 */
+  [key: string]: unknown;
+}
+export function apiCreateOrder(payload: CreateOrderPayload): Promise<CreateOrderResult> {
+  return callFunction<CreateOrderResult>('createOrder', payload as unknown as Record<string, unknown>);
 }
 
 /** 注销账号并删除全部数据（F18） */

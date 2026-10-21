@@ -590,7 +590,11 @@ export default function LoginPage() {
   return (
     <View className={styles.screen}>
       <View className={styles.card}>
-        <Text className={styles.brand}>{t('app.title')}</Text>
+        {/* 品牌区：logo emoji + 应用标题 */}
+        <View className={styles.brand}>
+          <Text className={styles.brandLogo}>📰</Text>
+          <Text>{t('app.title')}</Text>
+        </View>
         <Text className={styles.title}>{t('auth.title')}</Text>
         <Text className={styles.subtitle}>{t('auth.subtitle')}</Text>
 

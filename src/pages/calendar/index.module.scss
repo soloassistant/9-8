@@ -30,14 +30,17 @@
   width: 64rpx;
   height: 64rpx;
   border-radius: $radius-round;
-  background: $color-bg-page;
+  background: #fff;
   color: $color-text-primary;
   font-size: $font-size-xxl;
   line-height: 64rpx;
   padding: 0;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.06);
+  transition: transform $transition-fast;
 
   &:active {
     opacity: 0.85;
+    transform: scale(0.93);
   }
 }
 
@@ -86,13 +89,17 @@
 
 .today {
   .cellDay {
-    color: var(--brand-deep);
+    color: #fff;
     font-weight: $font-weight-semibold;
+    background: linear-gradient(135deg, var(--brand, #6366f1) 0%, var(--brand-deep, #4f46e5) 100%);
+    border-radius: $radius-button;
+    box-shadow: 0 4rpx 12rpx rgba(99, 102, 241, 0.3);
   }
 }
 
 .selected {
-  background: var(--brand-soft);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.08) 100%);
+  border-radius: $radius-md;
 
   .cellDay {
     color: var(--brand-deep);

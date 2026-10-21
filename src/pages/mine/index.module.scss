@@ -577,6 +577,108 @@
   margin-top: $spacing-md;
 }
 
+.subButtonGroup {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+}
+
+// ========== 方案卡片横排（替换原 Picker） ==========
+.planList {
+  display: flex;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+}
+
+.planCard {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: $spacing-md $spacing-xs;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: $radius-md;
+  border: 2rpx solid transparent;
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+.planCardActive {
+  border-color: $color-text-white;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.2);
+}
+
+.planCardEarlyBird {
+  background: linear-gradient(135deg, rgba(255, 200, 0, 0.28), rgba(255, 140, 0, 0.18));
+  border-color: rgba(255, 220, 100, 0.5);
+
+  &.planCardActive {
+    background: linear-gradient(135deg, rgba(255, 210, 20, 0.42), rgba(255, 160, 30, 0.3));
+    border-color: #fff3c0;
+  }
+}
+
+.planBadge {
+  position: absolute;
+  top: -14rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2rpx 14rpx;
+  font-size: 20rpx;
+  color: #5a3200;
+  background: linear-gradient(135deg, #ffd24a, #ff9d2d);
+  border-radius: $radius-button;
+  font-weight: $font-weight-semibold;
+  letter-spacing: 1rpx;
+  white-space: nowrap;
+}
+
+.planLabel {
+  font-size: $font-size-sm;
+  color: rgba(255, 255, 255, 0.92);
+  margin-bottom: 8rpx;
+}
+
+.planPrice {
+  font-size: 36rpx;
+  font-weight: $font-weight-bold;
+  color: $color-text-white;
+  line-height: 1;
+}
+
+.planUnit {
+  font-size: 22rpx;
+  font-weight: $font-weight-normal;
+  color: rgba(255, 255, 255, 0.75);
+  margin-left: 2rpx;
+}
+
+// ========== 支付通道提示徽标 ==========
+.channelTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 6rpx 16rpx;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: $radius-button;
+}
+
+.channelIcon {
+  font-size: 24rpx;
+  line-height: 1;
+}
+
+.channelText {
+  font-size: $font-size-xs;
+  color: $color-text-white;
+  opacity: 0.92;
+}
+
 // 调价站内信
 .noticeItem {
   padding: $spacing-md 0;

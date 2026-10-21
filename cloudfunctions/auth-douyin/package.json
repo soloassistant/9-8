@@ -1,0 +1,9 @@
+{
+  "name": "auth-douyin",
+  "version": "1.0.0",
+  "description": "抖音小程序 code → openid 云函数（code2session）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

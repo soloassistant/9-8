@@ -425,7 +425,8 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
   if (!auth) return { pass: false, detail: 'cloudAuth 服务不存在' };
   if (!app) return { pass: false, detail: 'app.tsx 不存在' };
   // 未登录 → 重定向到登录页（覆盖切 tab / 深链 / 冷启动）
-  const redirects = /needsAuthGate/.test(app) && /redirectTo\(\{ url: '\/pages\/login\/index' \}\)/.test(app);
+  // 2026-10-20 起改用 reLaunch（redirectTo 不会清理 tabBar 缓存，会导致双 stationed 叠层 bug）
+  const redirects = /needsAuthGate/.test(app) && /(reLaunch|redirectTo)\(\{ url: '\/pages\/login\/index' \}\)/.test(app);
   // 登录页已注册，且是入口页（根路径先到登录页，不会先渲染受保护内容）
   const registered = /'pages\/login\/index',\s*\n\s*'pages\/briefing\/index'/.test(cfg || '');
   // 四条流程可达（SDK 默认登录 UI 契约）

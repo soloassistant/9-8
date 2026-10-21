@@ -195,11 +195,37 @@ export interface HistoryEntry {
   viewedAt: string;
 }
 
-/** 支付订单 */
+/** 支付通道（三端自动识别：weapp→wechat, alipay→alipay, tt→douyin） */
+export type PayChannel = 'wechat' | 'alipay' | 'douyin';
+
+/** 创建订单返回 —— 含通道 + 支付拉起参数（三通道统一结构） */
+export interface CreateOrderResult {
+  ok: boolean;
+  orderId: string;
+  planId: 'earlybird_monthly' | 'monthly' | 'yearly';
+  /** 元 */
+  price: number;
+  channel: PayChannel;
+  /** 三通道各自的拉起参数（wechat→payment, alipay→tradeNO, douyin→prepayId） */
+  payment: {
+    channel: PayChannel;
+    /** wechat: { timeStamp, nonceStr, package, signType, paySign } */
+    wechatPay?: { timeStamp: string; nonceStr: string; package: string; signType: string; paySign: string };
+    /** alipay: my.tradePay 的 tradeNO */
+    tradeNO?: string;
+    /** douyin: tt.requestPayment 的 prepayId */
+    prepayId?: string;
+  };
+  status: 'created' | 'paid' | 'expired';
+}
+
+/** 支付订单（兼容旧 mock 返回 + 订单落库结构） */
 export interface PayOrder {
   orderId: string;
   planId: 'earlybird_monthly' | 'monthly' | 'yearly';
+  /** 元 */
   price: number;
+  channel?: PayChannel;
   status: 'created' | 'paid' | 'expired';
 }
 

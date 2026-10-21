@@ -655,7 +655,7 @@ function InboxPage() {
           ))}
         </>
       ) : (
-        <EmptyState icon='📥' title='收件箱还是空的' hint='粘贴一条微信消息或截屏试试，AI 会帮你拆出日程和待办' />
+        <EmptyState icon='📥' title={t('inbox.emptyTitle')} hint={t('inbox.emptyHint')} />
       )}
     </View>
   );

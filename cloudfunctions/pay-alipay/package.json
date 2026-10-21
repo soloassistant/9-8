@@ -1,0 +1,10 @@
+{
+  "name": "pay-alipay",
+  "version": "1.0.0",
+  "description": "支付宝小程序 JSAPI 支付云函数 — alipay.trade.create 下单 + RSA2 签名",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3",
+    "alipay-sdk": "^3.4.0"
+  }
+}

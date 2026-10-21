@@ -93,6 +93,8 @@ static-server.log*
 .codefix/
 
 dist-weapp/
+dist-alipay/
+dist-tt/
 
 # push-via-api 临时目录
 .tools/.pushtmp/
