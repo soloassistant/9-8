@@ -260,7 +260,7 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
     }
     return text;
   };
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const text = await Promise.race([
       collect(),
@@ -278,7 +278,7 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
     cloudLlmCooldownUntil = Date.now() + CLOUD_LLM_COOLDOWN_MS;
     return null;
   } finally {
-    clearTimeout(timer!);
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -313,7 +313,7 @@ export async function chatViaCloudLlm(data?: {
 }): Promise<CloudChatResult | null> {
   const message = String((data && data.message) || '');
   if (!message.trim()) return null;
-  const memories = Array.isArray(data && data.memories) ? data!.memories! : [];
+  const memories = data && Array.isArray(data.memories) ? data.memories : [];
   const system = pickSystemPrompt({
     work: data && data.mode === 'work' && data.workAction ? { action: data.workAction } : undefined,
     deep: !!(data && data.deep),
@@ -503,7 +503,7 @@ export async function extractViaCloudLlm(data?: {
   images?: string[];
 }): Promise<ExtractResult | null> {
   const content = String((data && data.content) || '').trim();
-  const imageCount = Array.isArray(data && data.images) ? data!.images!.length : 0;
+  const imageCount = data && Array.isArray(data.images) ? data.images.length : 0;
   if (!content && imageCount === 0) return null;
   if (!content) {
     console.warn('[cloudLlm] extract: only images given — cloud.llm channel has no multimodal support, skip');
