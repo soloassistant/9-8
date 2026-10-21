@@ -1,5 +1,5 @@
 import { loadEnvLocal } from './src/env.js';
-await loadEnvLocal('D:/Agent');
+await loadEnvLocal('D:/Agent/晨报');
 
 const apiKey = process.env.CODEFIX_LLM_API_KEY;
 const baseUrl = process.env.CODEFIX_LLM_BASE_URL;

@@ -1,7 +1,7 @@
 import { loadEnvLocal } from './src/env.js';
 import { requestFixes } from './src/llm.js';
 
-await loadEnvLocal('D:/Agent');
+await loadEnvLocal('D:/Agent/晨报');
 
 try {
   const r = await requestFixes({

@@ -130,7 +130,7 @@ https.get = hook();
 https.request = hook();
 
 /* ---------------- 载入真实模块 ---------------- */
-const ws = require('D:/Agent/cloudfunctions/webSearch/index.js');
+const ws = require('D:/Agent/晨报/cloudfunctions/webSearch/index.js');
 const { filterNewsItems, getHotspotNews } = ws.__internals;
 const poisonItem = () => ({ title: makePoison(), summary: '', source: '量子位', tags: [] });
 

@@ -8,7 +8,7 @@ import { createServer } from 'http';
 
 // 读取 .env.local
 function loadEnv() {
-  const envPath = 'D:/Agent/.env.local';
+  const envPath = 'D:/Agent/晨报/.env.local';
   if (!existsSync(envPath)) return {};
   const content = readFileSync(envPath, 'utf8');
   const env = {};

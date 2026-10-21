@@ -1,6 +1,6 @@
 // 独立复核：不复用生成逻辑，直接按 UTF-8 读盘断言。
 const fs = require('fs');
-const p = 'D:/Agent/src/services/api.ts';
+const p = 'D:/Agent/晨报/src/services/api.ts';
 const s = fs.readFileSync(p, 'utf8');
 
 const checks = [
@@ -19,7 +19,7 @@ for (const [name, ok] of checks) {
 }
 
 // localProfile.ts 同样检查
-const q = 'D:/Agent/src/services/localProfile.ts';
+const q = 'D:/Agent/晨报/src/services/localProfile.ts';
 const t = fs.readFileSync(q, 'utf8');
 for (const [name, ok] of [
   ['localProfile 无 U+FFFD', !t.includes('\uFFFD')],

@@ -1,15 +1,15 @@
 // 扫描本轮改动过的文件里的 U+FFFD（编码损坏）与 GBK 乱码残留，并打印上下文。
 const fs = require('fs');
 const files = [
-  'D:/Agent/cloudfunctions/webSearch/index.js',
-  'D:/Agent/src/services/localProfile.ts',
-  'D:/Agent/src/services/api.ts',
-  'D:/Agent/docs/未完成任务交接单-2026-10-08.md',
-  'D:/Agent/.tools/test-trust-filter.js',
-  'D:/Agent/.tools/test-trust-filter-incident.js',
-  'D:/Agent/.tools/test-trust-filter-corpus.js',
-  'D:/Agent/.tools/verify-auth-wiring.js',
-  'D:/Agent/.tools/fixtures/incident-2026-10-08-poisoned-feed.json'
+  'D:/Agent/晨报/cloudfunctions/webSearch/index.js',
+  'D:/Agent/晨报/src/services/localProfile.ts',
+  'D:/Agent/晨报/src/services/api.ts',
+  'D:/Agent/晨报/docs/未完成任务交接单-2026-10-08.md',
+  'D:/Agent/晨报/.tools/test-trust-filter.js',
+  'D:/Agent/晨报/.tools/test-trust-filter-incident.js',
+  'D:/Agent/晨报/.tools/test-trust-filter-corpus.js',
+  'D:/Agent/晨报/.tools/verify-auth-wiring.js',
+  'D:/Agent/晨报/.tools/fixtures/incident-2026-10-08-poisoned-feed.json'
 ];
 
 let total = 0;
@@ -31,10 +31,10 @@ for (const f of files) {
     });
   }
   if (!hits.length) {
-    console.log(`CLEAN ${f.replace('D:/Agent/', '')}`);
+    console.log(`CLEAN ${f.replace('D:/Agent/晨报/', '')}`);
   } else {
     total += hits.length;
-    console.log(`DIRTY ${f.replace('D:/Agent/', '')}  (${hits.length} 处)`);
+    console.log(`DIRTY ${f.replace('D:/Agent/晨报/', '')}  (${hits.length} 处)`);
     hits.forEach((h) => console.log(`      ${h.n}  [${h.why}]  ${h.line.slice(0, 110)}`));
   }
 }

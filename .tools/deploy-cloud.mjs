@@ -3,7 +3,7 @@
  *
  * 用法：npm run deploy:cloud（等价 node .tools/deploy-cloud.mjs）
  *
- * 配置来源：D:/Agent/.env.local（该文件为服务端本地文件，不会进小程序包），三个约定 key：
+ * 配置来源：D:/Agent/晨报/.env.local（该文件为服务端本地文件，不会进小程序包），三个约定 key：
  *   WX_APPID=             小程序 AppID
  *   WX_PRIVATE_KEY_PATH=  代码上传密钥文件的绝对路径
  *   WX_CLOUD_ENV=         微信云开发环境 ID
@@ -44,7 +44,7 @@ const missing = [
   ['WX_APPID', appid,
     'mp.weixin.qq.com 用注册邮箱登录小程序后台 → 「管理 → 开发管理 → 开发设置」页首即 AppID（小程序 ID），复制粘贴'],
   ['WX_PRIVATE_KEY_PATH', privateKeyPath,
-    '同一「开发设置」页 → 「小程序代码上传」小节 → 点击「生成」并下载代码上传密钥（.key 文件），保存到本机任意位置（建议放 D:/Agent 外的私有目录，切勿提交进仓库），此处填该文件的绝对路径；如已开启 IP 白名单，需把本机出口 IP 加入白名单或临时关闭'],
+    '同一「开发设置」页 → 「小程序代码上传」小节 → 点击「生成」并下载代码上传密钥（.key 文件），保存到本机任意位置（建议放 D:/Agent/晨报 外的私有目录，切勿提交进仓库），此处填该文件的绝对路径；如已开启 IP 白名单，需把本机出口 IP 加入白名单或临时关闭'],
   ['WX_CLOUD_ENV', cloudEnv,
     'mp.weixin.qq.com → 「云开发」进入云开发控制台 → 首页环境列表中的「环境 ID」（形如 cloud1-2gabcdef12345678）']
 ].filter(([, v]) => !v);

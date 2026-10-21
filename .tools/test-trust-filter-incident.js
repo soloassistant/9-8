@@ -19,7 +19,7 @@ Module._load = function (request) {
 const fs = require('fs');
 const { assessNewsItem, filterNewsItems } = require('../cloudfunctions/webSearch/index.js').__internals;
 
-const fx = JSON.parse(fs.readFileSync('D:/Agent/.tools/fixtures/incident-2026-10-08-poisoned-feed.json', 'utf8'));
+const fx = JSON.parse(fs.readFileSync('D:/Agent/晨报/.tools/fixtures/incident-2026-10-08-poisoned-feed.json', 'utf8'));
 const items = fx.items;
 
 let pass = 0,

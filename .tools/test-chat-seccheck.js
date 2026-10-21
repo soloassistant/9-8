@@ -59,7 +59,7 @@ Module._load = function (request) {
 };
 
 let LLM_REPLY = '这是一段正常的回答';
-const chat = require('D:/Agent/cloudfunctions/chat/index.js');
+const chat = require('D:/Agent/晨报/cloudfunctions/chat/index.js');
 
 let fail = 0;
 const check = (name, cond, detail) => {
