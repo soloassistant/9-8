@@ -425,16 +425,57 @@ async function aggregate(openid) {
 }
 
 /**
+ * P1a：定时推送尊重每位用户的 briefingTime（此前硬编码 7:30，briefingTime 形同虚设）。
+ * WeChat 定时触发器只能离散配置，故按小时分桶触发（config.json 里 brief05~brief09 各在
+ * 对应整点的 :30 触发），再在这里按用户 briefingTime 的小时分流：落在 [5,9] 的用户仅当
+ * 触发器小时 == 该小时才推送；不在支持区间或缺失 → 回落默认 7:30（由 brief07 触发）。
+ * 这样既让每位用户在自己设定的时刻附近收到晨报，又把单触发器要处理的用户量拆薄，
+ * 反而更不容易撞上 SCHEDULED_DEADLINE_MS 预算。
+ */
+const SUPPORTED_BRIEF_HOURS = [5, 6, 7, 8, 9];
+
+/** 从触发器事件解析「当前触发的是哪个整点」：优先触发器名（brief07→7），其次 cron 第三段，
+ *  最后兜底云函数运行环境当前小时。三档兜底保证即便事件字段缺失也不会把整批人漏发或错发。 */
+function resolveTriggerHour(event) {
+  const name = (event && event.TriggerName) || '';
+  const m = name.match(/(\d{1,2})$/);
+  if (m) {
+    const h = parseInt(m[1], 10);
+    if (h >= 0 && h <= 23) return h;
+  }
+  const cron = event && event.Cron;
+  if (cron) {
+    const parts = String(cron).trim().split(/\s+/);
+    if (parts.length >= 3) {
+      const h = parseInt(parts[2], 10);
+      if (!isNaN(h)) return h;
+    }
+  }
+  return new Date().getHours();
+}
+
+/** 用户应被推送的整点：取 briefingTime 的小时，不在支持区间则回落 7（默认 7:30）。 */
+function resolveUserHour(briefingTime) {
+  const hh = parseInt(String(briefingTime || '').trim().split(':')[0], 10);
+  if (SUPPORTED_BRIEF_HOURS.includes(hh)) return hh;
+  return 7;
+}
+
+/**
  * 定时批量晨报 + 订阅消息推送。
  * 云开发定时触发器默认触发 exports.main（event.Type='Timer'），故 main 内路由；
  * 保留 exports.scheduled 以兼容控制台显式指定 handler 的旧触发器配置。
  * 订阅消息模板 ID 通过环境变量 SUBSCRIBE_TEMPLATE_ID 注入。
  */
-async function runScheduled() {
+async function runScheduled(event) {
   const templateId = process.env.SUBSCRIBE_TEMPLATE_ID;
   const startedAt = Date.now();
   const usersRes = await db.collection('users').limit(SCHEDULED_USER_BATCH_MAX).get();
-  const users = (usersRes && usersRes.data) || [];
+  const allUsers = (usersRes && usersRes.data) || [];
+  // P1a：按当前触发整点分流，只保留本小时应推送的用户；统计口径也只算这批人，
+  // scanned 记录全量以便核对被分桶到其他时段的用户数。
+  const triggerHour = resolveTriggerHour(event);
+  const users = allUsers.filter((u) => resolveUserHour(u.briefingTime) === triggerHour);
   const total = users.length;
   let ok = 0;
   let failed = 0;
@@ -511,9 +552,9 @@ async function runScheduled() {
   }
 
   const elapsedMs = Date.now() - startedAt;
-  const summary = { total, ok, failed, skipped, unsubscribed, elapsedMs };
+  const summary = { triggerHour, scanned: allUsers.length, total, ok, failed, skipped, unsubscribed, elapsedMs };
   // 有声：此前无返回值、无汇总日志，超时/失败完全静默（不报错、不崩溃，只是无声少给了一些人）
-  const line = `[getBriefing.scheduled] total=${total} ok=${ok} failed=${failed} skipped=${skipped} unsubscribed=${unsubscribed} elapsedMs=${elapsedMs}`;
+  const line = `[getBriefing.scheduled] triggerHour=${triggerHour} scanned=${allUsers.length} total=${total} ok=${ok} failed=${failed} skipped=${skipped} unsubscribed=${unsubscribed} elapsedMs=${elapsedMs}`;
   if (failed > 0 || skipped > 0) console.error(line);
   else console.log(line);
   return summary;
@@ -521,7 +562,7 @@ async function runScheduled() {
 
 exports.main = async (event = {}) => {
   // 定时触发器无 OPENID（getWXContext 为空），必须先于用户路径分流
-  if (event.Type === 'Timer' || event.TriggerName) return runScheduled();
+  if (event.Type === 'Timer' || event.TriggerName) return runScheduled(event);
 
   const { OPENID } = cloud.getWXContext();
   const today = todayStr();
