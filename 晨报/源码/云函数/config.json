@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "openapi": [
+      "subscribeMessage.send",
+      "security.msgSecCheck"
+    ]
+  },
+  "triggers": [
+    {
+      "name": "brief05",
+      "type": "timer",
+      "config": "0 30 5 * * * *"
+    },
+    {
+      "name": "brief06",
+      "type": "timer",
+      "config": "0 30 6 * * * *"
+    },
+    {
+      "name": "brief07",
+      "type": "timer",
+      "config": "0 30 7 * * * *"
+    },
+    {
+      "name": "brief08",
+      "type": "timer",
+      "config": "0 30 8 * * * *"
+    },
+    {
+      "name": "brief09",
+      "type": "timer",
+      "config": "0 30 9 * * * *"
+    }
+  ]
+}

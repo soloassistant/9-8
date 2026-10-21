@@ -1,0 +1,915 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, var(--brand-soft, #{$color-bg-header}) 0%, $color-bg-page 480rpx);
+  padding-bottom: 360rpx;
+}
+
+.header {
+  padding: $spacing-lg $page-padding $spacing-lg;
+}
+
+.headerTop {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-md;
+}
+
+.headerMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.searchButton {
+  @include button-reset;
+  width: 72rpx; // 显式定宽：taro-button-core 默认 width:100%
+  height: 72rpx;
+  flex-shrink: 0;
+  border-radius: $radius-round;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: $shadow-card;
+  font-size: 32rpx;
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.92);
+  }
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  flex-shrink: 0;
+}
+
+/* F20 音频晨报：🔊 播报 / ⏹ 停止 */
+.audioButton {
+  @include button-reset;
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: $radius-round;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: $shadow-card;
+  font-size: 32rpx;
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.92);
+  }
+}
+
+.audioButtonActive {
+  background: var(--brand, $color-secondary);
+  animation: audio-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes audio-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--brand-soft, rgba(0, 0, 0, 0.08));
+  }
+  50% {
+    box-shadow: 0 0 0 10rpx transparent;
+  }
+}
+
+.greeting {
+  font-size: $font-size-xxl;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-xs;
+}
+
+.dateRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.date {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 $spacing-sm;
+  height: 36rpx;
+  font-size: $font-size-xs;
+  color: $color-gold;
+  background: rgba(247, 186, 30, 0.15);
+  border-radius: $radius-xs;
+}
+
+/* v2.1 晨报连续阅读：页头打卡徽标（今日未读=呼吸态，已读=实心高亮） */
+.readStreak {
+  display: inline-flex;
+  align-items: center;
+  gap: 4rpx;
+  padding: 0 $spacing-sm;
+  height: 36rpx;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  background: rgba(232, 93, 42, 0.1);
+  border-radius: $radius-xs;
+}
+
+.readStreakDone {
+  color: #fff;
+  background: var(--brand, #{$color-secondary});
+}
+
+.readStreakFlame {
+  font-size: 22rpx;
+}
+
+.readStreakText {
+  font-size: $font-size-xs;
+}
+
+/* v2.1 达成门槛提示条：今日未达成「有效阅读」时展示 */
+.readHintBar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: rgba(232, 93, 42, 0.08);
+  border-radius: $radius-md;
+}
+
+.readHintIcon {
+  font-size: 26rpx;
+  flex-shrink: 0;
+}
+
+.readHintText {
+  flex: 1;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* F21 晨报自适应横幅：爆满前置 / 次日行程 / 高优待办点名 */
+.adaptiveBanner {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: var(--brand-soft, rgba(0, 0, 0, 0.04));
+  border-radius: $radius-md;
+}
+
+.adaptiveIcon {
+  font-size: 26rpx;
+  flex-shrink: 0;
+}
+
+.adaptiveText {
+  flex: 1;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* X6 周末轻量版横幅：仅生成侧标记 + 用户未关闭周末版时展示 */
+.weekendBanner {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: rgba(247, 186, 30, 0.12);
+  border-radius: $radius-md;
+}
+
+.weekendIcon {
+  font-size: 26rpx;
+  flex-shrink: 0;
+}
+
+.weekendText {
+  flex: 1;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* X8 连读徽章：连续打开晨报页 ≥2 天时出现在页头日期行 */
+.streakBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 $spacing-sm;
+  height: 36rpx;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  background: rgba(247, 186, 30, 0.15);
+  border-radius: $radius-xs;
+}
+
+/* X2 栏目署名：早报员人设挂在情报区块标题下方 */
+.curatorTag {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+/* X7 收尾冷知识：页面底部（免责页脚上方）小卡 */
+.triviaCard {
+  margin: $spacing-md $page-padding 0;
+  padding: $spacing-md $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.triviaTitle {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-xs;
+}
+
+.triviaText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+}
+
+/* L3 免责页脚：合规要求常驻（次级色小字） */
+.disclaimerFooter {
+  margin: $spacing-md $page-padding 0;
+  padding-bottom: $spacing-sm;
+  text-align: center;
+}
+
+.disclaimerText {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+.section {
+  margin: 0 $page-padding $spacing-md;
+  @include card-surface;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-lg;
+}
+
+.sectionIcon {
+  font-size: 30rpx;
+}
+
+.sectionTitle {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.sectionCount {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  margin-left: auto;
+}
+
+/* 负载条：今日日程负载可视化（busyMinutes 由 adaptive 透出，旧数据缺失不渲染）
+   三档配色：绿=宽松(<150min)、橙=偏满(150-299min)、红=爆满(≥300min 或 ≥4 项，与 busyDay 同口径) */
+.loadBar {
+  margin-bottom: $spacing-lg;
+}
+
+.loadLabel {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  margin-bottom: $spacing-xs;
+}
+
+.loadTrack {
+  height: 8rpx;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4rpx;
+  overflow: hidden;
+}
+
+.loadFill {
+  height: 100%;
+  border-radius: 4rpx;
+}
+
+.loadFillLow {
+  background: #34c777;
+}
+
+.loadFillMid {
+  background: #f7a417;
+}
+
+.loadFillHigh {
+  background: #e85d2a;
+}
+
+/* P1-G 本周复盘：过去 7 天计数 + 高频关键词 chips（weeklyReview 缺失/全 0 时整卡不渲染） */
+.weekCard {
+  margin-bottom: $spacing-lg;
+  padding: $spacing-md;
+  background: var(--brand-soft, rgba(0, 0, 0, 0.04));
+  border-radius: $radius-md;
+}
+
+.weekTitle {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-xs;
+}
+
+.weekStat {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.weekKeywordRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-top: $spacing-sm;
+}
+
+.weekKeywordLabel {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  flex-shrink: 0;
+}
+
+.weekChips {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.weekChip {
+  padding: 4rpx 16rpx;
+  font-size: $font-size-xs;
+  color: var(--brand, $color-primary);
+  background: rgba(255, 122, 69, 0.12);
+  border-radius: $radius-round;
+}
+
+/* v2.1 习惯守护：「设为习惯」入口（今日日程区块右上） */
+.habitAdd {
+  font-size: $font-size-xs;
+  color: var(--brand, $color-primary);
+  margin-left: $spacing-sm;
+  flex-shrink: 0;
+}
+
+.eventItem {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-md;
+  padding: $spacing-md;
+  background: $color-event-bg;
+  border-radius: $radius-md;
+  margin-bottom: $spacing-sm;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.timeBlock {
+  min-width: 96rpx;
+}
+
+.time {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-primary-dark;
+}
+
+.eventBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.eventTitle {
+  display: block;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  font-weight: $font-weight-medium;
+  @include text-ellipsis;
+}
+
+.eventLocation {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  margin-top: 4rpx;
+  @include text-ellipsis;
+}
+
+.todoItem {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-md;
+  background: $color-todo-bg;
+  border-radius: $radius-md;
+  margin-bottom: $spacing-sm;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.checkbox {
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: $radius-sm;
+  border: 2rpx solid $color-secondary;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.checkboxDone {
+  background: var(--brand, $color-secondary);
+  border-color: var(--brand, $color-secondary);
+}
+
+.checkboxMark {
+  color: $color-text-white;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+}
+
+.todoInline {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  min-width: 0;
+}
+
+.todoTitle {
+  flex: 1;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  @include text-ellipsis;
+}
+
+.todoDone {
+  color: $color-text-disabled;
+  text-decoration: line-through;
+}
+
+.todoDue {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.digestItem {
+  padding: $spacing-sm 0;
+  border-bottom: 1rpx solid $color-divider;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+/* 天气行：文字 + 定位授权按钮（H5 浏览器授权，weapp 走 wx.getLocation） */
+.weatherRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+}
+
+.locateBtn {
+  flex-shrink: 0;
+  padding: 6rpx 16rpx;
+  font-size: $font-size-xs;
+  color: $color-primary;
+  background: rgba(255, 122, 69, 0.12); // 品牌色 12% 底（主题色为 CSS 变量，scss 用固定近似值）
+  border-radius: $radius-round;
+}
+
+/* C-02 位置权限降级提示条：多次拒绝后常驻，附「去设置开启」 */
+.locDeniedBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  margin-top: $spacing-xs;
+  padding: 8rpx 16rpx;
+  background: rgba(255, 122, 69, 0.08);
+  border-radius: $radius-sm;
+}
+
+.locDeniedText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: $line-height-normal;
+}
+
+.locDeniedAction {
+  flex-shrink: 0;
+  padding: 4rpx 12rpx;
+  font-size: $font-size-xs;
+  color: $color-primary;
+  border: 1rpx solid rgba(255, 122, 69, 0.4);
+  border-radius: $radius-round;
+}
+
+.digestText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+  @include text-ellipsis-multi(2);
+}
+
+/* 今日情报：来源标注与降级/AI 说明（合规要求来源可见） */
+.digestSource {
+  display: block;
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.intelNote {
+  display: block;
+  margin-top: 8rpx;
+  font-size: $font-size-xs;
+  color: #999;
+}
+
+/* 增量 2：分组导语为 AI 生成内容的显式标识（挂在分组卡片之后、降级说明之前） */
+.intelLeadTag {
+  display: block;
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  color: #999;
+}
+
+.aiGeneratedTag {
+  text-align: center;
+  font-size: $font-size-sm;
+  color: #999;
+  padding: 8rpx 0 4rpx;
+}
+
+.chatEmpty {
+  display: flex;
+  justify-content: center;
+  padding: $spacing-xl 0;
+}
+
+.chatHint {
+  font-size: $font-size-sm;
+  color: $color-text-disabled;
+}
+
+.messages {
+  max-height: 560rpx;
+  margin: 0 $page-padding;
+}
+
+.messageRow {
+  display: flex;
+  margin-bottom: $spacing-md;
+
+  &.user {
+    justify-content: flex-end;
+  }
+}
+
+.bubble {
+  max-width: 520rpx;
+  padding: $spacing-md $spacing-lg;
+  border-radius: $radius-lg;
+  font-size: $font-size-md;
+  line-height: $line-height-normal;
+  word-break: break-all;
+
+  &.assistant {
+    background: $color-bg-card;
+    color: $color-text-primary;
+    box-shadow: $shadow-card;
+    border-top-left-radius: $radius-xs;
+  }
+
+  &.user {
+    background: var(--brand, #{$color-primary});
+    color: $color-text-white;
+    border-top-right-radius: $radius-xs;
+  }
+}
+
+.deepTag {
+  display: inline-block;
+  font-size: $font-size-xs;
+  opacity: 0.85;
+  margin-right: $spacing-xs;
+}
+
+.voiceTag {
+  display: inline-block;
+  font-size: $font-size-xs;
+  opacity: 0.8;
+  margin-right: $spacing-xs;
+}
+
+.inputBar {
+  position: fixed;
+  left: $spacing-md;
+  right: $spacing-md;
+  bottom: 16rpx; // 略抬离底部，不贴手势条/TabBar
+  z-index: var(--z-tabbar);
+  padding: $spacing-sm $spacing-md;
+  background: $color-bg-card;
+  border-radius: $radius-lg; // 浮岛造型
+  box-shadow: $shadow-float;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+/* H5 预览端：避让底部 TabBar（实测固定 50px）并再上移一点。
+   ⚠️ 这里**必须**用大写 `PX` 逃过 Taro pxtransform：在 Taro H5 里小写 px 会被当作**设计 px（750 基准）**
+   编译成 rem —— `66px` → `1.76rem`，在 375 视口只有 33px，于是"避让 50px TabBar"实际只避让了 33px，
+   输入栏底部 17px 被 TabBar 压住（2026-10-09 线上实测 375 / 390 / 1280 三档分别重叠 17 / 15.7 / 6 px）。
+   大小写不敏感是 CSS 规范行为，大写只是给构建器看的。 */
+.h5Fix {
+  bottom: calc(66PX + env(safe-area-inset-bottom));
+}
+
+.quickRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding-bottom: $spacing-xs;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 滚动条被藏起来后，第 4 个 chip（「今日热点」）在容器右缘被截断，
+     看起来像「按钮坏了」而不是「还能往右滑」（2026-10-12 登录态实测 640px 视口）。
+     加一道右侧渐隐做可滚动暗示；末尾留白，保证 chip 不贴着渐变被吃掉。 */
+  padding-right: $spacing-lg;
+  mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+}
+
+.quickChip {
+  @include button-reset;
+  display: inline-flex;
+  align-items: center;
+  gap: 6rpx;
+  flex-shrink: 0;
+  height: 56rpx;
+  padding: 0 $spacing-md;
+  border-radius: $radius-round;
+  background: var(--brand-soft, #{$color-voice-bg});
+  color: $color-text-secondary;
+  font-size: $font-size-xs;
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.96);
+    opacity: 0.85;
+  }
+}
+
+.quickChipIcon {
+  font-size: 26rpx;
+}
+
+.quickChipLabel {
+  font-weight: $font-weight-medium;
+}
+
+.clearButton {
+  @include button-reset;
+  width: 48rpx;
+  height: 48rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $radius-round;
+  background: $color-bg-page;
+  @include text-tertiary-sm;
+  transition: all $transition-fast;
+
+  &:active {
+    background: $color-divider;
+  }
+}
+
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.textInput {
+  flex: 1;
+  height: $button-height-md;
+  background: $color-bg-page;
+  border-radius: $radius-button;
+  padding: 0 $spacing-lg;
+  font-size: $font-size-md;
+  transition: box-shadow $transition-fast;
+
+  &:focus-within {
+    box-shadow: 0 0 0 2rpx $color-secondary-light;
+  }
+}
+
+.sendButton {
+  @include button-reset;
+  width: 124rpx; // 显式定宽：taro-button-core 默认 width:100% 会把 flex:1 的输入框挤成 0 宽
+  flex-shrink: 0;
+  height: $button-height-md;
+  border-radius: $radius-round;
+  background: var(--brand, $color-secondary);
+  color: $color-text-white;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  line-height: $button-height-md;
+  transition: all $transition-fast;
+
+  &:active {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+}
+
+.modeButton {
+  @include button-reset;
+  width: 72rpx; // 显式定宽：taro-button-core 默认 width:100%
+  height: $button-height-md;
+  min-width: 72rpx;
+  flex-shrink: 0;
+  border-radius: $radius-button;
+  background: $color-bg-page;
+  color: $color-text-secondary;
+  font-size: 32rpx;
+  white-space: nowrap;
+  transition: all $transition-fast;
+
+  &:active {
+    transform: scale(0.98);
+  }
+}
+
+.modeActive {
+  background: var(--brand-soft, #{$color-voice-bg});
+  color: var(--brand-deep, #{$color-primary-dark});
+  box-shadow: 0 0 0 2rpx var(--brand, #{$color-primary}) inset;
+}
+
+.subscribeTip {
+  margin: $spacing-md $page-padding 0;
+  padding: $spacing-md $spacing-lg;
+  background: rgba(247, 186, 30, 0.1);
+  border: 1rpx solid rgba(247, 186, 30, 0.4);
+  border-radius: $radius-md;
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.tipIcon {
+  font-size: 30rpx;
+}
+
+.tipText {
+  flex: 1;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.tipAction {
+  @include button-reset;
+  width: auto; // 覆盖默认 width:100%，避免把 flex:1 的提示文字挤成竖排
+  height: $button-height-sm;
+  padding: 0 $spacing-lg;
+  border-radius: $radius-button;
+  background: $color-gold;
+  color: $color-text-white;
+  font-size: $font-size-sm;
+  white-space: nowrap;
+  transition: all $transition-fast;
+
+  &:active {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+}
+
+.usageHint {
+  margin: $spacing-md $page-padding 0;
+  text-align: center;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+/* AI 发图（F25）：气泡内配图，点击全屏预览 */
+.msgImage {
+  display: block;
+  width: 320rpx;
+  height: 220rpx;
+  margin-top: $spacing-xs;
+  border-radius: $radius-md;
+}
+
+
+/* v2.1 高风险习惯调整方案：容器与提示 */
+.habitProposalWrap {
+  margin: $spacing-md $page-padding 0;
+}
+
+.habitProposalHint {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+/* v2.1 习惯自动挪动 toast：贴安全区上方，5 秒内可撤销 */
+.habitToast {
+  position: fixed;
+  left: $page-padding;
+  right: $page-padding;
+  bottom: 320rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  background: rgba(255, 122, 69, 0.12);
+  border: 1rpx solid rgba(255, 122, 69, 0.28);
+  border-radius: $radius-md;
+  box-shadow: $shadow-float;
+  z-index: var(--z-dialog);
+}
+
+.habitToastText {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  line-height: $line-height-normal;
+  @include text-ellipsis;
+}
+
+.habitToastUndo {
+  flex-shrink: 0;
+  padding: 4rpx 20rpx;
+  border-radius: $radius-round;
+  background: var(--brand, $color-primary);
+  color: $color-text-white;
+  font-size: $font-size-xs;
+}
+
+/* U-01 骨架屏后真实内容淡入（≤200ms） */
+.contentFade {
+  animation: briefing-content-fade 200ms ease-out both;
+}
+
+@keyframes briefing-content-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+

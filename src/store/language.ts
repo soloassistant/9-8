@@ -216,7 +216,7 @@ const zh = {
   'briefing.sectionFav': '昨日收藏精选',
   'briefing.chatHint': '和助理说点什么，或按住麦克风说话',
   'briefing.aiTag': '— AI 生成内容，仅供参考 —',
-  'briefing.inputPlaceholder': '输入指令，如「把评审会挪到明天」',
+  'briefing.inputPlaceholder': '说点什么…', // D2：原长文案在 414px 手机宽度下被截断（2026-10-21 视觉巡检复现），按问题总表解法改短
   'briefing.deepPlaceholder': '深思中：说说你在纠结什么',
   'briefing.deepToggle': '深度思考开关',
   'briefing.subscribe': '订阅',

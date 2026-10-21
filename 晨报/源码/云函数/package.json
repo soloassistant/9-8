@@ -1,0 +1,9 @@
+{
+  "name": "getBriefing",
+  "version": "1.0.0",
+  "description": "获取今日晨报（无则即时聚合生成）；定时触发器每日生成并推送订阅消息",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

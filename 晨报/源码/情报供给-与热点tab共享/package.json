@@ -1,0 +1,9 @@
+{
+  "name": "webSearch",
+  "version": "1.0.0",
+  "description": "联网内容聚合：热点页 RSS 资讯流（标注来源）+ 今日情报（和风天气+偏好RSS+LLM摘要，订阅专属，日限额10）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}
