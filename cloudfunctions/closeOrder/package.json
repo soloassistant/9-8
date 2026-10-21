@@ -1,0 +1,9 @@
+{
+  "name": "closeOrder",
+  "version": "1.0.0",
+  "description": "关单云函数 — 定时关闭超时未支付订单 + 回调丢失时的资损兜底对账",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

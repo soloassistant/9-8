@@ -1,0 +1,10 @@
+{
+  "name": "queryOrder",
+  "version": "1.0.0",
+  "description": "主动查单云函数 — 三通道订单状态查询 + 已付未记账对账（queryOrder reconcile）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3",
+    "alipay-sdk": "^3.4.0"
+  }
+}

@@ -415,8 +415,10 @@ function MinePage() {
         const payRes = await invokePayment(channel, result.payment);
         if (payRes.success) {
           Taro.showToast({ title: '支付成功', icon: 'success' });
-          // 订阅状态由 pay-callback 云函数异步回写 users.expiredAt，
-          // 前端下一次进入「我的」页会通过 useUserStore().init() 拉到最新状态
+          // 主动查单：pay-callback 云函数异步回写 users.expiredAt
+          // 用 init() 拉最新 profile，避免用户付完还要等下次进 mine 才看到订阅状态
+          // 短延时 1.5s 给 pay-callback 足够时间处理（微信 cloudPay 回调快，支付宝/抖音 HTTP 稍慢）
+          setTimeout(() => { void init(); }, 1500);
         }
       } catch (payErr) {
         const msg = String(payErr?.message || payErr || '');

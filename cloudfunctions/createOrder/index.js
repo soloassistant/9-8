@@ -40,8 +40,9 @@ exports.main = async (event) => {
   }
 
   // 通道特定入参校验
-  if (channel === 'alipay' && !event.buyerId) {
-    throw new Error('alipay 通道需要 buyerId（2088 开头的支付宝 userId）');
+  if (channel === 'alipay') {
+    if (!event.buyerId) throw new Error('alipay 通道需要 buyerId（2088 开头的支付宝 userId）');
+    if (!/^2088\d{12,14}$/.test(event.buyerId)) throw new Error('buyerId 格式不对（必须 2088 开头、16-18 位数字）');
   }
   if (channel === 'douyin' && !event.openid) {
     throw new Error('douyin 通道需要 openid（抖音小程序 code → code2Session）');

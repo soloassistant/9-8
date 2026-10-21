@@ -44,9 +44,9 @@ exports.main = async (event) => {
       outTradeNo: orderId,
       totalFee: fee,
       feeType: 'CNY',
-      subMchId: cloud.DYNAMIC_CURRENT_ENV.includes('prod')
-        ? process.env.PAY_WX_SUB_MCH_ID || ''
-        : '',
+      // subMchId 仅服务商模式（有多个商户号）需要；直连商户留空字符串。
+      // 读取 PAY_WX_SUB_MCH_ID 环境变量，不按 env 名猜（env 名里出现 'prod' 不代表是生产）。
+      subMchId: process.env.PAY_WX_SUB_MCH_ID || '',
       attach: attach || '',
       envId: cloud.DYNAMIC_CURRENT_ENV,
       functionName: 'pay-callback'
