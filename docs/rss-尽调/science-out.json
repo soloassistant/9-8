@@ -1,0 +1,110 @@
+[
+  {
+    "name": "NASA 新闻发布",
+    "url": "https://www.nasa.gov/news-release/feed/",
+    "reason": "两轮实测 10/10 存活、最新 0.35 天前；NASA 官方一手科研任务新闻，权威性最高",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "NASA 快讯",
+    "url": "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+    "reason": "两轮实测 10/10 存活、最新 0.35 天前；NASA 官方综合快讯含每日天文图，覆盖天文+科学",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "Scientific American",
+    "url": "https://www.scientificamerican.com/platform/syndication/rss/",
+    "reason": "两轮实测 10/10 存活、最新 0.33 天前；1845 年老牌科普权威，科学与人文深度兼具",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "Science News",
+    "url": "https://www.sciencenews.org/feed",
+    "reason": "两轮实测 10/10 存活、最新 0.24 天前；百年独立科学新闻机构，署名规范，覆盖面广",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "ScienceDaily",
+    "url": "https://www.sciencedaily.com/rss/all.xml",
+    "reason": "两轮实测 10/10 存活、最新 0.66 天前；科研通稿聚合，时效极高，注意深度参差",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "Phys.org",
+    "url": "https://phys.org/rss-feed/",
+    "reason": "两轮实测 10/10 存活、最新 0.06 天前；科学聚合门户，日更多条，补充广度",
+    "latestItemDate": "2026-10-21"
+  },
+  {
+    "name": "Space.com",
+    "url": "https://www.space.com/feeds/all",
+    "reason": "两轮实测 10/10 存活、最新 0.26 天前；太空专业媒体，单日多条",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "EarthSky",
+    "url": "https://earthsky.org/feed/",
+    "reason": "两轮实测 10/10 存活、最新 0.73 天前；天文/地球科普，引用期刊与 NASA/NOAA 数据，适合晨报轻阅读",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "Smithsonian 杂志",
+    "url": "https://www.smithsonianmag.com/rss/latest_articles/",
+    "reason": "两轮实测 10/10 存活、最新 0.31 天前；史密森尼综合科普（自然/历史），图文质量高",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "环球科学",
+    "url": "https://www.huanqiukexue.com/?feed=rss2",
+    "reason": "两轮实测均过闸门、最新 2.66 天前（约日更）；中文候选里唯一高质量源，《科学美国人》中文版，援引同行评审论文",
+    "latestItemDate": "2026-10-18"
+  },
+  {
+    "name": "NutritionFacts.org",
+    "url": "https://nutritionfacts.org/feed/",
+    "reason": "两轮实测均过闸门、最新 0.7 天前；循证营养博客、附 PubMed 文献，⚠️ 低频（约一周 2 更）与作者饮食立场需知",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "中外对话",
+    "url": "https://chinadialogue.net/feed",
+    "reason": "两轮实测均过闸门、最新 5.47 天前（踩 7 天闸门边缘，10 条仅 3 条存活）；已迁移至 dialogue.earth，环境深度报道，⚠️ 涉环境政策内容需 [audit]/信任过滤",
+    "latestItemDate": "2026-10-15"
+  },
+  {
+    "name": "Yale Environment 360",
+    "url": "https://e360.yale.edu/feed.xml",
+    "reason": "两轮实测均过闸门、最新 0.68 天前；耶鲁背景环境媒体，一周约 3-4 更，调查深度好",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "Psychology Today",
+    "url": "https://www.psychologytoday.com/us/front/feed",
+    "reason": "两轮实测 10/10 存活、最新 0.16 天前；持证专家心理学博客聚合，每日 15-20 篇",
+    "latestItemDate": "2026-10-21"
+  },
+  {
+    "name": "Runner's World",
+    "url": "https://www.runnersworld.com/rss/all.xml/",
+    "reason": "两轮实测 10/10 存活、最新 0.35 天前；Hearst 旗下权威跑步媒体，运动科学维度",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "Outside",
+    "url": "https://www.outsideonline.com/feed/",
+    "reason": "两轮实测 10/10 存活、最新 0.21 天前；知名户外媒体，长篇特写好，⚠️ 含装备推广内容需过滤",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "Men's Health",
+    "url": "https://www.menshealth.com/rss/all.xml/",
+    "reason": "两轮实测 10/10 存活、最新 0.34 天前；Hearst 旗下男性健康媒体，健身/营养",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "NASA Science",
+    "url": "https://science.nasa.gov/feed/",
+    "reason": "两轮实测 10/10 存活、最新 0.03 天前；NASA 全站 feed（APOD/地球观测/极端天气），一源覆盖 science+astronomy+climate",
+    "latestItemDate": "2026-10-21"
+  }
+]

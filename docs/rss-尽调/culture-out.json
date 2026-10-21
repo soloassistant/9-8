@@ -1,0 +1,44 @@
+[
+  {
+    "name": "Variety",
+    "url": "https://variety.com/feed/",
+    "reason": "两轮实测 10/10 存活、最新 0.03 天前；好莱坞权威行业媒体，小时级更新，类目标杆源",
+    "latestItemDate": "2026-10-21"
+  },
+  {
+    "name": "Hollywood Reporter",
+    "url": "https://www.hollywoodreporter.com/feed/",
+    "reason": "两轮实测 10/10 存活、最新 0.08 天前；电影/电视/颁奖权威行业媒体，与 Variety 互补",
+    "latestItemDate": "2026-10-21"
+  },
+  {
+    "name": "Billboard",
+    "url": "https://www.billboard.com/feed/",
+    "reason": "两轮实测 10/10 存活、最新 0.08 天前；音乐产业权威（榜单/商业），部分正文付费墙但标题摘要可读",
+    "latestItemDate": "2026-10-21"
+  },
+  {
+    "name": "Rolling Stone",
+    "url": "https://www.rollingstone.com/feed/",
+    "reason": "两轮实测 10/10 存活、最新 0.13 天前；老牌音乐/影视/文化媒体，⚠️ feed 混有时政新闻，需精选层过滤",
+    "latestItemDate": "2026-10-21"
+  },
+  {
+    "name": "Pitchfork",
+    "url": "https://pitchfork.com/rss/news/",
+    "reason": "两轮实测 10/10 存活、最新 0.29 天前；Condé Nast 旗下权威音乐媒体，新专辑/巡演/行业",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "Stereogum",
+    "url": "https://stereogum.com/feed",
+    "reason": "两轮实测 10/10 存活、最新 0.34 天前；独立音乐头部博客，小时级更新，署名清晰",
+    "latestItemDate": "2026-10-20"
+  },
+  {
+    "name": "IndieWire",
+    "url": "https://www.indiewire.com/feed/rss/",
+    "reason": "两轮实测 10/10 存活、最新 0.28 天前；独立电影影评/专题，质量高，补足产业报道之外的评论维度",
+    "latestItemDate": "2026-10-20"
+  }
+]

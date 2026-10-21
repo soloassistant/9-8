@@ -1,0 +1,372 @@
+[
+  {
+    "name": "NASA 新闻发布",
+    "url": "https://www.nasa.gov/news-release/feed/",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "NASA 官方新闻稿：航天任务/科研/航空，权威一手信源，hourly 更新；两轮 10/10 存活"
+  },
+  {
+    "name": "NASA 快讯",
+    "url": "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "NASA 官方综合快讯（含 APOD），权威一手信源，hourly 更新；两轮 10/10 存活"
+  },
+  {
+    "name": "Nature",
+    "url": "https://www.nature.com/nature.rss",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：nature.rss 为 RSS 1.0(RDF) 结构 —— 生产 parseRss 的正则首个 <item> 匹配到 <items> 资源容器（内部无 title），解析出的条目标题全空，用户端将看到空白卡片；与官方权威性无关，属结构不兼容"
+  },
+  {
+    "name": "Scientific American",
+    "url": "https://www.scientificamerican.com/platform/syndication/rss/",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "《科学美国人》1845 年创刊老牌科普权威：科学/太空/医学/气候深度报道，每日多条；两轮 10/10 存活"
+  },
+  {
+    "name": "Science News",
+    "url": "https://www.sciencenews.org/feed",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "1921 年创刊独立科学新闻机构：物理/健康/太空/古生物/神经科学，署名规范；两轮 10/10 存活"
+  },
+  {
+    "name": "ScienceDaily",
+    "url": "https://www.sciencedaily.com/rss/all.xml",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "科研新闻聚合：多转自高校/机构通稿，可信度中上，时效极高；⚠️ 深度偏浅、偶有标题党（其 /rss/health.xml 子 feed 已 404 下线）"
+  },
+  {
+    "name": "Phys.org",
+    "url": "https://phys.org/rss-feed/",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-21",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "科学新闻聚合门户：覆盖数理/生命/地球/环境，更新极快；二手转述类内容多，原创深度参差"
+  },
+  {
+    "name": "Space.com",
+    "url": "https://www.space.com/feeds/all",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "知名太空专业媒体：SpaceX/NASA/火星任务/天文观测，单日多条；两轮 10/10 存活"
+  },
+  {
+    "name": "EarthSky",
+    "url": "https://earthsky.org/feed/",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "天文与地球科学科普：流星雨指南/空间天气，引用 Nature 等期刊与 NASA/NOAA 一手数据；两轮 10/10 存活"
+  },
+  {
+    "name": "Smithsonian 杂志",
+    "url": "https://www.smithsonianmag.com/rss/latest_articles/",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "史密森尼杂志综合科普：自然/历史/考古/科学 smart-news，图文并茂；本轮实测 rss/latest_articles/ 路径可用，两轮 10/10 存活"
+  },
+  {
+    "name": "环球科学",
+    "url": "https://www.huanqiukexue.com/?feed=rss2",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-18",
+    "itemsCount": 10,
+    "language": "zh-Hans",
+    "notes": "《科学美国人》中文版，本轮中文候选里唯一高质量通过源：援引同行评审论文，实测约日更（10 条中 5 条存活、最新 2.66 天前，此前 2026-09 记录为半月更已改善）；建议保留观察"
+  },
+  {
+    "name": "NutritionFacts.org",
+    "url": "https://nutritionfacts.org/feed/",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "循证营养博客：医生主笔、大量附 PubMed 文献，质量高；⚠️ 低频（约一周 2 更，10 条仅 2 条存活），且作者有植物性饮食倡导立场，证据取舍需读者注意"
+  },
+  {
+    "name": "NASA Climate",
+    "url": "https://www.nasa.gov/rss/dyn/climate.rss",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 404 —— climate.nasa.gov 旧 feed 路径已失效；已由 science.nasa.gov/feed/（NASA Science，本轮 ADOPT）替补覆盖气候内容"
+  },
+  {
+    "name": "WWF",
+    "url": "https://www.worldwildlife.org/rss/press-releases.cfm",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 403 —— WWF 官网反爬，feed 路径对生产 UA 拒绝（首页 autodiscovery 也被 403，无法找路径）"
+  },
+  {
+    "name": "中外对话",
+    "url": "https://chinadialogue.net/feed",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-15",
+    "itemsCount": 10,
+    "language": "en",
+    "notes": "原 chinadialogue.net 已重定向至 dialogue.earth（2026 年品牌迁移，生产 fetch 跟随重定向可用）；气候环境深度报道，署名规范。⚠️ 边缘过闸：最新 5.47 天前、10 条仅 3 条存活；且内容涉环境政策报道，采纳需走 [audit] 与信任过滤"
+  },
+  {
+    "name": "UNEP",
+    "url": "https://www.unep.org/rss.xml",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 404 —— unep.org/rss.xml 已不存在（疑官网改版）"
+  },
+  {
+    "name": "National Geographic",
+    "url": "https://www.nationalgeographic.com/rss/",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 404 —— 首页无 autodiscovery、/rss/ 路径 404，国家地理已取消公开 RSS（国内访问其内容可继续走聚合板块）"
+  },
+  {
+    "name": "Guardian 环境",
+    "url": "https://www.theguardian.com/environment/rss",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：两轮实测均 >8s 超时、复核轮直接连接失败 —— 跨境网络不可达（非体积问题），预览侧与云函数侧均取不到"
+  },
+  {
+    "name": "Mongabay",
+    "url": "https://news.mongabay.com/feed",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 403 —— 官网反爬，feed 对生产 UA 拒绝"
+  },
+  {
+    "name": "Yale Environment 360",
+    "url": "https://e360.yale.edu/feed.xml",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "耶鲁大学背景环境媒体：气候/生态/能源深度报道，可信度高；实测一周约 3-4 更（10 条中 4 条存活、最新 0.68 天前）"
+  },
+  {
+    "name": "BBC 科学与环境",
+    "url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：两轮均 >8s 超时 + 复核轮连接失败 —— feeds.bbci.co.uk 从本机直连不稳定，判不可用"
+  },
+  {
+    "name": "IFLScience",
+    "url": "https://www.iflscience.com/rss/",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 403 —— 官网反爬，feed 对生产 UA 拒绝"
+  },
+  {
+    "name": "Inside Climate News",
+    "url": "https://insideclimatenews.org/feed",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 403 —— 官网反爬，feed 对生产 UA 拒绝"
+  },
+  {
+    "name": "ZooBorns",
+    "url": "https://www.zooborns.com/rss",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": "2025-08-26",
+    "itemsCount": 10,
+    "language": "en",
+    "notes": "失败：STALE —— 最新条目 420.8 天前（约 2025-08），动物类博客实际已停更多年，勿回填"
+  },
+  {
+    "name": "WHO",
+    "url": "https://www.who.int/rss-feeds/news-english.xml",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": "2026-10-10",
+    "itemsCount": 10,
+    "language": "en",
+    "notes": "失败：STALE —— news-english feed 最新条目 10.87 天前，超 7 天闸门（WHO 新闻通稿本身更新偏慢，勿回填）"
+  },
+  {
+    "name": "NIH 新闻",
+    "url": "https://www.nih.gov/news-events/news-releases/rss.xml",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 403 —— nih.gov 全站反爬，news-releases feed 对生产 UA 拒绝"
+  },
+  {
+    "name": "NIH News in Health",
+    "url": "https://newsinhealth.nih.gov/feed/",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 403 —— 同属 NIH 域名全站反爬"
+  },
+  {
+    "name": "ScienceDaily 健康",
+    "url": "https://www.sciencedaily.com/rss/health.xml",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 404 —— /rss/health.xml slug 已下线（ScienceDaily 首页仅暴露 /rss/all.xml，健康内容由 all.xml 覆盖）"
+  },
+  {
+    "name": "NHS",
+    "url": "https://www.england.nhs.uk/feed/",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：200 但非 feed —— england.nhs.uk/feed 实际返回 202 + 空 body（CDN 缓存空响应），无 <item> 可解析"
+  },
+  {
+    "name": "Harvard Health",
+    "url": "https://www.health.harvard.edu/blog/feed",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 404 —— health.harvard.edu/blog/feed 不存在（未探测其他路径）"
+  },
+  {
+    "name": "APA",
+    "url": "https://www.apa.org/news/psycport/rss.xml",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 404 —— psycport feed 已下线（APA 官网首页也无 RSS autodiscovery 标签）；心理类由 Psychology Today 替补"
+  },
+  {
+    "name": "Psychology Today",
+    "url": "https://www.psychologytoday.com/us/front/feed",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-21",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "心理学权威专家博客聚合：持证心理学家/临床工作者撰写，每日 15-20 篇；两轮 10/10 存活"
+  },
+  {
+    "name": "Verywell Mind",
+    "url": "https://www.verywellmind.com/feed",
+    "category": "science",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 402 —— Dotdash 系站点反爬拦截（首页与 feed 均拒绝非浏览器请求）"
+  },
+  {
+    "name": "Runner's World",
+    "url": "https://www.runnersworld.com/rss/all.xml/",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "Hearst 旗下权威跑步媒体：训练/装备实测/损伤预防；两轮 10/10 存活"
+  },
+  {
+    "name": "Outside",
+    "url": "https://www.outsideonline.com/feed/",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "知名户外媒体：徒步/攀岩/国家公园/装备评测，长篇特写质量好；⚠️ 含赞助与联盟营销类装备推广内容，展示层需过滤广告条目"
+  },
+  {
+    "name": "Men's Health",
+    "url": "https://www.menshealth.com/rss/all.xml/",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "Hearst 旗下男性健康媒体：健身/营养/生活方式；两轮 10/10 存活"
+  },
+  {
+    "name": "NASA Science",
+    "url": "https://science.nasa.gov/feed/",
+    "category": "science",
+    "ok": true,
+    "latestItemDate": "2026-10-21",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "替补源：climate.nasa.gov 改版后发现的 NASA 全站 feed（science.nasa.gov/feed/），含每日天文图(APOD)/地球观测/极端天气；两轮 10/10 存活，可覆盖 science+astronomy+climate 三个子类"
+  }
+]

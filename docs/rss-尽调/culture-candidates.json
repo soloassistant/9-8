@@ -1,0 +1,112 @@
+[
+  {
+    "name": "Variety",
+    "url": "https://variety.com/feed/",
+    "category": "文化娱乐",
+    "ok": true,
+    "latestItemDate": "2026-10-21",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "好莱坞百年权威娱乐行业媒体：电影/电视/颁奖季/票房/产业，日更数十条，两轮 10/10 存活、最新 0.03 天前；https+UTF-8，预览侧与云函数侧均兼容"
+  },
+  {
+    "name": "Hollywood Reporter",
+    "url": "https://www.hollywoodreporter.com/feed/",
+    "category": "文化娱乐",
+    "ok": true,
+    "latestItemDate": "2026-10-21",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "好莱坞报道者：电影/电视/颁奖/lifestyle，权威行业媒体，feed 声明 hourly 更新；两轮 10/10 存活"
+  },
+  {
+    "name": "Billboard",
+    "url": "https://www.billboard.com/feed/",
+    "category": "文化娱乐",
+    "ok": true,
+    "latestItemDate": "2026-10-21",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "音乐产业权威媒体（榜单/巡演/商业合作），hourly 更新；⚠️ 部分正文带付费墙标记，feed 可稳定取到标题与摘要"
+  },
+  {
+    "name": "Deadline",
+    "url": "https://deadline.com/feed/",
+    "category": "文化娱乐",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：两轮实测均 >8s 超时（deadline.com 直连不稳定），预览侧(8s)与云函数侧(6s)均取不到数据，得 0 条"
+  },
+  {
+    "name": "Rolling Stone",
+    "url": "https://www.rollingstone.com/feed/",
+    "category": "文化娱乐",
+    "ok": true,
+    "latestItemDate": "2026-10-21",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "音乐/影视/文化老牌媒体，深度长文多；⚠️ 实测 feed 混有时政新闻（如总统/选举报道），采纳后需经精选层过滤或降权（对应项目 [audit] 口径）"
+  },
+  {
+    "name": "Pitchfork",
+    "url": "https://pitchfork.com/rss/news/",
+    "category": "文化娱乐",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "Condé Nast 旗下权威音乐媒体：新专辑/巡演/行业新闻，更新极快；两轮 10/10 存活"
+  },
+  {
+    "name": "Stereogum",
+    "url": "https://stereogum.com/feed",
+    "category": "文化娱乐",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "知名独立音乐博客：新歌/评论/行业动态，署名清晰，小时级更新；两轮 10/10 存活"
+  },
+  {
+    "name": "IndieWire",
+    "url": "https://www.indiewire.com/feed/rss/",
+    "category": "文化娱乐",
+    "ok": true,
+    "latestItemDate": "2026-10-20",
+    "itemsCount": 10,
+    "language": "en-US",
+    "notes": "高质量独立电影媒体：影评/专题/电影节，行业纵深好；两轮 10/10 存活"
+  },
+  {
+    "name": "Vulture",
+    "url": "https://www.vulture.com/rss/",
+    "category": "文化娱乐",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "en",
+    "notes": "失败：HTTP 404 —— vulture.com/rss 已下线（未探测其他路径，按本轮候选清单如实记录）"
+  },
+  {
+    "name": "摩登天空",
+    "url": "https://www.modernsky.com/feed/",
+    "category": "文化娱乐",
+    "ok": false,
+    "latestItemDate": "2026-09-16",
+    "itemsCount": 10,
+    "language": "zh-Hans",
+    "notes": "失败：feed 可解析但最新条目 34.6 天前（约 2026-09-16），更新频率过低，被 7 天新鲜度闸门整源排除"
+  },
+  {
+    "name": "国家大剧院",
+    "url": "https://www.chncpa.org/",
+    "category": "文化娱乐",
+    "ok": false,
+    "latestItemDate": null,
+    "itemsCount": 0,
+    "language": "zh-Hans",
+    "notes": "失败：官网可达(200)但无 RSS feed —— 首页无 autodiscovery 标签、直连返回 HTML 正文（官方源但无 feed，勿再尝试）"
+  }
+]
