@@ -3,6 +3,7 @@ import { View, Text, Picker, Button, Image, Input, Switch, ScrollView } from '@t
 import type { CommonEvent, PickerSelectorProps, PickerTimeProps } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import classnames from 'classnames';
+import PromptModal from '@/components/PromptModal';
 import DemoDataHint from '@/components/DemoDataHint';
 import SyncConflictHint from '@/components/SyncConflictHint';
 import { useUserStore } from '@/store/user';
@@ -225,6 +226,8 @@ function MinePage() {
   const [prefs, setPrefs] = useState<string[]>([]);
   const [custom, setCustom] = useState<CustomSettings>(DEFAULT_CUSTOM);
   const [docView, setDocView] = useState<'terms' | 'privacy' | 'ai' | null>(null);
+  /** 注销二次确认弹窗 */
+  const [deleteOpen, setDeleteOpen] = useState(false);
   // v1.2 新增：C-03 个性化推荐开关 / V-05 V-07 TTS 偏好 / M-01 M-02 记忆 / N-03 屏蔽清单 / B-01 B-02 订阅
   const [personalOn, setPersonalOn] = useState(true);
   const [ttsPrefs, setTtsPrefs] = useState<TtsPrefs>({ rate: 1.0, voiceMode: 'auto' });
@@ -921,76 +924,67 @@ function MinePage() {
   };
 
   const handleDeleteAccount = () => {
-    // Taro 类型滞后：editable 尚未进入 showModal.Option 类型定义，需断言（沿用既有写法）
-    Taro.showModal({
-      title: t('mine.deleteTitle'),
-      content: t('mine.deleteWarn'),
-      editable: true,
-      placeholderText: t('mine.deleteInputHint'),
-      cancelText: t('cancel'),
-      confirmText: t('mine.deleteSubmit'),
-      confirmColor: DANGER_COLOR,
-      // showModal 的成功回调结果类型：confirm / cancel / errMsg 来自 Taro 官方类型；
-      // editable 输入框的回填字段 content 微信侧有、Taro 类型里没有，故下方仍显式断言读取。
-      success: (res: Taro.showModal.SuccessCallbackResult) => {
-        if (!res.confirm) return;
-        // 平台不支持 editable 时 content 缺失，退化为「一次确认」兜底，仍 ≤3 步
-        const typed = (res as unknown as { content?: string }).content;
-        const matched = typeof typed === 'string' ? typed.trim() === DELETE_CONFIRM_WORD : true;
-        if (!matched) {
-          Taro.showToast({ title: t('mine.deleteInputMismatch'), icon: 'none' });
-          return;
-        }
-        // 删除成功后的收尾（清本机数据 → 完成提示 → 回首页），两端共用
-        const finishDelete = () => {
-          try {
-            Taro.clearStorageSync();
-          } catch (err) {
-            console.error('[MinePage] clear storage failed:', err);
-          }
-          Taro.showToast({ title: t('mine.deleteDone'), icon: 'none' });
-          setTimeout(() => Taro.reLaunch({ url: '/pages/briefing/index' }), 1200);
-        };
-        // C-04 注销分端语义（2026-10-08 修正 H5 死路，2026-10-15 修正数据保留）：
-        //   · h5：没有微信上下文（deleteAccount 云函数只认 getWXContext().OPENID，必抛 no openid），
-        //     故 H5 不再调那个注定失败的云函数 —— 但**不等于服务端没有数据可删**。
-        //     2026-10-13 H5 迁移后，cloudSync 的 18 个 SYNC_KEYS（购物清单/日程/浏览历史/
-        //     学习进度/AI 记忆/聊天记录/设置…）是真写进云数据库 user_kv 的，owner_id 由
-        //     DEFAULT auth.uid() 填充。此前这里只登出 + 清本机，**云端那份原封不动留着**
-        //     （cloudDb.kvClear 有定义、零调用点），用户以为注销了，数据还在。
-        //     故 H5 的「注销」= 先清云端同步键 → 登出 → 清本机。
-        //     ⚠️ 顺序不可换：kvClear 依赖会话身份（RLS 按 auth.uid() 过滤），
-        //        先 signOut 会让删除请求被数据库侧拒绝，data 变成「登出但云端还在」。
-        //   · weapp：保持原逻辑，调 deleteAccount 真删服务端数据。
-        if (process.env.TARO_ENV === 'h5') {
-          // 清云端同步键。失败**不阻断**注销（不能因为云端抖动把用户卡在注销页），
-          // 但必须留痕 —— 静默失败会变成又一份「以为删了其实没删」的数据。
-          kvClear()
-            .then((n) => {
-              if (n === null) {
-                console.warn('[MinePage] kvClear returned null — 云端同步键可能未清除，需人工核查');
-              } else {
-                console.info('[MinePage] cloud user_kv cleared, rows =', n);
-              }
-            })
-            .catch((err) => {
-              console.error('[MinePage] kvClear failed:', err);
-            })
-            // 无论云端结果如何都继续：signOut 自身吞掉登出失败；
-            // 即便登出异常也继续清本机数据并回到门禁
-            .then(() => signOut())
-            .then(finishDelete)
-            .catch(finishDelete);
-        } else {
-          apiDeleteAccount()
-            .then(finishDelete)
-            .catch((err) => {
-              console.error('[MinePage] deleteAccount failed:', err);
-              Taro.showToast({ title: '注销失败，请稍后再试', icon: 'none' });
-            });
-        }
+    setDeleteOpen(true);
+  };
+
+  /** 注销二次确认：必须逐字输入 DELETE_CONFIRM_WORD，H5 与小程序同一判据 */
+  const confirmDeleteAccount = async (typed: string) => {
+    // 旧实现在 showModal 拿不到 content（H5 的全部情况）时用 `: true` 兜底，
+    // 等于 H5 上点一次确认就执行 kvClear + signOut + 清本机 —— 不可逆且无法挽回。
+    // 现在没有兜底：内容不匹配一律拦下，弹窗保持打开让用户重输。
+    if (typed.trim() !== DELETE_CONFIRM_WORD) {
+      Taro.showToast({ title: t('mine.deleteInputMismatch'), icon: 'none' });
+      return;
+    }
+    setDeleteOpen(false);
+    // 删除成功后的收尾（清本机数据 → 完成提示 → 回首页），两端共用
+    const finishDelete = () => {
+      try {
+        Taro.clearStorageSync();
+      } catch (err) {
+        console.error('[MinePage] clear storage failed:', err);
       }
-    } as unknown as Taro.showModal.Option);
+      Taro.showToast({ title: t('mine.deleteDone'), icon: 'none' });
+      setTimeout(() => Taro.reLaunch({ url: '/pages/briefing/index' }), 1200);
+    };
+    // C-04 注销分端语义（2026-10-08 修正 H5 死路，2026-10-15 修正数据保留）：
+    //   · h5：没有微信上下文（deleteAccount 云函数只认 getWXContext().OPENID，必抛 no openid），
+    //     故 H5 不再调那个注定失败的云函数 —— 但**不等于服务端没有数据可删**。
+    //     2026-10-13 H5 迁移后，cloudSync 的 18 个 SYNC_KEYS（购物清单/日程/浏览历史/
+    //     学习进度/AI 记忆/聊天记录/设置…）是真写进云数据库 user_kv 的，owner_id 由
+    //     DEFAULT auth.uid() 填充。此前这里只登出 + 清本机，**云端那份原封不动留着**
+    //     （cloudDb.kvClear 有定义、零调用点），用户以为注销了，数据还在。
+    //     故 H5 的「注销」= 先清云端同步键 → 登出 → 清本机。
+    //     ⚠️ 顺序不可换：kvClear 依赖会话身份（RLS 按 auth.uid() 过滤），
+    //        先 signOut 会让删除请求被数据库侧拒绝，data 变成「登出但云端还在」。
+    //   · weapp：保持原逻辑，调 deleteAccount 真删服务端数据。
+    if (process.env.TARO_ENV === 'h5') {
+      // 清云端同步键。失败**不阻断**注销（不能因为云端抖动把用户卡在注销页），
+      // 但必须留痕 —— 静默失败会变成又一份「以为删了其实没删」的数据。
+      kvClear()
+        .then((n) => {
+          if (n === null) {
+            console.warn('[MinePage] kvClear returned null — 云端同步键可能未清除，需人工核查');
+          } else {
+            console.info('[MinePage] cloud user_kv cleared, rows =', n);
+          }
+        })
+        .catch((err) => {
+          console.error('[MinePage] kvClear failed:', err);
+        })
+        // 无论云端结果如何都继续：signOut 自身吞掉登出失败；
+        // 即便登出异常也继续清本机数据并回到门禁
+        .then(() => signOut())
+        .then(finishDelete)
+        .catch(finishDelete);
+    } else {
+      apiDeleteAccount()
+        .then(finishDelete)
+        .catch((err) => {
+          console.error('[MinePage] deleteAccount failed:', err);
+          Taro.showToast({ title: '注销失败，请稍后再试', icon: 'none' });
+        });
+    }
   };
 
   const handleContactService = () => {
@@ -1863,6 +1857,19 @@ function MinePage() {
           </View>
         </View>
       ) : null}
+
+      <PromptModal
+        visible={deleteOpen}
+        title={t('mine.deleteTitle')}
+        description={t('mine.deleteWarn')}
+        placeholder={t('mine.deleteInputHint')}
+        initialValue=''
+        confirmText={t('mine.deleteSubmit')}
+        cancelText={t('cancel')}
+        danger
+        onConfirm={(value) => void confirmDeleteAccount(value)}
+        onCancel={() => setDeleteOpen(false)}
+      />
     </View>
   );
 }

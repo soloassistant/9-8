@@ -474,6 +474,7 @@ const zh = {
   'perm.platformUnsupported': '当前平台不支持该设置',
   'cancel': '取消',
   'common.loadFailed': '加载失败，请稍后重试',
+  'common.save': '保存',
 
   /* ---- 记账（v2.0 F23 + 晨报呈报）---- */
   'ledger.monthExpense': '本月支出',
@@ -485,6 +486,7 @@ const zh = {
   'ledger.budgetMonthlyTitle': '设置每月预算上限',
   'ledger.budgetPlaceholder': '例：100，留空取消限制',
   'ledger.saveBudget': '保存',
+  'ledger.clearBudget': '清除上限',
   'ledger.monthByCategory': '本月分类支出',
   'ledger.today': '今天',
   'ledger.empty': '还没有记账',
@@ -598,6 +600,7 @@ const zh = {
   /* ---- v1.2 · 购物助理（P-01 及 AI 不越界话术）---- */
   'shopping.targetSet': '心理价位',
   'shopping.targetClear': '清除',
+  'shopping.invalidPrice': '请输入有效价格',
   'shopping.alertToast': '💰 降价提醒：{name} 已到 ¥{price}（你的心理价位 ¥{target}）',
   'shopping.disclaimerPrice': '我只帮你查价和汇总信息，不会替你下单或付款。',
   'shopping.disclaimerSource': '以下价格来自公开渠道，仅供参考，请以商品页面实际价格为准。',
@@ -1329,6 +1332,7 @@ const en: Record<keyof typeof zh, string> = {
   'perm.platformUnsupported': 'Not supported on this platform',
   'cancel': 'Cancel',
   'common.loadFailed': 'Failed to load, please try again',
+  'common.save': 'Save',
 
   /* ---- Ledger (v2.0 F23) ---- */
   'ledger.monthExpense': 'Spent this month',
@@ -1340,6 +1344,7 @@ const en: Record<keyof typeof zh, string> = {
   'ledger.budgetMonthlyTitle': 'Set monthly budget cap',
   'ledger.budgetPlaceholder': 'e.g. 100, empty to remove',
   'ledger.saveBudget': 'Save',
+  'ledger.clearBudget': 'Remove cap',
   'ledger.monthByCategory': 'Spending by category',
   'ledger.today': 'Today',
   'ledger.empty': 'No entries yet',
@@ -1454,6 +1459,7 @@ const en: Record<keyof typeof zh, string> = {
   /* ---- v1.2 · 购物助理（P-01 及 AI 不越界话术）---- */
   'shopping.targetSet': 'Target price',
   'shopping.targetClear': 'Clear',
+  'shopping.invalidPrice': 'Enter a valid price',
   'shopping.alertToast': '💰 Price alert: {name} is now ¥{price} (your target ¥{target})',
   'shopping.disclaimerPrice': 'I only compare and summarize prices; I never order or pay for you.',
   'shopping.disclaimerSource': 'Prices come from public sources and are indicative only; check the product page for the final price.',

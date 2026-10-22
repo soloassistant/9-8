@@ -1,0 +1,113 @@
+@use '@/styles/variables.scss' as *;
+
+// 页内输入弹窗：尺寸全部用 rpx（pxtransform baseFontSize=37.5，写 px 会缩半）
+.overlay {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 $spacing-lg;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.card {
+  width: 640rpx;
+  max-width: 100%;
+  padding: 40rpx 36rpx 32rpx;
+  background: $color-bg-card;
+  border-radius: 24rpx;
+  box-shadow: $shadow-popup;
+  box-sizing: border-box;
+}
+
+.title {
+  display: block;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  line-height: $line-height-tight;
+}
+
+.description {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.input {
+  width: 100%;
+  height: 84rpx;
+  margin-top: $spacing-md;
+  padding: 0 20rpx;
+  box-sizing: border-box;
+  background: $color-bg-page;
+  border: 1rpx solid $color-border;
+  border-radius: $radius-md;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: $spacing-sm;
+  margin-top: $spacing-lg;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 68rpx;
+  padding: 0 28rpx;
+  border-radius: $radius-button;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+// 次要操作靠左，与取消/确认拉开距离（清除上限是破坏性但非主路径）
+.secondary {
+  margin-right: auto;
+  padding-left: 0;
+}
+
+.secondaryText {
+  font-size: $font-size-sm;
+  color: $color-error;
+}
+
+.cancel {
+  background: $color-bg-hover;
+}
+
+.cancelText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.confirm {
+  background: $color-primary;
+}
+
+.danger {
+  background: $color-error;
+}
+
+.confirmText {
+  font-size: $font-size-sm;
+  color: $color-text-white;
+  font-weight: $font-weight-medium;
+}
+
+.btnDisabled {
+  opacity: 0.5;
+}

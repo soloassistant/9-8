@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { View, Text, Input, Button, ScrollView } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import EmptyState from '@/components/EmptyState';
+import PromptModal from '@/components/PromptModal';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { useT } from '@/store/language';
 import {
@@ -64,6 +65,8 @@ function LedgerPage() {
   const [manageOpen, setManageOpen] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [exportBusy, setExportBusy] = useState(false);
+  /** 预算编辑弹窗：记录正在编辑哪一档，null = 关闭 */
+  const [budgetEdit, setBudgetEdit] = useState<'daily' | 'monthly' | null>(null);
 
   const reload = useCallback(async () => {
     apiLedgerInit();
@@ -79,6 +82,8 @@ function LedgerPage() {
 
   const today = todayStr();
   const month = currentMonthStr();
+  /** 正在编辑那一档的当前上限（用于回填与是否展示「清除上限」） */
+  const budgetEditValue = budgetEdit ? budget[budgetEdit] : undefined;
 
   const monthList = useMemo(() => filterByRange(entries, `${month}-01`, `${month}-31`), [entries, month]);
   const monthSum = useMemo(() => summarize(monthList, budget), [monthList, budget]);
@@ -140,35 +145,41 @@ function LedgerPage() {
     [reload]
   );
 
-  const saveBudgetFor = useCallback(
-    async (key: 'daily' | 'monthly') => {
-      // showModal 的 editable / 回填字段 content 是微信基础库 2.17.1+ 的扩展，
-      // Taro 的类型定义滞后 —— 与 shopping/index.tsx:150-155 同一范式，断言绕过。
-      const res = (await Taro.showModal({
-        title: key === 'daily' ? t('ledger.budgetDailyTitle') : t('ledger.budgetMonthlyTitle'),
-        editable: true,
-        placeholderText: t('ledger.budgetPlaceholder'),
-        confirmText: t('ledger.saveBudget'),
-        cancelText: t('cancel')
-      } as unknown as Taro.showModal.Option)) as Taro.showModal.SuccessCallbackResult & { content?: string };
-      if (!res.confirm) return;
-      const raw = String(res.content || '').trim();
-      if (!raw) {
-        // 空 = 取消限制；传 0 也会被 loadBudget 当成「未设置」，语义一致
-        const next: LedgerBudget = { ...budget };
-        delete next[key];
-        setBudget(await apiLedgerSaveBudget(next));
+  /**
+   * 保存预算。
+   *
+   * 注意：空输入**不再**表示「取消上限」。
+   * 旧实现依赖 Taro.showModal 的 editable，但 H5 端那个 API 不读取 editable、
+   * 也不返回 content —— 拿到的一直是空串，于是「点开预算 → 确定」就静默删掉了上限。
+   * 现在「清除上限」是弹窗里的独立次要操作，空输入一律按非法输入提示，不改数据。
+   */
+  const saveBudget = useCallback(
+    async (raw: string) => {
+      if (!budgetEdit) return;
+      const value = raw.trim();
+      if (!value) {
+        Taro.showToast({ title: t('ledger.invalidAmount'), icon: 'none' });
         return;
       }
-      const n = Number(raw);
+      const n = Number(value);
       if (!Number.isFinite(n) || n <= 0) {
         Taro.showToast({ title: t('ledger.invalidAmount'), icon: 'none' });
         return;
       }
-      setBudget(await apiLedgerSaveBudget({ ...budget, [key]: n }));
+      setBudget(await apiLedgerSaveBudget({ ...budget, [budgetEdit]: n }));
+      setBudgetEdit(null);
     },
-    [budget, t]
+    [budgetEdit, budget, t]
   );
+
+  /** 清除某一档上限：只删这一个 key，另一档保持不变 */
+  const clearBudget = useCallback(async () => {
+    if (!budgetEdit) return;
+    const next: LedgerBudget = { ...budget };
+    delete next[budgetEdit];
+    setBudget(await apiLedgerSaveBudget(next));
+    setBudgetEdit(null);
+  }, [budgetEdit, budget]);
 
   const addCat = useCallback(async () => {
     const name = newCatName.trim();
@@ -265,7 +276,7 @@ function LedgerPage() {
         <View className={styles.budgetRow}>
           <View
             className={budget.daily !== undefined && todaySum.overDaily ? `${styles.budgetChip} ${styles.budgetChipOver}` : styles.budgetChip}
-            onClick={() => void saveBudgetFor('daily')}
+            onClick={() => setBudgetEdit('daily')}
           >
             <Text className={styles.budgetCap}>{t('ledger.dailyBudget')}</Text>
             <Text className={styles.budgetVal}>
@@ -284,7 +295,7 @@ function LedgerPage() {
 
           <View
             className={budget.monthly !== undefined && monthSum.overMonthly ? `${styles.budgetChip} ${styles.budgetChipOver}` : styles.budgetChip}
-            onClick={() => void saveBudgetFor('monthly')}
+            onClick={() => setBudgetEdit('monthly')}
           >
             <Text className={styles.budgetCap}>{t('ledger.monthlyBudget')}</Text>
             <Text className={styles.budgetVal}>
@@ -455,6 +466,21 @@ function LedgerPage() {
           </View>
         </View>
       ) : null}
+
+      <PromptModal
+        visible={budgetEdit !== null}
+        title={budgetEdit === 'daily' ? t('ledger.budgetDailyTitle') : t('ledger.budgetMonthlyTitle')}
+        placeholder={t('ledger.budgetPlaceholder')}
+        // 回填当前上限：用户想微调时不必重新输一遍
+        initialValue={budgetEditValue !== undefined ? String(budgetEditValue) : ''}
+        confirmText={t('ledger.saveBudget')}
+        cancelText={t('cancel')}
+        // 只有已设过上限才提供「清除」，避免对一个本就不存在的值做无意义操作
+        secondaryText={budgetEditValue !== undefined ? t('ledger.clearBudget') : undefined}
+        onSecondary={() => void clearBudget()}
+        onConfirm={(value) => void saveBudget(value)}
+        onCancel={() => setBudgetEdit(null)}
+      />
     </View>
   );
 }

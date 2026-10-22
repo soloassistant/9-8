@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { View, Text, Input, ScrollView } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import EmptyState from '@/components/EmptyState';
+import PromptModal from '@/components/PromptModal';
 import DemoDataHint from '@/components/DemoDataHint';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { useT } from '@/store/language';
@@ -68,6 +69,10 @@ function ShoppingPage() {
   const [list, setList] = useState<ShoppingItem[]>([]);
   const [name, setName] = useState('');
   const [targetPrice, setTargetPrice] = useState('');
+  /** 输入弹窗：add = 记一条比价，target = 改心理价位 */
+  const [priceDialog, setPriceDialog] = useState<
+    { kind: 'add'; item: ShoppingItem } | { kind: 'target'; item: ShoppingItem } | null
+  >(null);
 
   // 真机走云函数（云端按 openid），H5 走本地 mock storage，保证两端读到的是同一份清单
   const load = useCallback(async () => {
@@ -144,54 +149,58 @@ function ShoppingPage() {
   const addPrice = (id: string) => {
     const item = list.find((it) => it.id === id);
     if (!item) return;
-    // 微信基础库 2.17.1+ 支持 showModal editable，Taro 类型定义滞后，断言绕过
-    Taro.showModal({
-      title: `给「${item.name}」记价格`,
-      editable: true,
-      placeholderText: PRICE_INPUT_SAMPLE,
-      // editable 输入框的回填字段 content 是微信扩展、Taro 类型未声明，仍按既有写法断言读取
-      success: async (res: Taro.showModal.SuccessCallbackResult) => {
-        const input = (res as unknown as { content?: string }).content;
-        if (!input) return;
-        const m = input.match(PRICE_PATTERN);
-        if (!m) {
-          Taro.showToast({ title: '格式：平台 价格', icon: 'none' });
-          return;
-        }
-        const price = Number(m[2].replace(/,/g, ''));
-        if (!Number.isFinite(price)) return;
-        const done = await apiShoppingAddPrice(id, m[1], price);
-        if (done) {
-          const next: ShoppingItem = { ...item, prices: done.prices };
-          setList((prev) => prev.map((it) => (it.id === id ? { ...it, prices: done.prices } : it)));
-          if (!runPriceCheck(next)) {
-            Taro.showToast({ title: '已记录比价', icon: 'success' });
-          }
-        }
-      }
-    } as unknown as Taro.showModal.Option);
+    // 用页内 PromptModal 而不是 showModal editable：后者在 H5 上不返回 content，
+    // 输入永远被当成空串丢弃（详见 components/PromptModal 顶部说明）
+    setPriceDialog({ kind: 'add', item });
   };
 
   /** 设置 / 修改心理价位（P-01：数字输入，单位元，可随时修改） */
   const editTargetPrice = (item: ShoppingItem) => {
-    // 同 addPrice：editable 为微信扩展能力，Taro 类型滞后，断言绕过
-    Taro.showModal({
-      title: t('shopping.targetSet'),
-      editable: true,
-      placeholderText: t('shopping.targetPlaceholder'),
-      // 同 addPrice：content 为微信扩展字段，Taro 类型未声明
-      success: async (res: Taro.showModal.SuccessCallbackResult) => {
-        const input = (res as unknown as { content?: string }).content;
-        if (!res.confirm || !input) return;
-        const price = Number(String(input).replace(/[^\d.]/g, ''));
-        if (!Number.isFinite(price) || price <= 0) return;
-        const done = await apiShoppingSetTargetPrice(item.id, price);
-        if (!done) return;
-        const next: ShoppingItem = { ...item, targetPrice: done.targetPrice };
-        setList((prev) => prev.map((it) => (it.id === item.id ? { ...it, targetPrice: done.targetPrice } : it)));
-        runPriceCheck(next);
+    setPriceDialog({ kind: 'target', item });
+  };
+
+  /** PromptModal 确认：按打开时的 kind 分流到原有两个写入路径 */
+  const submitPriceDialog = async (raw: string) => {
+    if (!priceDialog) return;
+    const { kind, item } = priceDialog;
+    const input = raw.trim();
+
+    if (kind === 'add') {
+      const m = input.match(PRICE_PATTERN);
+      // 空输入与格式不合都必须给用户看见提示：旧实现 `if (!input) return` 在 H5 上
+      // 因为拿不到 content 而静默失败，用户点了确认却什么都没发生
+      if (!input || !m) {
+        Taro.showToast({ title: '格式：平台 价格', icon: 'none' });
+        return;
       }
-    } as unknown as Taro.showModal.Option);
+      const price = Number(m[2].replace(/,/g, ''));
+      if (!Number.isFinite(price) || price <= 0) {
+        Taro.showToast({ title: '格式：平台 价格', icon: 'none' });
+        return;
+      }
+      const done = await apiShoppingAddPrice(item.id, m[1], price);
+      if (!done) return;
+      const next: ShoppingItem = { ...item, prices: done.prices };
+      setList((prev) => prev.map((it) => (it.id === item.id ? { ...it, prices: done.prices } : it)));
+      if (!runPriceCheck(next)) {
+        Taro.showToast({ title: '已记录比价', icon: 'success' });
+      }
+      setPriceDialog(null);
+      return;
+    }
+
+    // 心理价位沿用原来的宽松数字清洗，但空串/非法值不再静默 return
+    const price = Number(input.replace(/[^\d.]/g, ''));
+    if (!input || !Number.isFinite(price) || price <= 0) {
+      Taro.showToast({ title: t('shopping.invalidPrice'), icon: 'none' });
+      return;
+    }
+    const done = await apiShoppingSetTargetPrice(item.id, price);
+    if (!done) return;
+    const next: ShoppingItem = { ...item, targetPrice: done.targetPrice };
+    setList((prev) => prev.map((it) => (it.id === item.id ? { ...it, targetPrice: done.targetPrice } : it)));
+    runPriceCheck(next);
+    setPriceDialog(null);
   };
 
   /** 清除心理价位（P-01）：同时清掉该商品的已提醒价，避免残留去重记录 */
@@ -335,6 +344,19 @@ function ShoppingPage() {
           </View>
         ) : null}
       </ScrollView>
+
+      <PromptModal
+        visible={priceDialog !== null}
+        title={priceDialog?.kind === 'add' ? `给「${priceDialog.item.name}」记价格` : t('shopping.targetSet')}
+        placeholder={priceDialog?.kind === 'add' ? PRICE_INPUT_SAMPLE : t('shopping.targetPlaceholder')}
+        initialValue={
+          priceDialog?.kind === 'target' && priceDialog.item.targetPrice ? String(priceDialog.item.targetPrice) : ''
+        }
+        confirmText={t('common.save')}
+        cancelText={t('cancel')}
+        onConfirm={(value) => void submitPriceDialog(value)}
+        onCancel={() => setPriceDialog(null)}
+      />
     </View>
   );
 }
