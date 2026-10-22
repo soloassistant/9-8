@@ -728,7 +728,7 @@ function normalizeLlmGroups(raw) {
       ? g.items
           .filter((it) => it && it.text)
           .slice(0, INTEL_GROUP_ITEMS_MAX)
-          .map((it) => ({ text: clampByCodePoint(it.text, INTEL_ITEM_TEXT_MAX), source: String(it.source || '综合').slice(0, 20) }))
+          .map((it) => ({ text: clampSummary(it.text, INTEL_ITEM_TEXT_MAX), source: String(it.source || '综合').slice(0, 20) }))
       : [];
     if (!items.length) continue;
     const lead = String(g.lead || '').slice(0, INTEL_LEAD_MAX).trim();
@@ -814,7 +814,7 @@ async function summarize(weather, newsItems) {
   const items = parsed.items
     .filter((it) => it && it.text)
     .slice(0, 5)
-    .map((it) => ({ text: clampByCodePoint(it.text, INTEL_ITEM_TEXT_MAX), source: String(it.source || '综合') }));
+    .map((it) => ({ text: clampSummary(it.text, INTEL_ITEM_TEXT_MAX), source: String(it.source || '综合') }));
   if (!items.length) throw new Error('LLM output empty');
   // 分组为**可选增强**：LLM 未按结构返回时降级为 []（前端会走本地兜底），不影响 intelItems 主链路
   const groups = normalizeLlmGroups(parsed.groups);
@@ -848,8 +848,9 @@ function fallbackIntel(newsItems, limit = 5) {
     const summary = String(it.summary || '');
     // 5b/5c：畸形/缺失字段不得把字面量 "undefined" 或 null 来源泄漏给用户
     const body = title || summary ? `${title}${summary ? '：' + summary : ''}` : '暂无内容';
+    // 2026-10-22 真实数据复验实测免费档 3/3 恰 80 码点、无省略号、句中斩断，读者无法区分「内容本来就短」和「被硬切了」——截断须告知读者，与 clampSummary 既有语义收口一处；省略号占 1 码点，总长不变
     return {
-      text: clampByCodePoint(body, INTEL_ITEM_TEXT_MAX),
+      text: clampSummary(body, INTEL_ITEM_TEXT_MAX),
       source: it.source != null && it.source !== '' ? String(it.source) : '综合'
     };
   });
