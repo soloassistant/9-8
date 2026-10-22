@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
-import Taro from '@tarojs/taro';
+import Taro, { useDidShow } from '@tarojs/taro';
 import dayjs, { Dayjs } from 'dayjs';
 import classnames from 'classnames';
 import EmptyState from '@/components/EmptyState';
@@ -45,13 +45,15 @@ function CalendarPage() {
       console.error('[CalendarPage] load failed:', err);
       Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
     }
-    // t 仅用于失败提示文案；若列入 deps 会让下方 useEffect 随语言切换重跑并重复请求，故不列入
+    // t 仅用于失败提示文案；若列入 deps 会让下方 useDidShow 随语言切换重跑并重复请求，故不列入
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    loadBriefing();
-  }, [loadBriefing]);
+  // 与 ledger 同范式：只挂 useDidShow（首次显示也会触发），不另加挂载 effect，
+  // 否则从收件箱/AI 加完日程切回来看到的是旧数据
+  useDidShow(() => {
+    void loadBriefing();
+  });
 
   /** 42 格月视图：从当月首个所在周的周日开始 */
   const cells = useMemo(() => {

@@ -19,6 +19,7 @@
  * 与 shopping.ts 一致：记账失败不该把用户从记账页踢走。
  */
 import Taro from '@tarojs/taro';
+import dayjs from 'dayjs';
 import type { LedgerCategory, LedgerEntry, LedgerKind, LedgerBudget } from '../types';
 import { buildLedgerCsv, buildLedgerExportJson, buildExportFilename } from '../utils/ledgerExport';
 
@@ -152,7 +153,9 @@ export function addEntry(payload: AddEntryPayload): LedgerEntry | null {
   const cat = cats.find((c) => c.id === payload.categoryId);
   // 分类必须存在**且方向一致** —— 把「工资」记成支出会让月度汇总出现荒谬的抵消。
   if (!cat || cat.kind !== payload.kind) return null;
-  const date = payload.date ?? new Date().toISOString().slice(0, 10);
+  // 默认日期必须用**本地**口径：toISOString 是 UTC，凌晨 0–8 点记的账会落到昨天，
+  // 跨月首日甚至会掉出当月筛选范围（统计侧 ledgerAggregate 同样按本地日期比较）
+  const date = payload.date ?? dayjs().format('YYYY-MM-DD');
   if (!isValidLedgerDate(date)) return null;
   const note = typeof payload.note === 'string' ? payload.note.trim().slice(0, 100) : '';
   const entry: LedgerEntry = {

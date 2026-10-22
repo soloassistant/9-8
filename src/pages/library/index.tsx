@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Input, Image, Button } from '@tarojs/components';
-import Taro, { useShareAppMessage, useDidHide } from '@tarojs/taro';
+import Taro, { useShareAppMessage, useDidHide, useDidShow } from '@tarojs/taro';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
 import TagChip from '@/components/TagChip';
@@ -187,6 +187,11 @@ function LibraryPage() {
   const undoTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   /** 类目偏好上云的防抖定时器：连续浏览时合并成一次上报 */
   const affinitySyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 骨架屏延时器 + 存活标记：useDidShow 反复触发时要能取消上一轮定时器 */
+  const skeletonTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aliveRef = useRef(true);
+  /** 请求序号：快速切页时让旧请求的结果/清理逻辑失效，避免旧数据覆盖新数据 */
+  const loadSeq = useRef(0);
 
   // N-02：屏蔽规则（来源 + 话题标签）与半屏选择器状态
   const [blockRules, setBlockRules] = useState<BlockRule[]>(() => readBlockRules());
@@ -381,38 +386,62 @@ function LibraryPage() {
     if (kw) setKeyword(decodeURIComponent(String(kw)));
   }, []);
 
-  useEffect(() => {
-    let alive = true;
-    const skeletonTimer = setTimeout(() => {
-      if (alive) setShowSkeleton(true);
+  /**
+   * 加载资讯库 + 热点。
+   * 从「挂载 effect」改为 useDidShow 驱动：去收件箱收藏一条再切回来，
+   * 原来不会重新拉数据（页面没卸载），看到的一直是旧列表。
+   */
+  const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
+    // 上一轮未结束又触发（快速切页）时，先取消旧的骨架屏定时器，避免两个定时器互抢
+    if (skeletonTimer.current) clearTimeout(skeletonTimer.current);
+    skeletonTimer.current = setTimeout(() => {
+      if (aliveRef.current && seq === loadSeq.current) setShowSkeleton(true);
     }, SKELETON_DELAY_MS);
-    Promise.all([apiGetLibrary(), apiGetHotspot().catch(() => [])])
-      .then(([lib, hotspot]) => {
-        if (!alive) return;
-        setItems(lib);
-        setNews(hotspot);
-        // 数据来源元信息（mock/真机 webSearch 路径为 null，不显示来源栏）
-        setHotMeta(getHotspotMeta());
-        refreshUsage();
-      })
-      .catch((err) => {
-        // 错误痕迹与是否已卸载无关，始终记录
-        console.error('[LibraryPage] load failed:', err);
-        if (alive) Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
-      })
-      .finally(() => {
-        clearTimeout(skeletonTimer);
-        if (alive) {
+    try {
+      const [lib, hotspot] = await Promise.all([apiGetLibrary(), apiGetHotspot().catch(() => [])]);
+      if (!aliveRef.current || seq !== loadSeq.current) return;
+      setItems(lib);
+      setNews(hotspot);
+      // 数据来源元信息（mock/真机 webSearch 路径为 null，不显示来源栏）
+      setHotMeta(getHotspotMeta());
+      refreshUsage();
+    } catch (err) {
+      // 错误痕迹与是否已卸载无关，始终记录
+      console.error('[LibraryPage] load failed:', err);
+      if (aliveRef.current && seq === loadSeq.current) {
+        Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
+      }
+    } finally {
+      // 只有最新一轮请求才有资格清理定时器与收起骨架屏
+      if (seq === loadSeq.current) {
+        if (skeletonTimer.current) {
+          clearTimeout(skeletonTimer.current);
+          skeletonTimer.current = null;
+        }
+        if (aliveRef.current) {
           setLoading(false);
           setShowSkeleton(false);
         }
-      });
-    return () => {
-      alive = false;
-      clearTimeout(skeletonTimer);
-    };
-    // 仅挂载执行一次：refreshUsage 为 store 动作、t 仅用于失败文案；本 effect 负责加载数据，语言切换无需重跑请求
+      }
+    }
+    // t 仅用于失败文案、refreshUsage 为 store 动作；语言切换无需重跑请求
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useDidShow(() => {
+    void load();
+  });
+
+  /** 卸载时清掉延时器与存活标记：定时器不能在页面卸载后再 setState */
+  useEffect(() => {
+    return () => {
+      aliveRef.current = false;
+      if (skeletonTimer.current) {
+        clearTimeout(skeletonTimer.current);
+        skeletonTimer.current = null;
+      }
+    };
   }, []);
 
   /** 竞品分析 X11：命中屏蔽关键词的条目（tag 包含「财经/股票/投资/社会」任一即命中） */

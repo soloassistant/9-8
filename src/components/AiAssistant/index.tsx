@@ -278,6 +278,18 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
     [sending, push, appendMsg, setMsgContent, patchMsg, removeMsg, loadExistingEvents, showMemoryToast, t]
   );
 
+  /**
+   * 发送入口（回车 / 点发送 共用）。
+   * 守卫必须放在 setInput('') 之前：sendMessage 在 sending 时直接 return，
+   * 旧写法先清空再调用，导致「回复中再点发送」时输入被吞、消息也没发出去。
+   */
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    if (!text || sending) return;
+    setInput('');
+    void sendMessage(text);
+  }, [input, sending, sendMessage]);
+
   /** 批准方案：透传 apiApplyPlan 落库（S-01），成功后 toast 并从消息中移除卡片 */
   const handleApprovePlan = useCallback(
     async (events: PlanApplyEvent[], src: PlanProposal, msgId: string) => {
@@ -603,18 +615,15 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
               value={input}
               placeholder={t('ai.placeholder')}
               confirmType='send'
+              disabled={sending}
               onInput={(e) => setInput(e.detail.value)}
-              onConfirm={() => {
-                sendMessage(input);
-                setInput('');
-              }}
+              onConfirm={handleSend}
             />
             <View
               className={classnames(styles.sendBtn, sending && styles.sendBtnDisabled)}
-              onClick={() => {
-                sendMessage(input);
-                setInput('');
-              }}
+              // 先守卫再清空：sendMessage 在 sending 时会直接 return，
+              // 旧写法先 setInput('') 会把用户正在等回复时新输入的内容吞掉
+              onClick={handleSend}
             >
               {sending ? '…' : t('ai.send')}
             </View>

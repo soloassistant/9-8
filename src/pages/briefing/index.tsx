@@ -624,7 +624,8 @@ function BriefingPage() {
 
   const handleSendText = () => {
     const text = inputText.trim();
-    if (!text) return;
+    // 先守卫再清空：发送中再次回车/点发送时，旧写法会清掉输入却发不出去
+    if (!text || sending) return;
     setInputText('');
     askAssistant(text, 'text');
   };
@@ -1502,6 +1503,7 @@ function BriefingPage() {
             placeholder={deepMode ? t('briefing.deepPlaceholder') : t('briefing.inputPlaceholder')}
             onInput={(e) => setInputText(e.detail.value)}
             confirmType='send'
+            disabled={sending}
             onConfirm={handleSendText}
           />
           {inputText ? (

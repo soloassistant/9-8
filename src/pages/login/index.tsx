@@ -183,8 +183,6 @@ export default function LoginPage() {
   const [bindBusy, setBindBusy] = useState(false);
   const [bindError, setBindError] = useState('');
   const [bindNotice, setBindNotice] = useState('');
-  /** 仅当手机号取码失败（短信 Provider 未开等）才置真，用于露出「稍后再说」逃生口 —— 正常流程不显示跳过 */
-  const [bindSendFailed, setBindSendFailed] = useState(false);
 
   // 挂载校验：已有会话就进应用；否则显示登录表单。微信端身份由微信提供，直接放行。
   useEffect(() => {
@@ -514,13 +512,11 @@ export default function LoginPage() {
     }
     setBindError('');
     setBindNotice('');
-    setBindSendFailed(false);
     setBindBusy(true);
     const res = await sendLoginCode({ phone: v });
     setBindBusy(false);
     if (res.error) {
       setBindError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
-      setBindSendFailed(true);
       return;
     }
     setBindPending({ id: { phone: v }, verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
@@ -815,11 +811,11 @@ export default function LoginPage() {
             <View className={`${styles.submit} ${bindBusy ? styles.btnDisabled : ''}`} onClick={doBindVerify}>
               <Text className={styles.submitText}>{t('auth.bindPhoneConfirm')}</Text>
             </View>
-            {bindSendFailed ? (
-              <View style={{ marginTop: '12px', textAlign: 'center' }} onClick={skipBind}>
-                <Text style={{ color: '#888', fontSize: '14px' }}>{t('auth.bindPhoneSkip')}</Text>
-              </View>
-            ) : null}
+            {/* 「稍后再说」必须常驻：只在 bindSendFailed 时显示的话，
+                短信码一直输不对（或发码接口持续失败）的用户会被锁死在绑定弹窗里 */}
+            <View style={{ marginTop: '12px', textAlign: 'center' }} onClick={skipBind}>
+              <Text style={{ color: '#888', fontSize: '14px' }}>{t('auth.bindPhoneSkip')}</Text>
+            </View>
           </View>
         </View>
       ) : null}
