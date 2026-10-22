@@ -126,12 +126,15 @@ function clampText(v: unknown, max: number): string {
   return `${s.slice(0, max)}…`;
 }
 
-/** 媒体 URL 准入（与云端 safeMediaUrl 同口径）：仅 http/https、≤512 字符；
- *  缺失/非法一律 undefined。配图与原文链接都走它 —— 脏数据（javascript: 等）进不了 UI。 */
+/** 媒体 URL 准入（与云端 safeMediaUrl 同口径）：仅 http/https、≤512 字符、不含 ASCII
+ *  控制字符；缺失/非法一律 undefined。配图与原文链接都走它 —— 脏数据（javascript:、
+ *  控制字符注入等）进不了 UI。控制字符防线依据同 src/utils/externalLink.ts 的
+ *  isSafeExternalUrl（2026-10-12 安全审计口径）：合法 URL 从不含它们。 */
 function safeMediaUrl(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
   const s = v.trim();
   if (!s || s.length > 512) return undefined;
+  if (/[\u0000-\u001f\u007f]/.test(s)) return undefined;
   return /^https?:\/\//i.test(s) ? s : undefined;
 }
 

@@ -993,12 +993,17 @@ function fallbackIntel(newsItems, limit = 5) {
   });
 }
 
-/** 媒体 URL 准入：仅 http/https、≤512 码点；其余（缺省/非串/javascript: 等）一律 undefined。
- *  情报条目里的图与原文链接都走它 —— 一个入口，不可能漏放行。 */
+/** 媒体 URL 准入：仅 http/https、≤512 码点、不含 ASCII 控制字符；其余（缺省/非串/
+ *  javascript: 等 scheme/带 \t \n \r \0）一律 undefined。
+ *  情报条目里的图与原文链接都走它 —— 一个入口，不可能漏放行。
+ *  控制字符防线（2026-10-22 对抗性复验补）：合法 URL 从不含 U+0000-U+001F/U+007F
+ *  （与 src/utils/externalLink.ts 的 isSafeExternalUrl 同口径）——RSS 属性值里
+ *  混入控制字符只可能是投毒，拒掉不会误伤任何真实调用点。 */
 function safeMediaUrl(v) {
   if (typeof v !== 'string') return undefined;
   const s = v.trim();
   if (!s || s.length > 512) return undefined;
+  if (/[\u0000-\u001f\u007f]/.test(s)) return undefined;
   return /^https?:\/\//i.test(s) ? s : undefined;
 }
 

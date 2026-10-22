@@ -42,11 +42,13 @@ export const VIDEO_NEWS_MAX = 1;
 /** B站视频页 URL 准入（唯一合法形态；其余一律丢弃，防开放跳转被滥用） */
 const BILI_URL_RE = /^https:\/\/www\.bilibili\.com\/video\/BV[0-9A-Za-z]{10,}$/;
 
-/** 媒体 URL 准入：仅 http/https、≤512 字符（与云端 safeMediaUrl / intelGroups 同口径） */
+/** 媒体 URL 准入：仅 http/https、≤512 字符、不含 ASCII 控制字符（与云端 safeMediaUrl /
+ *  intelGroups 同口径；控制字符防线依据同 externalLink.ts 的 2026-10-12 审计口径） */
 function safeMediaUrl(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
   const s = v.trim();
   if (!s || s.length > 512) return undefined;
+  if (/[\u0000-\u001f\u007f]/.test(s)) return undefined;
   return /^https?:\/\//i.test(s) ? s : undefined;
 }
 
