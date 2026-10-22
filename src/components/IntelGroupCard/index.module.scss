@@ -51,6 +51,18 @@
   padding: $spacing-xs 0;
 }
 
+/* 单条横向布局：正文左弹性 + 缩略图右固定（无图时缩略图不渲染，正文自然占满） */
+.itemRow {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+}
+
+.itemMain {
+  flex: 1;
+  min-width: 0; // flex 子项默认 min-width:auto 会撑破容器，必须显式 0
+}
+
 /* 条目正文 + 前置序号（与导语内 [n] 一一对应） */
 .itemText {
   display: block;
@@ -70,4 +82,18 @@
   margin-top: 4rpx;
   font-size: $font-size-xs;
   color: $color-text-tertiary;
+}
+
+/* 配图缩略图：128rpx 见方（rpx！勿写 px —— 本仓 h5 baseFontSize=37.5，px 会被再缩）；
+ *  无图条目该节点不存在，不是「图裂了占位」 */
+.itemThumb {
+  flex-shrink: 0;
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: $radius-sm;
+  background: $color-divider;
+
+  &:active {
+    opacity: 0.75;
+  }
 }

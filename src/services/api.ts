@@ -18,6 +18,8 @@ import {
 import type { LedgerExportResult } from '@/data/ledger';
 /** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
 import type { PlanProposalRaw } from '@/utils/schedule';
+import { normalizeVideoItems } from '@/utils/videoNews';
+import type { VideoNewsItem } from '@/utils/videoNews';
 import { callFunction, chatCloudStream } from './cloud';
 import type { ChatStreamHooks } from './cloud';
 import { invoke, isWeapp } from './dataSource';
@@ -66,6 +68,14 @@ export function apiConfirmItem(payload: {
 /** 获取今日晨报 */
 export function apiGetBriefing(): Promise<Briefing> {
   return callFunction<Briefing>('getBriefing');
+}
+
+/** 视频新闻（B站热榜第 1 条，公开内容免登录）。
+ *  失败（云函数不可达/超时）抛错由调用方降级为「不渲染该卡片」——
+ *  不提供本地 mock：视频新闻无法诚实地伪造，宁缺毋假。 */
+export async function apiGetVideoNews(): Promise<VideoNewsItem[]> {
+  const raw = await callFunction<unknown>('webSearch', { action: 'videoNews' });
+  return normalizeVideoItems(raw);
 }
 
 /** 工作助手动作 */

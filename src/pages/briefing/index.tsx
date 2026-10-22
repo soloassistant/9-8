@@ -6,18 +6,22 @@ import classnames from 'classnames';
 import VoiceButton, { VoiceResult } from '@/components/VoiceButton';
 import EmptyState from '@/components/EmptyState';
 import PermissionDialog from '@/components/PermissionDialog';
-import IntelGroupCard from '@/components/IntelGroupCard';
+import IntelGroupCard, { IntelItemRow } from '@/components/IntelGroupCard';
 import HabitGuardBar from '@/components/HabitGuardBar';
 import PlanProposalCard from '@/components/PlanProposalCard';
 import { BriefingSkeleton } from '@/components/Skeleton';
 import { resolveIntelGroups } from '@/utils/intelGroups';
-import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries } from '@/services/api';
+import type { IntelSourceRef } from '@/utils/intelGroups';
+import { formatPlayCount } from '@/utils/videoNews';
+import type { VideoNewsItem } from '@/utils/videoNews';
+import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews } from '@/services/api';
 import { buildTodayBrief, resolveCategory, type TodayBrief } from '@/utils/ledgerAggregate';
 import { buildPlanProposal } from '@/utils/schedule';
 import type { PlanProposal, PlanApplyEvent } from '@/utils/schedule';
 import { guardHabitsOnOpen, commitHabitGuards, listRestorableRecords, undoHabitGuard, createHabit } from '@/utils/habit';
 import type { HabitGuardRecord } from '@/utils/habit';
 import { locateCity } from '@/services/location';
+import { openExternalPage } from '@/utils/externalLink';
 import {
   ensurePermission,
   isDeniedDegraded,
@@ -147,6 +151,11 @@ function BriefingPage() {
      （briefing/index.tsx:80-88），于是「下午记了一笔、晚上重开晨报仍看不到」，
      且用户无从得知。独立 state + 每次 useDidShow 重读，语义才对。 */
   const [ledgerBrief, setLedgerBrief] = useState<TodayBrief | null>(null);
+  /** 视频新闻（B站热榜第 1 条）：与 briefing 解耦的独立 state。
+   *  为什么不并进 getBriefing 的 payload：视频源（B站榜单 API）与 RSS/LLM 情报是
+   *  两套抓取链路，并进 payload 会让任一侧失败互相牵连；且它免登录、可被 H5 静态站
+   *  直接调用。失败即空数组 —— 调用方不渲染卡片，不弹错误、不给假数据。 */
+  const [videoNews, setVideoNews] = useState<VideoNewsItem[]>([]);
   /** 最近一次算出的账单摘要。仅供 useDidShow 里的日志读 —— React state 在闭包里是stale 的，
    *  直接打ledgerBrief 永远打出 null，排查时会误判成「没算出来」。 */
   const ledgerBriefRef = useRef<TodayBrief | null>(null);
@@ -384,6 +393,12 @@ function BriefingPage() {
   useEffect(() => {
     init();
     loadBriefing();
+    // 视频新闻：与 briefing 解耦加载，失败静默（不渲染卡片）。云端 1 小时缓存，
+    // 每次进页面重取只是为了拿到当日更新，代价是一次轻量 RPC。
+    // apiGetVideoNews 内部已过 normalizeVideoItems 收敛，这里直接落 state。
+    apiGetVideoNews()
+      .then(setVideoNews)
+      .catch((err) => console.warn('[BriefingPage] videoNews load failed:', err));
     // 仅挂载执行一次：init 为 store 动作，loadBriefing 为 useCallback；语言切换无需重跑拉取，故二者都不列入 deps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1298,10 +1313,10 @@ function BriefingPage() {
                     />
                   ))
                 : briefing.intel.intelItems.map((item, i) => (
-                    <View key={i} className={styles.digestItem}>
-                      <Text className={styles.digestText}>{item.text}</Text>
-                      <Text className={styles.digestSource}>来源：{item.source}</Text>
-                    </View>
+                    // 宽化读取： BriefingIntel.intelItems 的类型是冻结文件里的 {text,source}，
+                    // 云端 fallback 路径实际还带 image/url（2026-10-22 增量）——按 intelGroups.ts
+                    // 的 IntelSourceRef 读，缺字段时自动降级纯文本，不会崩。
+                    <IntelItemRow key={i} item={item as IntelSourceRef} />
                   ))}
               {/* 只有「确实由 AI 生成」的导语才挂 AI 署名（合规）：必须本档位启用 AI（aiEnabled）
                   且未降级。免费档 aiEnabled=false、导语来自 groupIntelLocally 的纯文本拼接
@@ -1327,6 +1342,63 @@ function BriefingPage() {
           ) : null}
         </View>
       )}
+
+      {/* 视频新闻（B站热榜第 1 条）：独立于 hasContent 门禁 —— 与记账卡片同理由，
+          视频资讯与当天有没有日程无关；放进 contentFade 会被「三皆空」的空态吃掉
+          （2026-10-15 记账卡片踩过的坑，见本节上方注释）。
+          有数据才渲染：拿不到（RPC 失败/榜单为空）就整卡不出现，不留空壳。 */}
+      {videoNews.length > 0 ? (
+        <View className={styles.section}>
+          <View className={styles.sectionHeader}>
+            <Text className={styles.sectionIcon}>🎬</Text>
+            <Text className={styles.sectionTitle}>{t('briefing.videoSection')}</Text>
+          </View>
+          {videoNews.map((v) => {
+            const play = formatPlayCount(v.play);
+            return (
+              <View
+                key={v.id}
+                className={styles.videoCard}
+                onClick={() => {
+                  // 打开原文：H5 新标签 / 小程序复制链接（openExternalPage 内置双端降级）；
+                  // 'copied'/'failed' 都必须让用户看见，不能「点了没反应」
+                  openExternalPage(v.url)
+                    .then((r) => {
+                      if (r === 'copied') Taro.showToast({ title: t('sxm.copyHint'), icon: 'none', duration: 2000 });
+                      else if (r === 'failed') Taro.showToast({ title: t('sxm.copyFail'), icon: 'none', duration: 2000 });
+                    })
+                    .catch((err) => console.warn('[BriefingPage] video open failed:', err));
+                }}
+              >
+                <View className={styles.videoCoverWrap}>
+                  {v.image ? (
+                    <Image src={v.image} mode='aspectFill' lazyLoad className={styles.videoCover} />
+                  ) : (
+                    <View className={styles.videoCoverFallback}>
+                      <Text className={styles.videoCoverFallbackIcon}>🎬</Text>
+                    </View>
+                  )}
+                  {/* 播放角标 + 时长：相对封面容器（position:relative）内绝对定位，
+                      徽章自身只做背景+圆角，无变换/裁剪，双端渲染一致 */}
+                  <View className={styles.videoCoverBadge}>
+                    <Text className={styles.videoCoverBadgeText}>▶ {v.duration || '视频'}</Text>
+                  </View>
+                </View>
+                <View className={styles.videoBody}>
+                  <Text className={styles.videoTitle}>{v.title}</Text>
+                  <Text className={styles.videoMeta}>
+                    {v.source}
+                    {v.author ? ` · ${v.author}` : ''}
+                    {play ? ` · ${t('briefing.videoPlays', { n: play })}` : ''}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+          {/* 来源与入口性质声明：合规要求来源可见 + 明示「只做入口不转载」 */}
+          <Text className={styles.videoDisclaimer}>{t('briefing.videoDisclaimer')}</Text>
+        </View>
+      ) : null}
 
       {/* v2.1 高风险习惯调整方案：走既有 PlanProposalCard 确认链路，绝不自动改动 */}
       {habitProposal ? (

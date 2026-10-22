@@ -60,6 +60,13 @@ export interface IntelSourceRef {
   text: string;
   /** 来源媒体名（合规要求：来源必须可见） */
   source: string;
+  /** 真实配图（RSS media/enclosure/正文首图；无图条目为 undefined，UI 降级纯文本）。
+   *
+   *  仅免费档/降级档的 fallbackIntel 会带（2026-10-22 起）：LLM 订阅路径的 text 是
+   *  模型改写句，与源条目非一对一，硬贴源图即错配，故那条路按设计无图。 */
+  image?: string;
+  /** 原文链接（同上，仅 fallback 路径带；点击可打开，合规的「查看原文」入口） */
+  url?: string;
 }
 
 /**
@@ -119,6 +126,15 @@ function clampText(v: unknown, max: number): string {
   return `${s.slice(0, max)}…`;
 }
 
+/** 媒体 URL 准入（与云端 safeMediaUrl 同口径）：仅 http/https、≤512 字符；
+ *  缺失/非法一律 undefined。配图与原文链接都走它 —— 脏数据（javascript: 等）进不了 UI。 */
+function safeMediaUrl(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const s = v.trim();
+  if (!s || s.length > 512) return undefined;
+  return /^https?:\/\//i.test(s) ? s : undefined;
+}
+
 /** 归一化单条引用：缺 text/source 的条目丢弃（返回 null，由调用方 filter） */
 function normalizeRef(raw: unknown): IntelSourceRef | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -126,7 +142,12 @@ function normalizeRef(raw: unknown): IntelSourceRef | null {
   const text = clampText(obj.text, INTEL_ITEM_TEXT_MAX);
   if (!text) return null;
   const source = isNonEmptyString(obj.source) ? String(obj.source).trim() : '综合';
-  return { text, source };
+  const ref: IntelSourceRef = { text, source };
+  const image = safeMediaUrl(obj.image);
+  if (image) ref.image = image;
+  const url = safeMediaUrl(obj.url);
+  if (url) ref.url = url;
+  return ref;
 }
 
 /* ---------------- 公共 API ---------------- */

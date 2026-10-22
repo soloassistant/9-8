@@ -1,6 +1,8 @@
-import { View, Text } from '@tarojs/components';
+import { View, Text, Image } from '@tarojs/components';
+import Taro from '@tarojs/taro';
 import { splitLeadSegments } from '@/utils/intelGroups';
-import type { IntelGroup, IntelLeadSegment } from '@/utils/intelGroups';
+import type { IntelGroup, IntelLeadSegment, IntelSourceRef } from '@/utils/intelGroups';
+import { openExternalPage } from '@/utils/externalLink';
 import styles from './index.module.scss';
 
 /**
@@ -57,14 +59,58 @@ export default function IntelGroupCard({ group, citeHint, onCiteClick }: IntelGr
 
       <View className={styles.items}>
         {group.items.map((item, i) => (
-          <View key={`${group.title}-${i}`} className={styles.item}>
-            <Text className={styles.itemText}>
-              <Text className={styles.itemIndex}>{`[${i + 1}]`} </Text>
-              {item.text}
-            </Text>
-            <Text className={styles.itemSource}>{`来源：${item.source}`}</Text>
-          </View>
+          <IntelItemRow key={`${group.title}-${i}`} item={item} index={i + 1} />
         ))}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * 情报单条渲染（分组内 / 平铺列表共用）：正文 + 来源 + 可选配图。
+ *
+ * 配图规则（2026-10-22 增量）：
+ *  · `image` 存在才渲染缩略图；缺失（LLM 订阅路径按设计无图 / 源本身无图）时
+ *    自动降级为纯文本行，不留空图框；
+ *  · 点图 → `Taro.previewImage` 全屏看大图；点正文 → 有 `url` 时走
+ *    `openExternalPage` 打开原文（H5 新标签 / 小程序复制链接，双端降级内置）。
+ */
+export function IntelItemRow({ item, index }: { item: IntelSourceRef; index?: number }) {
+  /** 点正文打开原文：无 url 或打开失败都不打扰用户（图预览才是主交互） */
+  const handleTextTap = () => {
+    if (!item.url) return;
+    openExternalPage(item.url).catch((err) =>
+      console.warn('[IntelItemRow] openExternalPage failed:', err)
+    );
+  };
+
+  /** 点缩略图全屏预览（与 library 页封面图同交互） */
+  const handleImageTap = () => {
+    if (!item.image) return;
+    Taro.previewImage({ urls: [item.image] }).catch((err) =>
+      console.warn('[IntelItemRow] previewImage failed:', err)
+    );
+  };
+
+  return (
+    <View className={styles.item}>
+      <View className={styles.itemRow}>
+        <View className={styles.itemMain}>
+          <Text className={styles.itemText} onClick={handleTextTap}>
+            {typeof index === 'number' ? <Text className={styles.itemIndex}>{`[${index}] `}</Text> : null}
+            {item.text}
+          </Text>
+          <Text className={styles.itemSource}>{`来源：${item.source}`}</Text>
+        </View>
+        {item.image ? (
+          <Image
+            src={item.image}
+            mode='aspectFill'
+            lazyLoad
+            className={styles.itemThumb}
+            onClick={handleImageTap}
+          />
+        ) : null}
       </View>
     </View>
   );

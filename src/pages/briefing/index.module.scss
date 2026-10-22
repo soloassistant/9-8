@@ -548,14 +548,8 @@
   @include text-ellipsis-multi(2);
 }
 
-/* 今日情报：来源标注与降级/AI 说明（合规要求来源可见） */
-.digestSource {
-  display: block;
-  margin-top: 4rpx;
-  font-size: $font-size-xs;
-  color: $color-text-tertiary;
-}
-
+/* 今日情报：来源标注已随平铺条目迁往 IntelGroupCard 的 itemSource（2026-10-22），
+   本文件不再保留 .digestSource —— 死样式会误导后来者以为这里还渲染来源行 */
 .intelNote {
   display: block;
   margin-top: 8rpx;
@@ -965,3 +959,89 @@
   }
 }
 
+
+/* ---------------- 视频新闻卡片（B站热榜第 1 条） ---------------- */
+.videoCard {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+  padding: $spacing-sm 0;
+
+  &:active {
+    opacity: 0.75;
+  }
+}
+
+/* 封面：16:9 横比；播放角标相对封面容器内绝对定位（容器 position:relative，
+   徽章自身不做圆角裁剪外的变换，双端渲染一致） */
+.videoCoverWrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 232rpx;
+}
+
+.videoCover {
+  display: block;
+  width: 232rpx;
+  height: 130rpx; // 16:9
+  border-radius: $radius-sm;
+  background: $color-divider;
+}
+
+/* 封面缺失时的占位（云端 image 被 safeMediaUrl 拒掉才会走到） */
+.videoCoverFallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 232rpx;
+  height: 130rpx;
+  border-radius: $radius-sm;
+  background: $color-divider;
+}
+
+.videoCoverFallbackIcon {
+  font-size: 44rpx;
+}
+
+/* 播放角标 + 时长：浮在封面左下（相对封面容器内绝对定位，仅此一处使用） */
+.videoCoverBadge {
+  position: absolute;
+  left: 8rpx;
+  bottom: 8rpx;
+  padding: 2rpx 12rpx;
+  border-radius: $radius-xs;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.videoCoverBadgeText {
+  font-size: $font-size-xs;
+  color: #ffffff;
+}
+
+.videoBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.videoTitle {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  line-height: $line-height-normal;
+  @include text-ellipsis-multi(2);
+}
+
+.videoMeta {
+  display: block;
+  margin-top: 6rpx;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+/* 入口性质声明：合规（来源可见 + 不转载） */
+.videoDisclaimer {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
