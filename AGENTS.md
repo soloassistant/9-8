@@ -218,6 +218,20 @@ node .tools/mutation-verify.mjs .tools/mutations-share.mjs   # 变异验证（�
 4. **提交纪律**：只 `git add` 精确路径，严禁 `-A` / `.`；提交前 `git status
    --porcelain` 核对、提交后复查。遇到**外来未提交改动或外来新提交**（同仓其他工作流
    在飞）→ 原样保留、只报告、不动它，并确认与自己的提交无文件重叠。
+4.1 **开工先记基线**：动手改代码前 `git status --porcelain > /tmp/wt-baseline.txt`
+   （或等价的当日留痕）。提交时逐项对照：基线里有的外来项一个都不许进暂存区。
+4.2 **提交前必须过暂存区 diff**：`git diff --cached` 逐行核对正是自己意图的改动。
+   发现外来文件/外来行混入 → `git restore --staged <路径>` 撤出，**绝不允许"顺手一起提交"**。
+   2026-10-22 事故实录：工程师首次提交不慎吞入并发会话的 `briefing/index.tsx`
+   流式对话改动——若有本步自查即可当场拦住。
+4.3 **严禁 `--amend` 任何提交**。amend 是事故放大器：2026-10-22 工程师撤出吞入内容时
+   一次 amend 误作用于另一条提交，差点把两个修复拆不干净。一律新写提交；
+   确需改写历史（仅限自己刚建、尚未推送、确认无外来内容的提交），先 `git log -p`
+  自查三遍再动手，且 amend 后必须 `git show --stat` 复核每个文件。
+4.4 **吞入事故的标准处置**（发生了就这么办，别慌也别捂）：`git reset --soft HEAD~1`
+   → 外来改动用 `git checkout -- <路径>` 或从备份字节级还原（含 CRLF/LF 行尾一致性）
+   → 重做成干净提交 → 向主理人如实报告事故经过。备份先行：动 reset 前
+   `cp` 一份受污染文件到 `.tmp-verify/`。
 5. **本机命令坑**：复合 bash 命令可能被沙箱中心拒（报 sandbox-center 相关错误）→
    拆成多条或改用 PowerShell；长命令（构建 / 多 harness 串联）必须
    `run_in_background` + 日志；node 一律用绝对路径
