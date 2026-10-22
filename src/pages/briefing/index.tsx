@@ -552,7 +552,10 @@ function BriefingPage() {
       if (!isWeapp) {
         // F-03 H5 流式：先挂空气泡，delta 打字机追加；失败移除空气泡降级整段
         const streamId = pushMessage('assistant', '', 'text', deepMode);
-        res = await apiChatStream(message, deepMode, (chunk) => appendMessage(streamId, chunk));
+        res = await apiChatStream(message, deepMode, (chunk) => appendMessage(streamId, chunk), undefined, {
+          onThinking: () => setMessageContent(streamId, t('ai.thinking')),
+          onClear: () => setMessageContent(streamId, ''),
+        });
         if (res) {
           setMessageContent(streamId, res.reply);
         } else {
