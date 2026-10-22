@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Picker, Button, Image, Input, Switch, ScrollView } from '@tarojs/components';
 import type { CommonEvent, PickerSelectorProps, PickerTimeProps } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
@@ -12,7 +12,7 @@ import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiCreateOrder, apiDeleteAccount, apiApplyPlan, type CreateOrderPayload } from '@/services/api';
 import { getPayChannel, getChannelAuth, invokePayment } from '@/services/pay';
-import type { PayChannel } from '@/types';
+import type { PayChannel, PayOrder } from '@/types';
 import { signOut } from '@/services/cloudAuth';
 import { kvClear } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
@@ -50,7 +50,6 @@ import {
   markHabitNoticeRead
 } from '@/utils/habit';
 import type { Habit, HabitGuardRecord, HabitNotice } from '@/utils/habit';
-import type { PayOrder } from '@/types';
 import styles from './index.module.scss';
 
 const isWeapp = process.env.TARO_ENV === 'weapp';
@@ -73,6 +72,28 @@ const CHANNEL_ICON: Record<PayChannel, string> = {
 };
 const channelIconMap = CHANNEL_ICON;
 const channelLabelKey = CHANNEL_LABEL_KEY;
+
+/** 订单状态 → i18n key（考虑 refundStatus 优先级） */
+function getOrderStatusLabel(status: string, refundStatus: string): LangKey {
+  if (refundStatus === 'refunded') return 'mine.orderStatusRefunded';
+  if (refundStatus === 'refunding') return 'mine.orderStatusRefunding';
+  switch (status) {
+    case 'paid': return 'mine.orderStatusPaid';
+    case 'created': return 'mine.orderStatusCreated';
+    case 'closed': return 'mine.orderStatusClosed';
+    default: return 'mine.orderStatusCreated';
+  }
+}
+
+/** 订单状态 → 展示色（全页统一 CSS token 引用） */
+function getOrderStatusColor(status: string, refundStatus: string): string {
+  if (refundStatus === 'refunded') return '#999999';
+  if (refundStatus === 'refunding') return '#E85D2A';
+  if (status === 'paid') return '#16A34A';       // 绿
+  if (status === 'created') return '#F59E0B';   // 橙
+  if (status === 'closed') return '#999999';     // 灰
+  return '#666666';
+}
 
 /** 危险操作确认按钮统一色值（设计文档第六章 B） */
 const DANGER_COLOR = '#E85D2A';
@@ -217,6 +238,22 @@ function MinePage() {
   // v2.1：习惯守护（列表 + 自动守护开关 + 守护记录 + 站内信）
   const [habits, setHabits] = useState<Habit[]>([]);
   const [guardRecords, setGuardRecords] = useState<HabitGuardRecord[]>([]);
+  // === 订阅记录 / 退款 ===
+  interface OrderSummary {
+    orderId: string;
+    channel: PayChannel;
+    planId: string;
+    price: number;
+    months: number;
+    status: string;
+    payStatus?: string;
+    refundStatus: string;
+    createTime: string;
+    paidTime?: string | null;
+  }
+  const [orders, setOrders] = useState<OrderSummary[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [refunding, setRefunding] = useState(false);
   const [habitNotices, setHabitNotices] = useState<HabitNotice[]>([]);
   // 竞品分析本轮：L2 AI 精选 / X3 推送偏好 / X6 周末轻量版 / X11 未成年人模式（mb-prefs 统一契约）
   const [appPrefs, setAppPrefs] = useState<UserPrefs>(() => readPrefs());
@@ -252,6 +289,68 @@ function MinePage() {
     setAppPrefs(readPrefs());
   }, [profile]);
 
+  // ========== 订阅记录 + 退款 ==========
+  const loadOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
+      if (!cloud?.callFunction) return;
+      const res = await cloud.callFunction({ name: 'ordersList', data: { limit: 20 } });
+      const r = res as { result?: { ok?: boolean; orders?: OrderSummary[] } } | null;
+      if (r?.result?.ok && Array.isArray(r.result.orders)) {
+        setOrders(r.result.orders);
+      }
+    } catch (e) {
+      console.warn('[MinePage] loadOrders failed:', e);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, []);
+
+  const handleRefund = useCallback(async (orderId: string, channel: PayChannel) => {
+    if (refunding) return;
+    // 抖音暂不支持自动退款 → 提示联系客服
+    if (channel === 'douyin') {
+      Taro.showModal({
+        title: t('mine.refundBtn'),
+        content: t('mine.refundDouyinNote'),
+        showCancel: false,
+        confirmText: 'OK'
+      });
+      return;
+    }
+    try {
+      const res = await Taro.showModal({
+        title: t('mine.refundBtn'),
+        content: t('mine.refundBtn') + '？',
+        confirmColor: DANGER_COLOR
+      });
+      if (!res.confirm) return;
+      setRefunding(true);
+      const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
+      if (!cloud?.callFunction) {
+        Taro.showToast({ title: t('mine.refundFailed'), icon: 'none' });
+        return;
+      }
+      const callRes = await cloud.callFunction({ name: 'refundOrder', data: { orderId } });
+      const r = callRes as { result?: { ok?: boolean; manualRefund?: boolean; error?: string } } | null;
+      if (r?.result?.ok) {
+        Taro.showToast({ title: t('mine.refundSuccess'), icon: 'success' });
+        await init(); // 刷新订阅状态（refundOrder 云函数已回滚 expiredAt）
+        await loadOrders();
+      } else if (r?.result?.manualRefund) {
+        Taro.showToast({ title: t('mine.refundDouyinNote'), icon: 'none', duration: 2500 });
+      } else {
+        Taro.showToast({ title: r?.result?.error || t('mine.refundFailed'), icon: 'none' });
+      }
+    } catch (e) {
+      console.warn('[MinePage] handleRefund error:', e);
+      Taro.showToast({ title: t('mine.refundFailed'), icon: 'none' });
+    } finally {
+      setRefunding(false);
+    }
+  }, [refunding, t, init, loadOrders]);
+
   // 每次切回「我的」页刷新近期动态（最新 3 条）+ 可能被其他页面改动过的共享状态
   useDidShow(() => {
     setLogs(getActivityLogs().slice(0, 3));
@@ -266,6 +365,7 @@ function MinePage() {
     setGuardRecords(listRestorableRecords());
     setHabitNotices(listHabitNotices());
     setAppPrefs(readPrefs());
+    void loadOrders();
   });
 
   // 偏好变化（或重新回到本页）后重算免打扰状态，辅助说明用
@@ -415,10 +515,33 @@ function MinePage() {
         const payRes = await invokePayment(channel, result.payment);
         if (payRes.success) {
           Taro.showToast({ title: '支付成功', icon: 'success' });
-          // 主动查单：pay-callback 云函数异步回写 users.expiredAt
-          // 用 init() 拉最新 profile，避免用户付完还要等下次进 mine 才看到订阅状态
-          // 短延时 1.5s 给 pay-callback 足够时间处理（微信 cloudPay 回调快，支付宝/抖音 HTTP 稍慢）
-          setTimeout(() => { void init(); }, 1500);
+          // 对账兜底：先 init 拉 profile；如果 pay-callback 还没到（支付宝/抖音 HTTP 稍慢），
+          // profile 还是未订阅 → 立刻调 queryOrder 云函数查通道真相（会完成对账），再 init 刷新 UI
+          const paidOrderId = result.orderId;
+          setTimeout(async () => {
+            try {
+              await init();
+              // init 之后如果 profile 还是未订阅，补一次主动查单
+              const freshProfile = useUserStore.getState().profile;
+              if (!freshProfile?.subscribed || !freshProfile?.expiredAt) {
+                // 小程序端 Taro.cloud 可用，queryOrder 只认 orderId（云函数间调用无 openid 校验）
+                const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
+                if (cloud?.callFunction) {
+                  const q = await cloud.callFunction({ name: 'queryOrder', data: { orderId: paidOrderId } });
+                  // queryOrder 返回 { ok, paid, reconciled, channelStatus }
+                  const qRes = q as { ok?: boolean; paid?: boolean; reconciled?: boolean; channelStatus?: string } | null;
+                  if (qRes?.paid) {
+                    console.info('[MinePage] ✅ queryOrder 主动对账完成，刷新 profile');
+                    await init();
+                  } else {
+                    console.warn('[MinePage] queryOrder 返回未付 channelStatus=', qRes?.channelStatus);
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn('[MinePage] 支付后对账兜底异常:', e);
+            }
+          }, 1800);
         }
       } catch (payErr) {
         const msg = String(payErr?.message || payErr || '');
@@ -1014,6 +1137,51 @@ function MinePage() {
             ) : null}
           </View>
         </View>
+      </View>
+
+      {/* ===== 订阅记录 ===== */}
+      <View className={styles.card}>
+        <Text className={styles.cardTitle}>{t('mine.ordersTitle')}</Text>
+        {ordersLoading && orders.length === 0 ? (
+          <Text className={styles.orderLoading}>…</Text>
+        ) : orders.length === 0 ? (
+          <Text className={styles.orderEmpty}>{t('mine.ordersEmpty')}</Text>
+        ) : (
+          <ScrollView scrollY className={styles.orderList}>
+            {orders.map((o) => {
+              const channelLabel = t(`mine.orderChannel${o.channel[0].toUpperCase()}${o.channel.slice(1)}` as LangKey);
+              const statusLabel = getOrderStatusLabel(o.status, o.refundStatus);
+              const statusColor = getOrderStatusColor(o.status, o.refundStatus);
+              const canRefund = o.status === 'paid' && o.refundStatus !== 'refunded' && o.refundStatus !== 'refunding';
+              const date = o.createTime ? new Date(o.createTime).toISOString().slice(0, 10) : '';
+              return (
+                <View className={styles.orderItem} key={o.orderId}>
+                  <View className={styles.orderHead}>
+                    <Text className={styles.orderChannelTag}>
+                      {channelIconMap[o.channel]} {channelLabel}
+                    </Text>
+                    <Text className={styles.orderStatus} style={{ color: statusColor }}>{statusLabel}</Text>
+                  </View>
+                  <View className={styles.orderBody}>
+                    <Text className={styles.orderPlan}>{PLAN_LABEL_KEY[o.planId as PayOrder['planId']] ? t(PLAN_LABEL_KEY[o.planId as PayOrder['planId']]) : o.planId}</Text>
+                    <Text className={styles.orderPrice}>¥{o.price} · {t('mine.orderMonths', { n: o.months })}</Text>
+                  </View>
+                  <View className={styles.orderFoot}>
+                    <Text className={styles.orderDate}>{date}</Text>
+                    {canRefund ? (
+                      <Text
+                        className={styles.orderRefundBtn}
+                        onClick={() => handleRefund(o.orderId, o.channel)}
+                      >
+                        {t('mine.refundBtn')}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
 
       {/* B-02：调价站内信（本轮不发生实际调价，仅在有通知时渲染） */}

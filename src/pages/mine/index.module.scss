@@ -924,3 +924,85 @@
   font-size: $font-size-md;
   line-height: $button-height-md;
 }
+
+// ===== 订阅记录 / 退款 =====
+.orderEmpty,
+.orderLoading {
+  display: block;
+  padding: $spacing-lg $spacing-sm;
+  text-align: center;
+  color: $color-text-tertiary;
+  font-size: $font-size-sm;
+}
+
+.orderList {
+  max-height: 400rpx;
+  margin-top: $spacing-xs;
+}
+
+.orderItem {
+  padding: $spacing-md 0;
+  border-bottom: 1rpx solid $color-border;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.orderHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $spacing-xs;
+}
+
+.orderChannelTag {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.orderStatus {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+}
+
+.orderBody {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $spacing-xs;
+}
+
+.orderPlan {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  font-weight: $font-weight-semibold;
+}
+
+.orderPrice {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.orderFoot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.orderDate {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.orderRefundBtn {
+  font-size: $font-size-sm;
+  color: #E85D2A;
+  padding: 4rpx 16rpx;
+  border-radius: $radius-sm;
+  transition: background $transition-fast;
+
+  &:active {
+    background: rgba(232, 93, 42, 0.08);
+  }
+}

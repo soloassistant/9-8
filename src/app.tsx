@@ -14,6 +14,34 @@ import { initCloudSync } from '@/services/cloudSync';
 // 全局样式
 import './app.scss';
 
+// ========== 崩溃日志收集（P2） ==========
+// Taro.onError 在整个小程序生命周期内捕获所有未处理异常，
+// 主动上报 reportError 云函数写入 errors 集合 —— 上线后用户崩溃不再盲猜。
+// fire-and-forget：上报失败静默忽略，绝不阻断用户主流程。
+try {
+  Taro.onError((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : '';
+    try {
+      const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
+      if (cloud?.callFunction) {
+        void cloud.callFunction({
+          name: 'reportError',
+          data: {
+            message: msg,
+            stack,
+            page: '',
+            channel: process.env.TARO_ENV,
+            extra: {}
+          }
+        }).catch(() => undefined); // 上报失败静默吞掉
+      }
+    } catch { /* 云函数调用本身失败也不冒泡 */ }
+  });
+} catch (hookErr) {
+  console.warn('[App] onError hook 注册失败:', hookErr);
+}
+
 // 用户数据轻云同步（仅 H5）：必须在任何页面读取 storage 之前完成云端恢复，故模块加载即执行。
 // 返回的 Promise 在**启动拉取结束后** resolve —— 重放必须挂在它后面（.then），
 // 否则重放读到的是「恢复前」的 storage，跨设备改过的语言/主题/字号在首刷不生效。
