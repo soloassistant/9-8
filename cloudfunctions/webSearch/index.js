@@ -577,6 +577,119 @@ async function writeHotspotCache(items, sourceHealth, softItems) {
   }
 }
 
+/* ---------------- 视频新闻：B站全站热榜（公开榜单 API） ---------------- */
+
+/** 视频缓存固定文档 _id：与 HOTSPOT_CACHE_ID 同集合不同文档，互不覆盖 */
+const VIDEO_CACHE_ID = 'video';
+/** 视频缓存 TTL 与热点一致（榜单按天级更新，1 小时足够；冷缓存每用户每天最多多抓一次） */
+const VIDEO_CACHE_MS = HOTSPOT_CACHE_MS;
+/** 视频新闻条数：产品要的是「一项」，取榜单第 1 条；多取几条只作缓存冗余，不向下游多给 */
+const VIDEO_NEWS_LIMIT = 1;
+
+/**
+ * B站排行榜接口选型（2026-10-22 实测结论，勿再重复调研）：
+ *  · `x/web-interface/ranking/v2` 需 WBI 签名 —— 实测免签直连返 `code:-352`（风控），
+ *    云函数现算 WBI 签名不现实（要拿 img_key/sub_key 再混合加密），放弃；
+ *  · 旧版 `x/web-interface/ranking` **免签直连即返 JSON**（`code:0`，含 bvid/title/pic/
+ *    author/duration/play/video_review），本条 URL 即实测可用形态。
+ *    URL 里 `jsonp=jsonp?rid=0` 的怪异写法照抄自 DailyHotApi 备用通道
+ *    （.tools/DailyHotApi/src/routes/bilibili.ts L116）—— 实测该形态下接口忽略 callback
+ *    直接返纯 JSON，不做 JSONP 解析。
+ */
+const BILI_RANKING_URL =
+  'https://api.bilibili.com/x/web-interface/ranking?jsonp=jsonp?rid=0&type=all&callback=__jp0';
+
+async function readVideoCache() {
+  try {
+    // ① 固定 _id 优先（新写入格式）
+    const byId = await db.collection('hotspotCache').doc(VIDEO_CACHE_ID).get();
+    if (byId && byId.data) return byId.data;
+  } catch (err) {
+    // 文档/集合不存在 → 走下面的回退
+  }
+  try {
+    // ② 回退：兼容历史自动 _id 文档；orderBy 保证读到最新的一条而非任意一条
+    const res = await db
+      .collection('hotspotCache')
+      .where({ key: 'video' })
+      .orderBy('updateTime', 'desc')
+      .limit(1)
+      .get();
+    return res.data[0] || null;
+  } catch (err) {
+    // 集合不存在等场景按无缓存处理
+    return null;
+  }
+}
+
+/** 写视频缓存：固定 _id + set = 幂等 upsert（与 hotspot 同机制） */
+async function writeVideoCache(items) {
+  try {
+    const data = { key: 'video', items, updateTime: new Date().toISOString() };
+    await db.collection('hotspotCache').doc(VIDEO_CACHE_ID).set({ data });
+  } catch (err) {
+    console.warn('[webSearch] writeVideoCache failed:', err && err.message);
+  }
+}
+
+/** 视频新闻：B站全站热榜第 1 条（默认 limit=1，产品口径「一项视频新闻」）。
+ *
+ *  合规与诚实性约定：
+ *   · `source` 恒为「哔哩哔哩」、`url` 恒指向该视频页 —— 本产品**不转载视频内容**，
+ *     只做带来源标注的入口，与 RSS 情报同口径；
+ *   · UP主投稿标题属 UGC，**不经过 news-trust 信任过滤**（那是给进 LLM prompt 的
+ *     内容防注入用的；视频条目直出前端渲染纯文本，不进任何模型）；
+ *   · 任何一步失败（超时/非 200/JSON 坏/列表空）返回 []，有旧缓存则降级用旧缓存，
+ *     绝不阻塞晨报其余部分。 */
+async function getVideoNews(limit = VIDEO_NEWS_LIMIT) {
+  const cache = await readVideoCache();
+  if (cache && cache.updateTime && Date.now() - new Date(cache.updateTime).getTime() < VIDEO_CACHE_MS) {
+    return (cache.items || []).slice(0, limit);
+  }
+  try {
+    const raw = await fetchText(BILI_RANKING_URL, { Referer: 'https://www.bilibili.com/ranking/all' });
+    const data = JSON.parse(raw);
+    const list = data && data.data && Array.isArray(data.data.list) ? data.data.list : [];
+    const items = list
+      .slice(0, 5) // 榜单前 5 里挑，给缓存留余量；向下游只给 limit 条
+      .map((v) => {
+        const it = v && typeof v === 'object' ? v : {};
+        const bvid = String(it.bvid || '');
+        const pic = typeof it.pic === 'string' ? it.pic.replace(/^http:/, 'https:') : '';
+        // 旧版接口字段：author(串)/play(数)/video_review(数)/create(秒)；新版：owner.name/stat.view
+        const author =
+          it.owner && typeof it.owner.name === 'string'
+            ? it.owner.name
+            : typeof it.author === 'string'
+              ? it.author
+              : '';
+        const play = Number.isFinite(it.play) ? it.play : Number.isFinite(it.video_review) ? it.video_review : undefined;
+        const createSec = Number.isFinite(it.create) ? it.create : 0;
+        return {
+          id: bvid ? `bili-${bvid}` : `bili-${shortHash(String(it.title || ''))}`,
+          title: String(it.title || '').slice(0, 80),
+          summary: clampSummary(stripHtml(String(it.description || it.desc || '')), 120),
+          source: '哔哩哔哩',
+          url: bvid ? `https://www.bilibili.com/video/${bvid}` : undefined,
+          image: safeMediaUrl(pic),
+          tags: ['视频'],
+          duration: typeof it.duration === 'string' ? it.duration.slice(0, 10) : undefined,
+          author: author ? author.slice(0, 30) : undefined,
+          play,
+          createTime: createSec > 0 ? new Date(createSec * 1000).toISOString() : new Date().toISOString()
+        };
+      })
+      .filter((it) => it.title && it.url);
+    if (items.length === 0) throw new Error('bilibili ranking empty');
+    await writeVideoCache(items);
+    return items.slice(0, limit);
+  } catch (err) {
+    console.warn('[webSearch] videoNews failed:', err && err.message);
+    if (cache && Array.isArray(cache.items) && cache.items.length > 0) return cache.items.slice(0, limit);
+    return [];
+  }
+}
+
 async function getHotspotNews() {
   const cache = await readHotspotCache();
   if (cache && cache.updateTime && Date.now() - new Date(cache.updateTime).getTime() < HOTSPOT_CACHE_MS) {
@@ -853,7 +966,15 @@ function clampSummary(s, max) {
 }
 
 /** 降级：LLM 不可用时直接用原始资讯（标注来源，不编造）。
- *  limit 默认 5（订阅档 LLM 降级路径），免费档显式传 FREE_INTEL_ITEMS_LIMIT=3。 */
+ *  limit 默认 5（订阅档 LLM 降级路径），免费档显式传 FREE_INTEL_ITEMS_LIMIT=3。
+ *
+ *  2026-10-22 增量：透传 `image`/`url`。parseFeed 的 pickImage 早就抽了配图、
+ *  toNews 也带着走，是这个出口把它们丢掉的 —— 上游白抽。透传规则：
+ *   · 仅放行 http/https（挡住 javascript: 等 scheme，防 XSS/钓鱼）；
+ *   · 长度封顶 512，防脏数据把 payload 撑爆；
+ *   · 缺失/非法一律 undefined，前端据此降级为纯文本条目（不崩、不留空图）。
+ *  LLM 订阅路径（summarize）**不跟此改动**：那里的 text 是模型改写句，与源条目
+ *  不是一对一关系，硬贴源图就是错配 —— 宁可贵宾无图，不配错图。 */
 function fallbackIntel(newsItems, limit = 5) {
   const list = Array.isArray(newsItems) ? newsItems : [];
   return list.slice(0, limit).map((n) => {
@@ -865,9 +986,20 @@ function fallbackIntel(newsItems, limit = 5) {
     // 2026-10-22 真实数据复验实测免费档 3/3 恰 80 码点、无省略号、句中斩断，读者无法区分「内容本来就短」和「被硬切了」——截断须告知读者，与 clampSummary 既有语义收口一处；省略号占 1 码点，总长不变
     return {
       text: clampSummary(body, INTEL_ITEM_TEXT_MAX),
-      source: it.source != null && it.source !== '' ? String(it.source) : '综合'
+      source: it.source != null && it.source !== '' ? String(it.source) : '综合',
+      image: safeMediaUrl(it.image),
+      url: safeMediaUrl(it.url)
     };
   });
+}
+
+/** 媒体 URL 准入：仅 http/https、≤512 码点；其余（缺省/非串/javascript: 等）一律 undefined。
+ *  情报条目里的图与原文链接都走它 —— 一个入口，不可能漏放行。 */
+function safeMediaUrl(v) {
+  if (typeof v !== 'string') return undefined;
+  const s = v.trim();
+  if (!s || s.length > 512) return undefined;
+  return /^https?:\/\//i.test(s) ? s : undefined;
 }
 
 /** 5e：免费档/降级档兜底补源。先取主池 ranked 上限 limit 条；不足时从 soft 池
@@ -923,6 +1055,14 @@ exports.main = async (event) => {
       const { items, sourceHealth } = await getHotspotNews();
       // data 保持既有形状（HotspotNews[]，前端按此渲染）；sourceHealth 为新增的可观测字段，前端会忽略
       return { code: 0, message: 'ok', data: items, sourceHealth };
+    }
+
+    if (action === 'videoNews') {
+      // 视频新闻：B站全站热榜第 1 条（公开内容，与 hotspot 同为免 openid 口径）。
+      // 失败返回 data:[] 而不是 code:-1 —— 前端据此隐藏卡片即可，无需弹错误；
+      // getVideoNews 内部已有「旧缓存降级 → 空数组」两级兜底，这里不会再抛。
+      const items = await getVideoNews();
+      return { code: 0, message: 'ok', data: items };
     }
 
     if (action === 'searchNews') {
@@ -1195,4 +1335,4 @@ exports.FETCH_RETRY_BACKOFF_MS = FETCH_RETRY_BACKOFF_MS;
 exports.FREE_INTEL_ITEMS_LIMIT = FREE_INTEL_ITEMS_LIMIT;
 exports.INTEL_ITEM_TEXT_MAX = INTEL_ITEM_TEXT_MAX;
 exports.RSS_SOURCES = RSS_SOURCES;
-exports.__internals = { fetchText, parseFeed, stripHtml, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, topUpFallback, rankByPreferences, clampByCodePoint, clampSummary, resolveCallerOpenid, internalTokenOk, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken };
+exports.__internals = { fetchText, parseFeed, stripHtml, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, topUpFallback, rankByPreferences, clampByCodePoint, clampSummary, resolveCallerOpenid, internalTokenOk, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken, getVideoNews, safeMediaUrl };
