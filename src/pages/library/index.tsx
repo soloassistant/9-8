@@ -500,22 +500,27 @@ function LibraryPage() {
     );
   };
 
-  /** 竞品分析 X9 H5 降级：复制「标题（来自 App·AI 精选）+ 链接」到剪贴板（不引 canvas） */
-  const handleShareNewsH5 = (item: HotspotNews) => {
-    const text = `${item.title}（来自${APP_NAME}·AI 精选）\n${item.url || ''}`;
+  /** 竞品分析 X9 H5 降级：复制「标题（来自 App·[AI 精选]）+ 链接」到剪贴板（不引 canvas）。
+   *  「·AI 精选」后缀带门控（合规）：仅 AI 精选面板产出（确经 LLM 挑选）的条目才挂，
+   *  与卡片 L1「AI」角标（showAiBadge）同口径；普通 RSS 热点摘掉该后缀，避免虚假归因。 */
+  const handleShareNewsH5 = (item: HotspotNews, aiPicked: boolean) => {
+    const from = aiPicked ? `（来自${APP_NAME}·AI 精选）` : `（来自${APP_NAME}）`;
+    const text = `${item.title}${from}\n${item.url || ''}`;
     Taro.setClipboardData({
       data: text,
       success: () => Taro.showToast({ title: '链接已复制，去粘贴分享吧', icon: 'none' })
     }).catch((err) => console.warn('[LibraryPage] share copy failed:', err));
   };
 
-  /** 竞品分析 X9 小程序端：条目转发标题/路径（点击卡片上「分享」按钮时 res.target 携带 data-* 参数） */
+  /** 竞品分析 X9 小程序端：条目转发标题/路径（点击卡片上「分享」按钮时 res.target 携带 data-* 参数）。
+   *  AI 标识门控同 handleShareNewsH5：dataset.newsAi==='1'（卡片 L1「AI」角标亮起）才挂「·AI 精选」。 */
   useShareAppMessage((res) => {
-    const ds = (res?.target as { dataset?: { newsTitle?: string; newsUrl?: string } } | undefined)
+    const ds = (res?.target as { dataset?: { newsTitle?: string; newsUrl?: string; newsAi?: string } } | undefined)
       ?.dataset;
     if (ds?.newsTitle) {
+      const from = ds.newsAi === '1' ? `（来自${APP_NAME}·AI 精选）` : `（来自${APP_NAME}）`;
       return {
-        title: `${ds.newsTitle}（来自${APP_NAME}·AI 精选）`,
+        title: `${ds.newsTitle}${from}`,
         path: `${LIBRARY_PAGE_PATH}?kw=${encodeURIComponent(ds.newsTitle)}`
       };
     }
@@ -904,11 +909,12 @@ function LibraryPage() {
                 openType='share'
                 data-news-title={item.title}
                 data-news-url={item.url}
+                data-news-ai={showAiBadge ? '1' : ''}
               >
                 分享
               </Button>
             ) : (
-              <Text className={styles.shareBtn} onClick={() => handleShareNewsH5(item)}>
+              <Text className={styles.shareBtn} onClick={() => handleShareNewsH5(item, showAiBadge)}>
                 分享
               </Text>
             )
