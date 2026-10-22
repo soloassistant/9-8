@@ -827,15 +827,29 @@ function clampByCodePoint(s, max) {
   return chars.length <= max ? chars.join('') : chars.slice(0, max).join('');
 }
 
-/** 摘要专用：按码点截断并补省略号。
+/** 摘要/情报正文专用：按码点截断并补省略号；**句边界优先**。
  *
  *  与 clampByCodePoint 的区别是会**告诉读者被截断了**。2026-10-12 内容质量审计实测：
  *  线上 198 条里 77 条摘要长度恰好等于上限、一条省略号都没有，读者无法区分
- *  「摘要本来就短」和「被硬切了」，观感上像是内容缺失。省略号占 1 个码点，故在 max-1 处截。 */
+ *  「摘要本来就短」和「被硬切了」，观感上像是内容缺失。省略号占 1 个码点，故在 max-1 处截。
+ *  2026-10-22 真实数据复验追加实测：硬截有 2/3 落在句中（"…最近B站"、"…另一拨在"），
+ *  读者拿到的是半截话。改为在 max-1 范围内**优先落到句末（。！？…）、其次句读
+ *  （，、；：等）**，让读者拿到完整句子；截点太靠前（不足 limit/2、内容损失过多）
+ *  或整段没有句读时才退回硬截。 */
 function clampSummary(s, max) {
   const chars = Array.from(String(s == null ? '' : s));
   if (chars.length <= max) return chars.join('');
-  return chars.slice(0, Math.max(0, max - 1)).join('') + '…';
+  const limit = Math.max(0, max - 1); // 给 '…' 留 1 码点
+  const head = chars.slice(0, limit);
+  const minCut = Math.floor(limit / 2); // 截点不足一半内容时不如不截
+  const lastStop = (set) => {
+    for (let i = head.length - 1; i >= minCut; i--) if (set.includes(head[i])) return i;
+    return -1;
+  };
+  let cut = lastStop('。！？!?…');
+  if (cut < 0) cut = lastStop('，、；：,;:');
+  const body = cut >= 0 ? chars.slice(0, cut + 1).join('') : head.join('');
+  return body.endsWith('…') ? body : body + '…';
 }
 
 /** 降级：LLM 不可用时直接用原始资讯（标注来源，不编造）。
