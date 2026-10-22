@@ -109,8 +109,12 @@ export function serializeAiMeta(meta: AiLabelMeta): string {
  * | `library.aiLabel`          | — AI 筛选结果，仅供参考 — | `pages/library/index.tsx`              |
  * | `share.titleAI`            | AI 整理｜<标题>              | `pages/briefing/index.tsx`（转发分享标题）  |
  *
- * 注：分享链路另有 `pages/library/index.tsx` 的「（来自${APP_NAME}·AI 精选）」后缀，
- * 与 `share.titleAI` 同为转发场景的显式标识。
+ * 注：分享链路另有 `pages/library/index.tsx` 的两处标识（2026-10-22 核准现状）：
+ *  H5 复制分享的「（来自${APP_NAME}·AI 精选）」后缀由 `handleShareNewsH5(item, aiPicked)`
+ *  的 aiPicked 门控 —— 仅 AI 精选面板产出（确经 LLM 挑选）的条目才挂，普通 RSS 热点
+ *  只挂「（来自${APP_NAME}）」；小程序端转发同口径（data-news-ai）。判定式与卡片
+ *  L1「AI」角标一致：`showReason || !!item.aiReason`。早期无条件挂后缀的版本已修
+ *  （9168386 / 218fb64，免费档 60/60 实测曾全量虚假命中）。
  *
  * 新增标识类型时：**先确认渲染点存在，再加 key**；只加 key 不算标识。
  */
