@@ -260,6 +260,13 @@ async function reconcileOrder(order, q) {
     return { orderId: order.orderId, alreadyPaid: true };
   }
 
+  // 预检：权益接收方必须存在。**必须放在置 paid 之前** —— 否则订单已 paid 而权益永远发不出去
+  // （上方幂等分支「已 paid 直接 return」，以及 main() 的本地已 paid 早退，都不会再补发）。
+  const payerSnap = await db.collection('users').where({ openid: order.openid }).limit(1).get();
+  if (!payerSnap.data || payerSnap.data.length === 0) {
+    throw new Error('[queryOrder] 用户不存在，拒绝对账置 paid: openid=' + order.openid);
+  }
+
   const now = new Date().toISOString();
   await db.collection('orders').doc(order._id).update({
     data: {
@@ -281,17 +288,24 @@ async function reconcileOrder(order, q) {
 /** 延长用户订阅过期时间（幂等 + 原子更新），与 pay-callback 保持同一算法 */
 async function extendUserExpiredAt(openid, months, planId) {
   const users = db.collection('users');
-  const snap = await users.where({ _openid: openid }).get();
+  // ⚠️ 查询键必须是自定义字段 openid，**不能是 _openid**：
+  //    users 文档由 login 云函数用 `users.add({ data: { openid: OPENID, ... } })` 创建，
+  //    云函数环境的 add() **不会**自动注入 _openid（_openid 只在客户端 SDK 写记录时才有）。
+  //    对照组：getUsage/index.js、refundOrder/index.js 都用 where({ openid })。
+  const snap = await users.where({ openid }).get();
   const user = snap.data && snap.data[0];
   if (!user) {
-    console.warn('[queryOrder] 用户不存在 openid=', openid);
-    return;
+    // 不能静默 return：订单此时可能已置 paid，静默失败会让用户永久丢失权益。
+    throw new Error('[queryOrder] 用户不存在，无法发放权益 openid=' + openid);
   }
   const current = user.expiredAt ? new Date(user.expiredAt).getTime() : Date.now();
   const base = Math.max(current, Date.now());           // 已过期则从现在开始算
   const next = new Date(base + months * 30 * 24 * 3600 * 1000).toISOString();
 
-  const patch = { expiredAt: next };
+  // subscribed 必须一起写：所有权益判定（getUsage/chat/webSearch）都要求
+  // `user.subscribed === true` 且 `expiredAt > now`。只延 expiredAt 不置 subscribed，
+  // 用户付了钱仍会被判成免费版（语音 20 条 / 收藏 50 条）。
+  const patch = { expiredAt: next, subscribed: true };
   if (planId === 'earlybird_monthly') patch.isEarlyBird = true;
 
   await users.doc(user._id).update({ data: patch });

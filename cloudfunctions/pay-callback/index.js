@@ -344,6 +344,14 @@ async function confirmOrderPaid({ orderId, channel, channelTradeNo, amountFen })
     }
   }
 
+  // 4.0 预检：权益接收方必须存在。**必须放在置 paid 之前** —— 否则订单已 paid 而权益永远发不出去
+  //     （第 2 步幂等分支「已 paid 直接 return」在最前面，支付平台重试也不会补发）。
+  //     用订单自身的 order.openid，不依赖下方第 5 步才声明的局部变量 openid。
+  const payerSnap = await db.collection('users').where({ openid: order.openid }).limit(1).get();
+  if (!payerSnap.data || payerSnap.data.length === 0) {
+    throw new Error('[pay-callback] 用户不存在，拒绝置单为 paid: openid=' + order.openid);
+  }
+
   // 4. 原子更新订单状态（微信云开发 SDK 的 update 自带乐观并发控制）
   const now = new Date().toISOString();
   await db.collection('orders').doc(order._id).update({
@@ -369,18 +377,25 @@ async function confirmOrderPaid({ orderId, channel, channelTradeNo, amountFen })
 /** 延长用户订阅过期时间（幂等 + 原子更新） */
 async function extendUserExpiredAt(openid, months, planId) {
   const users = db.collection('users');
-  const snap = await users.where({ _openid: openid }).get();
+  // ⚠️ 查询键必须是自定义字段 openid，**不能是 _openid**：
+  //    users 文档由 login 云函数用 `users.add({ data: { openid: OPENID, ... } })` 创建，
+  //    云函数环境的 add() **不会**自动注入 _openid（_openid 只在客户端 SDK 写记录时才有）。
+  //    对照组：getUsage/index.js、refundOrder/index.js 都用 where({ openid })。
+  const snap = await users.where({ openid }).get();
   const user = snap.data && snap.data[0];
   if (!user) {
-    console.warn('[pay-callback] 用户不存在 openid=', openid);
-    return;
+    // 不能静默 return：订单此时可能已置 paid，静默失败会让用户永久丢失权益。
+    throw new Error('[pay-callback] 用户不存在，无法发放权益 openid=' + openid);
   }
 
   const current = user.expiredAt ? new Date(user.expiredAt).getTime() : Date.now();
   const base = Math.max(current, Date.now());           // 已过期则从现在开始算
   const next = new Date(base + months * 30 * 24 * 3600 * 1000).toISOString();
 
-  const patch = { expiredAt: next };
+  // subscribed 必须一起写：所有权益判定（getUsage/chat/webSearch）都要求
+  // `user.subscribed === true` 且 `expiredAt > now`。只延 expiredAt 不置 subscribed，
+  // 用户付了钱仍会被判成免费版（语音 20 条 / 收藏 50 条）。
+  const patch = { expiredAt: next, subscribed: true };
   if (planId === 'earlybird_monthly') patch.isEarlyBird = true;
 
   await users.doc(user._id).update({ data: patch });
