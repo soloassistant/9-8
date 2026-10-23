@@ -20,6 +20,7 @@
     "verify:extlink": "node .tools/verify-external-link.js",
     "verify:trust": "node .tools/verify-trust-wiring.js",
     "verify:batch1": "node .tools/verify-batch1.js",
+    "verify:pref": "node .tools/verify-pref-selection.js",
     "verify:cloudllm": "node .tools/verify-cloudllm-timeout.mjs",
     "verify:ledger-aggregate": "node .tools/verify-ledger-aggregate.mjs",
     "verify:ledger-export": "node .tools/verify-ledger-export.mjs",

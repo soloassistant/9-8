@@ -28,6 +28,14 @@ const FETCH_TIMEOUT_MS = 6000;
 const HOTSPOT_ITEMS_LIMIT = 10;
 /** 单源入选条数上限：防止高频源（如中新网-即时）淹没全部席位，保住广度 */
 const MAX_ITEMS_PER_SOURCE = 3;
+/** 缓存池上限：缓存存一个更宽的池（跨用户共用），出口再按各自偏好选 10 条。
+ *  取 10 会让偏好只能在已截断的集合里重排 —— 实测 37 源下科学/文化/健康供给侧占 58.8%，
+ *  出口只拿到 2 条，健康 0 条。 */
+const HOTSPOT_POOL_SIZE = 60;
+/** 偏好 tag 的保底席位数（有供给时）。
+ *  只保底 1 条时，13 个 tag 会把 10 个槽直接占满，prefs=['科学'] 仍只有 1 条科学 ——
+ *  偏好继续形同虚设；故命中 tag 至少占 3 席（供给不足则有多少取多少）。 */
+const PREF_TAG_MIN_ITEMS = 3;
 /** 源新鲜度阈值（天）：最新条目早于该值的源判定为「冻结源」，整源排除（宁缺勿滥） */
 const STALE_SOURCE_DAYS = 7;
 /** 连接级瞬时失败（socket hang up / ECONNRESET 等）的重试次数（仅此类失败重试，timeout/HTTP 不重试） */
@@ -674,7 +682,9 @@ async function fetchAllSources() {
   const untrusted = [];
   for (const it of allItems) (assessNewsItem(it) ? untrusted : trusted).push(it);
   const merged = mergeCrossSource(trusted).concat(untrusted);
-  const raw = selectWithQuota(merged, HOTSPOT_ITEMS_LIMIT, MAX_ITEMS_PER_SOURCE).map(toNews);
+  // 缓存池：按 HOTSPOT_POOL_SIZE 选一个宽池（跨用户共用），出口再按各用户偏好选 10 条。
+  // 若这里仍按 10 条截断，后面的偏好只能重排集合内的条目，改不了集合本身。
+  const raw = selectWithQuota(merged, HOTSPOT_POOL_SIZE, MAX_ITEMS_PER_SOURCE).map(toNews);
   // 内容信任过滤放在**这个出口**：早于 writeHotspotCache、早于 summarize(weather, ranked)，
   // 也早于全部消费路径（热点页缓存 / 免费档 / 订阅限额档 / 订阅降级档）。
   // 放晚一步毒条目已经进了缓存，也已经进过 LLM 的 prompt。
@@ -955,6 +965,119 @@ function rankByPreferences(items, prefs) {
     .map((s) => s.it);
 }
 
+/** 条目 tag（toNews 的 tags 为单元素数组）；缺失/非数组/空串兜底为「其他」 */
+function itemTag(it) {
+  if (!it || !Array.isArray(it.tags)) return '其他';
+  const tag = it.tags[0];
+  return typeof tag === 'string' && tag ? tag : '其他';
+}
+
+/** 条目时间戳（createTime 为 ISO 串，解析失败按最旧处理） */
+function itemTs(it) {
+  const ts = Date.parse((it && it.createTime) || '');
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+/**
+ * 按用户偏好从**宽池**里挑 limit 条。
+ *
+ * 为什么不是 rankByPreferences：后者只能在给定集合内重排。集合在缓存前就被截断成 10 条，
+ * 用户设了「科学」也只会在 10 条里把唯一那条科学往前挪 —— 偏好形同虚设。
+ * 本函数改的是**集合**：缓存池按 HOTSPOT_POOL_SIZE 存宽池，出口按各自偏好选位。
+ *
+ * 三轮：
+ *  ① 偏好 tag 保底：每个命中 tag 最多 PREF_TAG_MIN_ITEMS 条，总预算 ≤ limit-1（留 1 席给广度）；
+ *     预算在多个偏好 tag 间按均分+余数分配，避免「排在前面的偏好 tag 吃光预算」。
+ *  ② 其余 tag 各 1 条：桶大者优先（广度），同桶按最新 ts。
+ *  ③ 剩余按 ts 倒序补满，尊重 MAX_ITEMS_PER_SOURCE。
+ * 输出：命中偏好的条目在前，组内 ts 倒序；其余在后，ts 倒序。
+ *  —— 若纯按 ts 排，更新的非偏好条目会把偏好条目压下去，用户仍觉得「设了等于没设」。
+ *
+ * 无偏好（undefined / 非数组 / 空数组 / 全非法元素）→ 纯时间倒序取前 limit 条。
+ * 老缓存只有 10 条甚至更少时同样可用：各轮都按实际供给取，不做「池一定够宽」的假设。
+ */
+function selectForUser(poolItems, prefs, limit) {
+  const max = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : HOTSPOT_ITEMS_LIMIT;
+  const pool = (Array.isArray(poolItems) ? poolItems : []).filter(Boolean);
+  if (!pool.length || max <= 0) return [];
+  const sorted = pool.slice().sort((a, b) => itemTs(b) - itemTs(a));
+
+  const prefTags = [];
+  if (Array.isArray(prefs)) {
+    for (const p of prefs) {
+      if (typeof p !== 'string') continue;
+      const tag = p.trim();
+      if (tag && !prefTags.includes(tag)) prefTags.push(tag);
+    }
+  }
+  if (!prefTags.length) return sorted.slice(0, max);
+
+  const buckets = new Map();
+  for (const it of sorted) {
+    const tag = itemTag(it);
+    if (!buckets.has(tag)) buckets.set(tag, []);
+    buckets.get(tag).push(it);
+  }
+  const hitTags = prefTags.filter((t) => buckets.has(t)); // 池里真有货的偏好 tag，保持 prefs 顺序
+  if (!hitTags.length) return sorted.slice(0, max);
+
+  const picked = [];
+  const pickedSet = new Set();
+  const perSource = new Map();
+  const take = (it) => {
+    const src = it.source || '';
+    const used = perSource.get(src) || 0;
+    if (used >= MAX_ITEMS_PER_SOURCE) return false;
+    picked.push(it);
+    pickedSet.add(it);
+    perSource.set(src, used + 1);
+    return true;
+  };
+
+  // ① 偏好保底：总预算 max-1 席，均分给各偏好 tag
+  const budget = Math.min(PREF_TAG_MIN_ITEMS * hitTags.length, Math.max(1, max - 1));
+  const base = Math.floor(budget / hitTags.length);
+  let rest = budget % hitTags.length;
+  hitTags.forEach((tag) => {
+    let quota = Math.min(PREF_TAG_MIN_ITEMS, base + (rest > 0 ? 1 : 0));
+    if (rest > 0) rest--;
+    for (const it of buckets.get(tag)) {
+      if (quota <= 0 || picked.length >= max) break;
+      if (take(it)) quota--;
+    }
+  });
+
+  // ② 广度保底：其余 tag 各取最新 1 条
+  const otherTags = [...buckets.keys()]
+    .filter((t) => !hitTags.includes(t))
+    .sort((a, b) => {
+      const bySize = buckets.get(b).length - buckets.get(a).length;
+      return bySize || itemTs(buckets.get(b)[0]) - itemTs(buckets.get(a)[0]);
+    });
+  for (const tag of otherTags) {
+    if (picked.length >= max) break;
+    for (const it of buckets.get(tag)) {
+      if (take(it)) break;
+    }
+  }
+
+  // ③ 补足：剩余按 ts 倒序，尊重单源上限
+  for (const it of sorted) {
+    if (picked.length >= max) break;
+    if (pickedSet.has(it)) continue;
+    take(it);
+  }
+
+  const prefSet = new Set(hitTags);
+  return picked
+    .slice(0, max)
+    .sort((a, b) => {
+      const pa = prefSet.has(itemTag(a)) ? 0 : 1;
+      const pb = prefSet.has(itemTag(b)) ? 0 : 1;
+      return pa - pb || itemTs(b) - itemTs(a);
+    });
+}
+
 function safeParse(text) {
   try {
     return JSON.parse(text);
@@ -1207,8 +1330,11 @@ exports.main = async (event) => {
   try {
     if (action === 'hotspot') {
       const { items, sourceHealth } = await getHotspotNews();
+      // 缓存池已扩到 HOTSPOT_POOL_SIZE（供 briefing 按偏好选位），热点页对外仍是 10 条：
+      // 这里必须截断，否则资讯库会从 10 条突然变成 60 条。缓存本身已是 ts 倒序。
+      const page = Array.isArray(items) ? items.slice(0, HOTSPOT_ITEMS_LIMIT) : [];
       // data 保持既有形状（HotspotNews[]，前端按此渲染）；sourceHealth 为新增的可观测字段，前端会忽略
-      return { code: 0, message: 'ok', data: items, sourceHealth };
+      return { code: 0, message: 'ok', data: page, sourceHealth };
     }
 
     if (action === 'videoNews') {
@@ -1390,7 +1516,9 @@ exports.main = async (event) => {
       } catch (err) {
         console.warn('[webSearch] briefing news unavailable:', err && err.message);
       }
-      const ranked = rankByPreferences(news, user && user.preferences);
+      // 资讯池是宽池（HOTSPOT_POOL_SIZE），这里按**本用户偏好**选集合，不只是在已截断的 10 条里重排。
+      const ranked = selectForUser(news, user && user.preferences, HOTSPOT_ITEMS_LIMIT);
+      // 软新闻是另一条池（未扩池），保持原有关键词重排逻辑
       const softRanked = rankByPreferences(softPool, user && user.preferences);
 
       if (!subscribed) {
@@ -1483,10 +1611,12 @@ exports.main = async (event) => {
 
 exports.HOTSPOT_ITEMS_LIMIT = HOTSPOT_ITEMS_LIMIT;
 exports.MAX_ITEMS_PER_SOURCE = MAX_ITEMS_PER_SOURCE;
+exports.HOTSPOT_POOL_SIZE = HOTSPOT_POOL_SIZE;
+exports.PREF_TAG_MIN_ITEMS = PREF_TAG_MIN_ITEMS;
 exports.STALE_SOURCE_DAYS = STALE_SOURCE_DAYS;
 exports.FETCH_RETRY_ON_CONN_ERROR = FETCH_RETRY_ON_CONN_ERROR;
 exports.FETCH_RETRY_BACKOFF_MS = FETCH_RETRY_BACKOFF_MS;
 exports.FREE_INTEL_ITEMS_LIMIT = FREE_INTEL_ITEMS_LIMIT;
 exports.INTEL_ITEM_TEXT_MAX = INTEL_ITEM_TEXT_MAX;
 exports.RSS_SOURCES = RSS_SOURCES;
-exports.__internals = { fetchText, parseFeed, stripHtml, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, topUpFallback, rankByPreferences, clampByCodePoint, clampSummary, resolveCallerOpenid, internalTokenOk, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken, getVideoNews, safeMediaUrl, mergeCrossSource, normTitle, orgOfSource };
+exports.__internals = { fetchText, parseFeed, stripHtml, toNews, fetchOneSource, selectWithQuota, selectForUser, fetchAllSources, getHotspotNews, fallbackIntel, topUpFallback, rankByPreferences, clampByCodePoint, clampSummary, resolveCallerOpenid, internalTokenOk, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken, getVideoNews, safeMediaUrl, mergeCrossSource, normTitle, orgOfSource };
