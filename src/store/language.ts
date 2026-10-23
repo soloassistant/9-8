@@ -265,6 +265,10 @@ const zh = {
   // 云端未接通时的诚实横幅：降级到 mock 却让用户以为是真数据，违反 AGENTS.md 的「不静默失败」
   'briefing.degraded': '当前为演示数据，云端服务尚未接通',
   'briefing.loadFailed': '晨报加载失败',
+  // 加载失败**不能**落进「今天还没有安排」空态：那是句确定性的谎话，用户照做也救不回来（2026-10-24）
+  'briefing.loadFailedTitle': '晨报没加载出来',
+  'briefing.loadFailedHint': '可能是网络或服务暂时不可用。点下面重试，不会丢东西。',
+  'briefing.retry': '重新加载 →',
   'briefing.voiceLimitTitle': '语音额度已用完',
   'briefing.voiceLimitContent': '本月免费语音条数已用完，订阅后不限次畅聊。',
   'briefing.goSubscribe': '去订阅',
@@ -1149,6 +1153,9 @@ const en: Record<keyof typeof zh, string> = {
   'briefing.emptyCta': 'Go to Inbox →',
   'briefing.degraded': 'Showing demo data — the cloud service is not connected yet',
   'briefing.loadFailed': 'Failed to load briefing',
+  'briefing.loadFailedTitle': 'Could not load your briefing',
+  'briefing.loadFailedHint': 'Network or service may be temporarily unavailable. Tap retry — nothing will be lost.',
+  'briefing.retry': 'Retry →',
   'briefing.voiceLimitTitle': 'Voice quota used up',
   'briefing.voiceLimitContent': "This month's free voice messages are used up. Subscribe for unlimited chat.",
   'briefing.goSubscribe': 'Subscribe',

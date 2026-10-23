@@ -167,6 +167,14 @@ function BriefingPage() {
   // U-01 骨架屏：首屏加载 >300ms 才显示（briefing 到位后熄灭，下拉刷新有旧内容不闪骨架）
   const [showSkeleton, setShowSkeleton] = useState(false);
   const skeletonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * 加载失败态。必须与「真空态」分开：
+   * 原来 catch 里只 toast 一句、briefing 仍为 null → 页面落进 !hasContent 分支，
+   * 显示的却是「今天还没有安排 / 去收件箱粘贴」。断网时用户被告知今天没安排，
+   * 照做也救不回来，而 toast 1.5 秒后连失败痕迹都没有（2026-10-24）。
+   * 判据只在「请求失败且手上没有任何旧数据」时成立；有缓存就先展示缓存。
+   */
+  const [loadError, setLoadError] = useState(false);
   // 消息 id 计数器以恢复的历史长度为起点，避免与持久化消息 id 冲突
   const msgIdRef = useRef(messages.length);
 
@@ -296,11 +304,15 @@ function BriefingPage() {
         const data = await apiGetBriefing();
         setBriefing(data);
         briefingRef.current = data;
+        setLoadError(false);
         writeBriefingCache(data);
         // 取得最新日程后立即守护（幂等，重复调用无副作用）
         if (data) runHabitGuard(data.events || []);
       } catch (err) {
         console.error('[BriefingPage] loadBriefing failed:', err);
+        // 手上已有旧数据（缓存命中/下拉刷新）时只 toast，不把整页换成失败态；
+        // 一屏都没有数据时才进入失败态，并给一个能真正重试的按钮。
+        if (!briefingRef.current) setLoadError(true);
         Taro.showToast({ title: t('briefing.loadFailed'), icon: 'none' });
       } finally {
         if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current);
@@ -489,6 +501,23 @@ function BriefingPage() {
     },
     []
   );
+
+  /**
+   * 待办的已勾选态必须从服务端状态回填。
+   *
+   * 缺陷：doneIds 初始化为空 Set，全文件从不读 briefing.todos[].status（类型在
+   * src/types/index.ts:28 是 'confirmed' | 'pending' | 'done'）。后果是刚勾完的待办
+   * 重进页面全部变回未勾选 —— 用户每天重复勾同一件事；语音播报（TTS 用
+   * !doneIds.has(id) 过滤）还会把已完成的待办念出来。
+   *
+   * 依赖 briefing 引用而不是 todos 数组：刷新拿到新对象就重新对齐服务端真值；
+   * 本地勾选只改 doneIds、不改 briefing，所以不会被这条 effect 回灌旧值。
+   */
+  useEffect(() => {
+    if (!briefing) return;
+    const done = (briefing.todos || []).filter((td) => td.status === 'done').map((td) => td.id);
+    setDoneIds(new Set(done));
+  }, [briefing]);
 
   /**
    * 区块曝光上报：**只在「真的渲染了」时上报**，而不是组件挂载即上报。
@@ -710,8 +739,19 @@ function BriefingPage() {
         location: undefined as string | undefined
       }))
   ].sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf());
+  /**
+   * 首屏「有没有东西可看」的唯一判据 —— contentFade 只在它为真时挂载。
+   * ⚠️ 情报（briefing.intel）必须计入：它渲染在 contentFade 内部（见 sectionIntel），
+   * 而这里早前只看日程/待办/收藏，于是「今天没安排日程、但有情报/天气」的用户
+   * 会看到空态卡「今天还没有安排」，整块情报凭空消失 —— 用户不会报错，
+   * 只会以为这个产品没内容（2026-10-24 审计发现）。
+   */
+  const hasIntel =
+    Boolean(briefing?.intel?.intelItems && briefing.intel.intelItems.length > 0) ||
+    Boolean(briefing?.intel?.weather);
   const hasContent =
-    briefing && (todaySchedule.length > 0 || briefing.todos.length > 0 || briefing.digest.length > 0);
+    briefing &&
+    (todaySchedule.length > 0 || briefing.todos.length > 0 || briefing.digest.length > 0 || hasIntel);
 
   /* ---------------- v2.1 习惯守护：入口与撤销 ---------------- */
   /** 把今日某条日程「设为习惯」（默认不开启自动守护，需用户到「我的」页显式开启） */
@@ -957,15 +997,29 @@ function BriefingPage() {
             </View>
           </View>
           <View className={styles.headerActions}>
-            {/* 记账卡片：独立于 hasContent 门禁 —— 记账与日程无关，
-           用户「今天没安排日程但记了账」时也必须能看到账单。
-           早前把它放进 contentFade 内，结果被 hasContent（仅看日程/待办/收藏）挡住，
-           实测：数据算对了、state 更新了，卡片就是不渲染（2026-10-15）。 */}
-{/* 记账卡片（v2.0 F23 · 「每天早上呈报」的落点）：
-    位置在「今日日程」之后、「待办」之前 —— 与调研建议一致：记账属「当日概览」，
-    排在待办/收藏/情报这些参考类之前符合信息优先级。
-    ⚠️ 一律「有数据才渲染」：今天没记账时显示空态卡会占掉晨报首屏黄金位，
-    而记账又是新功能、多数用户初期没有数据 —— 那里应该留给日程。 */}
+            {hasContent ? (
+              <Button
+                className={classnames(styles.audioButton, isSpeaking && styles.audioButtonActive)}
+                onClick={handleAudioToggle}
+                aria-label={isSpeaking ? t('briefing.audioStop') : t('briefing.audioPlay')}
+              >
+                {isSpeaking ? '⏹' : '🔊'}
+              </Button>
+            ) : null}
+            <Button className={styles.searchButton} onClick={handleGoSearch}>
+              🔍
+            </Button>
+          </View>
+        </View>
+      </View>
+
+      {/* 记账卡片：独立于 hasContent 门禁 —— 记账与日程无关，
+          用户「今天没安排日程但记了账」时也必须能看到账单。
+          早前把它放进 contentFade 内，结果被 hasContent（仅看日程/待办/收藏）挡住，
+          实测：数据算对了、state 更新了，卡片就是不渲染（2026-10-15）。
+          ⚠️ 2026-10-24：它曾被误粘进 <View className={styles.headerActions}>（右上角
+          「🔊 / 🔍」那一行，flex 且 flex-shrink:0）内部 —— 卡片按内容宽度撑开，
+          把问候语列压到 0 宽、整页横向溢出。位置必须在这里：**header 之外、contentFade 之外**。 */}
       {ledgerBrief && ledgerBrief.count > 0 ? (
         <View className={styles.section}>
           <View className={styles.sectionHeader}>
@@ -1033,21 +1087,6 @@ function BriefingPage() {
           </Text>
         </View>
       ) : null}
-      {hasContent ? (
-              <Button
-                className={classnames(styles.audioButton, isSpeaking && styles.audioButtonActive)}
-                onClick={handleAudioToggle}
-                aria-label={isSpeaking ? t('briefing.audioStop') : t('briefing.audioPlay')}
-              >
-                {isSpeaking ? '⏹' : '🔊'}
-              </Button>
-            ) : null}
-            <Button className={styles.searchButton} onClick={handleGoSearch}>
-              🔍
-            </Button>
-          </View>
-        </View>
-      </View>
 
       {hasContent && adaptiveBanner ? (
         <View className={styles.adaptiveBanner}>
@@ -1098,12 +1137,34 @@ function BriefingPage() {
         records={guardRecords}
         onRestore={handleRestoreGuard}
         onRestoreAll={handleRestoreAllGuards}
-        onView={() => Taro.navigateTo({ url: '/pages/mine/index' })}
+        // pages/mine 是 tabBar 页（src/app.config.ts:80），navigateTo 在 weapp 会直接抛
+        // 「cannot navigateTo a tabbar page」，点了完全没反应 —— 而这是查守护记录的唯一入口。
+        // 与同页 625/635 行的写法保持一致：switchTab，失败再退回 redirectTo。
+        onView={() => {
+          Taro.switchTab({ url: '/pages/mine/index' }).catch(() => {
+            Taro.redirectTo({ url: '/pages/mine/index' }).catch((err) => {
+              console.error('[BriefingPage] 跳转「我的」失败:', err);
+            });
+          });
+        }}
       />
 
-      {/* U-01 三态：加载中(>300ms)骨架 → 有内容淡入 → 真空态 */}
-      {!briefing && showSkeleton ? (
+      {/* U-01 四态：首帧占位 → 加载中(>300ms)骨架 → 加载失败 → 有内容淡入 / 真空态。
+          首帧占位这一态是补上去的：原来 briefing=null 且骨架未武装时直接落到「真空态」，
+          于是每次冷启动都先闪一下「今天还没有安排」，再闪骨架，再出内容 —— 看起来像页面出故障。 */}
+      {!briefing && !showSkeleton && !loadError ? null : !briefing && showSkeleton ? (
         <BriefingSkeleton />
+      ) : loadError ? (
+        <View className={styles.section}>
+          {/* 失败态必须与「真空态」区分：断网时说「今天还没有安排、去收件箱粘贴」是句谎话 */}
+          <EmptyState
+            icon='📡'
+            title={t('briefing.loadFailedTitle')}
+            hint={t('briefing.loadFailedHint')}
+            action={t('briefing.retry')}
+            onAction={() => loadBriefing(true)}
+          />
+        </View>
       ) : !hasContent ? (
         <View className={styles.section}>
           {/* 空态带**可点的主行动**：文案让用户「去收件箱」，这句话以前是指不动的
@@ -1252,7 +1313,10 @@ function BriefingPage() {
             </View>
           ) : null}
 
-          {briefing?.intel?.intelItems && briefing.intel.intelItems.length > 0 ? (
+          {/* 门禁含 weather：只有天气没有新闻时（源全挂/免费档无条目），
+              定位按钮和天气跟着一起消失，用户会以为功能坏了（2026-10-24）。 */}
+          {briefing?.intel &&
+          ((briefing.intel.intelItems && briefing.intel.intelItems.length > 0) || briefing.intel.weather) ? (
             <View className={styles.section}>
               <View className={styles.sectionHeader}>
                 <Text className={styles.sectionIcon}>🌐</Text>
@@ -1296,7 +1360,7 @@ function BriefingPage() {
                       onCiteClick={(itemIndex) => handleCiteClick(gi, itemIndex)}
                     />
                   ))
-                : briefing.intel.intelItems.map((item, i) => (
+                : (briefing.intel.intelItems ?? []).map((item, i) => (
                     // 宽化读取： BriefingIntel.intelItems 的类型是冻结文件里的 {text,source}，
                     // 云端 fallback 路径实际还带 image/url（2026-10-22 增量）——按 intelGroups.ts
                     // 的 IntelSourceRef 读，缺字段时自动降级纯文本，不会崩。
