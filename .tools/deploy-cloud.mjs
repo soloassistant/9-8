@@ -178,11 +178,12 @@ function printEnvPlan(title) {
   const uniq = [...new Set(envPlan.flatMap((x) => x.vars))].sort();
   const notLocal = uniq.filter((v) => !env[v]);
   console.log('');
-  console.log('  共 ' + uniq.length + ' 个变量；其中本机 .env.local 里已有 ' + (uniq.length - notLocal.length) + ' 个（✓）。');
+  console.log('  共 ' + uniq.length + ' 个变量；本机 .env.local 里有 ' + (uniq.length - notLocal.length) + ' 个可作参考（✓）。');
+  console.log('  ⚠ ✓ 只表示「本机这个文件里有值」，**不代表云上已配** —— 脚本无权探测云函数的环境变量。');
+  console.log('    云上是否配齐需要你在云开发控制台逐个核对。');
   if (notLocal.length) {
-    console.log('  ⚠ 未配置的 ' + notLocal.length + ' 个：' + notLocal.join(', '));
-    console.log('    没配不会报错，只会让对应功能静默降级/为空 —— 部署后请到');
-    console.log('    云开发控制台 → 云函数 → 选中函数 → 配置 → 环境变量 逐个补齐。');
+    console.log('  ⚠ 连本机都没有的 ' + notLocal.length + ' 个：' + notLocal.join(', '));
+    console.log('    没配不会报错，只会让对应功能静默降级/为空。');
     console.log('    注意 INTERNAL_CALL_TOKEN 要同时配在 getBriefing 与 webSearch，且值必须相同。');
   }
   console.log('');

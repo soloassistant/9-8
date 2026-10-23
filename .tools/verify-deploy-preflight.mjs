@@ -147,7 +147,8 @@ console.log('\n8. 全部合法（--check 不上传）');
   ok('打印预检通过', r.out.includes('预检通过'));
   ok('列出 24 个待部署函数', r.out.includes('24 个函数'));
   ok('打印待配环境变量清单', r.out.includes('INTERNAL_CALL_TOKEN'));
-  ok('未配置项被显式点名', r.out.includes('未配置的'));
+  ok('未配置项被显式点名', r.out.includes('连本机都没有的'));
+  ok('不把「本机有值」说成「云上已配」', r.out.includes('不代表云上已配'));
   ok('--check 绝不执行上传', r.out.includes('开始部署') === false);
 }
 
