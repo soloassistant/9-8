@@ -1,0 +1,9 @@
+{
+  "name": "todoStatus",
+  "version": "1.0.0",
+  "description": "待办状态确定性写入（按 _id + openid 收敛，幂等）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

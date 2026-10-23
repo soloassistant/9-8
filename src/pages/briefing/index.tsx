@@ -14,7 +14,7 @@ import { resolveIntelGroups } from '@/utils/intelGroups';
 import type { IntelSourceRef } from '@/utils/intelGroups';
 import { formatPlayCount } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
-import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews } from '@/services/api';
+import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews, apiTodoSetStatus } from '@/services/api';
 import { buildTodayBrief, resolveCategory, type TodayBrief } from '@/utils/ledgerAggregate';
 import { buildPlanProposal } from '@/utils/schedule';
 import type { PlanProposal, PlanApplyEvent } from '@/utils/schedule';
@@ -34,7 +34,6 @@ import { brandVars, useThemeStore } from '@/store/theme';
 import { getGreeting, formatEventTime } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
 import { bumpVoiceUsage } from '@/utils/usage';
-import { readPlan, writePlan } from '@/data/dailyPlan';
 import { computeAdaptive } from '@/utils/adaptive';
 import { sceneByHour, splitTtsChunks, startSpeak, stopSpeak } from '@/utils/tts';
 import { loadChatLog, saveChatLog } from '@/utils/chatLog';
@@ -587,32 +586,24 @@ function BriefingPage() {
     Taro.navigateTo({ url: '/pages/search/index' });
   };
 
-  /** 待办勾选完成（v2.0 F27），复用对话通道记录 */
+  /** 待办勾选完成：走确定性写库接口，不经过 LLM 对话通道。 */
   const handleToggleTodo = async (todoId: string, title: string) => {
     const next = new Set(doneIds);
     const finishing = !next.has(todoId);
     if (finishing) next.add(todoId);
     else next.delete(todoId);
-    setDoneIds(next);
-    if (!isWeapp) {
-      // H5 真实落库：直写本地 plan 存储。chat 的 action 在 H5 前端不落库，靠 AI 转述会变成「假完成」
-      try {
-        const plan = readPlan();
-        const hit = plan.todos.find((td) => td.id === todoId);
-        if (hit) {
-          hit.status = finishing ? 'done' : 'confirmed';
-          writePlan(plan);
-        }
-      } catch (err) {
-        console.warn('[BriefingPage] toggle todo persist failed:', err);
-      }
+    // 状态变更不再经过 LLM 通道：LLM 只负责理解自然语言指令，不承担状态写入。
+    // 先落库、成功才更新 UI —— 否则写失败时勾选态留在界面上，刷新后回退就是「假完成」。
+    const res = await apiTodoSetStatus({
+      id: todoId,
+      status: finishing ? 'done' : 'confirmed'
+    });
+    if (!res.ok) {
+      Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
       return;
     }
-    try {
-      await apiChat(finishing ? `完成了「${title}」` : `取消完成「${title}」`);
-    } catch (err) {
-      console.error('[BriefingPage] toggle todo failed:', err);
-    }
+    setDoneIds(next);
+    if (finishing) logActivity('✅', `完成待办：${title.slice(0, 14)}`);
   };
 
   const handleSendText = () => {

@@ -5,8 +5,7 @@ import dayjs, { Dayjs } from 'dayjs';
 import classnames from 'classnames';
 import EmptyState from '@/components/EmptyState';
 import PlanProposalCard from '@/components/PlanProposalCard';
-import { apiGetBriefing, apiChat, apiConfirmItem, apiApplyPlan } from '@/services/api';
-import { readPlan, writePlan } from '@/data/dailyPlan';
+import { apiGetBriefing, apiConfirmItem, apiApplyPlan, apiTodoSetStatus } from '@/services/api';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { formatEventTime } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
@@ -144,28 +143,18 @@ function CalendarPage() {
     const finishing = !next.has(todo.id);
     if (finishing) next.add(todo.id);
     else next.delete(todo.id);
-    setDoneIds(next);
-    if (finishing) logActivity('✅', `完成待办：${todo.title.slice(0, 14)}`);
-    if (!isWeapp) {
-      // H5 真实落库：直写本地 plan 存储，刷新后完成状态不丢
-      try {
-        const plan = readPlan();
-        const hit = plan.todos.find((td) => td.id === todo.id);
-        if (hit) {
-          hit.status = finishing ? 'done' : 'confirmed';
-          writePlan(plan);
-        }
-      } catch (err) {
-        console.warn('[CalendarPage] toggle todo persist failed:', err);
-      }
+    // 状态变更不再经过 LLM 通道：LLM 只负责理解自然语言指令，不承担状态写入。
+    // 先落库、成功才更新 UI —— 反过来会出现「勾上了但没写进去」的假完成。
+    const res = await apiTodoSetStatus({
+      id: todo.id,
+      status: finishing ? 'done' : 'confirmed'
+    });
+    if (!res.ok) {
+      Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
       return;
     }
-    try {
-      // 复用对话通道记录状态（真实端由 confirmItem 扩展承接）
-      await apiChat(finishing ? `完成了「${todo.title}」` : `取消完成「${todo.title}」`);
-    } catch (err) {
-      console.error('[CalendarPage] toggle todo failed:', err);
-    }
+    setDoneIds(next);
+    if (finishing) logActivity('✅', `完成待办：${todo.title.slice(0, 14)}`);
   };
 
   /** 快速添加：写入当前选中日期（H5 本地 confirmItem 落库，weapp 走云函数），完成后刷新视图 */

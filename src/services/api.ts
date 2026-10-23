@@ -18,6 +18,7 @@ import {
 import type { LedgerExportResult } from '@/data/ledger';
 /** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
 import type { PlanProposalRaw } from '@/utils/schedule';
+import { setTodoStatus } from '@/data/dailyPlan';
 import { normalizeVideoItems } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
 import { callFunction, chatCloudStream } from './cloud';
@@ -63,6 +64,25 @@ export function apiConfirmItem(payload: {
   collection?: ExtractResult['collection'];
 }): Promise<{ saved: number }> {
   return callFunction<{ saved: number }>('confirmItem', payload);
+}
+
+/** 待办状态确定性写入（不经过 LLM 对话通道）。
+ *  H5 直写本地 plan 并回读校验；weapp 调 todoStatus 云函数（服务端按 _id + openid 收敛）。
+ *  失败一律返回 ok:false，调用方**不得**据此更新 UI —— 先改 UI 再写库就是「假完成」。 */
+export async function apiTodoSetStatus(input: {
+  id: string;
+  status: 'done' | 'confirmed';
+}): Promise<{ ok: boolean; reason?: string }> {
+  if (!isWeapp) return setTodoStatus(input.id, input.status);
+  try {
+    const res = await callFunction<{ ok?: boolean; reason?: string }>('todoStatus', input);
+    // 云函数契约是裸业务体 { ok, reason }：形状不对按调用失败处理，不能把 undefined 当成功
+    if (!res || typeof res.ok !== 'boolean') return { ok: false, reason: 'call_failed' };
+    return { ok: res.ok, reason: res.reason };
+  } catch (err) {
+    console.warn('[API] todoStatus call failed:', err);
+    return { ok: false, reason: 'call_failed' };
+  }
 }
 
 /** 获取今日晨报 */
