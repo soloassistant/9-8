@@ -107,6 +107,15 @@
   margin-bottom: $spacing-lg;
 }
 
+/* 已订阅时在权益说明下方补一行到期日：让用户看清续费的基准日，避免误以为重新计时 */
+.subscribedUntil {
+  display: block;
+  font-size: $font-size-sm;
+  color: rgba(255, 255, 255, 0.75);
+  margin-top: -$spacing-md;
+  margin-bottom: $spacing-lg;
+}
+
 .subActions {
   display: flex;
   align-items: center;

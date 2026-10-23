@@ -496,6 +496,23 @@ function MinePage() {
       Taro.showToast({ title: '请在微信/支付宝/抖音小程序中打开', icon: 'none', duration: 2500 });
       return;
     }
+
+    // 已订阅用户再点「立即订阅」会**重复下单扣费** —— 先做二次确认。
+    // ⚠️ 必须放在 channel 判空之后：H5 没有支付通道，不能先弹续费确认、
+    //    再告诉用户「请在小程序打开」，那是一次无意义的交互往返。
+    if (profile?.subscribed) {
+      const ok = await new Promise<boolean>((resolve) => {
+        Taro.showModal({
+          title: t('mine.renewTitle'),
+          content: t('mine.renewBody', { date: (profile.expiredAt || '').slice(0, 10) }),
+          cancelText: t('cancel'),
+          confirmText: t('mine.renewConfirm'),
+          success: (r) => resolve(!!r.confirm),
+          fail: () => resolve(false)
+        });
+      });
+      if (!ok) return;
+    }
     setPaying(true);
 
     try {
@@ -1077,6 +1094,11 @@ function MinePage() {
       <View className={styles.subCard}>
         <Text className={styles.subTitle}>{t('mine.subTitle')}</Text>
         <Text className={styles.subDesc}>{t('mine.subDesc')}</Text>
+        {profile?.subscribed ? (
+          <Text className={styles.subscribedUntil}>
+            {t('mine.subscribedUntil', { date: (profile.expiredAt || '').slice(0, 10) })}
+          </Text>
+        ) : null}
 
         {/* ① 方案卡片横排（替换原 Picker） */}
         <View className={styles.planList}>
@@ -1121,7 +1143,11 @@ function MinePage() {
         <View className={styles.subButtonRow}>
           <View className={styles.subButtonGroup}>
             <Button className={styles.subButton} onClick={handleSubscribe} loading={paying} disabled={paying}>
-              {paying ? t('mine.subscribing') : t('mine.subscribe')}
+              {paying
+                ? t('mine.subscribing')
+                : profile?.subscribed
+                  ? t('mine.renew')
+                  : t('mine.subscribe')}
             </Button>
             {currentPayChannel ? (
               <View className={styles.channelTag}>

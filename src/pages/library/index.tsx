@@ -59,6 +59,8 @@ const HISTORY_LIMIT = 50;
 const NEWS_FEEDBACK_KEY = 'newsFeedback';
 /** U-01 骨架屏延迟：加载超过该时长才显示骨架（防快速命中缓存时闪烁） */
 const SKELETON_DELAY_MS = 300;
+/** 切回 tab 的数据新鲜窗口（60s）：窗口内不重拉，避免每次切回都闪骨架 + 重拉 73KB 热点 */
+const LOAD_FRESH_MS = 60_000;
 
 /** X9 分享卡片：轻量 AI 标识后缀（XX = 应用名，不引 canvas，分享图降级默认截图） */
 const APP_NAME = '私人晨报助理';
@@ -192,6 +194,11 @@ function LibraryPage() {
   const aliveRef = useRef(true);
   /** 请求序号：快速切页时让旧请求的结果/清理逻辑失效，避免旧数据覆盖新数据 */
   const loadSeq = useRef(0);
+  /** 最近一次**成功**加载完成时间：useDidShow 据此做 60s 新鲜窗口判断 */
+  const lastLoadedAt = useRef(0);
+  /** 是否已有数据：有数据时切回 tab 不再挂骨架屏。
+   *  ⚠️ 必须用 ref 而非 items.length —— load 是 [] 依赖，直接读 items 会永远读到初值 0。 */
+  const hasDataRef = useRef(false);
 
   // N-02：屏蔽规则（来源 + 话题标签）与半屏选择器状态
   const [blockRules, setBlockRules] = useState<BlockRule[]>(() => readBlockRules());
@@ -395,9 +402,13 @@ function LibraryPage() {
     const seq = ++loadSeq.current;
     // 上一轮未结束又触发（快速切页）时，先取消旧的骨架屏定时器，避免两个定时器互抢
     if (skeletonTimer.current) clearTimeout(skeletonTimer.current);
-    skeletonTimer.current = setTimeout(() => {
-      if (aliveRef.current && seq === loadSeq.current) setShowSkeleton(true);
-    }, SKELETON_DELAY_MS);
+    // 骨架屏只服务「首屏 / 数据被清空后的冷启动」：已有数据时切回 tab 不闪骨架。
+    // ⚠️ 用 hasDataRef 而不是 items.length：load 是 [] 依赖，读 items 会拿到闭包里的初值。
+    if (!hasDataRef.current) {
+      skeletonTimer.current = setTimeout(() => {
+        if (aliveRef.current && seq === loadSeq.current) setShowSkeleton(true);
+      }, SKELETON_DELAY_MS);
+    }
     try {
       const [lib, hotspot] = await Promise.all([apiGetLibrary(), apiGetHotspot().catch(() => [])]);
       if (!aliveRef.current || seq !== loadSeq.current) return;
@@ -406,6 +417,9 @@ function LibraryPage() {
       // 数据来源元信息（mock/真机 webSearch 路径为 null，不显示来源栏）
       setHotMeta(getHotspotMeta());
       refreshUsage();
+      // 只有**成功结束**才记时间：失败时保持旧值，下次切回 tab 仍会重试而不是被窗口挡住
+      lastLoadedAt.current = Date.now();
+      hasDataRef.current = lib.length > 0;
     } catch (err) {
       // 错误痕迹与是否已卸载无关，始终记录
       console.error('[LibraryPage] load failed:', err);
@@ -430,6 +444,9 @@ function LibraryPage() {
   }, []);
 
   useDidShow(() => {
+    // 60s 新鲜窗口：页面没卸载时数据仍在，每次切回都重拉只会闪骨架 + 白耗一次热点请求。
+    // 首次进入 lastLoadedAt=0，必然加载；失败不更新时间，下次切回会重试。
+    if (Date.now() - lastLoadedAt.current < LOAD_FRESH_MS) return;
     void load();
   });
 

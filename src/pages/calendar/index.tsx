@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import dayjs, { Dayjs } from 'dayjs';
@@ -23,6 +23,8 @@ const WEEKDAYS_FULL_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const RESCHEDULE_STEP_MINUTES = 30;
 /** 一键重排：顺延当日上界（小时），超出即视为当天无空闲槽 */
 const RESCHEDULE_END_HOUR = 22;
+/** 切回 tab 的数据新鲜窗口（60s）：窗口内不重拉晨报，避免每次切回都白跑一次请求 */
+const LOAD_FRESH_MS = 60_000;
 
 function CalendarPage() {
   const t = useT();
@@ -37,10 +39,14 @@ function CalendarPage() {
   const [addTime, setAddTime] = useState('09:00');
   /** 一键重排提案（S-01：仅预览，勾选确认后才经 apiApplyPlan 落库） */
   const [rescheduleProposal, setRescheduleProposal] = useState<PlanProposal | null>(null);
+  /** 最近一次**成功**加载完成时间：useDidShow 据此做 60s 新鲜窗口判断 */
+  const lastBriefingAt = useRef(0);
 
   const loadBriefing = useCallback(async () => {
     try {
       setBriefing(await apiGetBriefing());
+      // 只有成功才记时间：失败时保持旧值，下次切回 tab 仍会重试
+      lastBriefingAt.current = Date.now();
     } catch (err) {
       console.error('[CalendarPage] load failed:', err);
       Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
@@ -52,6 +58,9 @@ function CalendarPage() {
   // 与 ledger 同范式：只挂 useDidShow（首次显示也会触发），不另加挂载 effect，
   // 否则从收件箱/AI 加完日程切回来看到的是旧数据
   useDidShow(() => {
+    // 60s 新鲜窗口：切回 tab 不重拉（页面没卸载，briefing 还在）。
+    // 显式刷新（加日程 / 确认重排）直接调 loadBriefing，不受此判断影响。
+    if (Date.now() - lastBriefingAt.current < LOAD_FRESH_MS) return;
     void loadBriefing();
   });
 

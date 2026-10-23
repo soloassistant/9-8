@@ -255,8 +255,27 @@ function LedgerPage() {
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
   }, [monthList]);
 
+  /**
+   * 明确的返回入口：H5 的 TabRouter 不渲染原生导航栏，二级页没有返回键会走进死路。
+   * 优先 navigateBack（保留来源页状态），栈里只剩本页时兜底 reLaunch 回晨报。
+   */
+  const handleBack = useCallback(() => {
+    const pages = Taro.getCurrentPages();
+    if (pages.length > 1) {
+      Taro.navigateBack().catch(() => {
+        Taro.reLaunch({ url: '/pages/briefing/index' });
+      });
+      return;
+    }
+    Taro.reLaunch({ url: '/pages/briefing/index' });
+  }, []);
+
   return (
     <View className={styles.page} style={brandVars(theme)}>
+      <View className={styles.backButton} onClick={handleBack}>
+        <Text className={styles.backIcon}>‹</Text>
+        <Text className={styles.backText}>{t('common.back')}</Text>
+      </View>
       <View className={styles.head}>
         <View className={styles.monthRow}>
           <Text className={styles.monthLabel}>
