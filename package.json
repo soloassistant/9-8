@@ -43,6 +43,7 @@
     "verify:buttons": "node .tools/verify-button-disabled.mjs",
     "verify:mutation": "node .tools/mutation-verify.mjs .tools/mutations-ledger.mjs .tools/mutations-share.mjs .tools/mutations-sync.mjs .tools/mutations-crash.mjs .tools/mutations-gates.mjs .tools/mutations-pref.mjs .tools/mutations-phone.mjs .tools/mutations-cloud.mjs .tools/mutations-briefing.mjs .tools/mutations-cloudflow.mjs .tools/mutations-buttons.mjs",
     "verify:layout": "node .tools/verify-layout.mjs",
+    "verify:visual": "node .tools/verify-visual-patrol.mjs",
     "deploy:cloud": "node .tools/deploy-cloud.mjs",
     "deploy:cloud:check": "node .tools/deploy-cloud.mjs --check",
     "deploy:pages": "node .tools/deploy-gh-pages.mjs",
