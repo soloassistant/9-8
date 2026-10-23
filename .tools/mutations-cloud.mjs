@@ -83,5 +83,30 @@ export default [
     from: "  if (!OPENID) throw new Error('no openid');",
     to: '',
     cmd: 'node .tools/verify-cloudfunctions.mjs'
+  },
+
+  /* ---- 以下三条守部署预检（harness: .tools/verify-deploy-preflight.mjs）---- *
+   * 预检分支原本从没被执行过一次：唯一验证过的是「缺配置 → exit 2」。
+   * 而配置错的代价发生在「上传到一半」，会留下前几个函数成功、后面全挂的半残环境。 */
+  {
+    label: '预检不再校验 AppID 格式（gh_ 原始 ID 会被当成 AppID 上传）',
+    file: '.tools/deploy-cloud.mjs',
+    from: "if (!/^wx[0-9a-fA-F]{16}$/.test(appid)) {",
+    to: 'if (false) {',
+    cmd: 'node .tools/verify-deploy-preflight.mjs'
+  },
+  {
+    label: '预检不再校验密钥是 RSA（EC 私钥会被当成上传密钥）',
+    file: '.tools/deploy-cloud.mjs',
+    from: "        if (key.asymmetricKeyType !== 'rsa') {",
+    to: '        if (false) {',
+    cmd: 'node .tools/verify-deploy-preflight.mjs'
+  },
+  {
+    label: '预检不再打印待配环境变量清单（部署完只剩静默降级）',
+    file: '.tools/deploy-cloud.mjs',
+    from: "  printEnvPlan('—— 部署后必须在控制台配置的环境变量 ——');",
+    to: '',
+    cmd: 'node .tools/verify-deploy-preflight.mjs'
   }
 ];

@@ -27,6 +27,7 @@
 #   · verify:pref-select     H5 客户端偏好选位回归（算法与云端 selectForUser 逐条对齐）
 #   · verify:phone-intl      登录页国际区号回归（钉住「区号不得含 +1」并逐条验证 SDK 不改写）
 #   · verify:cloudfunctions  云函数离线门禁（24 个云函数在无凭据下也守结构与权限边界）
+#   · verify:deploy          云函数部署预检分支回归（AppID/密钥/环境 ID 错在哪，不许到上传时才发现）
 #   · verify:mutation         元验证：把源码改坏后上面的断言必须变红（守「断言有判别力」）
 #
 # **故意不放进这里**（与 lingxi-class 的取舍一致：联网的东西会让 CI 在 fork/PR 上不可靠）：
@@ -222,6 +223,14 @@ jobs:
         # 这里用 vm + 桩 SDK 把它们拉进日常射程：结构完整 / 能被加载 / 缺 OPENID 必须拒绝 /
         # 不用 _openid 查 / 不留硬编码 AppID。不联网、不需要微信凭据。
         run: npm run verify:cloudfunctions
+
+      - name: 云函数部署预检分支回归
+        # deploy-cloud.mjs 是唯一会把代码推上微信云的路，但它没法在无凭据环境端到端跑。
+        # 结果就是「缺配置 → exit 2」这一条验过，其余分支（AppID 写成 gh_、密钥不是 RSA、
+        # 环境 ID 写成环境名）从没被执行过一次。这些分支失败的代价在上传途中：
+        # 前几个函数成功、后面全挂，留下半残环境。
+        # 这里用临时配置文件 + 真生成的 RSA/EC 密钥把七个分支逐个跑一遍，全程 --check 不上传。
+        run: npm run verify:deploy
 
       # 放在最后：这一步会**临时改写源码**再复原（写完做 sha256 逐字节校验，失配退出码 3），
       # 因此必须等其他只读步骤跑完，避免与它们在同一个工作区里互相踩。
