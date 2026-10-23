@@ -42,11 +42,13 @@ export default [
     cmd: 'node .tools/verify-briefing-structure.js'
   },
   {
-    // 守「跳 tabBar 页用了 navigateTo」：weapp 直接抛错，点了没反应
+    // 守「跳 tabBar 页用了 navigateTo」：weapp 直接抛错，点了没反应。
+    // 锚点用 onView={() => {（全文件唯一）—— switchTab 那一行有两处（另一处是
+    // handleGoSubscribe），拿它当锚点会「出现 2 次」判 ERROR。
     label: '守护记录入口退回 navigateTo（跳 tabBar 页必然失败）',
     file: 'src/pages/briefing/index.tsx',
-    from: "Taro.switchTab({ url: '/pages/mine/index' }).catch(() => {",
-    to: "Taro.navigateTo({ url: '/pages/mine/index' }).catch(() => {",
+    from: 'onView={() => {',
+    to: "onView={() => { Taro.navigateTo({ url: '/pages/mine/index' });",
     cmd: 'node .tools/verify-briefing-structure.js'
   },
   {

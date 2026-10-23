@@ -1017,8 +1017,8 @@ function BriefingPage() {
           用户「今天没安排日程但记了账」时也必须能看到账单。
           早前把它放进 contentFade 内，结果被 hasContent（仅看日程/待办/收藏）挡住，
           实测：数据算对了、state 更新了，卡片就是不渲染（2026-10-15）。
-          ⚠️ 2026-10-24：它曾被误粘进 <View className={styles.headerActions}>（右上角
-          「🔊 / 🔍」那一行，flex 且 flex-shrink:0）内部 —— 卡片按内容宽度撑开，
+          ⚠️ 2026-10-24：它曾被误粘进 headerActions（右上角「🔊 / 🔍」那一行，flex 且
+          flex-shrink:0）内部 —— 卡片按内容宽度撑开，
           把问候语列压到 0 宽、整页横向溢出。位置必须在这里：**header 之外、contentFade 之外**。 */}
       {ledgerBrief && ledgerBrief.count > 0 ? (
         <View className={styles.section}>
