@@ -333,6 +333,22 @@ function verifyRemote(expectedCommit) {
   log(`模式 ${CHECK_ONLY ? '仅校验' : '校验 + 发布'}${IS_CI ? '（CI）' : '（本机）'}`);
   preflight();
   await mergeHotspot();
+
+  // ---- 热点数据必须存在且可解析（发布前硬闸）----
+  // 2026-10-23 实测：`taro build` 会清空 dist，随后 copy-assets 的线上兜底拉取**超时**，
+  // 结果 dist/api/hotspot.json 直接是缺的。若此时发布，整树重建会把线上那份删掉，
+  // 前端兜底链第 3 跳断掉、情报区直接退化 —— 而且部署脚本本身不会报错。
+  if (!fs.existsSync(HOTSPOT)) {
+    die(
+      'dist/api/hotspot.json 缺失，拒绝发布（发布后前端情报兜底链会断）。\n' +
+        '  补一份再发：curl.exe -sS https://soloassistant.github.io/9-8/api/hotspot.json -o "dist/api/hotspot.json"\n' +
+        '  或先跑：node .tools/fetch-data.js --out dist/api/hotspot.json'
+    );
+  }
+  const hot = readUpdatedAt(HOTSPOT);
+  if (hot === null) die('dist/api/hotspot.json 无法解析出 updatedAt，拒绝发布');
+  log(`✓ 热点数据就位（${new Date(hot).toISOString()}，${fs.statSync(HOTSPOT).size} B）`);
+
   if (CHECK_ONLY) {
     log('✓ 仅校验模式：全部通过，未推送');
     return;
