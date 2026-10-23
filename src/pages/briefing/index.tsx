@@ -124,12 +124,6 @@ function bumpBriefStreak(): number {
   }
 }
 
-/** H5 预览时模拟语音转写的示例指令 */
-const MOCK_TRANSCRIPTS = [
-  '把产品评审会改到明天下午两点',
-  '我今天有什么安排',
-  '回复客户邮件这个待办完成了'
-];
 const WEEKDAYS_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -171,7 +165,6 @@ function BriefingPage() {
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
   const [isSpeaking, setIsSpeaking] = useState(false);
   const { profile, usage, init, refreshUsage } = useUserStore();
-  const mockIndexRef = useRef(0);
   // U-01 骨架屏：首屏加载 >300ms 才显示（briefing 到位后熄灭，下拉刷新有旧内容不闪骨架）
   const [showSkeleton, setShowSkeleton] = useState(false);
   const skeletonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -655,25 +648,24 @@ function BriefingPage() {
   };
 
   const handleVoiceResult = (result: VoiceResult) => {
+    // 诚实性 & 额度：H5 没有语音转写能力，绝不能拿预置文案冒充用户说的话，更不能扣额度。
+    // 必须放在 checkVoiceQuota / bumpVoiceUsage 之前 —— 提前 return 才不会记账。
+    if (!isWeapp) {
+      Taro.showToast({ title: t('briefing.voiceWeappOnly'), icon: 'none' });
+      return;
+    }
     if (!result.confirmed) return;
     if (!checkVoiceQuota()) return;
     // 用量真记账：语音确认发送即计 1 次，并刷新免费额度展示
     bumpVoiceUsage();
     void refreshUsage();
     if (result.transcript) {
-      // 有转写文本：微信端同声传译插件识别成功（H5 端为 mock 转写），直接进对话链路
+      // 有转写文本：微信端同声传译插件识别成功，直接进对话链路
       askAssistant(result.transcript, 'voice');
       return;
     }
-    if (isWeapp) {
-      // 无转写的微信端结果 = 同声传译插件未配置的降级路径（纯录音）
-      Taro.showToast({ title: t('briefing.voiceNoPlugin'), icon: 'none', duration: 2000 });
-      return;
-    }
-    // 非微信端兜底：模拟转写结果
-    const transcript = MOCK_TRANSCRIPTS[mockIndexRef.current % MOCK_TRANSCRIPTS.length];
-    mockIndexRef.current += 1;
-    askAssistant(transcript, 'voice');
+    // 无转写的微信端结果 = 同声传译插件未配置的降级路径（纯录音）
+    Taro.showToast({ title: t('briefing.voiceNoPlugin'), icon: 'none', duration: 2000 });
   };
 
   /** 订阅临期提醒条点击：force=true 手动触发（与页面常驻订阅按钮同一通道）。

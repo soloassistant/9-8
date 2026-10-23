@@ -157,6 +157,38 @@
   }
 }
 
+/* 示例条目：浅色底 + 左侧色条，和真实用户动态一眼可区分（不能只靠一行小灰字） */
+.postItemSample {
+  margin: $spacing-xs 0;
+  padding-left: $spacing-md;
+  border-left: 6rpx solid #f0a020;
+  border-radius: $radius-sm;
+  background: rgba(240, 160, 32, 0.12);
+}
+
+/* 「示例」徽章：实心描边小标签，视觉权重高于时间戳 */
+.sampleBadge {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2rpx 12rpx;
+  border: 2rpx solid #f0a020;
+  border-radius: $radius-sm;
+  background: #fff4d6;
+  color: #8a5a00;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  line-height: 1.4;
+}
+
+/* 打卡墙标题下的说明：解释「示例」徽章的含义 */
+.sampleNote {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  line-height: 1.5;
+}
+
 .postAvatar {
   flex-shrink: 0;
   width: 64rpx;

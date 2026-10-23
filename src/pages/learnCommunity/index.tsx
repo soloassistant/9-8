@@ -8,6 +8,8 @@ import { readLearnStore, getStreak } from '@/utils/learn';
 import { LEARN_LANGS } from '@/data/learn';
 import { useT } from '@/store/language';
 import { fromNow } from '@/utils/date';
+import { markDegraded } from '@/services/cloud';
+import DemoDataHint from '@/components/DemoDataHint';
 import styles from './index.module.scss';
 
 /** 社区动态（MVP：本地持久化 + 种子示例，结构兼容后续云同步） */
@@ -20,6 +22,8 @@ interface Post {
   likes: number;
   liked: boolean;
   mine: boolean;
+  /** 内置示例内容：必须在条目级渲染「示例」徽章，不能和真实用户动态混在一起不标注 */
+  sample?: boolean;
 }
 
 const COMMUNITY_STORE_KEY = 'learnCommunityStore';
@@ -36,7 +40,8 @@ function seedPosts(): Post[] {
       at: dayjs(now - 3 * 3600 * 1000).toISOString(),
       likes: 12,
       liked: false,
-      mine: false
+      mine: false,
+      sample: true
     },
     {
       id: 'seed-2',
@@ -46,7 +51,8 @@ function seedPosts(): Post[] {
       at: dayjs(now - 26 * 3600 * 1000).toISOString(),
       likes: 8,
       liked: false,
-      mine: false
+      mine: false,
+      sample: true
     },
     {
       id: 'seed-3',
@@ -56,9 +62,18 @@ function seedPosts(): Post[] {
       at: dayjs(now - 2 * 24 * 3600 * 1000).toISOString(),
       likes: 21,
       liked: false,
-      mine: false
+      mine: false,
+      sample: true
     }
   ];
+}
+
+/** 示例帖归一化：上一版会把种子帖随用户发帖一起写进 storage，那批老数据没有 sample 字段，
+ *  按 id 前缀补标，避免老用户看到「没有徽章的假动态」。 */
+function markSamples(list: Post[]): Post[] {
+  return list.map((p) =>
+    p && (p.sample === true || String(p.id).startsWith('seed-')) ? { ...p, sample: true } : p
+  );
 }
 
 interface CommunityStore {
@@ -68,10 +83,17 @@ interface CommunityStore {
 function readCommunity(): CommunityStore {
   try {
     const raw = Taro.getStorageSync(COMMUNITY_STORE_KEY);
-    if (raw && Array.isArray(raw.posts)) return { posts: raw.posts };
+    if (raw && Array.isArray(raw.posts)) {
+      const posts = markSamples(raw.posts);
+      // 社区数据全在本机 storage、没有云同步：只要展示里带示例条目，就登记降级，
+      // 让页级 DemoDataHint 如实说明「云端服务尚未接通」。
+      if (posts.some((p) => p.sample)) markDegraded('learnCommunity');
+      return { posts };
+    }
   } catch (err) {
     console.warn('[learnCommunity] read failed:', err);
   }
+  markDegraded('learnCommunity');
   return { posts: seedPosts() };
 }
 
@@ -170,6 +192,9 @@ function LearnCommunityPage() {
         </Text>
       </View>
 
+      {/* 页级诚实性提示：社区数据全在本地 storage，没有云同步 */}
+      <DemoDataHint />
+
       {/* 成就徽章墙 */}
       <View className={styles.sectionCard}>
         <Text className={styles.sectionTitle}>🏅 {t('community.badgeTitle')}</Text>
@@ -190,6 +215,8 @@ function LearnCommunityPage() {
       {/* 打卡墙：发帖 + 动态流 */}
       <View className={styles.sectionCard}>
         <Text className={styles.sectionTitle}>📣 {t('community.wallTitle')}</Text>
+        {/* 条目级标注的页内说明：仅标记不够，要告诉用户「示例」是什么意思 */}
+        <Text className={styles.sampleNote}>{t('community.sampleNote')}</Text>
         <Textarea
           className={styles.postInput}
           value={draft}
@@ -206,7 +233,10 @@ function LearnCommunityPage() {
           </Button>
         </View>
         {posts.map((p) => (
-          <View key={p.id} className={styles.postItem}>
+          <View
+            key={p.id}
+            className={classnames(styles.postItem, p.sample && styles.postItemSample)}
+          >
             <View className={styles.postAvatar}>
               <Text>{p.name.slice(0, 1)}</Text>
             </View>
@@ -215,6 +245,9 @@ function LearnCommunityPage() {
                 <Text className={styles.postName}>{p.name}</Text>
                 <Text className={styles.postLang}>· {p.langName}</Text>
                 <Text className={styles.postTime}>{fromNow(p.at)}</Text>
+                {p.sample && (
+                  <Text className={styles.sampleBadge}>{t('community.sampleBadge')}</Text>
+                )}
               </View>
               <Text className={styles.postText}>{p.text}</Text>
               <View
