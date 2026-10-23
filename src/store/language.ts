@@ -810,6 +810,11 @@ const zh = {
   'auth.emailPlaceholder': 'you@example.com',
   'auth.phone': '手机号',
   'auth.phonePlaceholder': '11 位手机号',
+  // 国际区号（2026-10-23）：选中非 +86 的区号时，输入框只收本地号码，故文案要说明「不含区号」，
+  // 否则用户会把 +852 再输一遍，拼出 +852+852... 的错误号码。
+  'auth.dialCode': '国家/地区',
+  'auth.phoneIntlPlaceholder': '本地号码（不含区号）',
+  'auth.errPhoneLen': '手机号位数不对，请检查',
   'auth.password': '密码',
   'auth.passwordPlaceholder': '至少 8 位',
   'auth.newPassword': '新密码',
@@ -1669,6 +1674,9 @@ const en: Record<keyof typeof zh, string> = {
   'auth.emailPlaceholder': 'you@example.com',
   'auth.phone': 'Phone number',
   'auth.phonePlaceholder': '11-digit mobile number',
+  'auth.dialCode': 'Country/region',
+  'auth.phoneIntlPlaceholder': 'Local number (without country code)',
+  'auth.errPhoneLen': 'That phone number has the wrong number of digits',
   'auth.password': 'Password',
   'auth.passwordPlaceholder': 'At least 8 characters',
   'auth.newPassword': 'New password',

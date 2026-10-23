@@ -15,6 +15,9 @@ import {
   type AuthIdentifier
 } from '@/services/cloudAuth';
 import { decidePostLogin } from '@/services/bindPhoneGate';
+import DialCodePicker from '@/components/DialCodePicker';
+import { DEFAULT_DIAL_CODE, isSupportedDialCode } from '@/data/dialCodes';
+import { buildPhoneE164, normalizeNational, validateNational } from '@/utils/phoneIntl';
 import styles from './index.module.scss';
 
 /** 阶段：校验中 → 显示登录表单。已登录不在这里"放行渲染"，而是**跳转到应用首页**。 */
@@ -33,9 +36,25 @@ interface PendingOtp {
 
 const RESEND_SECONDS = 60;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-/** 大陆手机号：恰好 11 位、以 1 开头（auth 规范的 mainland-number UI 规则）。
- *  校验不过就不发请求，输入框下提示，编辑时清错。 */
-const PHONE_RE = /^1\d{10}$/;
+/** 手机号校验已交给 `validateNational(dialCode, account)`（支持国际区号）。
+ *  原 `PHONE_RE = /^1\d{10}$/` 只适用于中国大陆，支持国际号码后必须删掉 ——
+ *  否则 +852 的 8 位号码永远过不了前端校验。
+ *  大陆的 `/^1\d{10}$/` 形态约束移到了 dialCodes 表的 `pattern` 字段。 */
+
+/** 区号偏好的本地留存键。换区号 = 换登录标识，与「记住登录」无关，只记用户的选择。 */
+const DIAL_CODE_KEY = 'sxm-dial-code';
+
+/** 读区号偏好。⚠️ Taro 对不存在的键返回**空串 `''` 而不是 undefined**
+ *  （见 readRememberLogin 的同一处证据），所以必须显式判类型 + 判是否受支持，
+ *  否则一个空串或历史脏值就会被当成合法区号，拼出 `+` 开头的空号码。 */
+function readDialCode(): string {
+  try {
+    const v = Taro.getStorageSync(DIAL_CODE_KEY);
+    return typeof v === 'string' && isSupportedDialCode(v) ? v : DEFAULT_DIAL_CODE;
+  } catch {
+    return DEFAULT_DIAL_CODE;
+  }
+}
 
 /** 翻译函数的最小结构类型（只为下面那个错误归一用，避免为此把 LangKey 拖进来） */
 type TranslateFn = (key: 'auth.errSdkUnavailable') => string;
@@ -158,6 +177,11 @@ export default function LoginPage() {
   const [channel, setChannel] = useState<IdChannel>('phone');
   const [tab, setTab] = useState<Tab>('otp');
   const [account, setAccount] = useState('');
+  // 手机号通道的区号（不带 `+`）。默认中国大陆；主表单与绑定弹窗共用同一个值，
+  // 避免"登录用 +852、绑定用 +86"这种同一设备内自相矛盾的状态。
+  const [dialCode, setDialCode] = useState<string>(readDialCode);
+  // 区号弹层的开关（与登录页的 bindPhone 遮罩并列渲染）
+  const [dialPickerOpen, setDialPickerOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [pending, setPending] = useState<PendingOtp | null>(null);
@@ -285,9 +309,43 @@ export default function LoginPage() {
     })();
   };
 
-  /** 当前通道的登录标识。手机号**原样传入**（国际区号归一由 SDK 内部完成，前端不重复归一）。 */
+  /** 当前通道的登录标识。
+   *
+   *  手机号必须由前端拼成 E.164（`+85291234567`）再交给 SDK —— 这里**不能**只传本地号码：
+   *  SDK 的 `normalizePhone` 只对 `+86` 做归一，其他区号原样透传；若只传 8 位本地号码，
+   *  服务端收到的就是一个没有区号的裸号码。
+   *  （旧注释「国际区号归一由 SDK 内部完成」是错的，已按实测纠正。
+   *   另注意：区号表刻意不含 `+1`，因为 SDK 会把任何 1 开头的 11 位数字改写成 +86 号码，
+   *   详见 `src/data/dialCodes.ts` 头注释。） */
   const currentId = (): AuthIdentifier =>
-    channel === 'phone' ? { phone: account.trim() } : { email: account.trim() };
+    channel === 'phone' ? { phone: buildPhoneE164(dialCode, account) } : { email: account.trim() };
+
+  /**
+   * 切换区号。
+   *
+   * 换区号 = 换登录标识（+85291234567 与 +8691234567 是两个账号），所以：
+   *   1) 必须作废已经拿到的 verificationId —— 它的 challenge 是绑定在旧号码上的，
+   *      继续用它提交只会得到「请先为当前账号获取验证码」，更糟的情况是拿旧 challenge 验证了新号码；
+   *   2) 必须把 countdown 归零 —— 否则「获取验证码」按钮会被上一个区号的 60 秒倒计时锁住，
+   *      用户切了区号却点不动，只能干等。
+   *  绑定弹窗的同类状态一并清掉（两地共用 dialCode，任何一处换了另一边都已失效）。 */
+  const changeDialCode = (next: string) => {
+    setDialCode(next);
+    try {
+      Taro.setStorageSync(DIAL_CODE_KEY, next);
+    } catch {
+      /* 存储不可用：本次会话内仍以 React state 为准 */
+    }
+    setPending(null);
+    setCode('');
+    setCountdown(0);
+    setBindPending(null);
+    setBindCode('');
+    setBindCountdown(0);
+    setBindError('');
+    setBindNotice('');
+    clearMsg();
+  };
 
   /** 切通道：清空验证码凭据与已填内容，页签复位到该通道可用的首个。换通道必须重新取码。 */
   const switchChannel = (next: IdChannel) => {
@@ -318,11 +376,18 @@ export default function LoginPage() {
   const ensureAccount = (): boolean => {
     const v = account.trim();
     if (channel === 'phone') {
-      if (!v) {
+      // 校验交给区号表驱动的 validateNational：位数区间按区号不同，
+      // 中国大陆还额外校验 `/^1\d{10}$/`。'unsupported' / 'format' 都归到「无效手机号」。
+      const issue = validateNational(dialCode, account);
+      if (issue === 'empty') {
         setError(t('auth.errPhoneEmpty'));
         return false;
       }
-      if (!PHONE_RE.test(v)) {
+      if (issue === 'length') {
+        setError(t('auth.errPhoneLen'));
+        return false;
+      }
+      if (issue !== null) {
         setError(t('auth.errPhone'));
         return false;
       }
@@ -505,28 +570,40 @@ export default function LoginPage() {
 
   const doBindSendCode = async () => {
     if (bindBusy || bindCountdown > 0) return;
-    const v = bindPhoneVal.trim();
-    if (!PHONE_RE.test(v)) {
+    // 绑定弹窗与主表单共用 dialCode：换区号时 changeDialCode 已经把两侧的 pending 都作废了。
+    const issue = validateNational(dialCode, bindPhoneVal);
+    if (issue === 'empty') {
+      setBindError(t('auth.errPhoneEmpty'));
+      return;
+    }
+    if (issue === 'length') {
+      setBindError(t('auth.errPhoneLen'));
+      return;
+    }
+    if (issue !== null) {
       setBindError(t('auth.errPhone'));
       return;
     }
+    const phone = buildPhoneE164(dialCode, bindPhoneVal);
     setBindError('');
     setBindNotice('');
     setBindBusy(true);
-    const res = await sendLoginCode({ phone: v });
+    const res = await sendLoginCode({ phone });
     setBindBusy(false);
     if (res.error) {
       setBindError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
       return;
     }
-    setBindPending({ id: { phone: v }, verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
+    setBindPending({ id: { phone }, verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
     setBindCountdown(RESEND_SECONDS);
     setBindNotice(t('auth.bindPhoneSent'));
   };
 
   const doBindVerify = async () => {
     if (bindBusy || !bindPending) return;
-    const id = { phone: bindPhoneVal.trim() };
+    // 与 doBindSendCode 用同一个拼法：pending.id 与这里的 id 必须逐字符相等，
+    // sameId 比较的是 phone 字符串，任何一处少了 `+区号` 都会判成「换了号码」。
+    const id: AuthIdentifier = { phone: buildPhoneE164(dialCode, bindPhoneVal) };
     if (!sameId(bindPending.id, id)) {
       setBindError(t('auth.errCodeNeeded'));
       return;
@@ -633,16 +710,41 @@ export default function LoginPage() {
 
         <View className={styles.field}>
           <Text className={styles.label}>{channel === 'phone' ? t('auth.phone') : t('auth.email')}</Text>
-          <Input
-            className={styles.input}
-            type={channel === 'phone' ? 'number' : 'text'}
-            value={account}
-            placeholder={channel === 'phone' ? t('auth.phonePlaceholder') : t('auth.emailPlaceholder')}
-            onInput={(e) => {
-              setAccount(String(e.detail.value || ''));
-              onAccountInput();
-            }}
-          />
+          {channel === 'phone' ? (
+            // 区号按钮 + 本地号码输入。两者分在两个字段里存，提交时才拼 E.164。
+            <View className={styles.phoneRow}>
+              <View className={styles.dialBtn} onClick={() => setDialPickerOpen(true)}>
+                <Text className={styles.dialText}>{`+${dialCode}`}</Text>
+                <Text className={styles.dialCaret}>▾</Text>
+              </View>
+              <Input
+                className={`${styles.input} ${styles.phoneInput}`}
+                type='number'
+                value={account}
+                maxlength={15}
+                // 大陆用户看到「11 位手机号」最直观；其他国家只能提示「不含区号」，
+                // 否则用户会把 +852 再输一遍（区号已经由左侧按钮提供）。
+                placeholder={dialCode === '86' ? t('auth.phonePlaceholder') : t('auth.phoneIntlPlaceholder')}
+                onInput={(e) => {
+                  // `type='number'` 在 H5 仍可能放进 e / . / -，统一剥成数字，
+                  // 让 state 里只存在能直接拼进 E.164 的字符。
+                  setAccount(normalizeNational(String(e.detail.value || '')));
+                  onAccountInput();
+                }}
+              />
+            </View>
+          ) : (
+            <Input
+              className={styles.input}
+              type='text'
+              value={account}
+              placeholder={t('auth.emailPlaceholder')}
+              onInput={(e) => {
+                setAccount(String(e.detail.value || ''));
+                onAccountInput();
+              }}
+            />
+          )}
         </View>
 
         {tab === 'password' ? (
@@ -775,16 +877,23 @@ export default function LoginPage() {
             <Text className={styles.subtitle}>{t('auth.bindPhoneSubtitle')}</Text>
             <View className={styles.field}>
               <Text className={styles.label}>{t('auth.phone')}</Text>
-              <Input
-                className={styles.input}
-                type='number'
-                value={bindPhoneVal}
-                placeholder={t('auth.phonePlaceholder')}
-                onInput={(e) => {
-                  setBindPhoneVal(String(e.detail.value || ''));
-                  setBindError('');
-                }}
-              />
+              <View className={styles.phoneRow}>
+                <View className={styles.dialBtn} onClick={() => setDialPickerOpen(true)}>
+                  <Text className={styles.dialText}>{`+${dialCode}`}</Text>
+                  <Text className={styles.dialCaret}>▾</Text>
+                </View>
+                <Input
+                  className={`${styles.input} ${styles.phoneInput}`}
+                  type='number'
+                  value={bindPhoneVal}
+                  maxlength={15}
+                  placeholder={dialCode === '86' ? t('auth.phonePlaceholder') : t('auth.phoneIntlPlaceholder')}
+                  onInput={(e) => {
+                    setBindPhoneVal(normalizeNational(String(e.detail.value || '')));
+                    setBindError('');
+                  }}
+                />
+              </View>
             </View>
             <View className={styles.field}>
               <Text className={styles.label}>{t('auth.code')}</Text>
@@ -819,6 +928,17 @@ export default function LoginPage() {
           </View>
         </View>
       ) : null}
+      {/* 区号弹层与绑定弹窗并列挂在页面根节点：放在卡片外面，避免被卡片的
+          背景/overflow 裁掉；DOM 顺序在后 → 同 z-index 下会盖在绑定弹窗之上。 */}
+      <DialCodePicker
+        visible={dialPickerOpen}
+        value={dialCode}
+        onSelect={(next) => {
+          changeDialCode(next);
+          setDialPickerOpen(false);
+        }}
+        onClose={() => setDialPickerOpen(false)}
+      />
     </View>
   );
 }

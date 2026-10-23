@@ -149,6 +149,47 @@
   flex: 1;
 }
 
+// ========== 手机号 + 国际区号 ==========
+// 区号按钮与号码输入放在同一行。注意 `.input` 自带 `width: 100%`，
+// 在 flex 行里不改就会把区号按钮挤成 0 宽 —— `.phoneInput` 必须显式覆盖宽度。
+.phoneRow {
+  display: flex;
+  align-items: center;
+}
+
+.dialBtn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: $button-height-md;
+  margin-right: $spacing-sm;
+  padding: 0 $spacing-md;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1rpx solid #e4e7ed;
+  border-radius: $radius-md;
+}
+
+.dialText {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  white-space: nowrap;
+}
+
+.dialCaret {
+  margin-left: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  line-height: 1;
+}
+
+.phoneInput {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
 .codeBtn {
   flex-shrink: 0;
   margin-left: $spacing-sm;

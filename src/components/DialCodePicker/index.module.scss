@@ -1,0 +1,76 @@
+@use '@/styles/variables.scss' as *;
+
+// 国际区号选择底部弹层：尺寸全部 rpx（pxtransform baseFontSize=37.5，写 px 会缩半）。
+// 遮罩层在组件里用内联 style 写死（H5 的 fixed 定位更可靠）。
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: $max-content-width;
+  // 面板最高占视口 60%，剩下的留给遮罩，用户始终能看到"这是弹层、点遮罩可退"
+  max-height: 60vh;
+  overflow: hidden;
+  background: $color-bg-card;
+  border-radius: 24rpx 24rpx 0 0;
+  box-shadow: $shadow-popup;
+  box-sizing: border-box;
+}
+
+.header {
+  flex-shrink: 0;
+  padding: $spacing-md $spacing-lg;
+  border-bottom: 1rpx solid $color-border;
+}
+
+.title {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  line-height: $line-height-tight;
+}
+
+.list {
+  flex: 1;
+  // flex 子项默认 min-height:auto，会给 ScrollView 撑出内容高度导致无法滚动
+  min-height: 0;
+  // 小程序端 scroll-y 需要一个确定的高度上限，单靠 flex:1 不稳定；再兜一层上限，
+  // 与面板 60vh 一起保证「弹层不超过视口 60%」。
+  max-height: 52vh;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-md $spacing-lg;
+  border-bottom: 1rpx solid $color-divider;
+  box-sizing: border-box;
+
+  &:active {
+    background: $color-bg-hover;
+  }
+}
+
+.optionActive {
+  background: $color-bg-hover;
+}
+
+.optionText {
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.optionTextActive {
+  color: $color-primary;
+  font-weight: $font-weight-semibold;
+}
+
+.check {
+  flex-shrink: 0;
+  margin-left: $spacing-sm;
+  font-size: $font-size-md;
+  color: $color-primary;
+  font-weight: $font-weight-semibold;
+}
