@@ -256,6 +256,20 @@ gh-pages 现在只适合当**静态外壳 + 热点数据镜像**，不是产品�
   可加载性、权限边界（缺 OPENID 必须明确拒绝 / `where` 查询不得用 `_openid` / 无硬编码 AppID）。
   **新增云函数必须同步登记到脚本里的 `OPENID_GUARDED` / `OPENID_OPTIONAL` 表**，
   否则门禁会红——这是故意的，防止「新函数忘了守 openid」悄悄上线。
+- **业务逻辑行为层**：`npm run verify:cloudflow`（17 个场景 / 359 条断言，零网络）。
+  给 `wx-server-sdk` 一个进程内**忠实实现**（`.tools/lib/wx-server-sdk-mock.cjs`：真内存集合、
+  真 `where`/`update`/`inc`/`serverDate` 语义），把云函数当普通函数调用，验跨函数链路
+  （`login→updateSettings→todoStatus`）、越权、幂等、配额、注销级联、订单归属、额度账本。
+  关键一条语义：**`where({openid: undefined})` 必须退化成「匹配全部」**（真实 SDK 序列化会丢 undefined 键）
+  —— 桩若把它当成「匹配不到」，openid 守卫的断言全是假绿。
+  另有「注销清单 ↔ 写入点」静态对齐断言：任何按 openid 写入的集合没登记进
+  `deleteAccount` 的 `collections`，门禁即红。
+  2026-10 首次接入就抓出 8 个真实缺陷（`chat` 首轮 usage 无 `_id` 致免费用户每月首条消息必失败且额度不累加、
+  注销漏删 `errors`、`confirmItem` 配额检查晚于写入、`updateSettings` 时间正则过宽且命中 0 行返回 undefined、
+  `reportError` 无参读 `event.TARO_ENV` 抛错、`login` 首次返回缺 `_id`）。
+- **部署前必看环境变量清单**：`npm run deploy:cloud:check` 在没有凭据时**也会**打印
+  29 个变量分布在哪些函数上（本机目前只有 `INTERNAL_CALL_TOKEN` 就绪）。
+  `INTERNAL_CALL_TOKEN` 必须同时配在 `getBriefing` 与 `webSearch`，且值相同。
 - 云函数里调用 `cloud.openapi.*` 需要在**同名目录**放 `config.json` 声明权限，
   例如 `security.msgSecCheck`（参考 `cloudfunctions/extract/config.json`）
 

@@ -14,6 +14,9 @@
 >    - `npm run verify:cloudfunctions` —— 148 条断言，在无 `wx-server-sdk`、不联网的情况下
 >      加载全部 24 个函数，守结构 / 可加载 / openid 权限边界 / 无硬编码 AppID；
 >    - `npm run verify:deploy` —— 25 条断言，把预检的七个失败分支逐个真跑一遍；
+>    - `npm run verify:cloudflow` —— 17 个场景 / 359 条断言，用忠实的 `wx-server-sdk` 内存实现
+>      **真跑业务逻辑**（跨函数链路 / 越权 / 幂等 / 配额 / 注销级联 / 订单归属 / 额度账本）；
+>      首次接入即抓出 8 个真实缺陷并已修（详见 commit `ede9262`）。
 >    - 两者都接进了 `.github/workflows/checks.yml`，并各自有变异用例证明断言有判别力。
 > 5. 仍卡住的只有下面第一节那三项，而它们是**同一个根**（主体未注册）的下游。
 
