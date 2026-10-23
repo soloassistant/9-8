@@ -69,6 +69,33 @@ ok(
   plain.every((it, i) => it === tsSorted[i])
 );
 
+// ⚠️ 上面这条在**夹具本身已按时间倒序存放**时是空转的：把 `sorted` 那行排序整个删掉，
+//    输入顺序不变、结果也不变，断言照样绿。所以这里再用一份确定性打乱的池子复测一遍 ——
+//    打乱后"删排序"会立刻让结果变成乱序，被抓到。
+// 用固定种子的 LCG（不用 Math.random），保证每次运行输入相同、结论可复现。
+function shuffled(arr) {
+  const a = arr.slice();
+  let seed = 20261023;
+  for (let i = a.length - 1; i > 0; i--) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const j = seed % (i + 1);
+    const t = a[i];
+    a[i] = a[j];
+    a[j] = t;
+  }
+  return a;
+}
+const POOL_SHUFFLED = shuffled(POOL);
+ok(
+  '打乱池子后确实与原顺序不同（否则这条复测无意义）',
+  POOL_SHUFFLED.some((it, i) => it !== POOL[i])
+);
+const plainShuffled = selectByPreference(POOL_SHUFFLED, [], 10);
+ok(
+  '无偏好 + 打乱输入 → 仍返回时间倒序前 10（抓住"删掉排序"这类变异）',
+  plainShuffled.length === 10 && plainShuffled.every((it, i) => it === tsSorted[i])
+);
+
 /* ===================== 2. 有偏好：偏好条目确实靠前 ===================== */
 
 const science = selectByPreference(POOL, ['科学'], 3);
@@ -80,6 +107,14 @@ ok(
   science.filter((it) => tagOf(it) === '科学').length === 2
 );
 ok('偏好「科学」→ 第 3 席是广度（非科学）', tagOf(science[2]) !== '科学');
+
+// 承接上面打乱池子的复测：选位结果必须与入参顺序无关。
+// 这条同时是"广度补足/收尾排序"在乱序输入下的交叉校验。
+const sciShuffled = selectByPreference(POOL_SHUFFLED, ['科学'], 3);
+ok(
+  '有偏好 + 打乱输入 → 结果与未打乱完全一致（选位不依赖入参顺序）',
+  sciShuffled.length === 3 && sciShuffled.every((it, i) => it === science[i])
+);
 
 const two = selectByPreference(POOL, ['科学', '文化'], 3);
 ok('两个偏好 → 两个偏好标签各至少 1 席', two.filter((i) => tagOf(i) === '科学').length >= 1 && two.filter((i) => tagOf(i) === '文化').length >= 1);

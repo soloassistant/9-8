@@ -32,5 +32,14 @@ export default [
     from: '          const picked = selectByPreference(hotspot.items, prefs, 3)',
     to: '          const picked = hotspot.items.slice(0, 3)',
     cmd: 'node .tools/verify-pref-select.js'
+  },
+  {
+    // 删掉初始排序：夹具本身就是按时间倒序存的，所以**必须**靠"打乱输入"那条断言才抓得住
+    // （2026-10-23 补断言时发现：只靠原顺序断言，这个变异是 NOT-CAUGHT 的假绿）。
+    label: '删掉全池初始排序（入参顺序直接当选位结果）',
+    file: 'src/utils/prefSelect.ts',
+    from: '  const sorted = pool.slice().sort((a, b) => itemTs(b) - itemTs(a));',
+    to: '  const sorted = pool.slice(); // 变异：不排序',
+    cmd: 'node .tools/verify-pref-select.js'
   }
 ];
