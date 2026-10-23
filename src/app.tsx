@@ -11,35 +11,42 @@ import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/languag
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
 import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
 import { initCloudSync } from '@/services/cloudSync';
+import { reportCrash, installH5CrashHandlers } from '@/services/crashReport';
+import type { CrashPayload } from '@/services/crashReport';
+import { clientErrorInsert } from '@/services/cloudDb';
 // 全局样式
 import './app.scss';
 
-// ========== 崩溃日志收集（P2） ==========
-// Taro.onError 在整个小程序生命周期内捕获所有未处理异常，
-// 主动上报 reportError 云函数写入 errors 集合 —— 上线后用户崩溃不再盲猜。
-// fire-and-forget：上报失败静默忽略，绝不阻断用户主流程。
-try {
-  Taro.onError((err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : '';
-    try {
-      const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
-      if (cloud?.callFunction) {
-        void cloud.callFunction({
-          name: 'reportError',
-          data: {
-            message: msg,
-            stack,
-            page: '',
-            channel: process.env.TARO_ENV,
-            extra: {}
-          }
-        }).catch(() => undefined); // 上报失败静默吞掉
-      }
-    } catch { /* 云函数调用本身失败也不冒泡 */ }
+// ========== 崩溃上报（P2） ==========
+// 两条通道按端分派（细节与踩坑记录见 src/services/crashReport.ts 文件头）：
+//   · 微信小程序：Taro.onError → reportError 云函数（要求 OPENID，H5 调不到）
+//   · H5：window.onerror / unhandledrejection → 云库 log_client_error
+//     （H5 的 Taro.onError 会把事件压扁成字符串，stack / filename / lineno 全丢，故不采用）
+// 一律 fire-and-forget：上报失败静默，绝不阻断用户主流程。
+const weappCrashTransport = async (p: CrashPayload): Promise<boolean> => {
+  const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
+  if (!cloud?.callFunction) return false;
+  await cloud.callFunction({
+    name: 'reportError',
+    data: { message: p.message, stack: p.stack, page: p.page, channel: p.channel, extra: { ua: p.ua } }
   });
+  return true;
+};
+
+// H5 通道：只写不读的 SECURITY DEFINER 函数，原因见 cloudDb.clientErrorInsert 注释
+const h5CrashTransport = (p: CrashPayload): Promise<boolean> => clientErrorInsert(p);
+
+try {
+  if (process.env.TARO_ENV === 'weapp') {
+    Taro.onError((err: unknown) => {
+      reportCrash(err, { transport: weappCrashTransport, channel: 'weapp' });
+    });
+  } else {
+    installH5CrashHandlers(h5CrashTransport);
+  }
 } catch (hookErr) {
-  console.warn('[App] onError hook 注册失败:', hookErr);
+  // 用 console.error：生产构建会剔除 console.warn
+  console.error('[App] 崩溃上报注册失败:', hookErr);
 }
 
 // 用户数据轻云同步（仅 H5）：必须在任何页面读取 storage 之前完成云端恢复，故模块加载即执行。

@@ -172,6 +172,19 @@ jobs:
         # 断言读源码里的门控表达式，防「key 还在但门控被拆掉」的假合规。
         run: npm run verify:share
 
+      - name: 待办状态确定性写入回归
+        # 守的是「勾选待办必须真的落库」：H5 的 writePlan 会吞异常（静默失败），
+        # weapp 曾走 apiChat 让 LLM 解析「完成了『xxx』」决定改哪一条 → 假完成 / 标错条目。
+        # 现在本地写后回读校验 + 云函数按 _id+openid 收敛，页面必须先写后改 UI。
+        run: npm run verify:todo
+
+      - name: 崩溃上报回归
+        # 守的是「H5 崩了有人知道」：改前上报只挂在 Taro.cloud.callFunction 上，
+        # 而 H5 没有 Taro.cloud → 整段跳过，公开入口崩了完全无人知晓。
+        # 同时守住隐私边界（邮箱/手机号/token 必须打码）、崩溃路径不得二次崩、
+        # 以及写入必须走只写 RPC log_client_error（直接 insert 表会 42501）。
+        run: npm run verify:crash
+
       # 放在最后：这一步会**临时改写源码**再复原（写完做 sha256 逐字节校验，失配退出码 3），
       # 因此必须等其他只读步骤跑完，避免与它们在同一个工作区里互相踩。
       # 它守的不是产品行为，而是「上面这些断言本身有没有判别力」——把已知缺陷改回去，

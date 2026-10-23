@@ -229,6 +229,32 @@ bash .tmp-verify/inputui/run-local.sh                              # ③ 本地�
 - 云函数里调用 `cloud.openapi.*` 需要在**同名目录**放 `config.json` 声明权限，
   例如 `security.msgSecCheck`（参考 `cloudfunctions/extract/config.json`）
 
+### 5.1 云数据库（H5 数据面，与上面 12 个云函数是两套东西）
+
+H5 不走微信云开发，走 WorkBuddy 云库（3 张表）：
+
+| 表 | 用途 | 客户端权限 |
+|---|---|---|
+| `user_kv` | 18 个 `SYNC_KEYS` 的跨设备同步 | 读写自己的（`owner_id = auth.uid()`） |
+| `llm_events` | AI 用量记账（只增不改） | 写自己的 + 读自己的 |
+| `client_errors` | 客户端崩溃日志（只增不改） | **只能调用 `log_client_error(p_*)` 写，读不到** |
+
+`client_errors` 为什么是「只写函数」而不是直接写表（2026-10-23 实测，别改回去）：
+
+- 未登录访客的 `auth.uid()` 返回**字面量 `'anon'`** —— 所有匿名访客**共用同一个 owner**。
+  若按常规给表上 `owner_id = auth.uid()` 的 SELECT 策略，任何匿名访客都能读到**全部匿名用户的
+  崩溃日志**（实测确实读到了）。
+- 因此该表对 `authenticated, anon` 已 `REVOKE ALL`、RLS 下**不留任何策略**，
+  写入只能走 `SECURITY DEFINER` 函数 `log_client_error`（返回 void、只写不读），读取只能管理端做。
+- 所以 **`db.from('client_errors').insert(...)` 会 42501**，必须 `db.rpc('log_client_error', ...)`；
+  且**不能用 `unwrap()` 判结果** —— 函数返回 void，`data` 恒为 `null`，会被误判成失败。
+
+H5 与微信端的崩溃上报是**两条通道**（见 `src/services/crashReport.ts` 文件头）：
+小程序 `Taro.onError` → `reportError` 云函数（要求 OPENID，H5 调不到）；
+H5 直挂 `window.onerror` / `unhandledrejection` → `log_client_error`。
+**不要用 `Taro.onError` 做 H5 上报** —— taro-h5 的回调只给字符串（`res.stack || res.message || res`），
+`err instanceof Error` 恒 false，堆栈会被塞进 message、位置信息全丢。
+
 ## 6. 测试与验证
 
 ```bash

@@ -95,6 +95,48 @@ export async function llmEventInsert(kind: LlmEventKind): Promise<boolean> {
   return unwrap(res, 'llm_events insert') !== null;
 }
 
+/** 客户端崩溃上报的一条内容（字段与 `log_client_error` 入参一一对应） */
+export interface ClientErrorInput {
+  message: string;
+  stack?: string;
+  page?: string;
+  channel?: string;
+  ua?: string;
+}
+
+/**
+ * 写一条客户端崩溃日志（H5 通道）。
+ *
+ * 走 `log_client_error` 这个 `SECURITY DEFINER` 函数，**不是**直接 insert 表 ——
+ * 原因（2026-10-23 实测，别改回去）：
+ *   · 未登录访客的 `auth.uid()` 返回字面量 `'anon'`，所有匿名访客**共用同一个 owner**。
+ *     若给表上 `owner_id = auth.uid()` 的 SELECT 策略，任何匿名访客都能读到**全部匿名用户的
+ *     崩溃日志**（实测确实读到了），这是真实的隐私泄露。
+ *   · 所以 `client_errors` 对 authenticated/anon **已 REVOKE 全部表权限**、RLS 下无任何策略，
+ *     客户端只能通过这个只写不读、返回 void 的函数落库，读只能由管理端做。
+ *   · 因此这里**不能**改成 `db.from('client_errors').insert(...)`，那样会 42501。
+ *
+ * 失败返回 false（不抛）—— 崩溃上报失败绝不能反过来影响主流程。
+ */
+export async function clientErrorInsert(input: ClientErrorInput): Promise<boolean> {
+  const db = await getCloudDatabase();
+  if (!db) return false;
+  const res = await db.rpc<void>('log_client_error', {
+    p_message: input.message,
+    p_stack: input.stack ?? '',
+    p_page: input.page ?? '',
+    p_channel: input.channel ?? 'h5',
+    p_ua: input.ua ?? ''
+  });
+  // 函数返回 void → data 恒为 null，所以**不能**用 unwrap（它会把它当成失败）。只认 error。
+  if (res.error) {
+    // 用 console.error：生产构建会剔除 console.warn（见 src/app.tsx 既有约定）
+    console.error('[cloudDb] log_client_error failed:', res.error.code || '', res.error.message || '');
+    return false;
+  }
+  return true;
+}
+
 /** 本月该类用量计数（sinceISO = 当月第一天 ISO）。count 查询不取行。 */
 export async function llmEventCount(kind: LlmEventKind, sinceISO: string): Promise<number | null> {
   const db = await getCloudDatabase();
