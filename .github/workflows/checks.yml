@@ -26,6 +26,7 @@
 #   · verify:crash           崩溃上报回归（H5 原生 error 监听 / 打码 / 只写 RPC）
 #   · verify:pref-select     H5 客户端偏好选位回归（算法与云端 selectForUser 逐条对齐）
 #   · verify:phone-intl      登录页国际区号回归（钉住「区号不得含 +1」并逐条验证 SDK 不改写）
+#   · verify:cloudfunctions  云函数离线门禁（24 个云函数在无凭据下也守结构与权限边界）
 #   · verify:mutation         元验证：把源码改坏后上面的断言必须变红（守「断言有判别力」）
 #
 # **故意不放进这里**（与 lingxi-class 的取舍一致：联网的东西会让 CI 在 fork/PR 上不可靠）：
@@ -212,6 +213,15 @@ jobs:
         # 所以区号表里刻意不含 +1，本步骤把这个禁令钉死：静态断言 + 用 vm 真加载 SDK、
         # 截获 sendOtp 请求体，把整张区号表逐条喂给真 SDK 验证「未被改写」。
         run: npm run verify:phone-intl
+
+      - name: 云函数离线门禁
+        # 24 个云函数目前**一个都部署不了**（缺 WX_APPID / WX_PRIVATE_KEY_PATH / WX_CLOUD_ENV，
+        # 根因是小程序主体未注册）。没人部署，就没有任何环节会去加载这些文件——
+        # 一个语法错误、丢掉 exports.main、退化的 openid 守卫，可以静静躺几个月，
+        # 直到第一次真部署那天才炸，而且炸在线上。
+        # 这里用 vm + 桩 SDK 把它们拉进日常射程：结构完整 / 能被加载 / 缺 OPENID 必须拒绝 /
+        # 不用 _openid 查 / 不留硬编码 AppID。不联网、不需要微信凭据。
+        run: npm run verify:cloudfunctions
 
       # 放在最后：这一步会**临时改写源码**再复原（写完做 sha256 逐字节校验，失配退出码 3），
       # 因此必须等其他只读步骤跑完，避免与它们在同一个工作区里互相踩。

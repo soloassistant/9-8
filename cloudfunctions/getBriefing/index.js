@@ -565,6 +565,12 @@ exports.main = async (event = {}) => {
   if (event.Type === 'Timer' || event.TriggerName) return runScheduled(event);
 
   const { OPENID } = cloud.getWXContext();
+  // 定时触发器已在上一行分流；走到这里只可能是客户端发起的用户请求。
+  // 缺 OPENID 必须直接拒绝：否则 where({ openid: undefined }) 会退化成「无归属查询」，
+  // 随后 aggregate(undefined) + add({ data: { openid: undefined, ... } }) 还会向 briefings
+  // 写入 openid 为空的脏记录——与 login 云函数当年「建出 openid 为 undefined 的共享用户」
+  // 是同一类问题。其余 16 个读 WXContext 的函数都守了这一条，这里原本漏了。
+  if (!OPENID) throw new Error('no openid');
   const today = todayStr();
 
   // 已有今日晨报直接返回
