@@ -1078,6 +1078,36 @@ function selectForUser(poolItems, prefs, limit) {
     });
 }
 
+/** 热点页出口：**每源最多 1 条**，按时间倒序取前 total 个不同源。
+ *
+ *  为什么需要它（2026-10-23）：缓存池为「按偏好选位」扩到 HOTSPOT_POOL_SIZE 后，
+ *  直接 `slice(0, 10)` 会让高产源连占 3 席（单源上限 3），十家媒体的观感塌成三家 ——
+ *  「今日热点」的核心价值就是广度，不能为了偏好选位把广度换掉。
+ *  原 selectWithQuota 的保底轮本就是「每源各占 1 位」，本函数还原同一口径。
+ *
+ *  兜底：不同源不足 total 时，第二轮允许同源补足，避免源少的时段页面变短。
+ *  入参 items 必须已按 ts 倒序（缓存写入时即如此），本函数不再排序。 */
+function pickDiverseHotspot(items, total) {
+  if (!Array.isArray(items) || total <= 0) return [];
+  const out = [];
+  const taken = new Set();
+  for (const it of items) {
+    if (out.some((x) => x.source === it.source)) continue;
+    out.push(it);
+    taken.add(it);
+    if (out.length >= total) break;
+  }
+  if (out.length < total) {
+    for (const it of items) {
+      if (taken.has(it)) continue;
+      out.push(it);
+      taken.add(it);
+      if (out.length >= total) break;
+    }
+  }
+  return out;
+}
+
 function safeParse(text) {
   try {
     return JSON.parse(text);
@@ -1330,9 +1360,10 @@ exports.main = async (event) => {
   try {
     if (action === 'hotspot') {
       const { items, sourceHealth } = await getHotspotNews();
-      // 缓存池已扩到 HOTSPOT_POOL_SIZE（供 briefing 按偏好选位），热点页对外仍是 10 条：
-      // 这里必须截断，否则资讯库会从 10 条突然变成 60 条。缓存本身已是 ts 倒序。
-      const page = Array.isArray(items) ? items.slice(0, HOTSPOT_ITEMS_LIMIT) : [];
+      // 缓存池已扩到 HOTSPOT_POOL_SIZE（供 briefing 按偏好选位），热点页对外仍是 10 条，
+      // 且必须保持**每源最多 1 条**的多样性口径 —— 扩池后直接 slice 会让高产源连占 3 席，
+      // 十家媒体塌成三家（见 pickDiverseHotspot 注释）。缓存已是 ts 倒序，函数内不再排序。
+      const page = pickDiverseHotspot(items, HOTSPOT_ITEMS_LIMIT);
       // data 保持既有形状（HotspotNews[]，前端按此渲染）；sourceHealth 为新增的可观测字段，前端会忽略
       return { code: 0, message: 'ok', data: page, sourceHealth };
     }
@@ -1619,4 +1650,4 @@ exports.FETCH_RETRY_BACKOFF_MS = FETCH_RETRY_BACKOFF_MS;
 exports.FREE_INTEL_ITEMS_LIMIT = FREE_INTEL_ITEMS_LIMIT;
 exports.INTEL_ITEM_TEXT_MAX = INTEL_ITEM_TEXT_MAX;
 exports.RSS_SOURCES = RSS_SOURCES;
-exports.__internals = { fetchText, parseFeed, stripHtml, toNews, fetchOneSource, selectWithQuota, selectForUser, fetchAllSources, getHotspotNews, fallbackIntel, topUpFallback, rankByPreferences, clampByCodePoint, clampSummary, resolveCallerOpenid, internalTokenOk, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken, getVideoNews, safeMediaUrl, mergeCrossSource, normTitle, orgOfSource };
+exports.__internals = { fetchText, parseFeed, stripHtml, toNews, fetchOneSource, selectWithQuota, selectForUser, pickDiverseHotspot, fetchAllSources, getHotspotNews, fallbackIntel, topUpFallback, rankByPreferences, clampByCodePoint, clampSummary, resolveCallerOpenid, internalTokenOk, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken, getVideoNews, safeMediaUrl, mergeCrossSource, normTitle, orgOfSource };

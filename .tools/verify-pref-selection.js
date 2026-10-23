@@ -200,6 +200,28 @@ check('同一输入两次调用结果一致（确定性）', () => {
     Array.isArray(hotspot && hotspot.data) && isTsDesc(hotspot.data) ? true : 'order broken'
   );
 
+  /* 多样性：扩池后出口若直接 slice(0,10)，高产源会连占 3 席（单源上限 3），
+     十家媒体的观感塌成三家 —— 「今日热点」的广度价值就没了。
+     出口必须走 pickDiverseHotspot：每源最多 1 条。（2026-10-23 补） */
+  const srcs = Array.isArray(hotspot && hotspot.data) ? hotspot.data.map((x) => x.source) : [];
+  check('action=hotspot 每源最多 1 条', () => (new Set(srcs).size === srcs.length ? true : 'dup source: ' + srcs.join(',')));
+  check('action=hotspot 10 条来自 10 个不同源', () =>
+    srcs.length === LIMIT && new Set(srcs).size === LIMIT ? true : 'unique=' + new Set(srcs).size + '/' + srcs.length
+  );
+
+  /* 兜底：不同源不足 total 时必须允许同源补足，不能返回短页面 */
+  const fewSources = [
+    { source: 'A', title: 'a1', createTime: '2026-10-23T03:00:00.000Z' },
+    { source: 'A', title: 'a2', createTime: '2026-10-23T02:00:00.000Z' },
+    { source: 'B', title: 'b1', createTime: '2026-10-23T01:00:00.000Z' }
+  ];
+  const filled = ws.__internals.pickDiverseHotspot(fewSources, LIMIT);
+  check('源不足时同源补足到 target', () => (filled.length === 3 ? true : 'got ' + filled.length));
+  check('源不足时仍优先每源各 1 条', () =>
+    filled[0].source === 'A' && filled[1].source === 'B' ? true : filled.map((x) => x.source).join(',')
+  );
+  check('空入参返回空数组', () => (ws.__internals.pickDiverseHotspot(null, LIMIT).length === 0 ? true : 'not empty'));
+
   console.log('\n通过 ' + pass + ' / 失败 ' + fail);
   if (fail > 0) process.exit(1);
 })();
