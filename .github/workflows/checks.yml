@@ -23,6 +23,8 @@
 #   · verify:prelaunch        上市前整改回归（外链协议白名单 / 云函数 OPENID 空值拒绝 / 署名档位 / i18n 键）
 #   · verify:share            分享 AI 标识回归（AI 前缀受档位门控 / 免费档文案不含 AI / 剪贴板跟随标识）
 #   · verify:honesty          假数据/假能力诚实性回归（示例条目级标注 / H5 不 mock 不扣额度）
+#   · verify:crash           崩溃上报回归（H5 原生 error 监听 / 打码 / 只写 RPC）
+#   · verify:pref-select     H5 客户端偏好选位回归（算法与云端 selectForUser 逐条对齐）
 #   · verify:mutation         元验证：把源码改坏后上面的断言必须变红（守「断言有判别力」）
 #
 # **故意不放进这里**（与 lingxi-class 的取舍一致：联网的东西会让 CI 在 fork/PR 上不可靠）：
@@ -192,6 +194,14 @@ jobs:
         # 同时守住隐私边界（邮箱/手机号/token 必须打码）、崩溃路径不得二次崩、
         # 以及写入必须走只写 RPC log_client_error（直接 insert 表会 42501）。
         run: npm run verify:crash
+
+      - name: H5 客户端偏好选位回归
+        # 守的是「H5 静态链路上的用户偏好真的改变情报集合」：云端 selectForUser 未部署，
+        # H5 只能在自己这一侧重排；这里钉住算法与云端逐条对齐（偏好保底 → 广度保底 →
+        # 补足 → 偏好置前排序），并钉住 getBriefing 走的是选位而不是 slice(0,3)
+        # （slice 等于偏好失效，用户选了「科学」也只会看到按时间排的前 3 条）。
+        # 用 60 条真实抓取的冻结夹具真执行 src/utils/prefSelect.ts，不联网。
+        run: npm run verify:pref-select
 
       # 放在最后：这一步会**临时改写源码**再复原（写完做 sha256 逐字节校验，失配退出码 3），
       # 因此必须等其他只读步骤跑完，避免与它们在同一个工作区里互相踩。

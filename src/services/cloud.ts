@@ -4,6 +4,8 @@ import type { UserPrefs } from '../utils/prefs'
 import { fetchWeatherDirect } from '../utils/weather'
 import { evaluatePriceAlerts, type PricedItem, type PriceAlert } from '../utils/price'
 import { categoryOf } from '../utils/categoryLabel'
+import { selectByPreference } from '../utils/prefSelect'
+import { readProfileSettings } from './localProfile'
 import { invoke, isWeapp } from './dataSource'
 import { chatViaCloudLlm, extractViaCloudLlm, typewriter } from './cloudLlm'
 
@@ -309,7 +311,11 @@ export async function callFunction<T = unknown>(
           ? { updatedAt: payload.updatedAt, stale: payload.stale, sources: payload.sources }
           : null
         clearDegraded('getHotspot')
-        return payload.items as T
+        // 2026-10-23：按用户偏好重排（云函数 selectForUser 的客户端镜像），
+        // 不改条数、不截断 —— 只让用户选了「科学/文化/健康」时这些条目排前面。
+        // 不这样做，H5 上这两个偏好标签就是"能点但没有任何效果"。
+        const prefs = readProfileSettings().preferences
+        return selectByPreference(payload.items, prefs, payload.items.length) as T
       }
       hotspotMeta = null
       markDegraded('getHotspot')
@@ -332,7 +338,12 @@ export async function callFunction<T = unknown>(
         const intel: BriefingIntel = { subscribed: false, weather: null, intelItems: [], degraded: false, aiEnabled: false }
         if (weather) intel.weather = weather
         if (hotspot) {
-          intel.intelItems = hotspot.items.slice(0, 3).map((it) => ({
+          // 2026-10-23：原先是 `hotspot.items.slice(0, 3)` —— 硬切前 3 条，
+          // 用户在「我的」里选的科学/文化/健康偏好**完全不参与**。
+          // 改用与云函数 selectForUser 同算法的客户端选位（src/utils/prefSelect.ts）。
+          const prefs = readProfileSettings().preferences
+          const picked = selectByPreference(hotspot.items, prefs, 3)
+          intel.intelItems = picked.map((it) => ({
             text: it.title,
             source: it.source
           }))
