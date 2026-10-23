@@ -443,14 +443,31 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
   const rendersChildren = /props\.children/.test(app);
   // 假身份兜底：一个都不许有（先剥块注释，避免把说明文字当违规代码 —— 已踩过一次）
   const stripBlockComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
+  // 连**行注释**一起剥（判代码里有没有某个字面量时必须用这个）：
+  //   2026-10-23 实测踩到，`!/\+86/` 被一行解释文案「避免登录用 +852、绑定用 +86」
+  //   直接判死 —— 注释里讲 +86 是正常的，不能当违规代码。
+  const stripComments = (t) => stripBlockComments(t).replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   const noFake = !/signInAnonymously|mockSession/i.test(stripBlockComments(auth) + stripBlockComments(page));
   // ★ 2026-10-13 反转：手机号登录必须在 Web 上被正确接上（产品决策 + 当前 auth 规范支持 Phone SMS OTP on Web）。
   //   这条断言 2026-10-05 写成"禁止"（那时读的是旧规范），当天发现规范已更新、产品也要手机号登录，
   //   于是整体反转为"必须接上"，并补 `!/\+86/` 漂移守卫：前端不得自行拼 +86（SDK 自己会拼）。
-  const phoneLoginWired = /auth\.idPhone/.test(page)
-    && /\{\s*phone:/.test(page)
-    && /\^1\\d\{10\}\$/.test(page)
-    && !/\+86/.test(stripBlockComments(page));
+  //
+  // ★ 2026-10-23 再改（登录页支持国际区号）：上面两条判据的前提都被合法废掉了，必须换判据，但不能放宽：
+  //   · 「页面里必须出现 `^1\d{10}$`」—— 大陆形态约束已移入 `src/data/dialCodes.ts` 的 pattern，
+  //     页面里不再有这条正则；而且旧写法在**注释**里残留一句「原 PHONE_RE = /^1\d{10}$/」，
+  //     实测仍会匹配成功 —— 也就是说它早就在靠注释骗过自己，判定力本来就是假的。
+  //   · 「`!/\+86/`」—— 前端现在**必须**自己拼 E.164（SDK 只归一 +86，其余原样透传，
+  //     见 dialCodes.ts 头注释的实测表），所以代码里出现 86 是正确行为；
+  //     该守卫真正要防的是「把区号写死成一个国家」，于是改成只禁**硬编码字面量** `'+86'`，
+  //     且必须在**剥掉全部注释**的代码上判（否则注释里提到 +86 就被误杀）。
+  //   · 顺带把「区号表不得含 +1」也提到这一层守一遍（北美号码会被 SDK 改写成 +86 号码）。
+  const pageCode = stripComments(page);
+  const phoneLoginWired = /auth\.idPhone/.test(pageCode)
+    && /\{\s*phone:/.test(pageCode)
+    && /buildPhoneE164\(\s*dialCode\s*,\s*account\s*\)/.test(pageCode)
+    && /validateNational\(\s*dialCode\s*,\s*account\s*\)/.test(pageCode)
+    && !/['"]\+86['"]/.test(pageCode)
+    && !/code:\s*'1'/.test(read('src/data/dialCodes.ts') || '');
   // SDK 引入形态（2026-10-14 改为**同源自托管**；2026-10-13 曾是 CDN 固定版本 + SRI）：
   //  · 必须从同源 `./assets/wb-sdk.js` 加载，且标签里**不得出现任何外部 URL** ——
   //    2026-10-14 线上故障「登录服务连不上」根因：jsdelivr 在中国大陆被墙 →
@@ -470,7 +487,7 @@ check('进入门禁在位（未登录不得进入 + 无假身份兜底）', '登
   const ok = redirects && registered && flows && phoneLoginWired && submitNoResend && rendersChildren && noFake
     && sdkLoaded && sdkSameOrigin && sdkVendored && sdkCopied;
   return ok
-    ? { pass: true, detail: '未登录重定向到已注册的登录页；四条流程齐备；手机号登录已接上且不拼 +86；提交不重发；App 正常渲染 children；无假身份兜底；SDK 同源自托管（无外部 CDN、落地文件在、copy-assets 已接线）' }
+    ? { pass: true, detail: '未登录重定向到已注册的登录页；四条流程齐备；手机号登录已接上（E.164 由 buildPhoneE164 按区号拼装、不硬编码单区号、区号表不含 +1）；提交不重发；App 正常渲染 children；无假身份兜底；SDK 同源自托管（无外部 CDN、落地文件在、copy-assets 已接线）' }
     : {
         pass: false,
         detail: 'redirect=' + redirects + ' registered=' + registered + ' flows=' + flows
