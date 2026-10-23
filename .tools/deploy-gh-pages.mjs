@@ -33,6 +33,8 @@ import { createRequire } from 'node:module';
 
 // build-inputs 是 CommonJS（copy-assets.js 也要用），ESM 里用 createRequire 引
 const require = createRequire(import.meta.url);
+// git 解析同属"跨脚本共用"的 CommonJS 工具，同样用 require 引
+const { resolveGit, describeGitCandidates } = require('./lib/git.cjs');
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const DIST = path.join(ROOT, 'dist');
@@ -55,11 +57,20 @@ function die(msg, code = 1) {
 }
 
 function git(args, opts = {}) {
-  const r = spawnSync('git', args, {
+  // 裸调 'git' 在 PATH 没有 git 的机器上会 ENOENT，且 status 为 null、
+  // stderr/stdout 皆空 —— 上层只会看到一句无信息的失败。这里先解析并显式报错。
+  const bin = resolveGit();
+  if (!bin) {
+    return { code: null, out: '', err: `找不到 git（已尝试: ${describeGitCandidates()}）；设 GIT_BIN 或修 PATH` };
+  }
+  const r = spawnSync(bin, args, {
     cwd: opts.cwd || ROOT,
     encoding: 'utf8',
     env: { ...process.env, ...(opts.env || {}) }
   });
+  if (r.error) {
+    return { code: null, out: '', err: `执行 git 失败（${bin}）: ${r.error.message}` };
+  }
   return { code: r.status, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
 }
 

@@ -45,6 +45,10 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+// .cjs 用默认导入（CJS 具名导出靠 cjs-module-lexer 推断，默认导入更稳）
+import gitLib from './lib/git.cjs';
+
+const { resolveGit, describeGitCandidates } = gitLib;
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NODE_PATH = path.join(REPO, 'node_modules');
@@ -113,9 +117,22 @@ function runCase(c) {
     out.detail = `锚点出现 ${occurrences} 次（要求正好 1 次）—— 修 case 的 from，别猜`;
     return out;
   }
-  const st = spawnSync('git', ['status', '--porcelain', '--', c.file], { cwd: REPO, encoding: 'utf8' });
+  // ⚠️ 不能裸调 'git'：PATH 里没有 git 的机器上 spawn 会 ENOENT，
+  //    而 `st.error` 不被读取 → 报出 "git status 失败: null"，看不出是 git 缺失。
+  const GIT = resolveGit();
+  if (!GIT) {
+    out.detail =
+      `找不到可用的 git 可执行文件（已尝试: ${describeGitCandidates()}）。` +
+      '把 git 加进 PATH，或设 GIT_BIN=/path/to/git 后重跑。';
+    return out;
+  }
+  const st = spawnSync(GIT, ['status', '--porcelain', '--', c.file], { cwd: REPO, encoding: 'utf8' });
+  if (st.error) {
+    out.detail = `执行 git 失败（${GIT}）: ${st.error.message}`;
+    return out;
+  }
   if (st.status !== 0) {
-    out.detail = `git status 失败: ${st.stderr || st.stdout}`;
+    out.detail = `git status 退出码 ${st.status}: ${(st.stderr || st.stdout || '').trim() || '(无输出)'}`;
     return out;
   }
   if (st.stdout.trim() !== '') {

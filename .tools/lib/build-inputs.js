@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { resolveGit } = require('./git.cjs');
 
 const INPUT_DIRS = ['src', 'config'];
 const INPUT_FILES = ['package.json', 'tsconfig.json', 'yarn.lock'];
@@ -66,8 +67,13 @@ function computeInputs(root) {
 }
 
 function currentHead(root) {
+  // 裸调 'git' 在 PATH 没有 git 时会 ENOENT 并被下面的 catch 吞成 null ——
+  // 指纹里少了 head 字段，而没有任何提示。这里先解析出真实路径；
+  // 解析不到仍返回 null（构建不该因为缺 git 就失败），但至少不是"悄悄少一个字段"的假象。
+  const bin = resolveGit();
+  if (!bin) return null;
   try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+    return execFileSync(bin, ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
   } catch {
     return null;
   }
