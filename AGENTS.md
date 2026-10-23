@@ -237,17 +237,29 @@ gh-pages 现在只适合当**静态外壳 + 热点数据镜像**，不是产品�
 
 ## 5. 云函数
 
-`cloudfunctions/` 下 12 个函数：`chat` `confirmItem` `createOrder` `deleteAccount`
-`extract` `getBriefing` `getLibrary` `getUsage` `login` `shopping` `updateSettings` `webSearch`。
+`cloudfunctions/` 下 24 个函数：
 
-- 部署命令：`npm run deploy:cloud`（读 `.env.local`）
+| 分组 | 函数 |
+|---|---|
+| 身份 / 账号 | `login` `deleteAccount` `updateSettings` `getUsage` `reportError` |
+| 晨报 / 情报 | `getBriefing` `webSearch` `extract` `chat` |
+| 待办 / 购物 | `todoStatus` `confirmItem` `getLibrary` `shopping` |
+| 支付 | `createOrder` `queryOrder` `closeOrder` `ordersList` `refundOrder` `pay-wechat` `pay-alipay` `pay-callback` `pay-douyin` `auth-alipay` `auth-douyin` |
+
+- 部署命令：`npm run deploy:cloud`（读 `.env.local`）；只预检不上传：`npm run deploy:cloud:check`
 - ⚠️ **当前无法部署**：缺 `WX_APPID` / `WX_PRIVATE_KEY_PATH` / `WX_CLOUD_ENV`
   （`.env.local` 里没有；`project.config.json` 的 appid 还是 `touristappid`）
   → **云函数改动目前只能在本地验证，线上跑的是旧版本**
+- **无凭据也能守的底线**：`npm run verify:cloudfunctions`（148 条断言）。
+  用 vm + 伪造 `require` 在**没有 wx-server-sdk、不联网**的情况下加载全部 24 个函数，
+  守住结构（`exports.main` / 依赖声明 / 相对 require 目标 / timer 必须 7 段 cron）、
+  可加载性、权限边界（缺 OPENID 必须明确拒绝 / `where` 查询不得用 `_openid` / 无硬编码 AppID）。
+  **新增云函数必须同步登记到脚本里的 `OPENID_GUARDED` / `OPENID_OPTIONAL` 表**，
+  否则门禁会红——这是故意的，防止「新函数忘了守 openid」悄悄上线。
 - 云函数里调用 `cloud.openapi.*` 需要在**同名目录**放 `config.json` 声明权限，
   例如 `security.msgSecCheck`（参考 `cloudfunctions/extract/config.json`）
 
-### 5.1 云数据库（H5 数据面，与上面 12 个云函数是两套东西）
+### 5.1 云数据库（H5 数据面，与上面 24 个云函数是两套东西）
 
 H5 不走微信云开发，走 WorkBuddy 云库（3 张表）：
 

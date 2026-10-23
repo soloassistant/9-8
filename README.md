@@ -11,7 +11,7 @@
 购物清单与比价、习惯守护、学习模块等。
 
 - **前端**：Taro 4 + React 18 + TypeScript（H5 为主，微信小程序为次），产物在 `dist/`
-- **后端**：微信云开发，12 个云函数（`cloudfunctions/`，Node.js）
+- **后端**：微信云开发，24 个云函数（`cloudfunctions/`，Node.js）
 - **同步**：18 个 SYNC_KEYS → 云数据库 `user_kv` 表（RLS 按 owner 隔离）
 - **页面**：13 个（`src/pages/`）
 
@@ -20,7 +20,7 @@
 | 路径 | 内容 |
 |---|---|
 | `src/` | 前端源码（pages / components / store / utils / services / data / config 消费方） |
-| `cloudfunctions/` | 12 个云函数（getBriefing 定时推送 / webSearch 情报 / chat / login / extract …） |
+| `cloudfunctions/` | 24 个云函数（getBriefing 定时推送 / webSearch 情报 / chat / login / extract / 支付与退款 …） |
 | `docs/` | 全部文档：PRD、发布记录、合规清单、调研报告、问题总表、RSS 尽调 |
 | `.tools/` | 验证工具链：mutation-verify 变异验证、ledger-export / sync-conflict / share-ai-label 等 harness、static-server、visual-pass 巡检 |
 | `config/ types/ assets/ vendor/` | Taro 配置、类型定义、静态资源、vendored 子应用（灵犀课堂/省心买接入） |
