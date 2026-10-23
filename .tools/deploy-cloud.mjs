@@ -54,82 +54,6 @@ const privateKeyPath = env.WX_PRIVATE_KEY_PATH || '';
 const cloudEnv = env.WX_CLOUD_ENV || '';
 const CHECK_ONLY = process.argv.includes('--check');
 
-/* ---------- 缺配置：中文引导分支（exit 2，不抛堆栈） ---------- */
-const missing = [
-  ['WX_APPID', appid,
-    'mp.weixin.qq.com 用注册邮箱登录小程序后台 → 「管理 → 开发管理 → 开发设置」页首即 AppID（小程序 ID），复制粘贴'],
-  ['WX_PRIVATE_KEY_PATH', privateKeyPath,
-    '同一「开发设置」页 → 「小程序代码上传」小节 → 点击「生成」并下载代码上传密钥（.key 文件），保存到本机任意位置（建议放 D:/Agent/晨报 外的私有目录，切勿提交进仓库），此处填该文件的绝对路径；如已开启 IP 白名单，需把本机出口 IP 加入白名单或临时关闭'],
-  ['WX_CLOUD_ENV', cloudEnv,
-    'mp.weixin.qq.com → 「云开发」进入云开发控制台 → 首页环境列表中的「环境 ID」（形如 cloud1-2gabcdef12345678）']
-].filter(([, v]) => !v);
-
-if (missing.length) {
-  console.log('✋ 缺少部署配置，本次不执行上传。请编辑 ' + ENV_FILE + '，逐行补齐以下 key（格式 key=value）：\n');
-  for (const [k, , guide] of missing) {
-    console.log('  · ' + k);
-    console.log('    获取方式：' + guide + '\n');
-  }
-  console.log('补齐后重新运行：npm run deploy:cloud');
-  process.exit(2);
-}
-
-/* ---------- 格式预检：把「要等上传才暴露」的错误提前到本地 ---------- */
-const formatProblems = [];
-
-if (!/^wx[0-9a-fA-F]{16}$/.test(appid)) {
-  formatProblems.push(
-    `WX_APPID 格式不对：「${appid}」—— 应为 wx + 16 位十六进制（共 18 个字符）。` +
-      '常见错误：把「小程序名称」或「原始 ID（gh_ 开头）」当成 AppID。'
-  );
-}
-
-if (!fs.existsSync(privateKeyPath)) {
-  formatProblems.push(
-    `WX_PRIVATE_KEY_PATH 指向的文件不存在：${privateKeyPath}\n` +
-      '     应为微信后台「开发设置 → 小程序代码上传 → 密钥管理」下载的 .key 文件绝对路径。'
-  );
-} else {
-  let pem = '';
-  try {
-    pem = fs.readFileSync(privateKeyPath, 'utf8');
-  } catch (err) {
-    formatProblems.push(`上传密钥文件读不出来：${privateKeyPath}（${err && err.message}）`);
-  }
-  if (pem) {
-    if (!/-----BEGIN (RSA )?PRIVATE KEY-----/.test(pem)) {
-      formatProblems.push(
-        '上传密钥文件不是 PEM 私钥（找不到 BEGIN PRIVATE KEY 头）。' +
-          '可能下成了「代码上传密钥」以外的文件，或下载被截断。'
-      );
-    } else {
-      try {
-        const key = crypto.createPrivateKey(pem);
-        if (key.asymmetricKeyType !== 'rsa') {
-          formatProblems.push(`上传密钥不是 RSA 私钥（实际类型：${key.asymmetricKeyType}）。`);
-        }
-      } catch (err) {
-        formatProblems.push(`上传密钥无法解析为私钥：${err && err.message}`);
-      }
-    }
-  }
-}
-
-if (!/^[A-Za-z0-9][A-Za-z0-9_-]{3,}$/.test(cloudEnv)) {
-  formatProblems.push(
-    `WX_CLOUD_ENV 格式不对：「${cloudEnv}」—— 云开发环境 ID 只含字母、数字、- 和 _。` +
-      '常见错误：填成了「环境名称」（可含中文/空格），应填控制台首页那个环境 ID。'
-  );
-}
-
-if (formatProblems.length) {
-  console.log('✋ 配置格式检查未通过，本次不执行上传（避免留下半残环境）：\n');
-  for (const p of formatProblems) console.log('  · ' + p);
-  console.log('\n修改 ' + ENV_FILE + ' 后重新运行：' + (CHECK_ONLY ? 'npm run deploy:cloud:check' : 'npm run deploy:cloud'));
-  console.log('只想先确认格式不上传：npm run deploy:cloud:check');
-  process.exit(2);
-}
-
 /* ---------- 收集云函数：以 cloudfunctions/ 实际目录为准（含 index.js 才有效） ---------- */
 const FN_DIR = path.join(ROOT, 'cloudfunctions');
 const fns = fs.readdirSync(FN_DIR)
@@ -187,6 +111,86 @@ function printEnvPlan(title) {
     console.log('    注意 INTERNAL_CALL_TOKEN 要同时配在 getBriefing 与 webSearch，且值必须相同。');
   }
   console.log('');
+}
+
+/* ---------- 缺配置：中文引导分支（exit 2，不抛堆栈） ---------- */
+const missing = [
+  ['WX_APPID', appid,
+    'mp.weixin.qq.com 用注册邮箱登录小程序后台 → 「管理 → 开发管理 → 开发设置」页首即 AppID（小程序 ID），复制粘贴'],
+  ['WX_PRIVATE_KEY_PATH', privateKeyPath,
+    '同一「开发设置」页 → 「小程序代码上传」小节 → 点击「生成」并下载代码上传密钥（.key 文件），保存到本机任意位置（建议放 D:/Agent/晨报 外的私有目录，切勿提交进仓库），此处填该文件的绝对路径；如已开启 IP 白名单，需把本机出口 IP 加入白名单或临时关闭'],
+  ['WX_CLOUD_ENV', cloudEnv,
+    'mp.weixin.qq.com → 「云开发」进入云开发控制台 → 首页环境列表中的「环境 ID」（形如 cloud1-2gabcdef12345678）']
+].filter(([, v]) => !v);
+
+if (missing.length) {
+  console.log('✋ 缺少部署配置，本次不执行上传。请编辑 ' + ENV_FILE + '，逐行补齐以下 key（格式 key=value）：\n');
+  for (const [k, , guide] of missing) {
+    console.log('  · ' + k);
+    console.log('    获取方式：' + guide + '\n');
+  }
+  console.log('补齐后重新运行：npm run deploy:cloud');
+  console.log('');
+  // 环境变量清单不依赖任何凭据（只是扫 cloudfunctions/ 下的 process.env.*），
+  // 所以在这里就给出来：不必等三个 credential 齐了才第一次看到要配什么。
+  printEnvPlan('—— 拿到 AppID 后，还要在云开发控制台逐个函数配这些环境变量 ——');
+  process.exit(2);
+}
+
+/* ---------- 格式预检：把「要等上传才暴露」的错误提前到本地 ---------- */
+const formatProblems = [];
+
+if (!/^wx[0-9a-fA-F]{16}$/.test(appid)) {
+  formatProblems.push(
+    `WX_APPID 格式不对：「${appid}」—— 应为 wx + 16 位十六进制（共 18 个字符）。` +
+      '常见错误：把「小程序名称」或「原始 ID（gh_ 开头）」当成 AppID。'
+  );
+}
+
+if (!fs.existsSync(privateKeyPath)) {
+  formatProblems.push(
+    `WX_PRIVATE_KEY_PATH 指向的文件不存在：${privateKeyPath}\n` +
+      '     应为微信后台「开发设置 → 小程序代码上传 → 密钥管理」下载的 .key 文件绝对路径。'
+  );
+} else {
+  let pem = '';
+  try {
+    pem = fs.readFileSync(privateKeyPath, 'utf8');
+  } catch (err) {
+    formatProblems.push(`上传密钥文件读不出来：${privateKeyPath}（${err && err.message}）`);
+  }
+  if (pem) {
+    if (!/-----BEGIN (RSA )?PRIVATE KEY-----/.test(pem)) {
+      formatProblems.push(
+        '上传密钥文件不是 PEM 私钥（找不到 BEGIN PRIVATE KEY 头）。' +
+          '可能下成了「代码上传密钥」以外的文件，或下载被截断。'
+      );
+    } else {
+      try {
+        const key = crypto.createPrivateKey(pem);
+        if (key.asymmetricKeyType !== 'rsa') {
+          formatProblems.push(`上传密钥不是 RSA 私钥（实际类型：${key.asymmetricKeyType}）。`);
+        }
+      } catch (err) {
+        formatProblems.push(`上传密钥无法解析为私钥：${err && err.message}`);
+      }
+    }
+  }
+}
+
+if (!/^[A-Za-z0-9][A-Za-z0-9_-]{3,}$/.test(cloudEnv)) {
+  formatProblems.push(
+    `WX_CLOUD_ENV 格式不对：「${cloudEnv}」—— 云开发环境 ID 只含字母、数字、- 和 _。` +
+      '常见错误：填成了「环境名称」（可含中文/空格），应填控制台首页那个环境 ID。'
+  );
+}
+
+if (formatProblems.length) {
+  console.log('✋ 配置格式检查未通过，本次不执行上传（避免留下半残环境）：\n');
+  for (const p of formatProblems) console.log('  · ' + p);
+  console.log('\n修改 ' + ENV_FILE + ' 后重新运行：' + (CHECK_ONLY ? 'npm run deploy:cloud:check' : 'npm run deploy:cloud'));
+  console.log('只想先确认格式不上传：npm run deploy:cloud:check');
+  process.exit(2);
 }
 
 if (CHECK_ONLY) {

@@ -88,6 +88,11 @@ console.log('\n1. 完全没配置');
   ok('exit 2', r.status === 2, '实际 ' + r.status);
   ok('提示三个缺失 key', ['WX_APPID', 'WX_PRIVATE_KEY_PATH', 'WX_CLOUD_ENV'].every((k) => r.out.includes(k)));
   ok('给出获取方式而不只是报错', r.out.includes('开发设置') && r.out.includes('云开发'));
+  // 环境变量清单不依赖任何凭据（只是扫 cloudfunctions/ 下的 process.env.*），
+  // 所以缺凭据时也必须能看到 —— 否则用户要等三个 credential 齐了才第一次知道要配什么。
+  ok('缺凭据时也打印待配环境变量清单', r.out.includes('INTERNAL_CALL_TOKEN'));
+  ok('清单标明这不是「云上已配」', r.out.includes('不代表云上已配'));
+  ok('清单仍然 exit 2（不上传）', r.status === 2);
 }
 
 console.log('\n2. 只填了 AppID');

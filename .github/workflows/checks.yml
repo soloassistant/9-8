@@ -28,6 +28,7 @@
 #   · verify:phone-intl      登录页国际区号回归（钉住「区号不得含 +1」并逐条验证 SDK 不改写）
 #   · verify:cloudfunctions  云函数离线门禁（24 个云函数在无凭据下也守结构与权限边界）
 #   · verify:deploy          云函数部署预检分支回归（AppID/密钥/环境 ID 错在哪，不许到上传时才发现）
+#   · verify:cloudflow       云函数业务逻辑行为回归（忠实 wx-server-sdk 内存实现 + 跨函数链路 / 越权 / 幂等）
 #   · verify:briefing        晨报首屏结构与状态机回归（记账卡位置 / 四态渲染 / 待办勾选回填）
 #   · verify:mutation         元验证：把源码改坏后上面的断言必须变红（守「断言有判别力」）
 #
@@ -232,6 +233,16 @@ jobs:
         # 前几个函数成功、后面全挂，留下半残环境。
         # 这里用临时配置文件 + 真生成的 RSA/EC 密钥把七个分支逐个跑一遍，全程 --check 不上传。
         run: npm run verify:deploy
+
+      - name: 云函数业务逻辑行为回归
+        # 上一步只证明「能被加载、守卫在」，不执行任何真实业务逻辑 —— 桩是「任何属性都返回自身」的万能桩。
+        # 这一步给 wx-server-sdk 一个进程内**忠实实现**（真内存集合、真 where/update/inc/serverDate 语义），
+        # 把云函数当普通函数调用，验跨函数链路（login→updateSettings→todoStatus）、越权、幂等、配额、
+        # 注销级联、订单归属、额度账本。
+        # 首次接入就抓到 8 个真实缺陷，其中两个 P0：chat 首轮 usage 文档无 _id（免费用户每月第一条
+        # 消息必失败且额度永不累加）、注销清单漏 errors（崩溃日志留着用户 openid，F18 合规硬伤）。
+        # 零网络：启动时主动清空 LLM_*/WEATHER_*/PAY_*/*_TEMPLATE_ID，外部能力全部走「必须明确失败」断言。
+        run: npm run verify:cloudflow
 
       - name: 晨报首屏结构与状态机回归
         # 守 2026-10-24 审计发现并修掉的 6 个「手感」缺陷：记账卡被粘进右上角图标按钮行内

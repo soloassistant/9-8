@@ -103,6 +103,13 @@ export default [
     cmd: 'node .tools/verify-deploy-preflight.mjs'
   },
   {
+    label: '缺凭据时不再打印环境变量清单（用户要等三个 credential 齐了才第一次知道要配什么）',
+    file: '.tools/deploy-cloud.mjs',
+    from: "  printEnvPlan('—— 拿到 AppID 后，还要在云开发控制台逐个函数配这些环境变量 ——');",
+    to: '',
+    cmd: 'node .tools/verify-deploy-preflight.mjs'
+  },
+  {
     label: '预检不再打印待配环境变量清单（部署完只剩静默降级）',
     file: '.tools/deploy-cloud.mjs',
     from: "  printEnvPlan('—— 部署后必须在控制台配置的环境变量 ——');",
