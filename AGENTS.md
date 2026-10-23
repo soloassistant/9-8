@@ -210,12 +210,30 @@ bash .tmp-verify/inputui/run-local.sh                              # ③ 本地�
 
 ## 4. 上线通道
 
+**★★ 先说结论：云后端按 Origin 精确白名单，`gh-pages` 的源被 403 拒，云端能力在 gh-pages 上全不可用。**
+2026-10-23 逐 Origin 实测（同一路径 `/.cloud/database/rest/rpc/...` 的 OPTIONS 预检）：
+
+| Origin | 预检结果 |
+|---|---|
+| `https://soloassistant.github.io` | **HTTP 403，无 `Access-Control-Allow-Origin`** |
+| `https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host` | 204 + ACAO ✓ |
+| `http://127.0.0.1:<port>`（本地开发） | 204 + ACAO ✓ |
+
+所以在 gh-pages 上：**登录 / 跨设备同步 / AI 对话 / 用量额度 / 崩溃上报全部不可用**
+（浏览器只会报 `TypeError: Failed to fetch`，连 401 都拿不到，极像"断网"）。
+gh-pages 现在只适合当**静态外壳 + 热点数据镜像**，不是产品入口。
+
 | 端 | 通道 | 说明 |
 |---|---|---|
-| H5 | **GitHub Pages** | 源分支 `gh-pages`；把 `dist/` 内容提交到该分支。⚠️ **必须保留 `api/hotspot.json`** —— 它由 `.github/workflows/refresh-data.yml` 定时刷新 |
+| **H5（产品入口）** | **WorkBuddy 应用面板发布** | 发布目录 `D:\Agent\dist`（平台按**目录**认 app，换目录=换 app=换域名且登录必挂）。产物要**真实目录副本**，junction/symlink 会被 tar 打包拒绝。云端能力只在这里可用 |
+| H5（静态镜像） | GitHub Pages `gh-pages` | `.tools/deploy-gh-pages.mjs` 发布（`npm run deploy:pages`），带构建指纹闸。**云端能力不可用**，仅静态内容 + `api/hotspot.json` |
 | 微信小程序 | WorkBuddy 小程序应用面板 | 先在面板「分享」里发布；不是 gh-pages |
 
+发布到 WorkBuddy 前务必同步：`robocopy D:\Agent\晨报\dist D:\Agent\dist /MIR`，
+否则发出去的是上一次的旧产物（平台只认 `D:\Agent\dist` 这个目录，不认仓库路径）。
+
 > `deploy.ps1` / `.deploy-config.json`（SFTP）**不是**当前上线通道，别照它操作。
+> `deploy-gh-pages.ps1` **在仓库里从来不存在**（历史文档提到的那个脚本已不存在，别再去找）。
 
 ## 5. 云函数
 

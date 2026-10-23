@@ -227,7 +227,7 @@ async function mergeHotspot() {
 /* ============================ 3. 发布 ============================ */
 
 function currentRemoteTip() {
-  const f = git(['fetch', 'origin', BRANCH, '--quiet', ...credArgs()]);
+  const f = git([...credArgs(), 'fetch', 'origin', BRANCH, '--quiet']);
   if (f.code !== 0) {
     // 分支可能还不存在（首次发布）：用空父提交
     log('⚠ 拉取 origin/' + BRANCH + ' 失败（首次发布？），将创建无父提交');
@@ -281,7 +281,7 @@ async function deploy() {
     const commit = commitTree(tree, parent, message);
     log(`第 ${attempt} 次推送：commit=${commit.slice(0, 10)} parent=${parent ? parent.slice(0, 10) : '(none)'}`);
 
-    const push = git(['push', 'origin', `${commit}:refs/heads/${BRANCH}`, ...credArgs()]);
+    const push = git([...credArgs(), 'push', 'origin', `${commit}:refs/heads/${BRANCH}`]);
     if (push.code === 0) {
       log('✓ 已发布到 ' + BRANCH);
       return commit;
@@ -298,7 +298,7 @@ async function deploy() {
 
 /** 发布后复核：远端树里的 bundle 名与本地产物一致（防「推上去的是旧包」） */
 function verifyRemote(expectedCommit) {
-  const f = git(['fetch', 'origin', BRANCH, '--quiet', ...credArgs()]);
+  const f = git([...credArgs(), 'fetch', 'origin', BRANCH, '--quiet']);
   if (f.code !== 0) {
     log('⚠ 发布后复核跳过（fetch 失败）');
     return false;
