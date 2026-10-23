@@ -31,10 +31,12 @@ exports.main = async () => {
   };
 
   try {
-    await users.add({ data: profile });
+    // 回传 add() 生成的 _id：首次创建与「已有档案」两条路径的返回形状必须一致，
+    // 否则前端第一次拿到的是没有 _id 的 profile（拿它做 key / doc 寻址就是 undefined）。
+    const added = await users.add({ data: profile });
+    return { _id: added._id, ...profile };
   } catch (err) {
     console.error('[login] create user failed:', err);
     throw err;
   }
-  return profile;
 };

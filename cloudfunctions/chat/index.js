@@ -229,8 +229,12 @@ async function getUsage(openid) {
     .get();
   if (res.data.length > 0) return res.data[0];
   const doc = { openid, month: monthStart(), voiceUsed: 0, updatedAt: new Date().toISOString() };
-  await db.collection('usage').add({ data: doc });
-  return doc;
+  // 必须回传 add() 生成的 _id：调用方紧接着用 `doc(usage._id).update({ voiceUsed: inc(1) })` 记账，
+  // 少了 _id 就会退化成 doc(undefined)（真实 SDK 直接报错）—— 症状是「免费用户当月首轮对话必失败」，
+  // 且 usage 文档虽已建出但 voiceUsed 永远不累加（额度形同虚设）。
+  const added = await db.collection('usage').add({ data: doc });
+  // _id 放在展开之前：即使 doc 日后新增同名字段，也不会盖掉真实主键。
+  return { _id: added._id, ...doc };
 }
 
 async function getUser(openid) {

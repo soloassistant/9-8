@@ -21,7 +21,12 @@ exports.main = async () => {
   //   user_prefs    chat savePrefs / getPrefs
   //   user_affinity chat saveAffinity / getAffinity
   //   newsFeedback  webSearch feedback
+  //   errors        reportError（崩溃上报：openid / page / stack / extra）
   //   history    早期版本遗留，当前无写入点；保留以清理历史存量，集合不存在时忽略
+  //
+  // 2026-10 补：原清单**漏了 errors**（reportError 会写 openid/page/stack），等于「注销后崩溃
+  // 上报仍留着这个人的身份与页面」。现在由 .tools/verify-cloudfunctions-flow.mjs 的
+  // 「注销清单 ↔ 写入点」静态对齐断言守着：任何按 openid 写入的集合没登记在这里，门禁即红。
   const collections = [
     'users',
     'events',
@@ -34,6 +39,7 @@ exports.main = async () => {
     'user_prefs',
     'user_affinity',
     'newsFeedback',
+    'errors',
     'history'
   ];
   // ⚠️ 2026-10-12 修：原来 catch 只 console.warn 就继续，末尾**无条件** `return { code: 0,

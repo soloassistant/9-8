@@ -31,7 +31,9 @@ exports.main = async (event) => {
   const err = event || {};
   const doc = {
     openid: OPENID,
-    channel: String(err.channel || event.TARO_ENV || (APPID ? 'weapp' : 'unknown')),
+    // 用 err（= event || {}）而不是 event：本函数是 fire-and-forget 的上报口，
+    // 无参调用（event 为 undefined）时 `event.TARO_ENV` 会抛 TypeError —— 最不该再抛的地方。
+    channel: String(err.channel || err.TARO_ENV || (APPID ? 'weapp' : 'unknown')),
     page: String(err.page || err.route || ''),
     message: String(err.message || err.msg || err.error || 'unknown error').slice(0, MAX_MSG_LEN),
     stack: err.stack ? String(err.stack).slice(0, MAX_STACK_LEN) : '',
