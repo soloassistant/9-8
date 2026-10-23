@@ -57,6 +57,13 @@ _tmp_morning/
 !.tools/sql/**
 !.tools/stubs/
 !.tools/stubs/**
+# ★ 2026-10-23 事故补：新建 `.tools/lib/`（deploy-gh-pages.mjs 与 copy-assets.js 共用的
+#   build-inputs.js）没进这个白名单 → `.tools/*` 连目录一起排除，文件静默不进库。
+#   本地能跑、CI 一拉就 `Cannot find module './lib/build-inputs'`，deploy-h5 当场 exit 2。
+#   ⇒ **往 .tools 下新建子目录时，必须同步在这里补两行**，否则就是同一颗雷。
+#   （自查：`git ls-files .tools/<子目录>/` 为空即是漏了。）
+!.tools/lib/
+!.tools/lib/**
 # 但下面这些**继续忽略**（规则顺序：后者覆盖前者），否则「放行脚本」会把一堆本地垃圾一并放出来：
 # · .tools 下点开头的全部是本地临时产物/探针缓存（实测 .acc-* / .shot-* / .hotspot-* / .cache /
 #   .audit / .pushtmp / .tmp-oldbehav-dist / .layout-shots* / .httpd*.log 全在此列）
