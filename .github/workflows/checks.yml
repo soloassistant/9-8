@@ -1,4 +1,4 @@
-# 离线检查：把 selfcheck（全量验收断言）与两个回归入口接到 push / PR 上。
+# 离线检查：把 selfcheck（全量验收断言）与各回归入口接到 push / PR 上。
 #
 # 为什么存在：这些检查原本只能在本地手动跑 —— 项目是 Taro 小程序 + H5、没有独立的测试阶段，
 # 一旦有人改坏（最容易出事的是「去重规则被后人调松」和「类目 i18n 漏键」），没有任何自动拦截。
@@ -11,10 +11,21 @@
 #   · verify:intel   用仓库内的冻结夹具做条数/类目数/最大类目占比阈值回归（纯离线）
 #   · verify:extlink 外链门禁 isSafeExternalUrl 的判定矩阵回归（纯离线、就地转译源码）
 #   · verify:trust   信任过滤「接线」回归：三条产出链路是否都真的调到了过滤器（纯离线）
+#   · verify:batch1  A 返回键 / B 订阅分叉 / C tab 新鲜窗口的结构性回归（纯离线、读源码断言）
+#   · verify:cloudllm 云端 LLM 超时与熔断行为回归（纯离线，用 globalThis 打桩替掉 create）
+#   · verify:ledger-aggregate 记账聚合口径回归（今日口径 / 类目 Top3 / 预算标记 / 未知分类占位）
+#   · verify:ledger-export    记账导出回归（CSV 转义与公式注入前置 / 文件名 / 空数据短路 / 双端分支）
+#   · verify:login-bind       登录后「绑定手机号」门禁回归（邮箱登录不得被反复强弹，绑完必须落标记）
+#   · verify:sxm              省心买决策纯逻辑回归（认不出必须 null、给不出深链必须 ok:false、URL 落官方域）
+#   · verify:sync             同步冲突回归（classifyPull 判定矩阵 / 未裁决键不静默覆盖 / 键位文案齐全）
+#   · verify:mutation         元验证：把源码改坏后上面的断言必须变红（守「断言有判别力」）
 #
 # **故意不放进这里**（与 lingxi-class 的取舍一致：联网的东西会让 CI 在 fork/PR 上不可靠）：
 #   · npm run vet:sources     要联网实测 16 个 RSS 源；外网抖动会让 CI 变红且结论不可信
 #   · npm run verify:boards   要联网，且需要本机 DailyHotApi 起在 6688
+#   · verify-sources.js       要联网抓 3 个 RSS，还要本机 8137 的 /api/hotspot
+#   · verify-summary-quality  默认读 dist/api/hotspot.json；换成仓库内冻结夹具则夹具本身是旧语料（会红）
+#   · verify-auth-wiring / verify-paid-entitlement  读的是硬编码 Windows 绝对路径，Linux runner 上必 ENOENT
 #   · refresh-hotspot-data    已有独立 workflow（refresh-data.yml）
 # 这两个联网检查请在改动源清单/板块时**手动**跑，而不是塞进 CI。
 
@@ -86,3 +97,50 @@ jobs:
         # 内容就照样带着投毒条目上线 —— 2026-10-12 就出过这个缺口，且当时没有任何自动拦截。
         # 纯离线（用 Module._load 给 wx-server-sdk 打桩），可安全进 CI。
         run: npm run verify:trust
+
+      - name: 交互结构回归（返回键 / 订阅分叉 / tab 新鲜窗口）
+        # 守的是三处「结构一改就静默失效」的接线：返回键的落点、订阅态两套分支的必经点、
+        # 以及 tab 切回时新鲜窗口守卫是否真的包住了刷新。这些点在 2026-10 的 P0 里
+        # 「切 tab 不刷新」就是守卫被挪到定时器外面造成的，而当时 41 个 harness 全绿。
+        run: npm run verify:batch1
+
+      - name: 云端 LLM 超时与熔断回归
+        # 守的是「云端卡死时调用方不能无限挂起」：60s 超时须返回 null，且熔断窗口内
+        # 直接短路、不再打云端。用 globalThis 打桩替掉 SDK 的 create，不产生真实网络请求，
+        # 因此不会受外网抖动影响。
+        run: npm run verify:cloudllm
+
+      - name: 记账聚合口径回归
+        # 守的是「今日」这个词的边界：只算今天（不含昨日/前日）、类目 Top3 截断、
+        # 预算未设置时的 hasBudget 取值、未知类目必须落到占位而不是渲染空白。
+        # 2026-10 的 P0「预算输入被静默清空」正属于这条链路口径被改坏。
+        run: npm run verify:ledger-aggregate
+
+      - name: 记账导出回归
+        # 守的是导出文件的两类硬伤：CSV 字段转义（RFC4180）与公式注入前置（= + - @ 开头必须转义），
+        # 以及空数据短路、文件名口径、H5 下载与小程序剪贴板两条分支不被合并成一条。
+        run: npm run verify:ledger-export
+
+      - name: 登录绑定门禁回归
+        # 守的是「邮箱登录不得被绑定手机号反复强弹」：旧判据在 H5 会话里恒 undefined，
+        # 且绑定成功从不落标记，形成每次登录都强弹的死循环（2026-10-21 实证）。
+        # 用 esbuild 就地编译纯函数 bindPhoneGate.ts，并跑变异版确认断言抓得住回归。
+        run: npm run verify:login-bind
+
+      - name: 省心买决策纯逻辑回归
+        # 守的是「拿不到就必须如实失败」：resolveCityName 认不出返回 null、给不出深链返回 ok:false，
+        # 不允许静默降级成一个看起来能点的假链接；产出的 URL 必须落在 12306 / 淘宝官方域。
+        # 就地 bundle src 源码（不走 dist，避免 terser 重命名导致断言失焦）。
+        run: npm run verify:sxm
+
+      - name: 同步冲突回归
+        # 守的是「跨设备冲突不再静默覆盖」：classifyPull 判定矩阵、未裁决键不参与推送、
+        # 冲突列表合并与裁决入口，以及 21 个同步键在中英文案里都有可读标签（防 storageKey 裸奔）。
+        run: npm run verify:sync
+
+      # 放在最后：这一步会**临时改写源码**再复原（写完做 sha256 逐字节校验，失配退出码 3），
+      # 因此必须等其他只读步骤跑完，避免与它们在同一个工作区里互相踩。
+      # 它守的不是产品行为，而是「上面这些断言本身有没有判别力」——把已知缺陷改回去，
+      # 断言必须变红；变不红说明断言是假绿的。case 里只收录基线为绿的 harness。
+      - name: 断言判别力元验证（变异测试）
+        run: npm run verify:mutation
