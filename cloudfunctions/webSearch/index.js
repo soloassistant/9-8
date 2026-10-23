@@ -235,6 +235,10 @@ function toNews(it) {
     summary: it.summary,
     source: it.sourceName,
     url: it.link || undefined,
+    // 跨源同题合并的机构佐证（2026-10-22）：仅合并组产出，不含本条自身 source；
+    // 空数组/缺失一律不字段化（JSON 序列化会丢掉 undefined，不给契约塞噪声）。
+    alsoFrom:
+      Array.isArray(it.alsoFrom) && it.alsoFrom.length ? it.alsoFrom.slice(0, ALSO_FROM_MAX) : undefined,
     image: it.image || undefined,
     tags: it.tag ? [it.tag] : [],
     createTime: it.ts ? new Date(it.ts).toISOString() : new Date().toISOString()
@@ -251,6 +255,9 @@ function toNews(it) {
  * 保留 `exports.__internals` 再导出，四个 trust 单测的 require 路径不变。
  */
 const { assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken } = require('./news-trust.js');
+// 机构归一口径（alsoFrom 只记机构，中新网子 feed 互抄不算多家媒体佐证）——
+// 与 news-trust.js 同理由放在本目录内：云函数部署只打包自身目录。
+const { orgOfSource, ALSO_FROM_MAX } = require('./cross-source.js');
 
 /* ---------------- F29 全网资讯搜索（Bing News RSS 主通道 + LLM 联网兜底） ---------------- */
 
@@ -483,6 +490,76 @@ function selectWithQuota(items, total, perSourceMax) {
   return picked.slice(0, total).sort((a, b) => b.ts - a.ts);
 }
 
+/** 同题判定的标题归一化：小写 + 去掉全部空白/标点/符号（保守的精确相等口径）。
+ *  例：「苹果 发布新手机！」与「苹果发布新手机」判为同题；「苹果发布新手机壳」不会。 */
+function normTitle(s) {
+  return String(s == null ? '' : s)
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '');
+}
+
+/**
+ * 跨源同题合并（2026-10-22）—— **必须在 selectWithQuota 之前**执行。
+ *
+ * 为什么必须配额前（实测教训，勿调序）：
+ *  保底轮每个健康源各占 1 个席位，16 源抢 10 坑。同题的第 11 个源根本进不了池，
+ *  配额后再合并一条重复都看不到；且配额后合并只会让列表**短于**目标条数
+ *  （合并掉的席位不会回填），广度直接受损。配额前合并 = 同题只占 1 席，
+ *  省下的席位由补足轮补进别的源的最新条目。
+ *
+ * 机构感知（2026-10-22 校准结论）：预配额 181 条里同题 5 组、**跨机构 0 组**，
+ * 全是中新网三个子 feed 互抄。所以：
+ *  · 分组用归一化标题**精确相等**（近重复判定是 static-server 四通道的领域，
+ *    那边有 96 对金色基准集校准，不在这里另写一套）；
+ *  · alsoFrom 只记**机构**（orgOfSource 归一后去重），同机构互抄不产生
+ *    「另有 N 家媒体报道」—— 按 feed 名计数会把一家通讯社的自抄显示成多家佐证；
+ *  · 代表条目取 ts 最新的一条（其 title/summary/url/source 对外可见）。
+ *
+ * 投毒防御（调用方保证）：fetchAllSources 已用 assessNewsItem 预筛，不可信条目
+ * **不参与合并** —— 否则一条更新的投毒拷贝会 Hijack 组代表位（毒标题/毒链接
+ * 替换掉合法通稿对外展示）。毒条目不进组、留作单条进配额，最终仍被
+ * filterNewsItems 收掉。
+ *
+ * @param {Array} items 中间条目（parseFeed 产物：{title, link, image, summary, ts, sourceName, tag}）
+ * @returns {Array} 合并后的中间条目；同题组（跨机构时）挂 alsoFrom（机构名数组，去重，≤ALSO_FROM_MAX）
+ */
+function mergeCrossSource(items) {
+  const groups = new Map();
+  const out = [];
+  for (const it of items || []) {
+    const key = normTitle(it && it.title);
+    if (!key) {
+      out.push(it); // 无标题条目不参与合并（也进不了任何组），原样保留
+      continue;
+    }
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(it);
+  }
+  for (const list of groups.values()) {
+    if (list.length === 1) {
+      out.push(list[0]);
+      continue;
+    }
+    // 代表：ts 最新者胜出（ts=0/缺失视为最旧；全部为 0 时保持先出现者 —— 遍历稳定）
+    let rep = list[0];
+    for (let i = 1; i < list.length; i++) {
+      if ((list[i].ts || 0) > (rep.ts || 0)) rep = list[i];
+    }
+    const repOrg = orgOfSource(rep.sourceName);
+    const alsoFrom = [];
+    const seenOrgs = new Set([repOrg]); // 代表自身机构不记佐证
+    for (const it of list) {
+      if (it === rep) continue;
+      const org = orgOfSource(it.sourceName);
+      if (seenOrgs.has(org)) continue; // 同机构（含其余子 feed 互抄）跳过
+      seenOrgs.add(org);
+      if (alsoFrom.length < ALSO_FROM_MAX) alsoFrom.push(org);
+    }
+    out.push(alsoFrom.length ? { ...rep, alsoFrom } : { ...rep });
+  }
+  return out;
+}
+
 /**
  * 并发抓取全部源（单源失败不影响整体），做健康检查 + 新鲜度守卫 + 配额选取。
  *
@@ -525,7 +602,16 @@ async function fetchAllSources() {
       .join(' ');
     console.warn(`[webSearch] source unhealthy: ${detail}`);
   }
-  const raw = selectWithQuota(allItems, HOTSPOT_ITEMS_LIMIT, MAX_ITEMS_PER_SOURCE).map(toNews);
+  // 跨源同题合并（2026-10-22）：必须**配额前**执行 —— 保底轮每源各占 1 位，
+  // 同题第 11 个源进不了池，配额后合并看不到重复（详见 mergeCrossSource 注释）。
+  // 机构感知：中新网子 feed 互抄不算跨机构佐证，alsoFrom 只记机构名。
+  // 投毒防御：不可信条目不参与合并（防更新的毒拷贝 Hijack 组代表位），
+  // 留作单条进配额，最终仍由下方 filterNewsItems 收掉。
+  const trusted = [];
+  const untrusted = [];
+  for (const it of allItems) (assessNewsItem(it) ? untrusted : trusted).push(it);
+  const merged = mergeCrossSource(trusted).concat(untrusted);
+  const raw = selectWithQuota(merged, HOTSPOT_ITEMS_LIMIT, MAX_ITEMS_PER_SOURCE).map(toNews);
   // 内容信任过滤放在**这个出口**：早于 writeHotspotCache、早于 summarize(weather, ranked)，
   // 也早于全部消费路径（热点页缓存 / 免费档 / 订阅限额档 / 订阅降级档）。
   // 放晚一步毒条目已经进了缓存，也已经进过 LLM 的 prompt。
@@ -1340,4 +1426,4 @@ exports.FETCH_RETRY_BACKOFF_MS = FETCH_RETRY_BACKOFF_MS;
 exports.FREE_INTEL_ITEMS_LIMIT = FREE_INTEL_ITEMS_LIMIT;
 exports.INTEL_ITEM_TEXT_MAX = INTEL_ITEM_TEXT_MAX;
 exports.RSS_SOURCES = RSS_SOURCES;
-exports.__internals = { fetchText, parseFeed, stripHtml, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, topUpFallback, rankByPreferences, clampByCodePoint, clampSummary, resolveCallerOpenid, internalTokenOk, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken, getVideoNews, safeMediaUrl };
+exports.__internals = { fetchText, parseFeed, stripHtml, toNews, fetchOneSource, selectWithQuota, fetchAllSources, getHotspotNews, fallbackIntel, topUpFallback, rankByPreferences, clampByCodePoint, clampSummary, resolveCallerOpenid, internalTokenOk, assessNewsItem, filterNewsItems, newsTextOf, findMixedScriptToken, getVideoNews, safeMediaUrl, mergeCrossSource, normTitle, orgOfSource };

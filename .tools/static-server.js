@@ -5,6 +5,9 @@ const path = require('path');
 
 // 与云函数共用同一份信任过滤规则（小程序端 / 线上 H5 站点 / 本地预览三条链路不能各判各的）
 const { filterNewsItems } = require('../cloudfunctions/webSearch/news-trust.js');
+// 机构归一口径：alsoFrom 只记机构 —— 中新网三个子 feed 互抄不是三家媒体佐证
+// （2026-10-22 校准：预配额 181 条同题 5 组，跨机构 0 组，全是中新网自抄）
+const { orgOfSource, ALSO_FROM_MAX } = require('../cloudfunctions/webSearch/cross-source.js');
 
 // 用法：node static-server.js [rootDir]
 //   rootDir 可为相对项目根（如 .tools/preview-snapshot）或绝对路径；缺省服务 dist
@@ -671,10 +674,14 @@ async function fetchHotspot() {
       // 命中 → 并入主条目。只带走「来源」和（主条目缺摘要时的）摘要，标题/链接/图片一律以主条目为准
       const main = merged[hit];
       clusterGroups.add(hit);
-      if (it.source && it.source !== main.source) {
+      // alsoFrom 只记**机构**（2026-10-22 起，与云函数 mergeCrossSource 同口径）：
+      // 中新网-财经/社会/即时 同属一家通讯社，子 feed 互抄按 feed 名推送会把
+      // 自抄显示成「N 个来源」—— 用户会读成多家媒体报道，是不诚实的产品信号。
+      if (it.source && orgOfSource(it.source) !== orgOfSource(main.source)) {
+        const org = orgOfSource(it.source);
         // alsoFrom 延迟创建：合并 0 条时不产出空数组，不给响应契约塞无意义字段
         if (!main.alsoFrom) main.alsoFrom = [];
-        if (main.alsoFrom.length < 8 && !main.alsoFrom.includes(it.source)) main.alsoFrom.push(it.source);
+        if (main.alsoFrom.length < ALSO_FROM_MAX && !main.alsoFrom.includes(org)) main.alsoFrom.push(org);
       }
       if (!main.summary && it.summary) main.summary = it.summary;
       clustered.merged += 1;

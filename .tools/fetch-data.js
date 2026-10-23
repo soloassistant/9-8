@@ -7,6 +7,9 @@ const path = require('path');
 const { fetchAllBoards } = require('./boards-core.js');
 // 与云函数共用同一份信任过滤规则（小程序端 / 线上 H5 站点两条链路不能各判各的）
 const { filterNewsItems } = require('../cloudfunctions/webSearch/news-trust.js');
+// 机构归一口径：alsoFrom 只记机构 —— 中新网三个子 feed 互抄不是三家媒体佐证
+// （2026-10-22 校准：预配额 181 条同题 5 组，跨机构 0 组，全是中新网自抄）
+const { orgOfSource, ALSO_FROM_MAX } = require('../cloudfunctions/webSearch/cross-source.js');
 
 const FETCH_TIMEOUT = 8000;
 
@@ -233,7 +236,10 @@ async function fetchHotspot() {
     st.count = st.ok ? groups.reduce((n, g) => n + g.filter((it) => it.source === st.name).length, 0) : 0;
   }
 
-  const seen = new Set();
+  // 同题只留主条目（标题前 24 字符相等判同题，既有口径）；其余来源按**机构**并入
+  // alsoFrom（2026-10-22，与云函数 mergeCrossSource / static-server 同口径）——
+  // 中新网子 feed 互抄按 feed 名计数会把一家通讯社显示成多家媒体佐证。
+  const seen = new Map(); // 标题前缀 → 主条目
   const merged = [];
   const maxLen = Math.max(0, ...groups.map((g) => g.length));
   for (let i = 0; i < maxLen; i++) {
@@ -241,7 +247,17 @@ async function fetchHotspot() {
       const it = g[i];
       if (!it) continue;
       const k = it.title.slice(0, 24);
-      if (!seen.has(k)) { seen.add(k); merged.push(it); }
+      const main = seen.get(k);
+      if (!main) {
+        seen.set(k, it);
+        merged.push(it);
+        continue;
+      }
+      if (it.source && orgOfSource(it.source) !== orgOfSource(main.source)) {
+        const org = orgOfSource(it.source);
+        if (!main.alsoFrom) main.alsoFrom = [];
+        if (main.alsoFrom.length < ALSO_FROM_MAX && !main.alsoFrom.includes(org)) main.alsoFrom.push(org);
+      }
     }
   }
 
