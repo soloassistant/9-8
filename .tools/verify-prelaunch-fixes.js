@@ -224,10 +224,22 @@ console.log('\n--- E. 云函数 OPENID 空值拒绝---');
     const destructured = /const\s*\{\s*OPENID\s*\}\s*=\s*cloud\.getWXContext\(\)/.test(src);
     ok('E ' + fn + ' 解构了 OPENID 且紧随其后有拒绝', guarded && destructured);
   }
-  // getBriefing 是唯一合法的「无 OPENID」函数（定时触发器），不能被误加拒绝
+  // getBriefing 的定时触发器路径必须能在无 OPENID 下运行（2d86452 立此断言防误伤）。
+  // ⚠️ 口径收窄（2026-10-24）：原断言禁「文件里出现 if (!OPENID) throw」是符号级判据；
+  //   a8681aa 起用户路径合法地守了 OPENID（防 where({openid:undefined}) 退化成无归属查询、
+  //   再写出 openid 为空的脏记录），守卫排在定时分流之后，定时器并未被误伤。
+  //   行为层 verify:cloudflow 已双向覆盖「用户路径缺 OPENID 抛错」与「定时路径不抛错」；
+  //   本静态断言只守**顺序**：定时分流必须早于任何 OPENID 拒绝，否则定时推送整条链路全挂。
   {
     const src = fs.readFileSync(path.join(ROOT, 'cloudfunctions/getBriefing/index.js'), 'utf8');
-    ok('E getBriefing 保持定时器可无 OPENID（未被误改）', !/if\s*\(\s*!OPENID\s*\)\s*throw/.test(src));
+    const mainStart = src.indexOf('exports.main');
+    const mainBody = mainStart >= 0 ? src.slice(mainStart) : '';
+    const dispatchIdx = mainBody.search(/event\.Type\s*===\s*'Timer'\s*\|\|\s*event\.TriggerName/);
+    const guardIdx = mainBody.search(/if\s*\(\s*!OPENID\s*\)\s*throw/);
+    ok(
+      'E getBriefing 定时分流先于 OPENID 守卫（定时器不误伤 + 用户路径受守）',
+      dispatchIdx >= 0 && (guardIdx < 0 || dispatchIdx < guardIdx)
+    );
   }
 }
 
