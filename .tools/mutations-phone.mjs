@@ -167,5 +167,14 @@ export default [
   return null; // 变异：不查 pattern
 }`,
     cmd: HARNESS
+  },
+  {
+    // 守「登录页真的用了这套纯函数」（接线断言）：把 currentId() 改回裸号码，
+    // 纯函数断言依然全绿，只有接线断言会红 —— 这正是它存在的理由。
+    label: '登录页 currentId() 退回裸号码（不拼 E.164）',
+    file: prefix + 'src/pages/login/index.tsx',
+    from: '{ phone: buildPhoneE164(dialCode, account) }',
+    to: '{ phone: account.trim() }',
+    cmd: HARNESS
   }
 ];

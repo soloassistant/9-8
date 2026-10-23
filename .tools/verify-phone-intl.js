@@ -501,7 +501,63 @@ async function runSdkContract() {
   }
 }
 
+/* ===================== 接线断言（登录页真的用了这套纯函数） ===================== */
+
+/**
+ * 为什么需要这一组：上面所有断言都只证明「纯函数本身对」，证明不了「登录页真的调了它」。
+ * 把 `currentId()` 改回 `{ phone: account.trim() }`、或把 `validateNational` 换成一行
+ * 写死的大陆正则，上面 57 条断言会**全部继续通过**，而线上发出去的又是裸号码。
+ * 本仓库有同类先例（verify-pref-select 钉的是「getBriefing 不走 slice(0,3)」）。
+ *
+ * 判据用「子串存在/不存在」，不绑行号与格式，改实现细节不会误伤。
+ */
+function checkLoginWiring() {
+  const rel = 'src/pages/login/index.tsx';
+  let src;
+  try {
+    src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  } catch (err) {
+    // 不静默跳过：读不到就是这一组没被验证，必须算失败。
+    ok('登录页源码可读（接线断言前提）', false, {
+      expected: rel + ' 存在',
+      actual: '读取失败: ' + (err && err.code ? err.code : String(err)),
+      note: '若用 --root 指向残缺沙箱，请把登录页一并复制进去'
+    });
+    return;
+  }
+
+  // ⚠️ 不能只判「整个文件里出现过 buildPhoneE164」—— 它在 import 与绑定流程里都还在，
+  //    把 currentId() 改回 `{ phone: account.trim() }` 时那个粗断言依然全绿（实测漏抓过一次）。
+  //    ⇒ 必须把范围收窄到 currentId 那一段，只认这一段里的拼装。
+  const ciAt = src.indexOf('const currentId');
+  const ciSeg = ciAt >= 0 ? src.slice(ciAt, ciAt + 420) : '';
+  ok('currentId() 用 buildPhoneE164 拼 E.164（不是裸号码）', ciAt >= 0 && ciSeg.includes('buildPhoneE164'), {
+    expected: 'currentId 定义段内出现 buildPhoneE164',
+    actual:
+      ciAt < 0
+        ? '找不到 `const currentId` —— 实现结构变了，请更新本断言'
+        : ciSeg.includes('buildPhoneE164')
+          ? '已使用'
+          : '该段内没有 buildPhoneE164 —— 提交给 SDK 的可能是没有区号的裸号码',
+    note: 'SDK 只归一 +86，其余区号原样透传，传裸号码服务端收到的就是没有区号的号码'
+  });
+
+  // 只盯「定义」不看「提及」：登录页注释里合法地写着「原 PHONE_RE = … 已删除」，
+  // 用裸子串会把这段说明误判成回退。
+  ok('登录页已移除只认大陆的 PHONE_RE 定义', src.includes('const PHONE_RE') === false, {
+    expected: '不出现 const PHONE_RE',
+    actual: src.includes('const PHONE_RE') ? '定义仍存在（会把 +852 的 8 位号码全部拦死）' : '定义已移除'
+  });
+
+  ok('登录页用 validateNational 做提交前校验', src.includes('validateNational('), {
+    expected: '源码里出现 validateNational(',
+    actual: '未出现 —— 校验可能被换成写死规则，配合其它区号会误判'
+  });
+}
+
 /* ===================== 汇总 ===================== */
+
+checkLoginWiring();
 
 runSdkContract()
   .catch((err) => {
