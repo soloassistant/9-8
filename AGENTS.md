@@ -92,6 +92,54 @@ npx tsc --noEmit      # 类型检查
 > `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，并且会**删到一半就停**，留下小程序版残留文件）。
 > 清理产物目录要么分批删、要么确认删干净后再构建，否则残留文件会被一起发布出去。
 
+#### ★★ 平台侧重新发布：**app 身份绑在"发布目录路径"上，不是绑在项目上**（2026-10-23 踩坑）
+
+把仓库根从 `D:/Agent` 迁到 `D:/Agent/晨报` 后，第一次重新发布**没有覆盖旧 app，而是新建了一个** ——
+因为平台按「发布目录」认 app，旧 app 记录的目录是 `D:\Agent\dist`，该目录随迁移消失了，
+于是同一个项目变成两个线上 app：
+
+| 入口 | 发布目录 | 云登录 |
+|---|---|---|
+| `48f86dcd…app.workbuddy.host`（旧，正确） | `D:\Agent\dist` | ✅ 可用 |
+| `morning-brief-71007.app.workbuddy.link`（新，本次误建） | `D:\Agent\晨报\dist` | ❌ **必然失败** |
+
+**为什么新域名一定登录不了**：`src/services/cloudAuth.ts:34` 的 `CLOUD_ENDPOINT` 写死旧域名，
+服务端按 **Origin 精确匹配**（该文件 L28-30 有原文警告）。跨 Origin 请求连 CORS 都不给 ——
+实测新域名页面 `fetch(旧域名/v1/...)` 直接 `TypeError: Failed to fetch`，
+连 401 都拿不到。**只要页面 origin 变了，登录、云同步、AI 全部挂掉。**
+
+**正确做法**：发布前先确保 `D:\Agent\dist` 存在且是最新产物，再 `deploy` 这个目录：
+
+```bash
+rm -rf "D:/Agent/dist" && cp -r "D:/Agent/晨报/dist" "D:/Agent/dist"
+```
+
+发布成功的判据：返回的 `sandboxId` 必须是 `48f86dcd48e3462dbe897b5fce534551`。
+拿到别的 id = 又新建了 app = 链接换了域名 = 登录不可用，**立即停下并回退**。
+
+> ⚠️ **不要用 junction / 符号链接替代 `D:\Agent\dist`**（试过，必失败）。
+> 发布工具用 `tar` 打包，会把 junction 当成一个指向 `D:/Agent/晨报/dist` 的**符号链接条目**去创建，
+> 而目标名与自身冲突：`tar: .: Cannot create symlink to 'D:/Agent/晨报/dist': File exists` → exit 2 →
+> `SITES_UPLOAD_FAILED`。而且该失败**已经改写了线上 sandbox**，链接会短时间不可用，必须重新发布一次恢复。
+> **必须是真实目录副本**（3.4 MB，可接受）。
+
+发布后 4 项必查（缺一项都可能"看起来上线了但其实坏的"）：
+
+```bash
+H=https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host
+curl -s $H/ | grep -o 'js/app\.[0-9a-f]*\.js'          # 1 包名与本地 dist/index.html 一致
+curl -s -o /dev/null -w '%{http_code}\n' $H/assets/wb-sdk.js   # 2 SDK 自托管文件在（200）
+curl -s $H/api/hotspot.json | head -c 60               # 3 真实热点 JSON（不是 index.html）
+```
+
+4. **云登录连通性**（唯一能证明 Origin 校验通过的方法）：CDP 在页面里跑
+   `createWorkBuddyCloud({endpoint:location.origin,publishableKey:…}).auth.signInWithPassword(...)`
+   用一个**不存在的账号** —— 必须返回业务错误 `invalid-request / "Username or password incorrect."`。
+   若返回 `Failed to fetch`，就是 Origin/CORS 问题，**不是密码问题**。
+
+顺带一条隔离举证（顺手做的，可复用）：**未登录** `database.from('user_kv').select('*')` 返回
+`rows: 0, error: null` —— 库里 20+ 行真实数据对匿名用户完全不可见，即 RLS 生效。
+
 ### 3.2 兜底数据 `dist/api/hotspot.json` 会被构建清掉 —— 现已自愈（2026-10-09 补）
 
 Taro 构建**先清空产物目录**，所以每次 `build:h5` 都会把 `dist/api/hotspot.json` 清掉。
