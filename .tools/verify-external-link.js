@@ -110,7 +110,8 @@ let fail = 0;
 let pass = 0;
 const results = [];
 const check = (name, ok, extra) => {
-  if (ok) pass++;
+  // 铁律：判据必须 `=== true`（失败分支的说明字符串是 truthy，会把失败判成 PASS）。
+  if (ok === true) pass++;
   else fail++;
   results.push({ name, ok, extra });
 };

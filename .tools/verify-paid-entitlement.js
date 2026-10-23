@@ -119,7 +119,7 @@ function assert(name, cond) {
   if (typeof cond !== 'boolean') {
     throw new TypeError(`断言 ${name} 的 cond 必须是 boolean，实际是 ${typeof cond}`);
   }
-  if (cond) {
+  if (cond === true) {
     pass++;
     console.log(`PASS  ${name}`);
   } else {

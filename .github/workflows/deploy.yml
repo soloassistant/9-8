@@ -1,0 +1,66 @@
+# 把 main 构建并发布到 gh-pages（H5 线上入口）。
+#
+# 为什么需要（2026-10-23）：此前**没有**任何部署流水线，发布靠手敲一段 Git Bash 命令，
+# 于是出现「三档漂移」：origin/main 已是 13:32 的代码，本地 dist 是 11:35 的构建，
+# 线上 gh-pages 还是 10:17 的 bundle —— 一天 8 次提交一个都没上线，而没有任何地方报错。
+#
+# 本流水线做的事：构建 → 新鲜度/产物校验 → 与 refresh-data 的热点数据做不降级合并 → 推 gh-pages。
+# 真正的校验逻辑在 `.tools/deploy-gh-pages.mjs`（本地可跑同一套，避免"线上能过、本地不能"的分叉）。
+#
+# 与 refresh-data.yml 的关系：它每 30 分钟往 gh-pages 推 `api/hotspot.json`。
+# 本流水线整树重建（dist 是唯一真相），所以发布前会把远端更新的热点并回 dist；
+# 且推送是**非 force**的 —— 万一它刚好在推送窗口内提交，我们会因非快进被拒并重试，
+# 而不是把它静默覆盖掉。
+name: deploy-h5
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {} # 支持手动重发
+
+permissions:
+  contents: write # 推 gh-pages 需要
+
+concurrency:
+  # 部署不能中途取消（会在 gh-pages 留下半发布的树），因此 cancel-in-progress: false。
+  # 但仍串行化，避免两个部署同时抢推送。
+  group: deploy-h5
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 需要完整历史：发布要取 gh-pages 尖端做父提交
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - name: 安装依赖
+        # 仓库里只有 yarn.lock；frozen-lockfile 保证 CI 装的与本地一致
+        run: yarn install --frozen-lockfile
+
+      - name: 类型检查
+        # 构建不报错不代表类型没问题（Taro 的构建链会跳过部分类型错误），先拦住
+        run: npm run typecheck
+
+      - name: 构建 H5
+        # ⚠️ 必须两步：只跑 taro build 会漏 copy-assets，
+        # 而它负责把 assets/wb-sdk.js（云 SDK 自托管文件）拷进 dist。
+        # 漏掉的后果是线上白屏 + `Uncaught SyntaxError: Unexpected token '<'`。
+        run: |
+          node node_modules/@tarojs/cli/bin/taro build --type h5
+          node .tools/copy-assets.js dist
+
+      - name: 校验并发布到 gh-pages
+        # 脚本内做四件事：新鲜度闸（dist 不得旧于任何源码）、产物引用校验（index.html 声明的
+        # 每个本地资源都必须存在）、热点不降级合并、非 force 推送 + 发布后复核。
+        # 用 token 显式配好远端，避免依赖 checkout 的默认凭据形态。
+        run: node .tools/deploy-gh-pages.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -178,3 +178,18 @@ async function ensureHotspotFallback() {
 }
 
 ensureHotspotFallback();
+
+// ---- 构建指纹（2026-10-23 补）：把「本次构建用的是哪一版源码」写进 dist ----
+// 部署脚本据此判定 `dist` 是否真的对应当前源码。**不能用 mtime 判**：读文件就会改 mtime，
+// 内容没变也会误报；git 恢复旧内容时 mtime 变新又会漏报。比内容哈希才靠得住。
+// 写入失败不阻塞构建（部署时会退化成 mtime 判据并告警）。
+try {
+  const { writeStamp } = require('./lib/build-inputs');
+  const stamp = writeStamp(dist, root);
+  console.log(
+    `[copy-assets] build-stamp: ${stamp.inputsHash.slice(0, 12)}… ` +
+      `(${stamp.inputCount} 个输入, head=${stamp.head ? stamp.head.slice(0, 7) : 'n/a'})`
+  );
+} catch (e) {
+  console.warn(`[copy-assets] build-stamp 写入失败（部署新鲜度闸会退化为 mtime 判据）：${String((e && e.message) || e)}`);
+}

@@ -26,7 +26,9 @@ let pass = 0;
 let fail = 0;
 
 function ok(name, cond) {
-  if (cond) {
+  // 铁律：判据必须 `=== true`。失败分支返回「说明原因的字符串」时，非空字符串是 truthy，
+  // 写成 `if (cond)` 会把失败判成 PASS（本项目吃过整份测试永久假绿的亏）。
+  if (cond === true) {
     pass++;
     console.log('PASS  ' + name);
   } else {

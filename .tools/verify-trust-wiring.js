@@ -29,7 +29,8 @@ Module._load = function (request) {
 let pass = 0;
 let fail = 0;
 function check(name, cond, extra) {
-  if (cond) {
+  // 铁律：判据必须 `=== true`。失败分支若返回非空字符串，`if (cond)` 会把它判成 PASS。
+  if (cond === true) {
     pass++;
     console.log('PASS  ' + name);
   } else {

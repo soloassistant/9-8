@@ -27,7 +27,7 @@ function assert(name, cond) {
   if (typeof cond !== 'boolean') {
     throw new TypeError(`断言 ${name} 的 cond 必须是 boolean，实际是 ${typeof cond}（禁止用字符串当条件）`);
   }
-  if (cond) {
+  if (cond === true) {
     pass++;
     console.log(`PASS  ${name}`);
   } else {
@@ -39,6 +39,30 @@ function assert(name, cond) {
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const has = (src, s) => src.includes(s);
 const at = (src, s, from = 0) => src.indexOf(s, from);
+
+/**
+ * 从 startIdx 所在语句起按花括号配对取出**整块**（含最外层 `{}`）。
+ *
+ * 为什么需要它（2026-10-23）：本文件原来用「两个 indexOf 的先后顺序」代表「A 包住了 B」，
+ * 但 `guardIdx < timerIdx` 只能说明守卫出现在定时器**之前**，守卫块早被 `}` 关掉了也照样成立 ——
+ * 守卫被挪出块外（本项目 P0 就是这么回归的）时断言仍然 PASS，是典型的结构性假绿。
+ * 结构断言必须落在「同一个块内」，而不是「同一份文件里」。
+ */
+function blockAt(src, startIdx) {
+  if (startIdx < 0) return '';
+  const open = src.indexOf('{', startIdx);
+  if (open < 0) return '';
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return src.slice(startIdx, i + 1);
+    }
+  }
+  return '';
+}
 
 /* =====================================================================
  * A. 四个二级页补返回键（history / learn / shopping / ledger）
@@ -120,13 +144,17 @@ const subscribedIdx = at(mine, 'if (profile?.subscribed) {');
 const payingIdx = at(mine, 'setPaying(true);');
 
 // B-1 二次确认存在，且文案/按钮齐全
+//     ⚠️ 必须**落在 if (profile?.subscribed) 的块内**：原来只断言这几个 key 在整份文件里出现过，
+//     弹窗被挪到别的函数/注释里也照样 PASS —— 那是「字符串存在」不是「续费前必经确认」。
+const subscribedBlock = blockAt(mine, subscribedIdx);
 assert(
   'B/tsx/confirmExists',
-  subscribedIdx >= 0 &&
-    has(mine, "title: t('mine.renewTitle')") &&
-    has(mine, "content: t('mine.renewBody', { date: (profile.expiredAt || '').slice(0, 10) })") &&
-    has(mine, "confirmText: t('mine.renewConfirm')") &&
-    has(mine, "cancelText: t('cancel')")
+  subscribedBlock !== '' &&
+    has(subscribedBlock, 'Taro.showModal({') &&
+    has(subscribedBlock, "title: t('mine.renewTitle')") &&
+    has(subscribedBlock, "content: t('mine.renewBody', { date: (profile.expiredAt || '').slice(0, 10) })") &&
+    has(subscribedBlock, "confirmText: t('mine.renewConfirm')") &&
+    has(subscribedBlock, "cancelText: t('cancel')")
 );
 
 // B-2 顺序铁律：channel 判空 → subscribed 确认 → setPaying(true)
@@ -137,9 +165,17 @@ assert(
 );
 
 // B-3 确认结果必须真正阻断下单（取消 → return，不能继续往下扣费）
+//     ⚠️ 三条字符串必须都在**同一个确认块**里，且阻断发生在 awaiting 之后、setPaying 之前。
+//     原来只做全文件 includes：把 `if (!ok) return;` 挪到别的分支（或写进注释）仍然 PASS。
 assert(
   'B/tsx/confirmBlocks',
-  has(mine, 'resolve(!!r.confirm)') && has(mine, 'fail: () => resolve(false)') && has(mine, 'if (!ok) return;')
+  subscribedBlock !== '' &&
+    has(subscribedBlock, 'success: (r) => resolve(!!r.confirm)') &&
+    has(subscribedBlock, 'fail: () => resolve(false)') &&
+    has(subscribedBlock, 'if (!ok) return;') &&
+    at(subscribedBlock, 'if (!ok) return;') > at(subscribedBlock, 'Taro.showModal({') &&
+    // 确认块整体必须在 setPaying(true) 之前闭合：否则「先下单、后确认」等于没拦
+    subscribedIdx + subscribedBlock.length <= payingIdx
 );
 
 // B-4 按钮文案三分支：paying / 已订阅（续费）/ 未订阅
@@ -152,7 +188,10 @@ assert(
   has(btnBlock, "t('mine.subscribing')") &&
     has(btnBlock, "t('mine.renew')") &&
     has(btnBlock, "t('mine.subscribe')") &&
-    (btnBlock.match(/\?/g) || []).length >= 2 // 嵌套三元：三选一，不是写死单分支
+    // 嵌套三元：三选一，不是写死单分支。
+    // ⚠️ 只数裸 `?` 会被可选链 `profile?.subscribed` 混进来（一个 `?.` 顶一个三元），
+    //    这里只数「? 后面紧跟 t(」的真三元。
+    (btnBlock.match(/\?\s*t\(/g) || []).length >= 2
 );
 
 // B-5 已订阅时补「订阅至 {date}」一行
@@ -200,9 +239,15 @@ assert(
 );
 
 // C-4 守卫必须真正包住 setTimeout（不是写在别处）
+//     ⚠️ 只比 indexOf 先后是不够的：`guardIdx < timerIdx` 在「守卫块已闭合、定时器写在块外」
+//     时依然成立 —— 这正是 2026-10 「切 tab 闪骨架」的回归形态。必须按花括号取出守卫块，
+//     再断言 setTimeout 落在**块内**。
 const guardIdx = at(lib, 'if (!hasDataRef.current) {');
-const timerIdx = at(lib, 'skeletonTimer.current = setTimeout');
-assert('C/library/skeletonGuardScope', guardIdx >= 0 && timerIdx > guardIdx);
+const guardBlock = blockAt(lib, guardIdx);
+assert(
+  'C/library/skeletonGuardScope',
+  guardIdx >= 0 && has(guardBlock, 'skeletonTimer.current = setTimeout')
+);
 
 // C-5 防旧响应覆盖三件套必须原样保留（改 C 不能破坏 P0-2 的核心修复）
 const deltaCleanIdx = at(lib, 'if (seq === loadSeq.current) {');

@@ -51,7 +51,8 @@ const S = (globalThis.__STORE__ = globalThis.__STORE__ || new Map());
 const KEY = 'user-settings';
 const results = [];
 function check(name, cond, detail) {
-  results.push({ name, pass: !!cond, detail });
+  // 铁律：判据必须 `=== true`（`!!cond` 会把非空字符串判成 PASS）。
+  results.push({ name, pass: cond === true, detail });
 }
 
 function seed(obj) {
