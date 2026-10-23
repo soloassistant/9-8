@@ -117,6 +117,8 @@ const PREF_TAG_LABEL: Record<string, LangKey> = {
   '效率工具': 'mine.prefProductivity',
   '财经': 'mine.prefFinance',
   '健康': 'mine.prefHealth',
+  '科学': 'mine.prefScience',
+  '文化': 'mine.prefCulture',
   '出行': 'mine.prefTravel',
   '生活': 'mine.prefLife',
   'AI': 'mine.prefAi'
@@ -181,7 +183,7 @@ const DELETE_CONFIRM_WORD = '注销';
 /** TODO：上线前在小程序后台绑定企业微信客服后替换 */
 const SERVICE_CORP_ID = 'TODO_CORP_ID';
 
-const PREF_TAGS = ['科技', '效率工具', '财经', '健康', '出行', '生活', 'AI'];
+const PREF_TAGS = ['科技', '效率工具', '财经', '健康', '出行', '生活', 'AI', '科学', '文化'];
 const REPLY_STYLES = ['简洁', '均衡', '详细'];
 const CUSTOM_SETTINGS_KEY = 'user-settings';
 

@@ -86,10 +86,12 @@ const RSS_SOURCES = [
   { name: '经济观察报', url: 'https://www.eeo.com.cn/rss.xml', tag: '财经' },
   // [audit] 财经（国家通讯社背景） · 中-高（30%~50%，常混杂时政表述） · 建议降权或替换为市场化财经源（PM 决策）
   { name: '中新网-财经', url: 'https://www.chinanews.com.cn/rss/finance.xml', tag: '财经' },
-  // [audit] 社会/时政 · 高（>50%，社会新闻大量涉突发事件报道） · 建议移除或降权（突发事件报道为许可红线，PM 决策）
-  { name: '中新网-社会', url: 'https://www.chinanews.com.cn/rss/society.xml', tag: '社会' },
-  // [audit] 时政 · 高（>70%，滚动时事） · 建议移除或降权（典型时政源，PM 决策）
-  { name: '中新网-即时', url: 'https://www.chinanews.com.cn/rss/scroll-news.xml', tag: '时事' },
+  // ⛔ 2026-10-23 下线（执行 PM 决策）：中新网-社会 / 中新网-即时。
+  //    原因：突发事件报道属许可红线；原 audit 注释已标「建议移除或降权（PM 决策）」，本次执行该决策。
+  //      · 中新网-社会 https://www.chinanews.com.cn/rss/society.xml （tag 社会）
+  //      · 中新网-即时 https://www.chinanews.com.cn/rss/scroll-news.xml （tag 时事）
+  //    中新网-财经保留。cross-source.js 的 FEED_ORG_MAP 中三条 feed → 「中新网」的映射**保留不动**：
+  //    这两条已不生效但无害，将来恢复时还能用。
 
   // ↓↓↓ 2026-09-28 多元化扩源（全部经 .tools/vet-feeds.js 四层尽调 + 云函数侧兼容性实测通过）↓↓↓
   // [audit] 游戏 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.02 天）
@@ -107,7 +109,68 @@ const RSS_SOURCES = [
   // [audit] 开发者/技术社区 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.0 天）
   { name: '掘金', url: 'https://juejin.cn/rss', tag: '开发者' },
   // [audit] 数字生活/软件工具 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.2 天）
-  { name: '小众软件', url: 'https://www.appinn.com/feed/', tag: '数字生活' }
+  { name: '小众软件', url: 'https://www.appinn.com/feed/', tag: '数字生活' },
+
+  // ↓↓↓ 2026-10-23 科学 / 健康 / 文化扩源 ↓↓↓
+  // 依据：.tmp-verify/feeds-vet/report.md（QA 用生产同款 https.get、FETCH_TIMEOUT_MS=6000、
+  // STALE_ITEM_DAYS=7 口径复跑 25 个已尽调候选：23 可接线 + 2 个警告级不接）。
+  // URL 取自同一尽调管线的 candidates.json（report.md 明细表未带 URL 列，源名逐条对齐）。
+
+  // [audit] 科学 · NutritionFacts.org（https://nutritionfacts.org/feed/）**已尽调，不接（警告级）**：
+  //   生产路径 3 次抓 2 次 8s 超时（8009/8010ms），成功一次 5210ms；超过 FETCH_TIMEOUT_MS=6000，
+  //   接线会拖慢整体且大概率失败。保留记录，待其响应改善后重测。
+  // [audit] 科学 · 中外对话（https://chinadialogue.net/feed）**已尽调，不接（警告级）**：
+  //   生产路径 3 次耗时 4348ms（3219–4994ms），贴近 FETCH_TIMEOUT_MS=6000，且仅 2/10 条过 7 天闸门，
+  //   性价比低（慢且产出少），会给整体 allSettled 拖尾。保留记录，待其响应改善后重测。
+
+  // [audit] 科学 · NASA 官方一手科研任务新闻，权威性最高（10/10 存活，2356ms，最新 0.27 天）
+  { name: 'NASA 新闻发布', url: 'https://www.nasa.gov/news-release/feed/', tag: '科学' },
+  // [audit] 科学 · NASA 官方综合快讯，含每日天文图（10/10 存活，455ms，最新 0.27 天）
+  { name: 'NASA 快讯', url: 'https://www.nasa.gov/rss/dyn/breaking_news.rss', tag: '科学' },
+  // [audit] 科学 · NASA Science，覆盖面最广（10/10 存活，1016ms，最新 0 天）
+  { name: 'NASA Science', url: 'https://science.nasa.gov/feed/', tag: '科学' },
+  // [audit] 科学 · 1845 年老牌科普权威，科学与人文深度兼具（10/10 存活，742ms，最新 0.21 天）
+  { name: 'Scientific American', url: 'https://www.scientificamerican.com/platform/syndication/rss/', tag: '科学' },
+  // [audit] 科学 · 百年独立科学新闻机构，署名规范（10/10 存活，699ms，最新 0.46 天）
+  { name: 'Science News', url: 'https://www.sciencenews.org/feed', tag: '科学' },
+  // [audit] 科学 · 科研通稿聚合，时效极高，深度参差（10/10 存活，1273ms，最新 0.02 天）
+  { name: 'ScienceDaily', url: 'https://www.sciencedaily.com/rss/all.xml', tag: '科学' },
+  // [audit] 科学 · 物理/天文/科技综合（10/10 存活，1597ms，最新 0 天）
+  { name: 'Phys.org', url: 'https://phys.org/rss-feed/', tag: '科学' },
+  // [audit] 科学 · 天文与航天（10/10 存活，2593ms；响应体 1074KB，耗时 1.5–3.1s 波动，余量一般）
+  { name: 'Space.com', url: 'https://www.space.com/feeds/all', tag: '科学' },
+  // [audit] 科学 · 天文/地球科学科普（10/10 存活，2953ms，最新 0.69 天）
+  { name: 'EarthSky', url: 'https://earthsky.org/feed/', tag: '科学' },
+  // [audit] 科学 · 史密森学会，科学与人文交叉（10/10 存活，929ms，最新 0.32 天）
+  { name: 'Smithsonian 杂志', url: 'https://www.smithsonianmag.com/rss/latest_articles/', tag: '科学' },
+  // [audit] 科学 · 中文科普；更新偏慢，仅 3/10 条过 7 天闸门（最新 4.63 天）
+  { name: '环球科学', url: 'https://www.huanqiukexue.com/?feed=rss2', tag: '科学' },
+  // [audit] 科学 · 耶鲁环境 360，环境与气候深度报道（4/10 存活，1130ms，最新 0.84 天）
+  { name: 'Yale Environment 360', url: 'https://e360.yale.edu/feed.xml', tag: '科学' },
+
+  // [audit] 健康 · 跑步训练与运动科学（10/10 存活，455ms，最新 0.33 天）
+  { name: "Runner's World", url: 'https://www.runnersworld.com/rss/all.xml/', tag: '健康' },
+  // [audit] 健康 · 男性健康与健身（10/10 存活，493ms，最新 0.28 天）
+  { name: "Men's Health", url: 'https://www.menshealth.com/rss/all.xml/', tag: '健康' },
+  // [audit] 健康 · 户外运动与健康生活方式（10/10 存活，2320ms，最新 0.43 天）
+  { name: 'Outside', url: 'https://www.outsideonline.com/feed/', tag: '健康' },
+  // [audit] 健康 · 心理与行为健康（10/10 存活，984ms，最新 0.09 天）
+  { name: 'Psychology Today', url: 'https://www.psychologytoday.com/us/front/feed', tag: '健康' },
+
+  // [audit] 文化 · 影视产业权威媒体（10/10 存活，958ms，最新 0.04 天）
+  { name: 'Variety', url: 'https://variety.com/feed/', tag: '文化' },
+  // [audit] 文化 · 好莱坞影视工业报道（10/10 存活，315ms，最新 0.05 天）
+  { name: 'Hollywood Reporter', url: 'https://www.hollywoodreporter.com/feed/', tag: '文化' },
+  // [audit] 文化 · 音乐榜单与产业；⚠️ 4422ms，同样接近 FETCH_TIMEOUT_MS=6000
+  { name: 'Billboard', url: 'https://www.billboard.com/feed/', tag: '文化' },
+  // [audit] 文化 · 音乐/流行文化（10/10 存活，1503ms，最新 0 天）
+  { name: 'Rolling Stone', url: 'https://www.rollingstone.com/feed/', tag: '文化' },
+  // [audit] 文化 · 独立音乐评论（10/10 存活，1288ms，最新 0.2 天）
+  { name: 'Pitchfork', url: 'https://pitchfork.com/rss/news/', tag: '文化' },
+  // [audit] 文化 · 独立音乐资讯（10/10 存活，510ms，最新 0.28 天）
+  { name: 'Stereogum', url: 'https://stereogum.com/feed', tag: '文化' },
+  // [audit] 文化 · 独立电影与影视产业（10/10 存活，800ms，最新 0.36 天）
+  { name: 'IndieWire', url: 'https://www.indiewire.com/feed/rss/', tag: '文化' }
 ];
 
 /* ---------------- 网络与解析工具 ---------------- */

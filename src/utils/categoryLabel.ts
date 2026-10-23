@@ -37,6 +37,8 @@ export const CATEGORY_LABEL_KEYS: Record<string, LangKey> = {
   开发者: 'cat.dev',
   开源: 'cat.opensource',
   科学: 'cat.science',
+  文化: 'cat.culture',
+  健康: 'cat.health',
   数码: 'cat.digital',
   影视: 'cat.film',
   [CATEGORY_MIXED]: 'cat.hotlist',
