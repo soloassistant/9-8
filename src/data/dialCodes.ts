@@ -40,13 +40,20 @@ export interface DialCodeEntry {
   /** 本地号码位数区间（不含区号） */
   minLen: number;
   maxLen: number;
-  /** 额外形态约束；目前只有中国大陆用 */
+  /**
+   * 额外形态约束；目前只有中国大陆用。
+   * 大陆口径：11 位、1 开头、**第二位为 3–9**（`/^1[3-9]\d{9}$/`）。
+   * 为什么排除 `12`：大陆移动号段只有 13x / 14x / 15x / 16x / 17x / 18x / 19x，
+   * `12x` 从来不是移动号段（12 开头是 12345 这类服务号）。若沿用 `^1\d{10}$`，
+   * 会把 `12345678901` 这类非法号码放过去；收紧后与真实号段一致，
+   * 且仍覆盖 14x（物联网 / 虚拟运营商）号段。
+   */
   pattern?: RegExp;
 }
 
 /** 顺序即下拉顺序；中国大陆必须排第一，作为默认项。 */
 export const DIAL_CODES: readonly DialCodeEntry[] = [
-  { iso: 'CN', nameZh: '中国大陆', nameEn: 'China Mainland', code: '86', minLen: 11, maxLen: 11, pattern: /^1\d{10}$/ },
+  { iso: 'CN', nameZh: '中国大陆', nameEn: 'China Mainland', code: '86', minLen: 11, maxLen: 11, pattern: /^1[3-9]\d{9}$/ },
   { iso: 'HK', nameZh: '中国香港', nameEn: 'Hong Kong, China', code: '852', minLen: 8, maxLen: 8 },
   { iso: 'MO', nameZh: '中国澳门', nameEn: 'Macao, China', code: '853', minLen: 8, maxLen: 8 },
   { iso: 'TW', nameZh: '中国台湾', nameEn: 'Taiwan, China', code: '886', minLen: 9, maxLen: 9 },

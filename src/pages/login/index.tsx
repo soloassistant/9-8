@@ -39,7 +39,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** 手机号校验已交给 `validateNational(dialCode, account)`（支持国际区号）。
  *  原 `PHONE_RE = /^1\d{10}$/` 只适用于中国大陆，支持国际号码后必须删掉 ——
  *  否则 +852 的 8 位号码永远过不了前端校验。
- *  大陆的 `/^1\d{10}$/` 形态约束移到了 dialCodes 表的 `pattern` 字段。 */
+ *  大陆的 `/^1[3-9]\d{9}$/` 形态约束（11 位、1 开头、第二位 3–9，排除 12 服务号）
+ *  移到了 dialCodes 表的 `pattern` 字段。 */
 
 /** 区号偏好的本地留存键。换区号 = 换登录标识，与「记住登录」无关，只记用户的选择。 */
 const DIAL_CODE_KEY = 'sxm-dial-code';
@@ -377,7 +378,8 @@ export default function LoginPage() {
     const v = account.trim();
     if (channel === 'phone') {
       // 校验交给区号表驱动的 validateNational：位数区间按区号不同，
-      // 中国大陆还额外校验 `/^1\d{10}$/`。'unsupported' / 'format' 都归到「无效手机号」。
+      // 中国大陆还额外校验 `/^1[3-9]\d{9}$/`（11 位、1 开头、第二位 3–9）。
+      // 'unsupported' / 'format' 都归到「无效手机号」。
       const issue = validateNational(dialCode, account);
       if (issue === 'empty') {
         setError(t('auth.errPhoneEmpty'));
