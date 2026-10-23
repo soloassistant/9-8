@@ -9,9 +9,11 @@ export default [
     cmd: 'node .tools/verify-share-ai-label.mjs'
   },
   {
-    label: 'briefing 分享调用改回无标识版本',
+    label: 'briefing 分享标题去掉档位门控（付费档也退回中性标题）',
     file: 'src/pages/briefing/index.tsx',
-    from: "    title: t('share.titleAI', { title: t('share.title') }),",
+    // 9168386 后源码把 AI 前缀挂在三元真分支上；锚点必须与当前源码逐字一致，
+    // 否则 mutation-verify 会判 anchor mismatch（0 次命中）而不是「变异被抓住」。
+    from: "    title: t(intelResolved.aiEnabled && !intelResolved.degraded ? 'share.titleAI' : 'share.title', { title: t('share.title') }),",
     to: "    title: t('share.title'),",
     cmd: 'node .tools/verify-share-ai-label.mjs'
   },

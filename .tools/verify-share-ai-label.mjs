@@ -48,7 +48,7 @@ try {
 }
 
 if (data) {
-  const { zhShare, enShare, zhCopyLabel, enCopyLabel } = data;
+  const { zhShare, enShare, zhNeutral, enNeutral, zhCopyLabel, enCopyLabel } = data;
 
   t('中文分享标题带 AI 前缀', zhShare.startsWith('AI 整理｜'), zhShare);
   t('中文分享标题保留品牌口号', zhShare.includes('私人晨报助理'), zhShare);
@@ -65,9 +65,22 @@ if (data) {
   t('剪贴板中文标识含「AI 生成」', zhCopyLabel.includes('AI 生成'), zhCopyLabel);
   t('剪贴板英文标识含「AI-generated」', enCopyLabel.includes('AI-generated'), enCopyLabel);
 
+  // ---- 1b. 中文/英文中性分支不得声称 AI（免费档、降级档走这条）----
+  t('免费档中文标题不含 AI 字样', !zhNeutral.includes('AI'), zhNeutral);
+  t('免费档英文标题不含 AI 字样', !/\bAI\b/i.test(enNeutral), enNeutral);
+
   // ---- 2. 调用点接线（读源码，防「有 key 无渲染点」的假合规）----
   const briefingSrc = fs.readFileSync(path.join(REPO, 'src/pages/briefing/index.tsx'), 'utf8');
-  t('briefing 分享调用 share.titleAI', briefingSrc.includes("t('share.titleAI', { title: t('share.title') })"), 'useShareAppMessage title');
+
+  // 合规硬门槛（commit 9168386）：AI 前缀必须挂在「订阅档且未降级」的**真分支**上。
+  // 免费档/降级档的情报来自公开 RSS 的本地分组、全程无 LLM，署 AI 名即虚假陈述。
+  // 只断言「源码里出现了 share.titleAI」是不够的 —— 必须钉住它被门控。
+  const gated = /t\(\s*intelResolved\.aiEnabled\s*&&\s*!intelResolved\.degraded\s*\?\s*'share\.titleAI'\s*:\s*'share\.title'/;
+  t('briefing 分享标题受 aiEnabled && !degraded 门控', gated.test(briefingSrc), 'useShareAppMessage title');
+  t('briefing 分享两条分支都在（titleAI / title）',
+    briefingSrc.includes("'share.titleAI'") && briefingSrc.includes("'share.title'"), '三元两臂');
+  t('briefing 不存在无条件挂 AI 前缀的调用',
+    !/title:\s*t\('share\.titleAI'/.test(briefingSrc), '无门控调用必须为 0');
 
   const inboxSrc = fs.readFileSync(path.join(REPO, 'src/pages/inbox/index.tsx'), 'utf8');
   t('inbox 复制导出跟随 ai.labelText', inboxSrc.includes("t('ai.labelText')"), 'copyWorkResult');

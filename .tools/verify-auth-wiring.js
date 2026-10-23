@@ -1,6 +1,9 @@
 // 独立复核：不复用生成逻辑，直接按 UTF-8 读盘断言。
 const fs = require('fs');
-const p = 'D:/Agent/晨报/src/services/api.ts';
+const path = require('node:path');
+// 仓库根由脚本位置派生（本文件在 .tools/ 下），不写死盘符路径 —— 否则 Linux runner 上读盘必 ENOENT。
+const ROOT = path.resolve(__dirname, '..');
+const p = path.join(ROOT, 'src', 'services', 'api.ts');
 const s = fs.readFileSync(p, 'utf8');
 
 const checks = [
@@ -19,7 +22,7 @@ for (const [name, ok] of checks) {
 }
 
 // localProfile.ts 同样检查
-const q = 'D:/Agent/晨报/src/services/localProfile.ts';
+const q = path.join(ROOT, 'src', 'services', 'localProfile.ts');
 const t = fs.readFileSync(q, 'utf8');
 for (const [name, ok] of [
   ['localProfile 无 U+FFFD', !t.includes('\uFFFD')],

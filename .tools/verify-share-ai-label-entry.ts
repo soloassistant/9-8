@@ -9,10 +9,15 @@ const interp = (str: string, params: Record<string, string>): string =>
 
 const zhShare = interp(dict.zh['share.titleAI'], { title: dict.zh['share.title'] });
 const enShare = interp(dict.en['share.titleAI'], { title: dict.en['share.title'] });
+// 免费档 / 降级档走的**中性分支**：文案里不得出现任何 AI 署名。
+const zhNeutral = interp(dict.zh['share.title'], { title: dict.zh['share.title'] });
+const enNeutral = interp(dict.en['share.title'], { title: dict.en['share.title'] });
 
 const out = {
   zhShare,
   enShare,
+  zhNeutral,
+  enNeutral,
   zhCopyLabel: dict.zh['ai.labelText'],
   enCopyLabel: dict.en['ai.labelText']
 };

@@ -18,6 +18,10 @@
 #   · verify:login-bind       登录后「绑定手机号」门禁回归（邮箱登录不得被反复强弹，绑完必须落标记）
 #   · verify:sxm              省心买决策纯逻辑回归（认不出必须 null、给不出深链必须 ok:false、URL 落官方域）
 #   · verify:sync             同步冲突回归（classifyPull 判定矩阵 / 未裁决键不静默覆盖 / 键位文案齐全）
+#   · verify:auth             登录态接线回归（H5 真会话不被假身份替换 / 账号标识脱敏 / 源码无编码损坏）
+#   · verify:paid             付费权益回归（支付回调与主动查单两条对账路径都必须真发放，且幂等）
+#   · verify:prelaunch        上市前整改回归（外链协议白名单 / 云函数 OPENID 空值拒绝 / 署名档位 / i18n 键）
+#   · verify:share            分享 AI 标识回归（AI 前缀受档位门控 / 免费档文案不含 AI / 剪贴板跟随标识）
 #   · verify:mutation         元验证：把源码改坏后上面的断言必须变红（守「断言有判别力」）
 #
 # **故意不放进这里**（与 lingxi-class 的取舍一致：联网的东西会让 CI 在 fork/PR 上不可靠）：
@@ -25,7 +29,6 @@
 #   · npm run verify:boards   要联网，且需要本机 DailyHotApi 起在 6688
 #   · verify-sources.js       要联网抓 3 个 RSS，还要本机 8137 的 /api/hotspot
 #   · verify-summary-quality  默认读 dist/api/hotspot.json；换成仓库内冻结夹具则夹具本身是旧语料（会红）
-#   · verify-auth-wiring / verify-paid-entitlement  读的是硬编码 Windows 绝对路径，Linux runner 上必 ENOENT
 #   · refresh-hotspot-data    已有独立 workflow（refresh-data.yml）
 # 这两个联网检查请在改动源清单/板块时**手动**跑，而不是塞进 CI。
 
@@ -144,6 +147,30 @@ jobs:
         # 同时钉住热点页出口仍是「每源最多 1 条」的广度口径（扩池后直接 slice 会把
         # 十家媒体的观感塌成三家）。用冻结的真实抓取池夹具，不联网。
         run: npm run verify:pref
+
+      - name: 登录态接线回归
+        # 守的是「H5 会话不得被假身份替代」：登录必须走真会话而不是本地兜底，
+        # 且账号标识一律脱敏（数字 user.id 也不能整串当昵称渲染）；顺带守住源文件
+        # 没有被 GBK/U+FFFD 污染 —— 这类损坏会让字符串断言静默失效。
+        run: npm run verify:auth
+
+      - name: 付费权益回归
+        # 守的是「付了钱订阅必须真的生效」：pay-callback 回调与 queryOrder 主动查单
+        # 两条对账路径都要发放权益，且重复回调幂等（不重复对账、expiredAt 不叠加）。
+        # 全程内存桩替掉 wx-server-sdk / cloudPay，不连真云、不发网络请求。
+        run: npm run verify:paid
+
+      - name: 上市前整改回归
+        # 守的是三个曾经出过事的对外契约：外链白名单（站内相对路径必须放行，
+        # 但协议相对 //evil.com 与反斜杠绕过仍须拒绝）、云函数 OPENID 空值必须拒绝、
+        # 免费档不得署「AI 整理」。与 verify:extlink 结论互为交叉校验，两边不得相反。
+        run: npm run verify:prelaunch
+
+      - name: 分享 AI 标识回归
+        # 守的是「AI 前缀只在订阅档且未降级时出现」：免费/降级档的情报来自公开 RSS 本地分组、
+        # 全程无 LLM，署 AI 名即虚假陈述；中性文案本身也不得含 AI 字样。
+        # 断言读源码里的门控表达式，防「key 还在但门控被拆掉」的假合规。
+        run: npm run verify:share
 
       # 放在最后：这一步会**临时改写源码**再复原（写完做 sha256 逐字节校验，失配退出码 3），
       # 因此必须等其他只读步骤跑完，避免与它们在同一个工作区里互相踩。

@@ -13,7 +13,12 @@
  */
 'use strict';
 const Module = require('module');
+const path = require('node:path');
 const origLoad = Module._load;
+
+// 仓库根由脚本位置派生（本文件在 .tools/ 下），不写死任何绝对路径 —— 否则 Linux runner
+// 上 require 会 MODULE_NOT_FOUND，整个 harness 直接跑不起来。
+const ROOT = path.resolve(__dirname, '..');
 
 /* =====================================================================
  * 忠实内存 DB：where 记录查询键、doc.update 记录写盘、按字段等值过滤
@@ -102,8 +107,8 @@ Module._load = function (request) {
   return origLoad.apply(this, arguments);
 };
 
-const payCallback = require('D:/Agent/晨报/cloudfunctions/pay-callback/index.js');
-const queryOrder = require('D:/Agent/晨报/cloudfunctions/queryOrder/index.js');
+const payCallback = require(path.join(ROOT, 'cloudfunctions', 'pay-callback', 'index.js'));
+const queryOrder = require(path.join(ROOT, 'cloudfunctions', 'queryOrder', 'index.js'));
 
 /* =====================================================================
  * 断言

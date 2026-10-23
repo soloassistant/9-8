@@ -310,12 +310,21 @@ console.log('\n--- B. isSafeExternalUrl（外链协议注入）---');
     'vbscript:msgbox(1)',
     'file:///C:/Windows/System32/cmd.exe',
     '//evil.example.com/x',
-    '/relative/path',
     '',
     '   '
   ];
   for (const u of bad) {
     ok('B1 拒绝 ' + JSON.stringify(u).slice(0, 46), isSafeExternalUrl(u) === false);
+  }
+  // 站内相对路径必须**放行**：2026-10-12 的教训是「误拒站内路径」打死了省心买入口，
+  // 现行契约（src/utils/externalLink.ts:46-55）是「解析到站内 sentinel host 且协议合法才放行」。
+  // 权威矩阵在 .tools/verify-external-link.js（已在 CI），本段只做交叉校验，不得与它相反。
+  for (const u of ['/relative/path', '/sxm/index.html', '/pages/mine/index', '/']) {
+    ok('B1 放行站内路径 ' + JSON.stringify(u).slice(0, 46), isSafeExternalUrl(u) === true);
+  }
+  // 放行站内路径的前提：协议相对与反斜杠绕过必须**仍然拒绝**（把这几条一起放宽就是真漏洞）。
+  for (const u of ['//evil.com', '/\\evil.com', '/\\\\evil.com', '/a\\b']) {
+    ok('B1 拒绝绕过 ' + JSON.stringify(u).slice(0, 46), isSafeExternalUrl(u) === false);
   }
   for (const u of ['http://example.com/a', 'https://example.com/a?b=1', 'https://sec.douban.com/x']) {
     ok('B2 放行 ' + u.slice(0, 46), isSafeExternalUrl(u) === true);
