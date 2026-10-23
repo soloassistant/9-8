@@ -18,10 +18,17 @@
 # 而不是把它静默覆盖掉。
 name: deploy-h5
 
+# ★ 2026-10-23 修：此前本流水线是独立的 `on: push: main`，**与 checks 没有任何依赖关系** ——
+#   门禁红了照样会把产物推到 gh-pages（门禁只拦 PR 合并，拦不住"发布一个红版本"）。
+#   GitHub 不支持跨 workflow 的 `needs:`，所以改用 `workflow_run` + conclusion 判定：
+#   只有 checks 在 main 上**成功**结束，才触发部署。
+#   代价：部署比 push 晚约 5 分钟（要等门禁跑完），这是刻意的 —— 宁可慢，不可发布坏版本。
 on:
-  push:
+  workflow_run:
+    workflows: [checks]
+    types: [completed]
     branches: [main]
-  workflow_dispatch: {} # 支持手动重发
+  workflow_dispatch: {} # 支持手动重发（手动触发时跳过门禁结论判定，用于紧急重发）
 
 permissions:
   contents: write # 推 gh-pages 需要
@@ -35,9 +42,19 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # 手动触发：放行。由 checks 触发：只有 success 且确实来自 main 才部署；
+    # 失败/取消/PR 的 checks 一律跳过（跳过 ≠ 失败，不会让仓库亮红）。
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     steps:
       - uses: actions/checkout@v4
         with:
+          # ⚠️ workflow_run 上下文里 `github.sha` 是**默认分支尖端**，不是触发本次运行的提交。
+          #    不显式指定 ref，就会把「main 现在的最新提交」拿去发布 ——
+          #    而通过门禁的是 head_sha 那个提交，两者可能不同（推到 checks 跑完之间又有新提交）。
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
           # 需要完整历史：发布要取 gh-pages 尖端做父提交
           fetch-depth: 0
 
