@@ -11,6 +11,7 @@ import HabitGuardBar from '@/components/HabitGuardBar';
 import PlanProposalCard from '@/components/PlanProposalCard';
 import { BriefingSkeleton } from '@/components/Skeleton';
 import { resolveIntelGroups } from '@/utils/intelGroups';
+import { disabledAttr } from '@/utils/buttonDisabled';
 import type { IntelSourceRef } from '@/utils/intelGroups';
 import { formatPlayCount } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
@@ -1559,7 +1560,7 @@ function BriefingPage() {
             </View>
           ) : null}
           <VoiceButton compact disabled={sending} onResult={handleVoiceResult} />
-          <Button className={styles.sendButton} onClick={handleSendText} disabled={sending}>
+          <Button className={styles.sendButton} onClick={handleSendText} disabled={disabledAttr(sending)}>
             {t('ai.send')}
           </Button>
         </View>

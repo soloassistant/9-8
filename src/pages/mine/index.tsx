@@ -18,6 +18,7 @@ import { signOut } from '@/services/cloudAuth';
 import { kvClear } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
+import { disabledAttr } from '@/utils/buttonDisabled';
 import { fromNow } from '@/utils/date';
 import { getActivityLogs } from '@/utils/activityLog';
 import type { ActivityLogItem } from '@/utils/activityLog';
@@ -1144,7 +1145,7 @@ function MinePage() {
         {/* ③ 支付按钮 + 通道提示 */}
         <View className={styles.subButtonRow}>
           <View className={styles.subButtonGroup}>
-            <Button className={styles.subButton} onClick={handleSubscribe} loading={paying} disabled={paying}>
+            <Button className={styles.subButton} onClick={handleSubscribe} loading={paying} disabled={disabledAttr(paying)}>
               {paying
                 ? t('mine.subscribing')
                 : profile?.subscribed

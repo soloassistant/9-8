@@ -252,6 +252,15 @@ jobs:
         # 全是结构性判据（JSX 挂在哪个父节点、四态渲染顺序、catch 导向哪个 UI 态），读源码断言。
         run: npm run verify:briefing
 
+      - name: 按钮 disabled 静态门禁
+        # Taro H5 把 <Button disabled={false}> 渲染成 disabled="false"，而 CSS 属性选择器
+        # 只看属性在不在 → 内置的 taro-button-core[disabled]{color:rgba(255,255,255,.6)}
+        # （特异性 0,1,1）压过组件类（0,1,0），把白底按钮变成白底白字、对比度 1.00、整个消失。
+        # 2026-10-24 实测：「立即订阅」按钮 DOM 里文案在、屏幕上没有。
+        # 根治只能让属性在条件为假时**不渲染**（utils/buttonDisabled.ts），所以这里守写法：
+        # 任何 <Button> 带 disabled 就必须是 disabledAttr(...)。CSS 层无法区分真禁用/没禁用。
+        run: npm run verify:buttons
+
       # 放在最后：这一步会**临时改写源码**再复原（写完做 sha256 逐字节校验，失配退出码 3），
       # 因此必须等其他只读步骤跑完，避免与它们在同一个工作区里互相踩。
       # 它守的不是产品行为，而是「上面这些断言本身有没有判别力」——把已知缺陷改回去，

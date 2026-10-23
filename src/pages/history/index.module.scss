@@ -61,6 +61,13 @@
   &:active {
     opacity: 0.85;
   }
+
+  // 见 pages/mine/index.module.scss 同名注释：叠加 [disabled] 把特异性提到 (0,2,0)，
+  // 压住 Taro 的 taro-button-core[disabled]（0,1,1）强制写入的 rgba(255,255,255,.6)——
+  // 否则浅色底上的「清空」按钮在空列表（默认态）就是白底白字。
+  &[disabled] {
+    color: $color-text-tertiary;
+  }
 }
 
 .item {

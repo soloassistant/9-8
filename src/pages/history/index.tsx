@@ -6,6 +6,7 @@ import EmptyState from '@/components/EmptyState';
 import { brandVars, useThemeStore } from '@/store/theme';
 import type { HistoryEntry } from '@/types';
 import { useT } from '@/store/language';
+import { disabledAttr } from '@/utils/buttonDisabled';
 import styles from './index.module.scss';
 
 const HISTORY_KEY = 'browseHistory';
@@ -72,7 +73,7 @@ function HistoryPage() {
       </View>
       <View className={styles.header}>
         <Text className={styles.hint}>{t('history.hint')}</Text>
-        <Button className={styles.clearButton} onClick={handleClear} disabled={list.length === 0}>
+        <Button className={styles.clearButton} onClick={handleClear} disabled={disabledAttr(list.length === 0)}>
           {t('mine.clear')}
         </Button>
       </View>

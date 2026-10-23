@@ -155,6 +155,15 @@
     opacity: 0.9;
     transform: scale(0.98);
   }
+
+  // 真禁用（支付进行中）时，Taro 的 `taro-button-core[disabled]`（特异性 0,1,1）会把
+  // color 顶成 rgba(255,255,255,.6) —— 白底 + 半透明白 = 看不见。这里叠加 [disabled]
+  // 把特异性提到 (0,2,0) 夺回颜色。
+  // ⚠️ 这条**不能**用来修「没禁用也被命中」的问题：CSS 分不清 disabled="false" 与
+  //    "true"（属性选择器只看存在性），那种情况只能靠 utils/buttonDisabled.ts 让属性不渲染。
+  &[disabled] {
+    color: $color-text-secondary;
+  }
 }
 
 .quotaCard {
