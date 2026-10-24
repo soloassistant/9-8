@@ -25,6 +25,7 @@ import { recordUsage } from '@/utils/usageLog';
 import { callFunction, chatCloudStream } from './cloud';
 import type { ChatStreamHooks, ChatStreamResult } from './cloud';
 import { invoke, isWeapp } from './dataSource';
+import { feedbackInsert } from './cloudDb';
 import { getSession } from './cloudAuth';
 import { buildProfileFromSession, writeProfileSettings } from './localProfile';
 import type {
@@ -213,9 +214,9 @@ export function apiNewsFeedback(id: string, feedback: 'up' | 'down'): Promise<{ 
  *
  * 通道矩阵（与 dataSource 的白名单口径一致）：
  *   · weapp：调 feedback 云函数落 feedback 集合（含 openid 归属、类型白名单、长度上限）；
- *   · H5：**没有** feedback 的 RPC 通道 —— 应用库未注册对应 PG 函数，白名单也不放行
- *     （放行只会得到 rpc-not-allowed 或 404）。这里直接返回 false，
- *     由 UI 转为「复制内容 + 邮件 support@morningbrief.cn」的诚实降级路径。
+ *   · H5（2026-10-24 接通）：直接 insert 应用库 `feedback` 表（RLS insert-own，
+ *     owner_id 由 DEFAULT auth.uid() 服务端填充；类型白名单/长度上限是表级 CHECK）。
+ *     失败仍返回 false，走原来的「复制内容 + 邮件 support@morningbrief.cn」诚实降级。
  *
  * 返回值语义：true = 已落库；false = 未落库（调用方必须让用户看见，不能显示"提交成功"）。
  */
@@ -225,7 +226,7 @@ export async function apiSubmitFeedback(input: {
   contact?: string;
   page?: string;
 }): Promise<boolean> {
-  if (!isWeapp) return false;
+  if (!isWeapp) return feedbackInsert(input);
   try {
     const res = (await invoke('feedback', {
       type: input.type,

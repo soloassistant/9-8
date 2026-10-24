@@ -1,10 +1,11 @@
 /**
- * 云数据库访问层（H5）—— user_kv 同步键 + llm_events 用量记账。
+ * 云数据库访问层（H5）—— user_kv 同步键 + llm_events 用量记账 + feedback 用户反馈。
  *
  * 为什么需要它（2026-10-13 H5 迁移）：产品从微信小程序迁到 H5 + WorkBuddy 云后端。
  * 此前 H5 的用户数据只有 localStorage，`/api/user/data` 与 `/api/user/sync` 两个同步端点
  * 在静态托管下恒 404/501 —— **跨设备同步从未真正工作过**。本层把同步落到云数据库：
- * `user_kv`（一行一个 localStorage 同步键）+ `llm_events`（只增不改的用量事件）。
+ * `user_kv`（一行一个 localStorage 同步键）+ `llm_events`（只增不改的用量事件）；
+ * 2026-10-24 起新增 `feedback` 表直插（用户反馈此前在 H5 只能走邮件兜底）。
  *
  * 安全边界（平台硬规则，code-generation.md 原文）：
  *   · 身份由 `cloud.auth` 会话在请求层自动附带，**客户端绝不传 token / user id / owner_id**；
@@ -95,6 +96,39 @@ export async function llmEventInsert(kind: LlmEventKind): Promise<boolean> {
   if (!db) return false;
   const res = await db.from('llm_events').insert({ kind });
   return unwrap(res, 'llm_events insert') !== null;
+}
+
+/** feedback 提交输入（与 apiSubmitFeedback 入参一致） */
+export interface FeedbackInput {
+  type: 'suggestion' | 'data' | 'account' | 'other';
+  content: string;
+  contact?: string;
+  page?: string;
+}
+
+/**
+ * 落一条用户反馈（H5 通道，2026-10-24 接通）。
+ *
+ * 直接 insert `feedback` 表（平台 code-generation.md 的 INSERT 范式），**不是** RPC：
+ *   · owner_id 不传 —— `DEFAULT auth.uid()` 服务端填充；RLS 两条策略（insert-own /
+ *     select-own）都只 TO authenticated；匿名访客对表无 GRANT，实测 42501 拒绝
+ *     （2026-10-24 探针），不存在 client_errors 那种「匿名共主 'anon' 互读」问题；
+ *   · 类型白名单 / 长度上限由表级 CHECK 约束强制（对齐微信云函数 feedback 的校验，
+ *     客户端被绕过也写不进脏数据）；
+ *   · H5 强制登录（needsAuthGate），走到这里的都是真实会话。
+ *
+ * 失败返回 false（不抛）—— 调用方（apiSubmitFeedback）据此走「复制内容 + 邮件」的诚实降级。
+ */
+export async function feedbackInsert(input: FeedbackInput): Promise<boolean> {
+  const db = await getCloudDatabase();
+  if (!db) return false;
+  const res = await db.from('feedback').insert({
+    type: input.type,
+    content: input.content,
+    contact: input.contact || '',
+    page: input.page || ''
+  });
+  return unwrap(res, 'feedback insert') !== null;
 }
 
 /** 客户端崩溃上报的一条内容（字段与 `log_client_error` 入参一一对应） */
