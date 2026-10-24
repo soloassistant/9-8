@@ -104,8 +104,8 @@ export default [
     // 哪条变红：D2 续费块有状态徽标 + 到期日 + 提醒开关 + 不自动续费说明。
     label: '删掉「不做自动续费」的说明（暗示会自动扣款）',
     file: 'src/pages/mine/index.tsx',
-    from: "            <Text className={styles.renewNote}>{t('mine.renewNoAuto')}</Text>",
-    to: '            {null}',
+    from: "          <Text className={styles.renewNote}>{t('mine.renewNoAuto')}</Text>",
+    to: '          {null}',
     cmd: 'node .tools/verify-usage-renewal.mjs'
   },
   {

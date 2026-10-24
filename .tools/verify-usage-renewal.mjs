@@ -353,7 +353,9 @@ section('D. 我的页 UI 与配色');
   const untilIdx = mine.indexOf("t('mine.renewUntil'");
   assert('D2 未订阅时给的是「没有订阅」的说明，不是到期日（不编日期）',
     noneHintIdx > -1 && untilIdx > noneHintIdx);
-  const switchGuard = mine.indexOf("renewal.status === 'none' ? null : (");
+  // ⚠️ 锚点必须带 `{`：上一行的守卫是 `{renewal.status === 'active' || renewal.status === 'none' ? null : (`
+  // 它**包含**了下面这个子串，用不带 `{` 的 indexOf 会命中它 → 变异删掉开关守卫也照样 PASS（假绿）。
+  const switchGuard = mine.indexOf("{renewal.status === 'none' ? null : (");
   assert('D2 未订阅时不渲染提醒开关（开关只对已订阅的人有意义）',
     switchGuard > -1 && switchGuard < mine.indexOf('styles.renewSwitchRow'));
   assert('D2 提醒受偏好开关控制（关掉就不弹）', mine.includes('if (!renewal.remind || !remindOn) return;'));
