@@ -151,5 +151,67 @@ const agents = read('AGENTS.md');
 ok('D1 AGENTS.md 含「条目级标注」约定', agents.includes('条目级标注'));
 ok('D2 AGENTS.md 含「不得因此消耗用户额度」约定', agents.includes('不得因此消耗用户额度'));
 
+/* ============ E. extract 降级路径：不编造提取结果（2026-10-24 P0） ============ */
+/*
+ * 背景：src/data/extract.ts 是 AI 提取的**第三级**兜底（① cloud.llm → ② 本地代理 → ③ 这里）。
+ * 修正前它对**任何输入**都返回固定的「产品评审会 / 3 号会议室 / 评审前更新演示文稿」
+ * （图片通道则是「季度复盘会（来自截图）」），还把用户原文贴成 source，
+ * 由 inbox 套上「— 由 AI 提取整理，请核对 —」标识 —— 用户点确认就写进真实日历。
+ * 同时踩三条硬规则：法务条文 4（没有 AI 却称 AI 提取）、AGENTS.md 8.1（示例须条目级标注）、
+ * 《AI 标识办法》（不得对非 AI 生成内容作 AI 标识）。
+ */
+const extractSrc = read('src/data/extract.ts');
+
+/**
+ * 剥掉注释再断言。
+ * ⚠️ 不剥会自己误杀自己：本模块的注释里**刻意保留**了旧缺陷的原文
+ *    （「产品评审会 / 3 号会议室 / 评审前更新演示文稿」），那是给人看的事故记录。
+ *    第一版直接在原文上匹配 → E1/E4 全红，而代码其实已经改好了。
+ *    与 verify-docs B3 被自己的解释性注释误杀是同一个坑：**判据不能把注释当代码**。
+ */
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+}
+const extractCode = stripComments(extractSrc);
+const inboxCode = stripComments(read('src/pages/inbox/index.tsx'));
+
+// E1：不得残留编造出来的具体内容串（这些串一旦回来，就说明有人把假数据又写回去了）
+const FABRICATED = [
+  '产品评审会',
+  '评审前更新演示文稿',
+  '季度复盘会',
+  '3 号会议室',
+  '按截图里的清单核对会议材料',
+  '转发内容摘要'
+];
+const leaked = FABRICATED.filter((s) => extractCode.includes(s));
+ok(
+  `E1 mock 不含编造的内容串${leaked.length ? '（残留: ' + leaked.join(' / ') + '）' : ''}`,
+  leaked.length === 0
+);
+
+// E2：降级时必须**不出结果**。空数组是「没解析出东西」的诚实表达。
+ok('E2 mock 返回空 events（不编造日程）', /events:\s*\[\s*\]/.test(extractCode));
+ok('E3 mock 返回空 todos（不编造待办）', /todos:\s*\[\s*\]/.test(extractCode));
+
+// E4：不得把用户原文回贴成 source —— 那会让假结果看起来像是「从你的内容里提取的」
+ok('E4 不把用户原文回贴成 source', !/content\.slice/.test(extractCode));
+
+// E5：降级必须**说真话**，不能是 undefined（那会只剩一条笼统 toast，看不出是能力不可用）
+const noteMatch = extractCode.match(/note:\s*(['"])[^'"]{10,}\1/);
+ok('E5 降级时必须给出 note 说明原因', noteMatch !== null);
+
+// E6：AI 标识必须被 `drafts.length > 0` 守住 —— 没有结果时不得显示「由 AI 提取整理」
+const guardStart = inboxCode.indexOf('{drafts.length > 0 ? (');
+const guardEnd = inboxCode.indexOf(') : note ? (', guardStart);
+const guarded = guardStart >= 0 && guardEnd > guardStart ? inboxCode.slice(guardStart, guardEnd) : '';
+ok(
+  'E6 AI 标识只在有草稿时渲染（且空态分支仍在）',
+  guardStart >= 0 && guardEnd > guardStart && guarded.includes('resultAiLabel')
+);
+
+// E7：仍必须是能被 `import(\`../data/${name}\`)` 动态加载的默认导出
+ok('E7 仍是可动态 import 的默认导出', /export default function extract/.test(extractCode));
+
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 if (fail > 0) process.exit(1);
