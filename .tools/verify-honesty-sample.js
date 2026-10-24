@@ -194,8 +194,16 @@ ok(
 ok('E2 mock 返回空 events（不编造日程）', /events:\s*\[\s*\]/.test(extractCode));
 ok('E3 mock 返回空 todos（不编造待办）', /todos:\s*\[\s*\]/.test(extractCode));
 
-// E4：不得把用户原文回贴成 source —— 那会让假结果看起来像是「从你的内容里提取的」
-ok('E4 不把用户原文回贴成 source', !/content\.slice/.test(extractCode));
+// E4：不得把用户原文回贴成 source —— 那会让假结果看起来像是「从你的内容里提取的」。
+// ⚠️ 正则必须同时盖住 `content.slice` 与 `content?.slice`（可选链）。
+//    第一版写成 /content\.slice/，反向变异注入 `_data?.content?.slice(0, 50)` 时**没被抓住**
+//    （NOT-CAUGHT）—— 断言看着在跑、也打印 PASS，但对真实形态没有判别力。
+//    顺带把 substring / substr 一起盖住：换个切片方法就能绕过的断言等于没有。
+//    `content` 前必须有词边界 —— 否则 `mycontent.slice` 也会误命中（第二次栽在同一判据上）。
+ok(
+  'E4 不把用户原文回贴成 source',
+  !/\bcontent\s*\??\.\s*(slice|substring|substr)\b/.test(extractCode)
+);
 
 // E5：降级必须**说真话**，不能是 undefined（那会只剩一条笼统 toast，看不出是能力不可用）
 const noteMatch = extractCode.match(/note:\s*(['"])[^'"]{10,}\1/);

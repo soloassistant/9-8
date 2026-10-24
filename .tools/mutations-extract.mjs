@@ -44,11 +44,23 @@ export default [
   {
     // 行为后果：把用户原文切成 source 贴上去，让假结果看起来「是从你的内容里提取的」。
     // 这是编造里最坏的一种 —— 伪造了数据的**来源**。
-    // 哪条变红：E4（不许 content.slice）
-    label: '把用户原文回贴成 source（伪造来源）',
+    // 哪条变红：E4（不许 content.slice / substring / substr）
+    //
+    // ⚠️ 这条 case 是**把 E4 打回原形**的那条：第一版断言只认 `content.slice`，
+    //    而这里注入的是 `content?.slice`（可选链）→ 断言 NOT-CAUGHT，白跑一轮。
+    //    所以下面再加一条 plain `content.slice` 的变体，两种形态都要被抓住。
+    label: '把用户原文回贴成 source（可选链形态）',
     file: 'src/data/extract.ts',
     from: 'export default function extract(_data?: { content?: string; images?: string[] }): ExtractResult {',
     to: 'export default function extract(_data?: { content?: string; images?: string[] }): ExtractResult {\n  const _s = _data?.content?.slice(0, 50);',
+    cmd: 'node .tools/verify-honesty-sample.js'
+  },
+  {
+    // 同上，但是**原缺陷的真实形态**（plain 点号）。两种都要被抓住，才算 E4 有判别力。
+    label: '把用户原文回贴成 source（plain 点号形态，即原缺陷写法）',
+    file: 'src/data/extract.ts',
+    from: 'export default function extract(_data?: { content?: string; images?: string[] }): ExtractResult {',
+    to: 'export default function extract(_data?: { content?: string; images?: string[] }): ExtractResult {\n  const _s = _data?.content.slice(0, 50);',
     cmd: 'node .tools/verify-honesty-sample.js'
   },
   {
