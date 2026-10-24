@@ -264,7 +264,16 @@ try {
 // ============ I. mine 订单失败态不再伪装成空态 ============
 try {
   const src = read('src/pages/mine/index.tsx');
-  ok('I1 loadOrders 失败置 ordersError（老写法只 console.warn）', /setOrdersError\(true\)/.test(src));
+  // I1 收窄到两条失败路径分别置位。原判据 /setOrdersError\(true\)/ 是符号级——
+  // 2026-10-24 变异验证实测漏报：把 ok:false 分支的置位改掉、只留 catch 分支，
+  // 门禁仍全绿。服务端明确拒绝（ok:false）与网络异常（catch）是两条独立失败路径，
+  // 少任何一条，「已付费用户查不到订单」都会重新伪装成「暂无支付记录」。
+  // [^{}]* 保证不跨出 else 块边界——用 [\s\S]{0,300}? 会 backtrack 到 catch 里的
+  // 置位，等于没查（第一版就这么漏的）。
+  ok('I1a ok:false 拒绝分支置 ordersError（服务端明确失败 ≠ 空态）',
+    /Array\.isArray\(r\.result\.orders\)[\s\S]{0,300}?else\s*\{[^{}]*setOrdersError\(true\)/.test(src));
+  ok('I1b catch 异常分支置 ordersError（网络抖动 ≠ 空态）',
+    /loadOrders failed[\s\S]{0,120}?setOrdersError\(true\)/.test(src));
   ok('I2 渲染分支区分 ordersError 与 orders.length===0', /ordersError && orders\.length === 0/.test(src));
   const lang = read('src/store/language.ts');
   ok('I3 中英文都有 ordersError 与 common.retry 键',
