@@ -118,6 +118,63 @@
   }
 
   // ---------- ② 固定元素遮挡（顶 / 中 / 底 三个滚动位） ----------
+  /**
+   * 找真正的滚动容器。
+   *
+   * ⚠️ 2026-10-24 修正：原先直接 `window.scrollTo`，在 Taro H5 上**恒不滚动** ——
+   * Taro 把页面挂进 `.taro_page`（position:absolute; height:100%; overflow-y:auto），
+   * 内容在容器内滚动，documentElement.scrollHeight 永远等于 clientHeight。
+   * 后果是「中/底滚动位」实际都在顶部位度量，遮挡结论整段失真（既漏掉真遮挡，
+   * 也会把「滚一下就能让开」的临时重叠误报成永久遮挡）。
+   * 现在优先取 `.taro_page`，兜底找第一个可滚动祖先，并把选中的容器写进输出备查。
+   */
+  const findScroller = () => {
+    const taroPage = document.querySelector('.taro_page');
+    if (taroPage && taroPage.scrollHeight > taroPage.clientHeight + 4) return taroPage;
+    for (const el of document.querySelectorAll('body *')) {
+      if (el.closest('.taro-tabbar')) continue;
+      const cs = getComputedStyle(el);
+      if (cs.overflowY !== 'auto' && cs.overflowY !== 'scroll') continue;
+      if (el.scrollHeight > el.clientHeight + 4) return el;
+    }
+    return document.scrollingElement || document.documentElement;
+  };
+  const scroller = findScroller();
+  const scrollTo = (y) => {
+    if (typeof scroller.scrollTo === 'function') scroller.scrollTo(0, y);
+    else scroller.scrollTop = y;
+  };
+  const maxScroll = () => Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+
+  /**
+   * 等内容长稳。
+   *
+   * ⚠️ 2026-10-24 修正：Taro 页面内容是异步加载的（云调用 / RSS / 记忆恢复），
+   * scrollHeight 会在首屏后持续增长数秒（实测简报页 854 → 1254）。若在增长期度量，
+   * `maxScroll()` 拿到的是旧值，bottom 实际只滚到一小段（实测只到 92），
+   * 于是「再滚 400px 就能让开」的临时重叠被误判成永久遮挡。
+   * 现在轮询到高度连续两次不变再开始度量；仍设 20 次（约 6s）上限防永等。
+   */
+  const settle = async () => {
+    let last = -1;
+    for (let i = 0; i < 20; i++) {
+      await sleep(300);
+      const h = scroller.scrollHeight;
+      if (h === last) return h;
+      last = h;
+    }
+    return last;
+  };
+  /** 滚动并确认到位：内容若在滚动途中又变长，重滚一次（宁多滚也不要停在错位） */
+  const scrollAndConfirm = async (y) => {
+    scrollTo(y);
+    await sleep(400);
+    if (Math.abs(scroller.scrollTop - y) > 2) {
+      scrollTo(y);
+      await sleep(400);
+    }
+  };
+
   const snapshot = (tag) => {
     const fixedEls = [];
     for (const el of document.querySelectorAll('body *')) {
@@ -154,22 +211,26 @@
         covered: covered.slice(0, 5),
       });
     }
-    out.states.push({ tag, scrollY: Math.round(window.scrollY), fixed: items });
+    out.states.push({ tag, scrollY: Math.round(scroller.scrollTop), fixed: items });
   };
 
+  await settle();
+  const topMax = maxScroll();
   snapshot('top');
-  const mid = Math.min(400, Math.max(0, document.documentElement.scrollHeight - innerHeight));
-  window.scrollTo(0, mid);
-  await sleep(450);
+  const mid = Math.min(400, maxScroll());
+  await scrollAndConfirm(mid);
   snapshot('mid');
-  window.scrollTo(0, document.documentElement.scrollHeight);
-  await sleep(450);
+  const bottom = maxScroll();
+  await scrollAndConfirm(bottom);
   snapshot('bottom');
   out.scroll = {
-    scrollH: document.documentElement.scrollHeight,
-    clientH: document.documentElement.clientHeight,
+    scrollH: scroller.scrollHeight,
+    clientH: scroller.clientHeight,
+    maxScroll: bottom,
     midScrollY: mid,
+    scroller: label(scroller),
+    settledBeforeTop: topMax,
   };
-  window.scrollTo(0, 0);
+  scrollTo(0);
   return JSON.stringify(out);
 })()

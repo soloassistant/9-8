@@ -8,11 +8,18 @@
  * 判据（硬伤 = 退出码 1）：
  *   · 任一页出现未捕获异常（[EXCEPTION]）或页面未加载（chrome-error / body 缺失）
  *   · 对比度 < 3.0（WCAG 大字号阈值）：文字基本不可读
- *   · 中/底滚动位：固定元素（排除底部 TabBar 与一次性建议气泡）压住带文字内容 ≥5% 面积
+ *   · 底（最大滚动位）：固定元素压住带文字内容 ≥5% 面积 —— 内容已滚到底仍被压住，
+ *     用户没有任何操作能让它露出来，是真「不可达」
  * 警告（不挡退出码，但逐条列出）：
  *   · 对比度 3.0~4.5（AA 正文阈值未达）
- *   · 顶滚动位遮挡（悬浮球贴内容属常见形态，只报告）
+ *   · 顶 / 中滚动位遮挡（顶是悬浮球常态；中是滚动途中的瞬时重叠，再滚一下即让开）
  *   · console.error（应用自己记的错误；探针环境云调用必然失败，属预期噪声）
+ *
+ * ⚠️ 判据口径变更（2026-10-24）：原「中/底滚动位均判硬伤」是错的 —— 度量用的是
+ * window.scrollTo，而 Taro H5 的页面在 .taro_page（position:absolute; overflow:auto）
+ * 内滚动，window 恒不滚动；且内容异步增长使 bottom 实际只滚到一小段。
+ * 两件事叠加，把大量「再滚 400px 就能让开」的临时重叠误报成永久遮挡。
+ * 现已修正为：滚动真实容器 + 等高度长稳 + 只有底（最大滚动位）判硬伤。
  *
  * 用法: node .tools/verify-visual-patrol.mjs [--page <route>] [--json]
  * 退出码: 0 = 无硬伤（或本机无 Chrome 时 SKIP）；1 = 有硬伤
@@ -180,7 +187,7 @@ async function main() {
     const consoleErrors = v.logs.filter((l) => l.startsWith('[error]'));
     const occlusions = [];
     for (const st of val.states) {
-      if (st.tag === 'top') continue; // 顶部位只报告不拦
+      if (st.tag !== 'bottom') continue; // 只有最大滚动位算硬伤（见文件头口径说明）
       for (const fx of st.fixed) {
         for (const cv of fx.covered) {
           if (cv.ratio >= OCCLUDE_RATIO) occlusions.push({ state: st.tag, fixed: fx.sel, ...cv });
@@ -189,10 +196,10 @@ async function main() {
     }
     const topOcclusions = [];
     for (const st of val.states) {
-      if (st.tag !== 'top') continue;
+      if (st.tag === 'bottom') continue; // 顶/中都是「滚一下即让开」，只报告
       for (const fx of st.fixed) {
         for (const cv of fx.covered) {
-          if (cv.ratio >= OCCLUDE_RATIO) topOcclusions.push({ fixed: fx.sel, ...cv });
+          if (cv.ratio >= OCCLUDE_RATIO) topOcclusions.push({ state: st.tag, fixed: fx.sel, ...cv });
         }
       }
     }
@@ -229,7 +236,7 @@ async function main() {
     const flag = r.severe.length || r.exceptions.length || r.occlusions.length ? 'FAIL' : 'PASS';
     console.log(
       `${r.name}\t${flag}\t对比度硬伤 ${r.severe.length} / 未达AA ${r.warn.length}\t` +
-        `遮挡(中/底) ${r.occlusions.length} / (顶) ${r.topOcclusions.length}\t` +
+        `遮挡(底/最大滚动) ${r.occlusions.length} / (顶中) ${r.topOcclusions.length}\t` +
         `异常 ${r.exceptions.length} / console.error ${r.consoleErrors.length}\t` +
         `图底跳过 ${r.skippedBgImage}`
     );
@@ -243,7 +250,7 @@ async function main() {
       console.log(`    [遮挡] ${o.fixed} 压住 ${o.sel}（${Math.round(o.ratio * 100)}%）"${o.text}" @${o.state}`);
     }
     for (const o of r.topOcclusions.slice(0, 3)) {
-      console.log(`    [顶部位] ${o.fixed} 压住 ${o.sel}（${Math.round(o.ratio * 100)}%）"${o.text}"`);
+      console.log(`    [顶中位] ${o.fixed} 压住 ${o.sel}（${Math.round(o.ratio * 100)}%）"${o.text}" @${o.state || 'top'}`);
     }
     for (const e of r.exceptions.slice(0, 3)) console.log(`    [异常] ${e.slice(0, 160)}`);
     for (const e of r.consoleErrors.slice(0, 3)) console.log(`    [错误] ${e.slice(0, 160)}`);

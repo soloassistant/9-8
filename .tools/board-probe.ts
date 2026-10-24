@@ -50,7 +50,14 @@ function fakeCtx() {
 
 async function probe(name: string, label: string): Promise<ProbeResult> {
   const t0 = Date.now();
-  try {
+  // 网络瞬时失败重试一次。2026-10-24 实测：baidu 首轮 502 次轮即通；hellogithub
+  // 连续 502/timeout 但同刻 curl 走代理(2.5s)与直连(0.7s)都返 200 —— 是代理对该域名
+  // 的抖动/限速，不是上游真挂。真挂的源重试也过不了，所以重试不会掩盖故障，
+  // 只是把「本机代理抖动」从「板块不可用」里剔出去。
+  const MAX_ATTEMPTS = 2;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+   try {
     const mod = await import(BASE + name + '.ts');
     const fn = mod.handleRoute || mod.default;
     if (typeof fn !== 'function') {
@@ -70,15 +77,25 @@ async function probe(name: string, label: string): Promise<ProbeResult> {
     const timeOk = ms < MAX_MS;
     const ok = countOk && timeOk;
     const flag = ok ? '✓' : '✗';
+    const retried = attempt > 1 ? ` (第${attempt}次尝试)` : '';
     const why = ok ? '' : (countOk ? ` 超时(≥${MAX_MS}ms)` : ' 条数为 0');
-    console.log(`  ${label.padEnd(11)} ${name.padEnd(15)} ${flag} 条数=${String(list.length).padEnd(4)} ${String(ms).padEnd(6)}ms${why}  ${titles.join(' | ')}`);
+    console.log(`  ${label.padEnd(11)} ${name.padEnd(15)} ${flag} 条数=${String(list.length).padEnd(4)} ${String(ms).padEnd(6)}ms${why}${retried}  ${titles.join(' | ')}`);
     return { name, label, ok, count: list.length, titles, ms };
-  } catch (e) {
+   } catch (e) {
+    lastErr = e;
     const ms = Date.now() - t0;
+    if (attempt < MAX_ATTEMPTS) {
+      console.log(`  ${label.padEnd(11)} ${name.padEnd(15)} … 第${attempt}次失败(${ms}ms)，重试一次`);
+      await new Promise((r) => setTimeout(r, 800));
+      continue;
+    }
     const reason = String((e && e.message) || e).slice(0, 160);
-    console.log(`  ${label.padEnd(11)} ${name.padEnd(15)} ✗ 失败 ${ms}ms — ${String(reason).slice(0, 110)}`);
+    console.log(`  ${label.padEnd(11)} ${name.padEnd(15)} ✗ 失败 ${ms}ms（${MAX_ATTEMPTS} 次尝试均失败）— ${String(reason).slice(0, 110)}`);
     return { name, label, ok: false, ms, reason };
+   }
   }
+  // TypeScript 需要：循环必然在上面 return，这里不可达
+  return { name, label, ok: false, reason: String((lastErr && (lastErr as Error).message) || lastErr) };
 }
 
 (async () => {
