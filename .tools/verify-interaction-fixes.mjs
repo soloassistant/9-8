@@ -69,12 +69,13 @@ ok(
   /SERVICE_CORP_ID !== 'TODO_CORP_ID'/.test(svcBody)
 );
 
-/* ---------------- D. 密码登录显式入口 ---------------- */
+/* ---------------- D. 手机号密码登录（2026-10-25：从「切邮箱」绕行入口升为手机通道真实页签） ---------------- */
 const login = stripComments(read('src/pages/login/index.tsx'));
-ok('D1 手机通道有密码登录入口（styles.passwordHint）', /styles\.passwordHint/.test(login));
-ok('D2 入口点击切到邮箱通道', /switchChannel\('email'\)/.test(login));
+ok('D1 手机通道页签含密码登录（otp, password, signup）', /channel === 'phone' \? \['otp', 'password', 'signup'\]/.test(login));
+ok('D2 密码登录标识随通道取值（currentId：手机号 E.164 / 邮箱）', /signInWithPassword\(currentId\(\), password\)/.test(login));
+ok('D3 旧的「切邮箱」绕行入口已移除', !/passwordHint/.test(login));
 const loginScss = stripComments(read('src/pages/login/index.module.scss'));
-ok('D3 passwordHint 样式已定义', /\.passwordHint\s*\{/.test(loginScss));
+ok('D4 passwordHint 样式已删除', !/\.passwordHint\s*\{/.test(loginScss));
 
 /* ---------------- E. 搜索接全网 + 失败态独立 ---------------- */
 const search = stripComments(read('src/pages/search/index.tsx'));

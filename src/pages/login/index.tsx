@@ -427,8 +427,12 @@ export default function LoginPage() {
       setError(t('auth.errCodeNeeded'));
       return;
     }
-    // 仅邮箱新账号必须有密码；手机号注册按 SDK 约定无密码；老账号登录不传密码
-    if (withPassword && channel === 'email' && !pending.isExistingUser && password.length < 8) {
+    // 新账号注册可设密码：邮箱必填；手机号选填 —— SDK 的 signUp/verifyOtp 对两种标识
+    // 都收可选 password（实测 src/assets/wb-sdk.js：`if (e.password) s.password = e.password`）。
+    // 手机号选填是因为短信本就能登；但只要填了就必须 ≥8 位（与邮箱同规则）。老账号登录不传密码。
+    const wantsPassword =
+      withPassword && !pending.isExistingUser && (channel === 'email' || password.length > 0);
+    if (wantsPassword && password.length < 8) {
       setError(t('auth.errPassword'));
       return;
     }
@@ -439,7 +443,7 @@ export default function LoginPage() {
       verificationId: pending.verificationId,
       isExistingUser: pending.isExistingUser,
       token: code.trim(),
-      password: withPassword && channel === 'email' && !pending.isExistingUser ? password : undefined
+      password: wantsPassword ? password : undefined
     });
     setBusy(false);
     if (res.error) {
@@ -461,10 +465,12 @@ export default function LoginPage() {
     }
     clearMsg();
     setBusy(true);
-    const res = await signInWithPassword({ email: account.trim() }, password);
+    // 标识随通道：手机号传 E.164（currentId 已封装），邮箱传地址 —— SDK 的
+    // resolveAuthIdentifier 两种都收，服务端统一按 username 比对。
+    const res = await signInWithPassword(currentId(), password);
     setBusy(false);
     if (res.error) {
-      // 不区分「邮箱不存在」与「密码错」—— 避免暴露账号是否存在。
+      // 不区分「账号不存在」与「密码错」—— 避免暴露账号是否存在。
       // 但「后端根本没连上」不是凭证问题，必须单独说清楚（否则是误导用户去改密码）。
       setError(sdkDownText(res.error, t) || t('auth.errWrongCredentials'));
       return;
@@ -659,8 +665,10 @@ export default function LoginPage() {
   }
 
   const canResend = countdown <= 0 && !busy;
-  // 手机号通道没有「密码登录 / 忘记密码」（SDK 改密仅邮箱），只留 验证码登录 / 注册
-  const tabs: Tab[] = channel === 'phone' ? ['otp', 'signup'] : ['password', 'otp', 'signup', 'forgot'];
+  // 手机号通道也有「密码登录」—— SDK 的 signInWithPassword 接受 phone 标识，
+  // 注册时（或后续）设过密码即可用。但没有「忘记密码」：SDK 的 resetPassword 仅收 email，
+  // 忘了密码的手机号用户走验证码登录即可。
+  const tabs: Tab[] = channel === 'phone' ? ['otp', 'password', 'signup'] : ['password', 'otp', 'signup', 'forgot'];
 
   return (
     <View className={styles.screen}>
@@ -709,17 +717,6 @@ export default function LoginPage() {
             </View>
           ))}
         </View>
-
-        {/* 2026-10-24：手机通道（默认通道）的页签只有 [验证码, 注册]，密码登录页签
-            仅在切到邮箱通道后才出现 —— 用户感知不到「本应用支持密码登录」。
-            这里给一条显式入口：点击即切到邮箱通道并落在密码页签（切换会清空验证码凭据）。 */}
-        {channel === 'phone' ? (
-          <View className={styles.passwordHint} onClick={() => switchChannel('email')}>
-            <Text className={styles.passwordHintText}>
-              {t('auth.idEmail')} · {t('auth.tabPassword')} →
-            </Text>
-          </View>
-        ) : null}
 
         <View className={styles.field}>
           <Text className={styles.label}>{channel === 'phone' ? t('auth.phone') : t('auth.email')}</Text>
@@ -795,8 +792,9 @@ export default function LoginPage() {
                 </View>
               </View>
             </View>
-            {/* 仅邮箱新账号必须有密码；手机号注册按 SDK 约定无密码 */}
-            {channel === 'email' && (tab === 'signup' || (pending && !pending.isExistingUser)) ? (
+            {/* 新账号注册可设密码：邮箱必填；手机号选填（选填说明见 passwordOptionalHint）。
+                手机号设了密码以后就能用「密码登录」页签；不设则始终用验证码登录。 */}
+            {tab === 'signup' || (pending && !pending.isExistingUser) ? (
               <View className={styles.field}>
                 <Text className={styles.label}>{t('auth.password')}</Text>
                 <Input
@@ -806,6 +804,9 @@ export default function LoginPage() {
                   placeholder={t('auth.passwordPlaceholder')}
                   onInput={(e) => setPassword(String(e.detail.value || ''))}
                 />
+                {channel === 'phone' ? (
+                  <Text className={styles.hint}>{t('auth.passwordOptionalHint')}</Text>
+                ) : null}
               </View>
             ) : null}
           </React.Fragment>

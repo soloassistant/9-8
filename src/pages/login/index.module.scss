@@ -349,17 +349,3 @@
   font-weight: $font-weight-semibold;
   letter-spacing: 2rpx;
 }
-
-/* 2026-10-24：手机通道（默认）下的「邮箱 · 密码登录」显式入口。
-   此前密码登录页签只在切到邮箱通道后出现，默认通道下用户完全看不到这个能力。 */
-.passwordHint {
-  display: flex;
-  justify-content: center;
-  margin-top: $spacing-sm;
-}
-
-.passwordHintText {
-  font-size: $font-size-sm;
-  color: $color-text-primary;
-  text-decoration: underline;
-}
