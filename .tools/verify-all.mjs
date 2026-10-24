@@ -90,6 +90,50 @@ function parseCounts(out) {
   };
 }
 
+// ── CI 入口一致性：新加的门禁不许"写好了却没人跑" ──────────────────────────
+//
+// 为什么需要：2026-10-24 审计发现 `verify:contrast` 和 `verify:util` 都曾写好但没接 CI，
+// 「没接 CI 就等于没写」。而 CI 里的步骤是**手写清单**，必然继续腐烂。
+//
+// 匹配口径刻意放宽到「脚本路径」而不只是 `npm run <name>`：
+//   CI 里 `verify:intel` 是用冻结夹具直调 `node .tools/analyze-intel.js .tools/fixtures/...` 的，
+//   只认 npm run 会把它误判成"没接"。判据宽一点换来零误报，但**不能宽到认不出来**：
+//   只认「npm run <gate>」或「该 gate 脚本的真实路径」，不含通配、不做子串模糊。
+const CI_EXEMPT = new Map([
+  ['verify:all', '自身，CI 里没有递归跑的必要'],
+  ['verify:layout', '需真 Chrome，CI 不跑浏览器门禁'],
+  ['verify:visual', '同上'],
+  ['verify:boards', '需外网（9 个热榜源），CI 明确不跑']
+]);
+
+export function checkCiParity(ciText, scripts, exempt = CI_EXEMPT) {
+  // ⚠️ 必须先剥掉 YAML 注释再匹配。checks.yml 顶部有一整段「**故意不放进这里**」的说明，
+  //    里面写着 `npm run verify:boards 要联网…` —— 第一版没剥注释，于是这个从未接进 CI
+  //    的门禁被判成"已接进"，而它的豁免条目反被判成失效。
+  //    这与 verify-docs B3 被自己的解释性注释误杀是同一个坑：**判据不能把注释当事实**。
+  const body = ciText
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n');
+  const gates = Object.keys(scripts).filter((k) => k.startsWith('verify:'));
+  const referenced = new Set([...body.matchAll(/npm run (verify:[\w-]+)/g)].map((m) => m[1]));
+  // 每个 gate 的脚本路径（取第一条 .tools/ 路径，够用且不受多脚本影响）
+  const pathOf = (g) => (String(scripts[g]).match(/\.tools\/[\w./-]+\.(mjs|js|cjs)/) || [])[0] || null;
+  const missing = gates.filter((g) => {
+    if (exempt.has(g)) return false;
+    if (referenced.has(g)) return false;
+    const p = pathOf(g);
+    return !(p && body.includes(p));
+  });
+  // 反向：CI 引用了 package.json 里不存在的 gate —— 步骤会直接失败，且说明有人删了脚本没删步骤
+  const orphan = [...referenced].filter((g) => !gates.includes(g));
+  // 豁免表腐烂：豁免了但 gate 已不存在 / 或其实已经接进 CI 了
+  const stale = [...exempt.keys()].filter(
+    (g) => !gates.includes(g) || referenced.has(g) || (pathOf(g) && body.includes(pathOf(g)))
+  );
+  return { gates, missing, orphan, stale };
+}
+
 // ── 自查：判定规则的真值表 ──────────────────────────────────────────────────
 if (process.argv.includes('--self-test')) {
   const cases = [
@@ -124,8 +168,75 @@ if (process.argv.includes('--self-test')) {
     if (!okc) bad++;
     console.log(`  ${okc ? '✓' : '✗'} parseCounts(${JSON.stringify(input)}) = ${JSON.stringify(got)}`);
   }
-  console.log(`\nSELF-TEST ${cases.length + pc.length - bad}/${cases.length + pc.length}`);
+  // ── CI 一致性判据的真值表（喂合成输入，不读真文件）──────────────────────────
+  // 没有这一组，「PARITY PASS」只说明当前仓库没缺口，说明不了判据抓得住缺口。
+  const syn = {
+    'verify:aa': 'node .tools/aa.mjs',
+    'verify:bb': 'node .tools/bb.mjs',
+    // 用真实的豁免名，才能测「豁免表失效」那条
+    'verify:boards': 'node .tools/verify-boards.js'
+  };
+  const pq = [
+    // [说明, CI 文本, 期望的 missing, 期望的 orphan, 期望的 stale]
+    ['两条都接进 CI', '  - run: npm run verify:aa\n  - run: npm run verify:bb', [], [], []],
+    ['bb 漏接', '  - run: npm run verify:aa', ['verify:bb'], [], []],
+    // ↓ 核心：本仓库 checks.yml 顶部真的写着「npm run verify:boards 要联网」这句说明。
+    //   判据若把注释当事实，就会把「故意不跑」读成「已经跑了」。
+    ['bb 只在注释里被提到，不算接进', '# 故意不跑 npm run verify:bb\n  - run: npm run verify:aa', ['verify:bb'], [], []],
+    ['用脚本路径直调（CI 里 verify:intel 就是这么跑的）', '  - run: node .tools/bb.mjs .tools/fixtures/x.json', ['verify:aa'], [], []],
+    ['CI 引用了不存在的门禁', '  - run: npm run verify:zz', ['verify:aa', 'verify:bb'], ['verify:zz'], []],
+    ['豁免了的门禁其实已接进 CI → 豁免表失效', '  - run: npm run verify:boards', ['verify:aa', 'verify:bb'], [], ['verify:boards']]
+  ];
+  for (const [desc, ci, wMissing, wOrphan, wStale] of pq) {
+    // 用**合成豁免表**而不是模块级 CI_EXEMPT：后者登记的是真实门禁名，
+    // 拿合成 scripts 去跑会把它们全判成「已删除」。判据要能脱离真实数据被测试。
+    const r = checkCiParity(ci, syn, new Map([['verify:boards', '测试用']]));
+    const okc =
+      JSON.stringify(r.missing) === JSON.stringify(wMissing) &&
+      JSON.stringify(r.orphan) === JSON.stringify(wOrphan) &&
+      JSON.stringify(r.stale) === JSON.stringify(wStale);
+    if (!okc) bad++;
+    console.log(
+      `  ${okc ? '✓' : '✗'} parity[${desc}] → missing=${JSON.stringify(r.missing)} orphan=${JSON.stringify(r.orphan)} stale=${JSON.stringify(r.stale)}`
+    );
+  }
+
+  const totalCases = cases.length + pc.length + pq.length;
+  console.log(`\nSELF-TEST ${totalCases - bad}/${totalCases}`);
   process.exit(bad === 0 ? 0 : 2);
+}
+// ── 只查 CI 一致性（静态，不执行任何门禁；毫秒级，CI 里单独一步）──────────────
+if (process.argv.includes('--parity')) {
+  const pkgP = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const ciPath = path.join(ROOT, '.github/workflows/checks.yml');
+  if (!fs.existsSync(ciPath)) {
+    console.error('✗ 找不到 .github/workflows/checks.yml');
+    process.exit(1);
+  }
+  const { gates, missing, orphan, stale } = checkCiParity(fs.readFileSync(ciPath, 'utf8'), pkgP.scripts || {});
+  let bad = 0;
+  if (missing.length) {
+    bad++;
+    console.log(`✗ ${missing.length} 个门禁既没接进 CI、也没登记豁免：`);
+    for (const g of missing) console.log(`      · ${g} → ${pkgP.scripts[g]}`);
+    console.log('    接进 checks.yml，或在 CI_EXEMPT 里给出可核查的理由。');
+  } else {
+    console.log(`  ✓ 全部 ${gates.length} 个 verify:* 都有归属（接进 CI 或登记豁免）`);
+  }
+  if (orphan.length) {
+    bad++;
+    console.log(`✗ CI 引用了 package.json 里不存在的门禁：${orphan.join('、')}`);
+  } else {
+    console.log('  ✓ CI 里没有指向已删除门禁的残留步骤');
+  }
+  if (stale.length) {
+    bad++;
+    console.log(`✗ CI_EXEMPT 里有失效条目（门禁已删，或其实已接进 CI）：${stale.join('、')}`);
+  } else {
+    console.log('  ✓ CI_EXEMPT 没有失效条目');
+  }
+  console.log(`\nPARITY ${bad === 0 ? 'PASS' : `FAIL ${bad}`}`);
+  process.exit(bad === 0 ? 0 : 1);
 }
 
 const argv = process.argv.slice(2);

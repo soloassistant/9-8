@@ -39,5 +39,36 @@ export default [
     from: '/(?:FAIL|失败)\\s*[:：]?\\s*(\\d+)\\b/',
     to: '/(?:FAIL)\\s*[:：]?\\s*(\\d+)\\b/',
     cmd: 'node .tools/verify-all.mjs --self-test'
+  },
+  {
+    // 行为后果：checks.yml 顶部那一段「**故意不放进这里**」的说明里就写着
+    //          `npm run verify:boards 要联网`。不剥注释 → 「故意不跑」被读成「已经在跑」，
+    //          于是这个门禁从没进过 CI 却永远查不出来。
+    // 哪条变红：self-test「bb 只在注释里被提到，不算接进」期望 missing 含 verify:bb。
+    label: 'CI 一致性不剥 YAML 注释（注释里的命令被当成真的在跑）',
+    file: '.tools/verify-all.mjs',
+    from: '    .filter((l) => !/^\\s*#/.test(l))',
+    to: '    .filter(() => true)',
+    cmd: 'node .tools/verify-all.mjs --self-test'
+  },
+  {
+    // 行为后果：CI 里 verify:intel 是用冻结夹具直调 `node .tools/analyze-intel.js` 的。
+    //          只认 gate 名 → 它被判成"没接进 CI"，让人以为要重复加一步。
+    // 哪条变红：self-test「用脚本路径直调」期望 missing 不含 verify:bb。
+    label: 'CI 一致性只认 npm run 名、不认脚本路径直调',
+    file: '.tools/verify-all.mjs',
+    from: '    return !(p && body.includes(p));',
+    to: '    return !(p && body.includes(g));',
+    cmd: 'node .tools/verify-all.mjs --self-test'
+  },
+  {
+    // 行为后果：豁免表里躺着已经接进 CI 的条目，会掩盖"这个门禁其实有人跑过了"，
+    //          也会让真正被豁免的那几个混在噪声里（= 豁免表开始腐烂而无人知）。
+    // 哪条变红：self-test「豁免了的门禁其实已接进 CI」期望 stale 含 verify:boards。
+    label: 'CI 豁免表不再检查「其实已接进 CI」',
+    file: '.tools/verify-all.mjs',
+    from: '    (g) => !gates.includes(g) || referenced.has(g) || (pathOf(g) && body.includes(pathOf(g)))',
+    to: '    (g) => !gates.includes(g) || (pathOf(g) && body.includes(pathOf(g)))',
+    cmd: 'node .tools/verify-all.mjs --self-test'
   }
 ];
