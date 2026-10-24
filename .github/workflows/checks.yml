@@ -261,7 +261,7 @@ jobs:
         # 任何 <Button> 带 disabled 就必须是 disabledAttr(...)。CSS 层无法区分真禁用/没禁用。
         run: npm run verify:buttons
 
-      - name: 对比度静态门禁（106 条）
+      - name: 对比度静态门禁（109 条）
         # 2026-10-24 审计指出「verify:contrast 写好了却没接 CI」—— 这里补上。
         # 它与 verify:buttons 是**两层**：buttons 守「属性渲染方式」，这一步守「配色算出来能不能读」
         # （白字压浅橙、金色当正文、付费卡 75% 白、真禁用被 WeUI 染白）。

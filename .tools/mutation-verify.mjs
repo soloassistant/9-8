@@ -113,14 +113,19 @@ function runCase(c) {
   }
   const raw = readFileSync(filePath, 'utf8');
   // ⚠️ 换行归一（2026-10-24 补）：同一次 checkout 里既有 LF（.tsx / 新写的 .scss）也有 CRLF
-  //    （较早的 .scss，如 mine/calendar/learn）。锚点一律按 LF 书写（CI 是 Linux），
+  //    （较早的 .scss 与 src/utils/phoneIntl.ts）。锚点一律按 LF 书写（CI 是 Linux），
   //    所以**匹配前把 CRLF 折成 LF**、写回时再还原成该文件原本的换行、恢复时写回原始字节。
   //    不归一的话：多行锚点在本机"出现 0 次"（错报成 case 写错了），在 CI 上又能过 ——
   //    这是最坏的一种假红/假绿混合态。
+  //    ⚠️ 但**两侧都要归一**：mutations-phone.mjs 的锚点是运行时从源码里截出来的整段函数原文，
+  //    源码是 CRLF，若只归一 orig 而不归一 from，那 4 条会立刻变成"锚点出现 0 次"。
+  //    2026-10-24 实测踩到过：归一一侧 → caught 81 / error 4。
   const eol = raw.includes('\r\n') ? '\r\n' : '\n';
   const orig = eol === '\n' ? raw : raw.replace(/\r\n/g, '\n');
   const flush = (s) => (eol === '\n' ? s : s.replace(/\n/g, '\r\n'));
-  const occurrences = orig.split(c.from).length - 1;
+  const FROM = c.from.replace(/\r\n/g, '\n');
+  const TO = c.to.replace(/\r\n/g, '\n');
+  const occurrences = orig.split(FROM).length - 1;
   if (occurrences !== 1) {
     out.detail = `锚点出现 ${occurrences} 次（要求正好 1 次）—— 修 case 的 from，别猜`;
     return out;
@@ -149,7 +154,7 @@ function runCase(c) {
   }
 
   const before = sha256(raw);
-  const mutated = orig.replace(c.from, c.to);
+  const mutated = orig.replace(FROM, TO);
   if (mutated === orig) {
     out.detail = '变异没产生任何变化（from/to 等价？）';
     return out;
@@ -163,7 +168,7 @@ function runCase(c) {
     writeFileSync(filePath, flush(mutated));
     mutatedOnDisk = true;
     const written = readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n');
-    if (!written.includes(c.to)) {
+    if (!written.includes(TO)) {
       out.detail = '写回后没找到 to（写入被截断？）';
       return out;
     }

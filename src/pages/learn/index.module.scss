@@ -58,7 +58,13 @@
 
 .langTabActive {
   font-weight: $font-weight-semibold;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  // 2026-10-24（巡检实测 1.50:1）：这里原来是紫→粉渐变 #6366f1→#8b5cf6→#ec4899，
+  // 而 .tsx 给激活项的内联样式写了 `color: accent`（蓝/红/紫）——**内联优先于 class**，
+  // 于是「英语」的 #2F6DB5 蓝字压在粉底上只有 1.50:1。
+  // 就算把内联色去掉也没救：白字压这层粉只有 3.53:1。所以底色必须换掉 ——
+  // 改成用**该语种自己的 accent 填底**（.tsx 内联注入，白字），data 里三个 accent
+  // 本来就是按"白字压它 ≥5.2"选的：#2F6DB5 5.28 / #C7394A 5.2 / #5B4FC4 5.6。
+  background: var(--brand-strong, $color-primary-strong); // 无内联时的兜底，同样 5.26
   border-color: transparent;
   color: #fff;
   box-shadow: 0 4rpx 16rpx rgba(99, 102, 241, 0.3);
@@ -375,7 +381,9 @@
 .recGo {
   flex-shrink: 0;
   font-size: $font-size-sm;
-  color: $color-text-disabled;
+  // 2026-10-24（巡检实测 1.50:1）：这个「›」是**可点提示**，不是失效控件，
+  // 误用禁用灰 #c9cdd4 在 #f7f8fa 卡片上等于没有。tertiary = 4.7:1。
+  color: $color-text-tertiary;
 }
 
 /* 页脚 */

@@ -358,7 +358,9 @@ const J_POINTS = [
 ];
 for (const [file, cls, expect, why] of J_POINTS) {
   try {
-    const blocks = blocksOf(read(file), cls);
+    // ⚠️ 必须剥注释：这些块的说明文字里**照抄了** `--brand-strong`（"换 --brand-strong 后…"），
+    // 不剥的话把 background 改回 --brand 也照样 PASS —— 变异测试实测 NOT-CAUGHT 抓到的就是这个。
+    const blocks = blocksOf(stripComments(read(file)), cls);
     ok(`J ${cls} 用 ${expect}（${why}）`, blocks.length > 0 && blocks.some((b) => b.includes(expect)));
   } catch (e) {
     ok(`J ${cls} 读取失败: ${e.message}`, false);
@@ -416,7 +418,7 @@ try {
 }
 
 try {
-  const lc = read('src/pages/learnCommunity/index.module.scss');
+  const lc = stripComments(read('src/pages/learnCommunity/index.module.scss'));
   const meta = [...blocksOf(lc, 'badgeDesc'), ...blocksOf(lc, 'postTime')];
   ok('J11 learnCommunity 成就进度/动态时间不误用禁用灰（#c9cdd4 白底 1.5:1）',
     meta.length >= 2 && meta.every((b) => !b.includes('$color-text-disabled')));
@@ -428,7 +430,7 @@ try {
 }
 
 try {
-  const sq = read('src/pages/search/index.module.scss');
+  const sq = stripComments(read('src/pages/search/index.module.scss'));
   const st = blocksOf(sq, 'scopeTabTextActive');
   ok('J12 search .scopeTabTextActive 用 --brand-strong（原 --brand-deep 3.20:1）',
     st.length > 0 && st.some((b) => b.includes('--brand-strong')) && st.every((b) => !b.includes('var(--brand-deep')));
@@ -437,7 +439,7 @@ try {
 }
 
 try {
-  const cal = read('src/pages/calendar/index.module.scss');
+  const cal = stripComments(read('src/pages/calendar/index.module.scss'));
   // 去掉注释再比顺序：注释里也写着 `.today`/`.selected`，直接 indexOf 会被自己的解释误杀
   const calCode = cal.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
   const today = blocksOf(cal, 'today');
@@ -455,10 +457,22 @@ try {
 }
 
 try {
-  const learnScss = read('src/pages/learn/index.module.scss');
+  const learnScss = stripComments(read('src/pages/learn/index.module.scss'));
   const freeze = blocksOf(learnScss, 'freezeText');
   ok('J15 learn .freezeText 用 #0b57c9（#1266e0 在浅蓝冻结卡上实测 4.36:1）',
     freeze.length > 0 && freeze.some((b) => /#0b57c9/i.test(b)));
+  // J16 语种激活页签：原来底色是紫→粉渐变，白字压 #ec4899 只有 3.53:1
+  const langTabActive = blocksOf(learnScss, 'langTabActive');
+  ok('J16 learn .langTabActive 不用紫→粉渐变底（白字压 #ec4899 仅 3.53:1）',
+    langTabActive.length > 0 && langTabActive.every((b) => !/ec4899|8b5cf6/i.test(b)));
+  // J17 更隐蔽的一层：.tsx 给激活项写了内联 `color: accent`，**内联优先于 class**，
+  //     于是蓝字压在自己的彩色底上 = 1.50:1。这条断言守的是内联样式本身，不是 scss。
+  const learnTsx = read('src/pages/learn/index.tsx');
+  ok('J17 learn 语种激活项内联样式只给 accent 填底/描边，不再写 color（内联会盖掉白字）',
+    learnTsx.includes('{ background: l.accent, borderColor: l.accent }'));
+  const recGo = blocksOf(learnScss, 'recGo');
+  ok('J18 learn .recGo 不用禁用灰（它是可点提示，实测 1.50:1）',
+    recGo.length > 0 && recGo.every((b) => !b.includes('$color-text-disabled')));
 } catch (e) {
   ok('J15 读取失败: ' + e.message, false);
 }

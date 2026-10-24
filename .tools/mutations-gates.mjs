@@ -194,5 +194,15 @@ export default [
     from: 'color: #0b57c9;',
     to: 'color: #1266e0;',
     cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    // 这条是"内联优先于 class"的经典现场：scss 里 .langTabActive 明明白白写着 color:#fff，
+    // 但 .tsx 的内联 `color: l.accent` 把它盖掉 → 蓝字压自己的彩色底 1.50:1。
+    // 只在 scss 层验收永远抓不到，所以变异必须打在内联样式上。
+    label: '语种激活项内联 color 回来（内联盖掉 class 的白字，1.50:1）',
+    file: 'src/pages/learn/index.tsx',
+    from: '{ background: l.accent, borderColor: l.accent }',
+    to: '{ borderColor: l.accent, color: l.accent }',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
   }
 ];

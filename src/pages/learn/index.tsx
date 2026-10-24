@@ -127,13 +127,16 @@ function LearnPage() {
         <Text className={styles.backIcon}>‹</Text>
         <Text className={styles.backText}>{t('common.back')}</Text>
       </View>
-      {/* 语种切换 */}
+      {/* 语种切换
+          ⚠️ 激活项用该语种自己的 accent 填底 + 白字（原因写在 .langTabActive 的注释里）。
+          不要再往这里加 `color: l.accent`：内联色会盖掉 class 的白字，
+          实测「英语」的蓝字压在自己的彩色底上只有 1.50:1。 */}
       <View className={styles.langBar}>
         {LEARN_LANGS.map((l) => (
           <View
             key={l.id}
             className={classnames(styles.langTab, l.id === langId && styles.langTabActive)}
-            style={l.id === langId ? { borderColor: l.accent, color: l.accent } : undefined}
+            style={l.id === langId ? { background: l.accent, borderColor: l.accent } : undefined}
             onClick={() => handleLangChange(l.id)}
           >
             <Text className={styles.langDot} style={{ background: l.accent }} />
