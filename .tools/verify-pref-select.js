@@ -204,6 +204,14 @@ ok(
   cloud.includes('hotspot.items.slice(0, 3)') === false
 );
 ok('偏好取自 user-settings（与「我的」页同一份）', cloud.includes("readProfileSettings().preferences"));
+// 2026-10-24：兜底映射必须保留 url/image。原写法只留 {text,source}，与云端 fallback 路径
+// （briefing/index.tsx:1459 注释：实际带 image/url）不一致 —— H5 兜底态条目不可点开原文、
+// 不可分享、无缩略图，2026-10-22 的图片/点击增量与 10-24 的分享按钮在兜底态全部失效。
+// 窗口从映射锚点起算、到 })) 收口，防止 backtrack 到别处的 url 字样造成假绿。
+ok(
+  '兜底 intelItems 保留 url/image（原缺陷：只留 {text,source}）',
+  /intel\.intelItems = picked\.map\(\(it\) => \(\{[\s\S]{0,200}?url: it\.url[\s\S]{0,80}?image: it\.image\s*\}\)\)/.test(cloud)
+);
 
 /* ===================== 汇总 ===================== */
 

@@ -47,8 +47,25 @@
   flex-direction: column;
 }
 
+/* 单条情报卡片化（2026-10-24 对标优化，来源：weapp-benchmark P1-2）：
+   网易新闻精选的形态是「卡片单条」（醒目标题 + 配图 + 见解）—— 卡片才适合分享到聊天，
+   平铺列表项的点击与分享意愿都低。父容器 .section 已是白卡（card-surface），
+   故条目用 $color-bg-page 浅灰面 + 圆角做出「嵌套卡片」层次，条目间用间距分隔
+   （原来是 padding 挤在一起的纯文本行，视觉上是一坨）。 */
 .item {
-  padding: $spacing-xs 0;
+  padding: $spacing-sm $spacing-md;
+  background: $color-bg-page;
+  border-radius: $radius-md;
+  margin-bottom: $spacing-sm;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  /* 整条按压反馈：卡片是可点的（点正文开原文、点图看大图） */
+  &:active {
+    background: $color-bg-hover;
+  }
 }
 
 /* 单条横向布局：正文左弹性 + 缩略图右固定（无图时缩略图不渲染，正文自然占满） */
@@ -63,10 +80,13 @@
   min-width: 0; // flex 子项默认 min-width:auto 会撑破容器，必须显式 0
 }
 
-/* 条目正文 + 前置序号（与导语内 [n] 一一对应） */
+/* 条目正文 + 前置序号（与导语内 [n] 一一对应）。
+ * 2026-10-24 对标优化：字重 medium —— 「醒目标题」是卡片形态的骨架
+ * （网易新闻精选卡片 = 醒目标题 + 配图 + 见解），全Regular 的卡片没有视觉层级。 */
 .itemText {
   display: block;
   font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
   color: $color-text-secondary;
   line-height: $line-height-loose;
 }
@@ -76,12 +96,51 @@
   font-weight: $font-weight-medium;
 }
 
-/* 来源标注：合规要求来源必须可见 */
+/* 来源标注：合规要求来源必须可见。2026-10-24 卡片化升级为 chip ——
+   白底浮在浅灰卡片面上（#657080 on #fff = 5.02:1，AA 达标），
+   与正文之间用 6rpx 间距分开，不再挤在正文尾部。 */
 .itemSource {
-  display: block;
-  margin-top: 4rpx;
+  display: inline-block;
+  margin-top: 6rpx;
+  padding: 2rpx 10rpx;
   font-size: $font-size-xs;
   color: $color-text-tertiary;
+  background: $color-bg-card;
+  border-radius: $radius-xs;
+}
+
+/* 卡片底行：来源 chip 左 + 分享按钮右（2026-10-24 对标 weapp-benchmark P1-2：
+   「单条情报做成可分享卡片」—— 卡片形态的完整定义含一键转发）。 */
+.itemFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* 分享按钮：weapp 是 Button（open-type='share'），H5 是 Text，共用此类。
+ * 热区 ≥44px（88rpx）：修遗留项「热区 32/44px 那一批」—— 原 library 分享按钮
+ * 行高仅约 20px，拇指根本点不中。min-height 保证纵向达标，横向 padding 兜底。 */
+.shareBtn {
+  padding: 0 $spacing-md;
+  min-height: 88rpx;
+  display: flex;
+  align-items: center;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  background: transparent;
+  border: none;
+  line-height: normal;
+  white-space: nowrap;
+  flex-shrink: 0;
+
+  /* 重置 weapp Button 默认样式 */
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    opacity: 0.6;
+  }
 }
 
 /* 配图缩略图：128rpx 见方（rpx！勿写 px —— 本仓 h5 baseFontSize=37.5，px 会被再缩）；

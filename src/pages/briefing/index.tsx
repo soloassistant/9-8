@@ -230,11 +230,22 @@ function BriefingPage() {
   // 标题 AI 显式标识须门控（合规硬门槛）：仅订阅档 AI 启用且未降级才挂「AI 整理｜」前缀，
   // 与免责页脚（common.disclaimerAI）同一口径；免费档/降级档转发不得声称 AI 整理 ——
   // 免费档情报来自公开 RSS 的本地分组、全程无 LLM，署 AI 名即对功能能力的虚假陈述。
-  useShareAppMessage(() => ({
-    title: t(intelResolved.aiEnabled && !intelResolved.degraded ? 'share.titleAI' : 'share.title', { title: t('share.title') }),
-    path: '/pages/briefing/index',
-    imageUrl: shareCover
-  }));
+  useShareAppMessage((res) => {
+    // 单条情报转发（2026-10-24 对标 weapp-benchmark P1-2）：IntelItemRow 的 Button
+    // open-type='share' 带 data-intel-title/url；命中 dataset 时转发该条原文标题，
+    // 无 dataset（右上角菜单转发整页）走下方原品牌封面逻辑。
+    // 条目文本是 RSS 原标题（LLM 只产组导语、不产条目），不涉及 AI 生成内容标识，故不挂 AI 前缀。
+    const ds = (res?.target as { dataset?: { intelTitle?: string; intelUrl?: string } } | undefined)
+      ?.dataset;
+    if (ds?.intelTitle) {
+      return { title: ds.intelTitle, path: '/pages/briefing/index' };
+    }
+    return {
+      title: t(intelResolved.aiEnabled && !intelResolved.degraded ? 'share.titleAI' : 'share.title', { title: t('share.title') }),
+      path: '/pages/briefing/index',
+      imageUrl: shareCover
+    };
+  });
 
   /**
    * 守护结算串行化（in-flight 互斥）。

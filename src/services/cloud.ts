@@ -358,9 +358,15 @@ export async function callFunction<T = unknown>(
           // 改用与云函数 selectForUser 同算法的客户端选位（src/utils/prefSelect.ts）。
           const prefs = readProfileSettings().preferences
           const picked = selectByPreference(hotspot.items, prefs, 3)
+          // 2026-10-24 补 url/image：原映射只留 {text,source}，与云端 fallback 路径
+          // （briefing/index.tsx:1459 注释：实际带 image/url）不一致 —— 后果是
+          // H5 兜底态条目不可点开原文、不可分享、无缩略图，2026-10-22 的
+          // 卡片化/分享增量在兜底态全部失效。字段可选，缺失时组件自动降级。
           intel.intelItems = picked.map((it) => ({
             text: it.title,
-            source: it.source
+            source: it.source,
+            url: it.url,
+            image: it.image
           }))
         }
         briefing.intel = intel

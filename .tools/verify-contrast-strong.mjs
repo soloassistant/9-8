@@ -315,6 +315,28 @@ try {
   ok('I 组读取失败: ' + e.message, false);
 }
 
+// ============ K. 情报条目卡片化（2026-10-24 对标 weapp-benchmark P1-2） ============
+// 网易新闻精选形态：卡片单条（醒目标题 + 配图 + 见解）。三条断言各守一个不变量：
+// 浅灰面（不能白面白底看不见）、来源 chip 的白底+tertiary（5.02:1）、
+// 正文保持 secondary（不抢导语层级，medium 字重提供醒目）。
+try {
+  const scss = read('src/components/IntelGroupCard/index.module.scss');
+  const itemBlocks = blocksOf(scss, 'item');
+  ok('K1 情报条目浅灰面 $color-bg-page（嵌套白卡内的卡片层次，白面会看不见）',
+    itemBlocks.length > 0 && itemBlocks.some((b) => b.includes('$color-bg-page')));
+  const srcBlocks = blocksOf(scss, 'itemSource');
+  ok('K2 来源 chip 白底 $color-bg-card + tertiary 字（#657080 on #fff = 5.02:1）',
+    srcBlocks.length > 0 && srcBlocks.some((b) => b.includes('$color-text-tertiary') && b.includes('$color-bg-card')));
+  const textBlocks = blocksOf(scss, 'itemText');
+  ok('K3 条目正文保持 secondary 色 + medium 字重（醒目但不抢导语层级）',
+    textBlocks.length > 0 && textBlocks.some((b) => b.includes('$color-text-secondary') && b.includes('$font-weight-medium')));
+  const shareBlocks = blocksOf(scss, 'shareBtn');
+  ok('K4 分享按钮热区 min-height: 88rpx（≥44px，修遗留「热区 32/44px」；原 library 分享按钮行高约 20px 点不中）',
+    shareBlocks.length > 0 && shareBlocks.some((b) => b.includes('min-height: 88rpx')));
+} catch (e) {
+  ok('K 组读取失败: ' + e.message, false);
+}
+
 console.log('──────────────────────────────────────────────────────────');
 console.log(`PASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);

@@ -1,9 +1,11 @@
-import { View, Text, Image } from '@tarojs/components';
+import { View, Text, Image, Button } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { splitLeadSegments } from '@/utils/intelGroups';
 import type { IntelGroup, IntelLeadSegment, IntelSourceRef } from '@/utils/intelGroups';
 import { openExternalPage } from '@/utils/externalLink';
 import styles from './index.module.scss';
+
+const isWeapp = process.env.TARO_ENV === 'weapp';
 
 /**
  * 单组情报渲染：主题名 + AI 导语（分段 + 内联引用）+ 组内条目。
@@ -92,6 +94,20 @@ export function IntelItemRow({ item, index }: { item: IntelSourceRef; index?: nu
     );
   };
 
+  /** 分享单条（2026-10-24 对标 weapp-benchmark P1-2：卡片才适合分享到聊天）：
+   *  H5 复制「标题（来自来源）+ 链接」到剪贴板 —— 与 library 页 X9 同一降级范式，不引 canvas。
+   *  weapp 走 Button open-type='share'（见渲染处），由 briefing 页 useShareAppMessage 读 dataset 响应。
+   *  只分享原文标题+来源+链接：item.text 是 RSS 原标题（LLM 只产组导语，不产条目），
+   *  不存在「AI 生成内容未标识」问题，故不挂 AI 后缀。 */
+  const handleShare = () => {
+    if (!item.url) return;
+    const text = `${item.text}（来自${item.source}）\n${item.url}`;
+    Taro.setClipboardData({
+      data: text,
+      success: () => Taro.showToast({ title: '链接已复制，去粘贴分享吧', icon: 'none' })
+    }).catch((err) => console.warn('[IntelItemRow] share copy failed:', err));
+  };
+
   return (
     <View className={styles.item}>
       <View className={styles.itemRow}>
@@ -100,7 +116,6 @@ export function IntelItemRow({ item, index }: { item: IntelSourceRef; index?: nu
             {typeof index === 'number' ? <Text className={styles.itemIndex}>{`[${index}] `}</Text> : null}
             {item.text}
           </Text>
-          <Text className={styles.itemSource}>{`来源：${item.source}`}</Text>
         </View>
         {item.image ? (
           <Image
@@ -110,6 +125,26 @@ export function IntelItemRow({ item, index }: { item: IntelSourceRef; index?: nu
             className={styles.itemThumb}
             onClick={handleImageTap}
           />
+        ) : null}
+      </View>
+      {/* 卡片底行：来源 chip（合规：来源必须可见）+ 分享按钮（有原文链接才给分享） */}
+      <View className={styles.itemFoot}>
+        <Text className={styles.itemSource}>{`来源：${item.source}`}</Text>
+        {item.url ? (
+          isWeapp ? (
+            <Button
+              className={styles.shareBtn}
+              openType='share'
+              data-intel-title={item.text}
+              data-intel-url={item.url}
+            >
+              分享
+            </Button>
+          ) : (
+            <Text className={styles.shareBtn} onClick={handleShare}>
+              分享
+            </Text>
+          )
         ) : null}
       </View>
     </View>
