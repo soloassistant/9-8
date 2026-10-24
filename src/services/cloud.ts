@@ -104,8 +104,16 @@ async function loadHotspotPayload(): Promise<{
       const payload = await res.json()
       if (Array.isArray(payload.items) && payload.items.length > 0) {
         return {
-          // 信任边界：服务端聚合 JSON 未逐字段校验，在此收口为 HotspotNews
-          items: payload.items as HotspotNews[],
+          // 信任边界：服务端聚合 JSON 未逐字段校验，在此收口为 HotspotNews。
+          // ⚠️ 必须逐条归一 tags/summary（2026-10-24 审计）：资讯库页直接
+          // `item.tags.some(...)` / `item.tags.forEach(...)`，任一条目缺 tags 就是
+          // TypeError 整页白屏。一个 as 断言挡不住运行时的脏数据 —— 在数据入口
+          // 一处收口，而不是每个使用点各自防御（AGENTS.md 铁律）。
+          items: (payload.items as Array<Partial<HotspotNews>>).map((it) => ({
+            ...it,
+            tags: Array.isArray(it.tags) ? it.tags : [],
+            summary: typeof it.summary === 'string' ? it.summary : ''
+          })) as HotspotNews[],
           updatedAt: payload.updatedAt || null,
           stale: !!payload.stale,
           sources: payload.sources || []
@@ -136,6 +144,11 @@ async function loadWeather(city: string): Promise<{ text: string; updateTime: st
 export interface ChatStreamResult {
   reply: string
   action: string
+  /** 排班提案原始条目（action='plan' 时由 chatViaCloudLlm 解析出；此前流式路径整个丢弃，
+   *  H5 用户问「帮我把周会挪到周四」永远看不到方案卡片，只能自己再发一句话） */
+  proposals?: unknown[]
+  /** 模型要求写入的长期记忆条目（M-03；此前流式路径丢弃，H5 上记忆永不落库） */
+  memories?: string[]
 }
 
 /**
@@ -173,7 +186,9 @@ export async function chatCloudStream(
   if (!res) return null
   if (hooks && hooks.onClear) hooks.onClear()
   await typewriter(res.reply, onDelta)
-  return { reply: res.reply, action: res.action }
+  // proposals/memories 一并透传：调用方（AiAssistant 流式分支）要靠它们
+  // 与非流式降级路径汇合（方案卡片 + 记忆写入），此前只回 {reply, action} 等于丢弃。
+  return { reply: res.reply, action: res.action, proposals: res.proposals, memories: res.memories }
 }
 
 /** H5 开发态兜底：本地 llm-proxy（8138）。chat → POST /，extract → POST /extract；

@@ -137,12 +137,27 @@ function LedgerPage() {
 
   const remove = useCallback(
     (id: string) => {
-      void (async () => {
-        const ok = await apiLedgerRemove(id);
-        if (ok) await reload();
-      })();
+      // 删除真实财务记录必须有二次确认 + 结果反馈（2026-10-24 审计）：
+      // 原先点一下即硬删除、无确认无提示无撤销，误触一行就丢一条账目。
+      // 与购物清单删除（pages/shopping 的 showModal 确认）保持同一口径；
+      // 失败也必须 toast —— 铁律「不静默失败」。
+      Taro.showModal({
+        title: t('ledger.deleteTitle'),
+        content: t('ledger.deleteConfirm'),
+        confirmColor: '#ee5a29',
+        success: async (res) => {
+          if (!res.confirm) return;
+          const ok = await apiLedgerRemove(id);
+          if (ok) {
+            await reload();
+            Taro.showToast({ title: t('ledger.deleted'), icon: 'success' });
+          } else {
+            Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+          }
+        }
+      });
     },
-    [reload]
+    [reload, t]
   );
 
   /**

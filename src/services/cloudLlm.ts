@@ -270,7 +270,12 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
     ]);
     if (!text) return null;
     // 记账只计**成功完成**的调用：失败attempt不耗用户免费额度（网络抖动不该扣配额）
-    void llmEventInsert('chat').catch(() => {});
+    // ⚠️ catch 里必须 console.error 留痕：原先 `.catch(() => {})` 完全吞掉，而
+    // llmEventInsert 内部的痕迹只有 console.warn（生产构建会被剔除）——记账失败
+    // 在线上零痕迹，免费额度少记、账目不平且无从排查（2026-10-24 审计）。
+    void llmEventInsert('chat').catch((err) => {
+      console.error('[cloudLlm] llm_event insert failed:', err);
+    });
     return text;
   } catch (err) {
     console.warn('[cloudLlm] stream failed:', err);

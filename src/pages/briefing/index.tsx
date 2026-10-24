@@ -65,6 +65,20 @@ const isWeapp = process.env.TARO_ENV === 'weapp';
 /** H5 预览端底部有 50px TabBar，输入栏需避让 */
 const isH5 = process.env.TARO_ENV === 'h5';
 
+/** 设计 px → rem 换算（内联 style 专用）。
+ *
+ *  依据 src/app.scss 的 `html { font-size: calc(min(100vw, 500PX) / 20) }`：
+ *  750 设计宽 = 20rem，故 1 设计 px = 1/37.5 rem（与 .module.scss 里
+ *  `24rpx → 0.64rem` 的编译结果精确一致）。
+ *
+ *  ⚠️ 为什么需要它：内联 style 里写 `rpx` 是**无效 CSS**——浏览器不认该单位，
+ *  整条声明被丢弃（不是留个错值）。AGENTS.md 3.3 陷阱二有实测：晨报记账卡片的
+ *  金额大字号与内外边距在 H5 上曾因此全部失效。.module.scss 里的 rpx 不受影响
+ *  （pxtransform 编译期处理），只有内联 style 必须走这里换算成 rem。
+ *  ⚠️ 不要改用 Taro.pxTransform：它按 1/20 rem 换算，在本项目会放大一倍。 */
+const DESIGN_PX_PER_REM = 750 / 20;
+const r2r = (n: number): string => `${(n / DESIGN_PX_PER_REM).toFixed(5)}rem`;
+
 /** 快捷指令（优化输入：点击填充输入框，减少手打成本） */
 const QUICK_COMMANDS: Array<{ icon: string; labelKey: LangKey; text: string }> = [
   { icon: '📅', labelKey: 'briefing.quickSchedule', text: '帮我安排 ' },
@@ -528,8 +542,10 @@ function BriefingPage() {
     if (!readSessionRef.current || !briefing) return;
     const kinds: Array<{ kind: ReadSectionKind; shown: boolean }> = [
       { kind: 'schedule', shown: todaySchedule.length > 0 },
-      { kind: 'todo', shown: briefing.todos.length > 0 },
-      { kind: 'fav', shown: briefing.digest.length > 0 },
+      // ⚠️ todos/digest 必须空值保护：briefing 可来自当日缓存（旧格式缺字段）或降级数据，
+      // 裸访问 .length 缺字段即 TypeError 整页白屏。与下方 loadBriefing 的 (briefing.todos || []) 同口径。
+      { kind: 'todo', shown: (briefing.todos?.length ?? 0) > 0 },
+      { kind: 'fav', shown: (briefing.digest?.length ?? 0) > 0 },
       { kind: 'intel', shown: (briefing.intel?.intelItems?.length ?? 0) > 0 }
     ];
     kinds.forEach(({ kind, shown }) => {
@@ -752,7 +768,9 @@ function BriefingPage() {
     Boolean(briefing?.intel?.weather);
   const hasContent =
     briefing &&
-    (todaySchedule.length > 0 || briefing.todos.length > 0 || briefing.digest.length > 0 || hasIntel);
+    (todaySchedule.length > 0 ||
+      (briefing.todos?.length ?? 0) > 0 ||
+      (briefing.digest?.length ?? 0) > 0 || hasIntel);
 
   /* ---------------- v2.1 习惯守护：入口与撤销 ---------------- */
   /** 把今日某条日程「设为习惯」（默认不开启自动守护，需用户到「我的」页显式开启） */
@@ -1031,17 +1049,17 @@ function BriefingPage() {
             </Text>
           </View>
 
-          <View style={{ display: 'flex', alignItems: 'baseline', gap: '16rpx', padding: '0 32rpx' }}>
-            <Text style={{ fontSize: '44rpx', fontWeight: '700', color: 'var(--brand, #e85d2a)' }}>
+          <View style={{ display: 'flex', alignItems: 'baseline', gap: r2r(16), padding: `0 ${r2r(32)}` }}>
+            <Text style={{ fontSize: r2r(44), fontWeight: '700', color: 'var(--brand, #e85d2a)' }}>
               ¥{ledgerBrief.expense.toFixed(2)}
             </Text>
-            <Text style={{ fontSize: '26rpx', color: '#86909c' }}>{t('briefing.ledgerToday')}</Text>
+            <Text style={{ fontSize: r2r(26), color: '#86909c' }}>{t('briefing.ledgerToday')}</Text>
           </View>
 
           {/* 较昨日：昨日为 0 时 deltaFromYesterday 为 null，此时**整行不渲染** ——
               显示成「+100%」会是误导性的百分比（分母为 0）。 */}
           {ledgerBrief.deltaFromYesterday !== null ? (
-            <Text style={{ fontSize: '26rpx', color: '#86909c', padding: '8rpx 32rpx 0' }}>
+            <Text style={{ fontSize: r2r(26), color: '#86909c', padding: `${r2r(8)} ${r2r(32)} 0` }}>
               {ledgerBrief.deltaFromYesterday > 0
                 ? `${t('briefing.ledgerMore')} ¥${Math.abs(ledgerBrief.deltaFromYesterday).toFixed(2)}`
                 : ledgerBrief.deltaFromYesterday < 0
@@ -1051,19 +1069,19 @@ function BriefingPage() {
           ) : null}
 
           {ledgerBrief.income > 0 ? (
-            <Text style={{ fontSize: '26rpx', color: 'var(--brand-deep, #e85d2a)', padding: '8rpx 32rpx 0' }}>
+            <Text style={{ fontSize: r2r(26), color: 'var(--brand-deep, #e85d2a)', padding: `${r2r(8)} ${r2r(32)} 0` }}>
               {t('briefing.ledgerIncome')} ¥{ledgerBrief.income.toFixed(2)}
             </Text>
           ) : null}
 
           {ledgerBrief.topCategories.length > 0 ? (
-            <View style={{ padding: '12rpx 32rpx 0' }}>
+            <View style={{ padding: `${r2r(12)} ${r2r(32)} 0` }}>
               {ledgerBrief.topCategories.map((c) => {
                 const cat = resolveCategory(ledgerCats, c.categoryId);
                 return (
                   <Text
                     key={c.categoryId}
-                    style={{ fontSize: '26rpx', color: '#4e5969', display: 'block', padding: '2rpx 0' }}
+                    style={{ fontSize: r2r(26), color: '#4e5969', display: 'block', padding: `${r2r(2)} 0` }}
                   >
                     {cat.icon} {cat.name} ¥{c.amount.toFixed(2)}
                   </Text>
@@ -1073,15 +1091,15 @@ function BriefingPage() {
           ) : null}
 
           {ledgerBrief.overDaily ? (
-            <View style={{ padding: '12rpx 32rpx 0' }}>
-              <Text style={{ fontSize: '26rpx', color: '#f53f3f' }}>
+            <View style={{ padding: `${r2r(12)} ${r2r(32)} 0` }}>
+              <Text style={{ fontSize: r2r(26), color: '#f53f3f' }}>
                 ⚠️ {t('ledger.overDaily', { amount: `¥${(ledgerBrief.dailyBudget ?? 0).toFixed(2)}` })}
               </Text>
             </View>
           ) : null}
 
           <Text
-            style={{ fontSize: '26rpx', color: 'var(--brand, #e85d2a)', padding: '12rpx 32rpx 0' }}
+            style={{ fontSize: r2r(26), color: 'var(--brand, #e85d2a)', padding: `${r2r(12)} ${r2r(32)} 0` }}
             onClick={() => Taro.navigateTo({ url: '/pages/ledger/index' })}
           >
             {t('briefing.ledgerViewAll')} ›
@@ -1272,16 +1290,16 @@ function BriefingPage() {
 
           
 
-          {briefing && briefing.todos.length > 0 ? (
+          {briefing && (briefing.todos?.length ?? 0) > 0 ? (
             <View className={styles.section}>
               <View className={styles.sectionHeader}>
                 <Text className={styles.sectionIcon}>✅</Text>
                 <Text className={styles.sectionTitle}>{t('briefing.sectionTodo')}</Text>
                 <Text className={styles.sectionCount}>
-                  {briefing.todos.length} {t('common.itemCount')}
+                  {briefing.todos?.length ?? 0} {t('common.itemCount')}
                 </Text>
               </View>
-              {briefing.todos.map((todo) => {
+              {(briefing.todos || []).map((todo) => {
                 const done = doneIds.has(todo.id);
                 return (
                   <View
@@ -1300,13 +1318,13 @@ function BriefingPage() {
             </View>
           ) : null}
 
-          {briefing && briefing.digest.length > 0 ? (
+          {briefing && (briefing.digest?.length ?? 0) > 0 ? (
             <View className={styles.section}>
               <View className={styles.sectionHeader}>
                 <Text className={styles.sectionIcon}>📚</Text>
                 <Text className={styles.sectionTitle}>{t('briefing.sectionFav')}</Text>
               </View>
-              {briefing.digest.map((text, i) => (
+              {(briefing.digest || []).map((text, i) => (
                 <View key={i} className={styles.digestItem}>
                   <Text className={styles.digestText}>{text}</Text>
                 </View>

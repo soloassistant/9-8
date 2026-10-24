@@ -67,6 +67,9 @@ function ShoppingPage() {
   const t = useT();
   const { theme } = useThemeStore();
   const [list, setList] = useState<ShoppingItem[]>([]);
+  /** 加载失败态（2026-10-24 审计）：与「真空清单」区分 —— 原来 load 失败只 console.error，
+   *  list 保持 []，页面渲染「购物清单还是空的」，把「拉取失败」伪装成「真的没数据」。 */
+  const [loadFailed, setLoadFailed] = useState(false);
   const [name, setName] = useState('');
   const [targetPrice, setTargetPrice] = useState('');
   /** 输入弹窗：add = 记一条比价，target = 改心理价位 */
@@ -79,10 +82,14 @@ function ShoppingPage() {
     try {
       const data = await apiShoppingList();
       setList(data || []);
+      setLoadFailed(false);
     } catch (err) {
       console.error('[ShoppingPage] load failed:', err);
+      // 不静默失败（铁律）：失败时置位 + toast，空态文案据此改为「加载失败」而不是「还是空的」
+      setLoadFailed(true);
+      Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
     }
-  }, []);
+  }, [t]);
 
   // 加载清单：首次挂载 + 每次切回本页（useDidShow 首次也会触发）时刷新，
   // 保证 AI 往清单加过商品后回来能看到最新数据
@@ -121,6 +128,9 @@ function ShoppingPage() {
       setName('');
       setTargetPrice('');
       Taro.showToast({ title: '已加入购物清单', icon: 'success' });
+    } else {
+      // 不静默失败：apiShoppingAdd 返回 null（云端不可用/写入失败）时用户必须看见
+      Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
     }
   };
 
@@ -128,6 +138,8 @@ function ShoppingPage() {
     const res = await apiShoppingToggleBought(id);
     if (res) {
       setList((prev) => prev.map((it) => (it.id === id ? { ...it, bought: res.bought } : it)));
+    } else {
+      Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
     }
   };
 
@@ -179,7 +191,10 @@ function ShoppingPage() {
         return;
       }
       const done = await apiShoppingAddPrice(item.id, m[1], price);
-      if (!done) return;
+      if (!done) {
+        Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+        return;
+      }
       const next: ShoppingItem = { ...item, prices: done.prices };
       setList((prev) => prev.map((it) => (it.id === item.id ? { ...it, prices: done.prices } : it)));
       if (!runPriceCheck(next)) {
@@ -196,7 +211,10 @@ function ShoppingPage() {
       return;
     }
     const done = await apiShoppingSetTargetPrice(item.id, price);
-    if (!done) return;
+    if (!done) {
+      Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+      return;
+    }
     const next: ShoppingItem = { ...item, targetPrice: done.targetPrice };
     setList((prev) => prev.map((it) => (it.id === item.id ? { ...it, targetPrice: done.targetPrice } : it)));
     runPriceCheck(next);
@@ -206,7 +224,10 @@ function ShoppingPage() {
   /** 清除心理价位（P-01）：同时清掉该商品的已提醒价，避免残留去重记录 */
   const clearTargetPrice = async (item: ShoppingItem) => {
     const done = await apiShoppingClearTargetPrice(item.id);
-    if (!done) return;
+    if (!done) {
+      Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+      return;
+    }
     clearNotified(item.id);
     setList((prev) =>
       prev.map((it) => (it.id === item.id ? { ...it, targetPrice: undefined, lastNotifiedPrice: undefined } : it))
@@ -278,7 +299,13 @@ function ShoppingPage() {
 
       <ScrollView scrollY className={styles.list}>
         {list.length === 0 ? (
-          <EmptyState icon='🛒' title='购物清单还是空的' hint='在上方输入想买的东西，我帮你记着并跟进比价' />
+          loadFailed ? (
+            // 加载失败 ≠ 空清单：文案必须说清是「没读到」而不是「没有」，否则用户
+            // 会以为自己清单被清空了（2026-10-24 审计，铁律「不静默失败」）
+            <EmptyState icon='⚠️' title='清单加载失败' hint='下拉刷新重试；若持续失败请稍后再来' />
+          ) : (
+            <EmptyState icon='🛒' title='购物清单还是空的' hint='在上方输入想买的东西，我帮你记着并跟进比价' />
+          )
         ) : (
           list.map((item) => {
             const cheapest = bestPrice(item.prices);

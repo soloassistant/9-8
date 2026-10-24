@@ -22,7 +22,7 @@ import { setTodoStatus } from '@/data/dailyPlan';
 import { normalizeVideoItems } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
 import { callFunction, chatCloudStream } from './cloud';
-import type { ChatStreamHooks } from './cloud';
+import type { ChatStreamHooks, ChatStreamResult } from './cloud';
 import { invoke, isWeapp } from './dataSource';
 import { getSession } from './cloudAuth';
 import { buildProfileFromSession, writeProfileSettings } from './localProfile';
@@ -139,6 +139,9 @@ export function apiChat(
  * 返回 null = 云端 LLM 不可用（未登录 / 无可用模型 / 流失败），调用方降级 apiChat 整段。
  * weapp 端受云函数非流式限制维持整段返回。
  * memories 为记忆回灌：随请求进入 system 契约与用户上下文。
+ * 2026-10-24：返回类型由内联 `{reply, action}` 升级为 ChatStreamResult —— 上游
+ * chatCloudStream 已透传 proposals（排班候选）/memories（记忆条目），包装层注解
+ * 没同步，导致调用方读 streamed.proposals 编译不过（TS2339 ×7）。
  */
 export function apiChatStream(
   message: string,
@@ -146,7 +149,7 @@ export function apiChatStream(
   onDelta: (chunk: string) => void,
   memories?: string[],
   hooks?: ChatStreamHooks
-): Promise<{ reply: string; action: string } | null> {
+): Promise<ChatStreamResult | null> {
   return chatCloudStream(message, deep, onDelta, memories, hooks);
 }
 

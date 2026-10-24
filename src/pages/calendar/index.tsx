@@ -63,6 +63,15 @@ function CalendarPage() {
     void loadBriefing();
   });
 
+  // 已勾选态必须从服务端状态回填（2026-10-24 审计，与 briefing 页 :517-521 同范式）。
+  // 缺陷：doneIds 初始为空且只在 handleToggleTodo 里更新，briefing.todos[].status==='done'
+  // 从未回填 —— 刷新/重进 App 后已完成待办全部变回未勾选；在晨报页勾完切到日历页，
+  // 日历页仍显示未勾选（两个 tab 各存一份状态，互相矛盾）。
+  useEffect(() => {
+    if (!briefing) return;
+    setDoneIds(new Set((briefing.todos || []).filter((td) => td.status === 'done').map((td) => td.id)));
+  }, [briefing]);
+
   /** 42 格月视图：从当月首个所在周的周日开始 */
   const cells = useMemo(() => {
     const first = month.startOf('month').startOf('week');

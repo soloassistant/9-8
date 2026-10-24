@@ -13,7 +13,8 @@
  *
  * 失败语义：所有函数失败返回 null（不抛），调用方决定降级；
  * 但**「没登录」与「后端不可用」是两回事** —— 前者由调用方先用 getSession() 判掉，
- * 本层的 null 一律意味着真故障，值得 console.warn 留痕。
+ * 本层的 null 一律意味着真故障，值得 console.error 留痕（铁律：console.warn 会被
+ * 生产构建剔除，留痕必须用 console.error）。
  */
 
 import { getCloudDatabase } from './cloudAuth';
@@ -33,7 +34,8 @@ export type LlmEventKind = 'chat' | 'voice';
 /** 把 SDK 信封归一：error 非空即失败（返回 null），顺带留痕 */
 function unwrap<T>(res: DbResponse<T>, what: string): T | null {
   if (res.error) {
-    console.warn(`[cloudDb] ${what} failed:`, res.error.code || '', res.error.message || '');
+    // console.error 而非 console.warn：后者会被生产构建剔除，线上零痕迹（铁律）
+    console.error(`[cloudDb] ${what} failed:`, res.error.code || '', res.error.message || '');
     return null;
   }
   return res.data;
@@ -135,20 +137,4 @@ export async function clientErrorInsert(input: ClientErrorInput): Promise<boolea
     return false;
   }
   return true;
-}
-
-/** 本月该类用量计数（sinceISO = 当月第一天 ISO）。count 查询不取行。 */
-export async function llmEventCount(kind: LlmEventKind, sinceISO: string): Promise<number | null> {
-  const db = await getCloudDatabase();
-  if (!db) return null;
-  const res = await db
-    .from('llm_events')
-    .select('*', { count: 'exact', head: true })
-    .eq('kind', kind)
-    .gte('created_at', sinceISO);
-  if (res.error) {
-    console.warn('[cloudDb] llm_events count failed:', res.error.code || '', res.error.message || '');
-    return null;
-  }
-  return typeof res.count === 'number' ? res.count : null;
 }
