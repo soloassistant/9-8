@@ -1,0 +1,278 @@
+#!/usr/bin/env node
+/**
+ * verify-contrast-strong.mjs —— 对比度定点修复的静态门禁。
+ *
+ * 背景（2026-10-24 视觉巡检基线）：11 页全 FAIL，四类硬伤
+ *   ① tabBar 未选中 #999(2.85) / 选中 #FF7A45(2.59)
+ *   ② 品牌色文字 on 白底 2.59（briefing/library/calendar/ledger/shopping/sxm）
+ *   ③ 白字 on 品牌钮 2.59；白字 on 金钮 #F7BA1E 1.75
+ *   ④ 禁用灰 $color-text-disabled(#c9cdd4,1.59) 被误用于**非禁用**正文（全仓 20+ 处）
+ *
+ * 解法分两路，互不混淆：
+ *   A. 新增 `--brand-strong` / `$color-primary-strong` / `$color-secondary-strong`
+ *      同色系加深变体，只用于「品牌色文字」与「白字品牌控件」；大场面背景仍用原色。
+ *   B. 禁用灰逐点改 $color-text-tertiary(#657080,5.02) —— theme.scss 注释明确
+ *      「禁用态有意豁免对比度」，所以**不动变量本身**，只改误用点。
+ *
+ * 断言口径（务必收窄，别写成符号级）：
+ *   · 「文件里出现 $color-primary」会同时命中合法用法（渐变/背景），是假绿判据；
+ *   · 一律框到 **具体类名的那一段**，并用 `ok(...) === true` 严格判（不返回原因串）。
+ *
+ * 用法: node .tools/verify-contrast-strong.mjs
+ * 退出码: 0 = 全绿；1 = 有断言失败
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+
+const ROOT = path.resolve(import.meta.dirname, '..');
+let pass = 0;
+let fail = 0;
+
+function ok(name, cond) {
+  if (cond === true) {
+    pass++;
+    console.log(`  ✓ ${name}`);
+  } else {
+    fail++;
+    console.log(`  ✗ ${name}`);
+  }
+  return cond === true;
+}
+
+/** 读文件，找不到直接炸（静默返回空串会让断言全绿，是最危险的假绿） */
+function read(rel) {
+  const p = path.join(ROOT, rel);
+  if (!fs.existsSync(p)) throw new Error(`文件不存在: ${rel}`);
+  return fs.readFileSync(p, 'utf8');
+}
+
+/**
+ * 取「某个类名选择器的那一段」：从 `.className {` 起到与之匹配的 `}`。
+ *
+ * ⚠️ 两个必须处理的现实：
+ *  1) 锚点是**行首的 `.className`** 且右侧只能是空白 + `{`。否则 `.tab` 会抢先
+ *     匹配到 `.tabActive`（前缀包含），抓到错误的块 —— 符号级判据的典型假红。
+ *  2) 同一类名可能出现多次（组合选择器 `.tab,\n.tabActive {` + 单独规则
+ *     `.tabActive {`）。只取第一段会漏掉后面真正改了颜色的那段。
+ *     故返回**所有**匹配块，由断言侧判断「任一段满足」。
+ *
+ * 本仓 scss 点状规则都顶格，`(^|\n)\.` 足够；若将来出现缩进嵌套规则需另行处理。
+ */
+function blocksOf(src, className) {
+  const re = new RegExp(`(^|\\n)\\.${className}\\s*\\{`, 'g');
+  const out = [];
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const start = m.index + m[0].length;
+    let depth = 1;
+    let i = start;
+    while (i < src.length && depth > 0) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') depth--;
+      i++;
+    }
+    out.push(src.slice(start, i - 1));
+    re.lastIndex = i;
+  }
+  return out;
+}
+
+/** 单块版：只在该类只出现一次时用（出现多次会抛，防止断言 silently 看漏） */
+function blockOf(src, className) {
+  const blocks = blocksOf(src, className);
+  if (blocks.length > 1) {
+    throw new Error(`.${className} 在文件中出现 ${blocks.length} 段，请改用 blocksOf（单块判据会漏）`);
+  }
+  return blocks[0] ?? null;
+}
+
+console.log('对比度定点修复门禁 (verify:contrast)');
+console.log('──────────────────────────────────────────────────────────');
+
+// ============ A. strong 变体已定义且注入 ============
+try {
+  const theme = read('src/store/theme.ts');
+  const presets = theme.slice(theme.indexOf('THEME_PRESETS'), theme.indexOf('];', theme.indexOf('THEME_PRESETS')));
+
+  ok('A1 theme.ts 四个预设都带 strong 字段（4/4）', (presets.match(/strong:/g) || []).length === 4);
+  ok('A2 strong 取值是加深变体而非原色', presets.includes("strong: '#C7371A'") && presets.includes("strong: '#3560B8'"));
+  ok('A3 brandVars 注入 --brand-strong', /--brand-strong['"]?\s*:\s*theme\.strong/.test(theme));
+
+  const scss = read('src/styles/theme.scss');
+  ok('A4 theme.scss 定义 $color-primary-strong', /\$color-primary-strong\s*:\s*#c7371a/i.test(scss));
+  ok('A5 theme.scss 定义 $color-secondary-strong', /\$color-secondary-strong\s*:\s*#3560b8/i.test(scss));
+  // $color-text-disabled 必须保持原值：theme.scss 注释明确禁用态有意豁免对比度，
+  // 改它会削弱「禁用」的视觉语义。修法是逐点改误用处，不是改变量。
+  ok('A6 $color-text-disabled 保持 #c9cdd4（禁用态豁免是有意设计，不许顺手改变量）', /\$color-text-disabled\s*:\s*#c9cdd4/i.test(scss));
+} catch (e) {
+  ok('A 组读取失败: ' + e.message, false);
+}
+
+// ============ B. tabBar 配置色加深 ============
+try {
+  const cfg = read('src/app.config.ts');
+  const tab = cfg.slice(cfg.indexOf('tabBar:'));
+  ok('B1 tabBar 未选中色 #657080（原 #999999 仅 2.85:1）', tab.includes("color: '#657080'"));
+  ok('B2 tabBar 选中色 #C7371A（原 #FF7A45 仅 2.59:1）', tab.includes("selectedColor: '#C7371A'"));
+} catch (e) {
+  ok('B 组读取失败: ' + e.message, false);
+}
+
+// ============ C. 品牌色文字 / 白字控件改 strong ============
+// 每条形如：文件 → 类名 → 期望在该类块内出现的字符串。
+// ⚠️ 期望串分两种，别混：
+//   · `--brand-strong` —— 走 CSS 变量（页面注入了 brandVars，随主题切换）
+//   · `$color-primary-strong` / `$color-secondary-strong` —— SCSS 变量（写死加深色，
+//     用于该文件本来就用 SCSS 色而非 var(--brand) 的地方）
+// 判「走变量还是写死」要看该行**原来**用的是什么，不能一律要求 --brand-strong。
+const STRONG_POINTS = [
+  ['src/pages/briefing/index.module.scss', 'locateBtn', '$color-primary-strong'],
+  ['src/pages/briefing/index.module.scss', 'intelNoteCta', '$color-primary-strong'],
+  ['src/pages/briefing/index.module.scss', 'sendButton', '--brand-strong'],
+  ['src/pages/briefing/index.module.scss', 'intelNoteText', 'color-text-tertiary'],
+  ['src/pages/briefing/index.module.scss', 'intelLeadTag', 'color-text-tertiary'],
+  ['src/pages/briefing/index.module.scss', 'aiGeneratedTag', 'color-text-tertiary'],
+  ['src/pages/briefing/index.module.scss', 'chatHint', 'color-text-tertiary'],
+  ['src/pages/library/index.module.scss', 'aiEditBtn', '--brand-strong'],
+  ['src/pages/library/index.module.scss', 'aiGoBtn', '--brand-strong'],
+  ['src/pages/library/index.module.scss', 'aiSaveBtn', '--brand-strong'],
+  ['src/pages/library/index.module.scss', 'newsSource', 'color-secondary-strong'],
+  ['src/pages/library/index.module.scss', 'feedbackActive', '--brand-strong'],
+  ['src/pages/library/index.module.scss', 'whyToggle', '--brand-strong'],
+  ['src/pages/calendar/index.module.scss', 'qaBtn', '--brand-strong'],
+  ['src/pages/calendar/index.module.scss', 'syncButton', '--brand-strong'],
+  ['src/pages/mine/index.module.scss', 'subButton', '--brand-strong'],
+  ['src/pages/mine/index.module.scss', 'linkText', '--brand-strong'],
+  ['src/pages/ledger/index.module.scss', 'catExport', '--brand-strong'],
+  ['src/pages/ledger/index.module.scss', 'addBtn', '--brand-strong'],
+  ['src/pages/shopping/index.module.scss', 'addBtn', '--brand-strong'],
+  ['src/pages/shopping/index.module.scss', 'actionBtn', '--brand-strong'],
+  ['src/pages/shopping/index.module.scss', 'cheapest', '--brand-strong'],
+  ['src/pages/sxm/index.module.scss', 'tabActive', '--brand-strong'],
+  ['src/pages/sxm/index.module.scss', 'verdictPick', 'color-secondary-strong'],
+  ['src/pages/inbox/index.module.scss', 'addButton', '--brand-strong'],
+  ['src/pages/learn/index.module.scss', 'makeupBtn', '--brand-strong'],
+  ['src/pages/learn/index.module.scss', 'statNumOn', '--brand-strong'],
+  ['src/pages/learn/index.module.scss', 'doneBadge', '--brand-strong']
+];
+console.log('\nC 组 品牌色文字/白字控件 → strong（逐类名定位）');
+for (const [file, cls, expect] of STRONG_POINTS) {
+  try {
+    const src = read(file);
+    // 用 blocksOf：同一类名可能有多段（组合选择器 + 单独规则），任一段含期望串即算过
+    const blocks = blocksOf(src, cls);
+    const hit = blocks.some((b) => b.includes(expect));
+    ok(`C ${cls} (${file.split('/').slice(-2)[0]}) 含 ${expect}`, blocks.length > 0 && hit);
+  } catch (e) {
+    ok(`C ${cls} 读取失败: ${e.message}`, false);
+  }
+}
+
+// ============ D. 禁用灰误用点已改 tertiary ============
+const TERTIARY_POINTS = [
+  ['src/pages/library/index.module.scss', 'sectionBarHint'],
+  ['src/pages/library/index.module.scss', 'dataMetaText'],
+  ['src/pages/library/index.module.scss', 'aiHeadHint'],
+  ['src/pages/library/index.module.scss', 'newsTime'],
+  ['src/pages/library/index.module.scss', 'aiLabel'],
+  ['src/pages/library/index.module.scss', 'time'],
+  ['src/pages/library/index.module.scss', 'disclaimerText'],
+  ['src/pages/library/index.module.scss', 'blockEmpty'],
+  ['src/pages/calendar/index.module.scss', 'weekDay'],
+  ['src/pages/calendar/index.module.scss', 'statsTitle'],
+  ['src/pages/calendar/index.module.scss', 'todoDue'],
+  ['src/pages/mine/index.module.scss', 'cardTitle'],
+  ['src/pages/mine/index.module.scss', 'subSectionTitle'],
+  ['src/pages/mine/index.module.scss', 'entryArrow'],
+  ['src/pages/mine/index.module.scss', 'valueHint'],
+  ['src/pages/mine/index.module.scss', 'arrow'],
+  ['src/pages/mine/index.module.scss', 'platformHint'],
+  ['src/pages/mine/index.module.scss', 'dndSep'],
+  ['src/pages/learn/index.module.scss', 'recHint'],
+  ['src/pages/learn/index.module.scss', 'courseArrow'],
+  ['src/pages/shopping/index.module.scss', 'hint'],
+  ['src/pages/shopping/index.module.scss', 'adDividerText']
+];
+console.log('\nD 组 禁用灰误用 → tertiary（逐类名定位，且必须不再用 disabled）');
+for (const [file, cls] of TERTIARY_POINTS) {
+  try {
+    const src = read(file);
+    const blocks = blocksOf(src, cls);
+    // 该类的**所有**段都不能再用 disabled，且至少一段用了 tertiary
+    const noDisabled = blocks.every((b) => !b.includes('$color-text-disabled'));
+    const hasTertiary = blocks.some((b) => b.includes('$color-text-tertiary'));
+    ok(`D ${cls} (${file.split('/').slice(-2)[0]}) 改 tertiary 且不再用 disabled`, blocks.length > 0 && noDisabled && hasTertiary);
+  } catch (e) {
+    ok(`D ${cls} 读取失败: ${e.message}`, false);
+  }
+}
+
+// ============ E. 金色按钮改深字（白字无解） ============
+try {
+  const src = read('src/pages/briefing/index.module.scss');
+  const blk = blockOf(src, 'tipAction');
+  ok('E1 briefing tipAction 金底改深色字（白字 on #F7BA1E 仅 1.75:1，无解）', blk !== null && blk.includes('$color-text-primary'));
+} catch (e) {
+  ok('E 组读取失败: ' + e.message, false);
+}
+
+// ============ F. learn 三语种 accent 加深（数据源） ============
+try {
+  const src = read('src/data/learn.ts');
+  ok('F1 en accent #2F6DB5（原 #4A90D9 仅 3.15:1）', src.includes("accent: '#2F6DB5'"));
+  ok('F2 ja accent #C7394A（原 #E8636F 仅 3.4:1）', src.includes("accent: '#C7394A'"));
+  ok('F3 ko accent #5B4FC4（原 #7C6FE0 仅 4.2:1）', src.includes("accent: '#5B4FC4'"));
+} catch (e) {
+  ok('F 组读取失败: ' + e.message, false);
+}
+
+// ============ G. 三页补 brandVars（消除回退蓝与主题橙不一致） ============
+console.log('\nG 组 三页根节点注入 brandVars');
+for (const [file, marker] of [
+  ['src/pages/library/index.tsx', 'styles.page} style={brandVars(theme)}'],
+  ['src/pages/inbox/index.tsx', 'styles.page} style={brandVars(theme)}'],
+  ['src/pages/learn/index.tsx', 'styles.page} style={brandVars(theme)}']
+]) {
+  try {
+    ok(`G ${file.split('/').slice(-2)[0]} 根 View 注入 brandVars`, read(file).includes(marker));
+  } catch (e) {
+    ok(`G ${file} 读取失败`, false);
+  }
+}
+
+// ============ H. FAB 浮层收缩 + 滚动收起 ============
+try {
+  const ai = read('src/components/AiAssistant/index.module.scss');
+  const wBlk = blockOf(ai, 'wrapper');
+  ok('H1 AiAssistant wrapper 收缩为 width:max-content（原 left:0;right:0 全宽 → 幻影遮挡）',
+    wBlk !== null && wBlk.includes('width: max-content'));
+  ok('H2 wrapper 有收起过渡（transform/opacity 200ms）',
+    wBlk !== null && wBlk.includes('transition: transform 200ms'));
+  ok('H3 尊重 prefers-reduced-motion（动效可关，20 款 App 共同结论）',
+    ai.includes('prefers-reduced-motion'));
+
+  const tsx = read('src/components/AiAssistant/index.tsx');
+  ok('H4 滚动监听挂在真实滚动容器 .taro_page（挂 window 收不到 Taro 内部滚动）',
+    tsx.includes("document.querySelector('.taro_page')"));
+  ok('H5 下滑阈值 8px 且 48px 内视为顶部常驻', /dy > 8/.test(tsx) && /y <= 48/.test(tsx));
+  ok('H6 面板打开时强制显示（对话中收起会让用户以为 AI 消失）',
+    /fabHidden && !open/.test(tsx));
+} catch (e) {
+  ok('H 组读取失败: ' + e.message, false);
+}
+
+// ============ I. mine 订单失败态不再伪装成空态 ============
+try {
+  const src = read('src/pages/mine/index.tsx');
+  ok('I1 loadOrders 失败置 ordersError（老写法只 console.warn）', /setOrdersError\(true\)/.test(src));
+  ok('I2 渲染分支区分 ordersError 与 orders.length===0', /ordersError && orders\.length === 0/.test(src));
+  const lang = read('src/store/language.ts');
+  ok('I3 中英文都有 ordersError 与 common.retry 键',
+    (lang.match(/'mine\.ordersError':/g) || []).length === 2 && (lang.match(/'common\.retry':/g) || []).length === 2);
+} catch (e) {
+  ok('I 组读取失败: ' + e.message, false);
+}
+
+console.log('──────────────────────────────────────────────────────────');
+console.log(`PASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
+process.exit(fail > 0 ? 1 : 0);
