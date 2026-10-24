@@ -19,7 +19,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let pass = 0, fail = 0;
@@ -85,21 +84,31 @@ console.log('\n── B. 已知错误口径不许回归（每条对应一次真�
 
 // B1：项目根必须**等于**实际仓库根。
 //     ⚠️ 原写法是反向禁词（"不许出现裸 `D:\Agent`"）—— 那既挡不住别的写法，也测不出漏。
-//     改成正向断言：把文档里声明的值取出来，和 `git rev-parse --show-toplevel` 比。
+//     改成正向断言：把文档里声明的值取出来，和实际仓库根比。
+//     ⚠️ 实际根的取法**不能用 `git rev-parse`**：本机 git 不在 PATH 上时 execFileSync 抛
+//     ENOENT 被 catch 吞掉 → realRoot 为空 → 整条断言被 `if (realRoot)` 静默跳过 ——
+//     mutations-docs 的「项目根写回裸 D:/Agent」因此 NOT-CAUGHT（2026-10-25 实录，
+//     CI 有 git 所以是绿的，本地永远空跑 = 环境相关假绿）。改为纯 fs 向上找 `.git`：
+//     无外部进程、无 PATH 依赖，正常 checkout 下与 rev-parse --show-toplevel 等价。
 let realRoot = '';
-try {
-  realRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT, encoding: 'utf8' }).trim();
-} catch { /* 非 git 环境跳过 */ }
-if (realRoot) {
-  const claim = all.match(/项目根\*\*：`([^`]+)`/);
-  const claimed = claim ? claim[1] : '';
-  const norm = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  ok(
-    claim !== null && norm(claimed) === norm(realRoot),
-    `B1 文档声明的项目根 = 实际仓库根（文档写 \`${claimed}\`，实际 \`${realRoot}\`）`,
-    claim ? '' : '文档里找不到「项目根：`…`」声明'
-  );
+{
+  let dir = ROOT;
+  while (true) {
+    if (fs.existsSync(path.join(dir, '.git'))) { realRoot = dir; break; }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;   // 到了盘符根还没找到：不是 git checkout
+    dir = parent;
+  }
 }
+const claimRoot = all.match(/项目根\*\*：`([^`]+)`/);
+const claimedRoot = claimRoot ? claimRoot[1] : '';
+const norm = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+ok(
+  realRoot !== '' && claimRoot !== null && norm(claimedRoot) === norm(realRoot),
+  `B1 文档声明的项目根 = 实际仓库根（文档写 \`${claimedRoot}\`，实际 \`${realRoot}\`）`,
+  realRoot === '' ? '找不到 .git（不是 git checkout？）—— 拒绝静默跳过'
+    : claimRoot ? '' : '文档里找不到「项目根：`…`」声明'
+);
 
 // B2：不许再声称 H5 线上是 gh-pages（2026-10-23 已实测云端能力在 gh-pages 全废）
 ok(
