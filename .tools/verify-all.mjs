@@ -291,7 +291,11 @@ for (const name of list) {
     env: { ...process.env, FORCE_COLOR: '0' }
   });
   const out = `${r.stdout || ''}${r.stderr || ''}`;
-  const { fails, passN } = parseCounts(out);
+  // 变异组**不走 parseCounts**（2026-10-24 实测）：mutations-verifyall 的变异标签
+  // 「parseCounts 只认英文 FAIL，解析不出中文『失败 2』」被回显进输出，parseCounts
+  // 会把标签里的「失败 2」抠成 fails=2 → 好端端的 133/133 被判失败。
+  // 变异运行器的退出码本身就是完整契约：0 ⇔ 全部 CAUGHT 且 restored_green。
+  const { fails, passN } = MUTATING.has(name) ? { fails: null, passN: null } : parseCounts(out);
   const code = r.status === null ? -1 : r.status;
   // 疑似空跑：退出 0 但一个字都没输出 —— 通常意味着脚本提前 return 了。
   // 这是自动发现模式下的真实风险：一个什么都不做的门禁看起来和通过一模一样。
