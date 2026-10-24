@@ -116,13 +116,6 @@ function SearchPage() {
     [lang]
   );
 
-  const goBackWithPick = useCallback(
-    (label: string) => {
-      Taro.showToast({ title: t('search.found', { q: label.slice(0, 8) }), icon: 'none' });
-    },
-    [t]
-  );
-
   /**
    * 明确的返回入口（2026-10-15 补）。
    *
@@ -141,6 +134,19 @@ function SearchPage() {
     }
     Taro.reLaunch({ url: '/pages/briefing/index' });
   }, []);
+
+  const goBackWithPick = useCallback(
+    (label: string) => {
+      // 名字叫 goBackWithPick，但原先只弹一条 toast 就结束 —— 用户点完搜索结果
+      // 什么也没发生，仍停在搜索页（P1：「搜索结果只有 toast」）。
+      // 至少要兑现名字里的 goBack：复用上面 handleBack 的 navigateBack + reLaunch 兜底。
+      // ⚠️ 「把选中项回传给来源页」仍未实现：需要定 eventChannel 或 store 约定，
+      //    属于产品交互决策，这里不擅自发明一个跳转目标（跳错页比不跳更坏）。
+      Taro.showToast({ title: t('search.found', { q: label.slice(0, 8) }), icon: 'none' });
+      handleBack();
+    },
+    [t, handleBack]
+  );
 
   return (
     <View className={styles.page} style={brandVars(theme)}>

@@ -33,6 +33,8 @@ function SpeakingDrill({ course, langId, accent, best, audioSupported }: Speakin
   const [practiced, setPracticed] = useState<Set<string>>(() => new Set());
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [done, setDone] = useState(false);
+  /** 本轮真实自动评分的最高分；null = 还没有任何自动评分（纯自评 / 非英语课） */
+  const [sessionBest, setSessionBest] = useState<number | null>(null);
 
   const line = lines[idx];
   const ttsLang: TtsLang = langToTts(langId);
@@ -63,7 +65,11 @@ function SpeakingDrill({ course, langId, accent, best, audioSupported }: Speakin
   const advance = () => {
     setFeedback(null);
     if (idx + 1 >= lines.length) {
-      addDrillResult(course.id, 'speaking', 100);
+      // 只记录**真实**的自动评分。此处原先写死 100，而 addDrillResult 内部取
+      // Math.max(cur, score) —— 于是第一次做完练习就把该课口语最高分**永久锁在 100**，
+      // 之后无论跟读得多差都显示满分（并计入学习记录）。
+      // 没有自动评分（非英语课 / H5 降级转写）时不编造分数，保持 0、不显示最高分。
+      if (sessionBest !== null) addDrillResult(course.id, 'speaking', sessionBest);
       setDone(true);
     } else {
       setIdx(idx + 1);
@@ -76,6 +82,7 @@ function SpeakingDrill({ course, langId, accent, best, audioSupported }: Speakin
       const pct = Math.round(speechSimilarity(line.example, transcript) * 100);
       markPracticed(line.wordId);
       setFeedback({ type: 'score', pct });
+      setSessionBest((prev) => (prev === null ? pct : Math.max(prev, pct)));
       // U-03：英语课相似度达标视为答对，轻震动反馈
       if (pct >= 60) vibrateCorrect();
       return;
@@ -89,6 +96,7 @@ function SpeakingDrill({ course, langId, accent, best, audioSupported }: Speakin
     setPracticed(new Set());
     setFeedback(null);
     setDone(false);
+    setSessionBest(null);
   };
 
   if (done || !line) {
@@ -97,7 +105,9 @@ function SpeakingDrill({ course, langId, accent, best, audioSupported }: Speakin
         emoji='🗣'
         title={t('learn.speakDone')}
         score={t('learn.speakProgress', { count: practiced.size, total: lines.length })}
-        best={Math.max(best, 100)}
+        // 历史最高分与本轮真实最高分取大；没有自动评分时 sessionBest 为 null，
+        // 不再 `Math.max(best, 100)` 把展示分硬顶到满分。
+        best={Math.max(best, sessionBest ?? 0)}
         accent={accent}
         onRestart={restart}
       />

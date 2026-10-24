@@ -400,7 +400,13 @@ function MinePage() {
     setOrdersError(false);
     try {
       const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
-      if (!cloud?.callFunction) return;
+      // H5 没有 Taro.cloud，ordersList 也只存在于小程序云函数 → 这里同样是「查询不可用」，
+      // 不能静默 return（那会让 orders 停在空数组，用户看到「暂无订阅记录」，
+      // 把「查不到」伪装成「你没订阅过」）。与下面 ok:false 分支同一条诚实性口径。
+      if (!cloud?.callFunction) {
+        setOrdersError(true);
+        return;
+      }
       const res = await cloud.callFunction({ name: 'ordersList', data: { limit: 20 } });
       const r = res as { result?: { ok?: boolean; orders?: OrderSummary[] } } | null;
       if (r?.result?.ok && Array.isArray(r.result.orders)) {
@@ -788,7 +794,15 @@ function MinePage() {
 
   const handleBlurNickname = () => {
     const name = nickname.trim();
-    if (!profile || !name || name === profile.nickname) return;
+    if (!profile) return;
+    if (name === profile.nickname) return;
+    // 清空昵称不能静默 return —— 用户会以为「已保存为空」，实际什么也没发生。
+    // 说清原因并把输入框回填成原值，不留一个看起来像已保存的状态。
+    if (!name) {
+      Taro.showToast({ title: t('mine.nicknameEmpty'), icon: 'none' });
+      setNickname(profile.nickname);
+      return;
+    }
     saveSettings({ nickname: name });
   };
 
@@ -798,7 +812,19 @@ function MinePage() {
   };
 
   const handleTogglePref = (tag: string) => {
-    const next = prefs.includes(tag) ? prefs.filter((p) => p !== tag) : [...prefs, tag].slice(0, 5);
+    if (prefs.includes(tag)) {
+      const next = prefs.filter((p) => p !== tag);
+      setPrefs(next);
+      saveSettings({ preferences: next });
+      return;
+    }
+    // 截断要让人知道：老写法 `[...prefs, tag].slice(0, 5)` 静默丢掉溢出的标签，
+    // 用户点了没反应，以为选上了。最多 5 个是产品口径，但「选不了」必须说出来。
+    if (prefs.length >= 5) {
+      Taro.showToast({ title: t('mine.prefMax'), icon: 'none' });
+      return;
+    }
+    const next = [...prefs, tag];
     setPrefs(next);
     saveSettings({ preferences: next });
   };

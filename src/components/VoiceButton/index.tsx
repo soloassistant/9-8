@@ -413,9 +413,16 @@ export default function VoiceButton({ disabled = false, compact = false, asrLang
   }, []);
 
   const handleOpenSetting = useCallback(async () => {
-    await openAppSetting('microphone');
-    setGuideVisible(false);
-  }, []);
+    const ok = await openAppSetting('microphone');
+    // 只在真的打开成功时才收提示条。此前无条件 setGuideVisible(false)：
+    // 打开设置失败（H5 无系统设置页 / openSetting 抛错）时提示条照样消失，
+    // 用户以为跳成功了，实际什么都没发生 —— 麦克风仍然关着，也没有任何回执。
+    if (ok) {
+      setGuideVisible(false);
+      return;
+    }
+    Taro.showToast({ title: t('perm.openSettingFailed'), icon: 'none' });
+  }, [t]);
 
   /* ------------------------------------------------------------------ */
   /* weapp：插件 / 纯录音初始化                                           */

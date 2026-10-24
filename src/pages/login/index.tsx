@@ -411,7 +411,7 @@ export default function LoginPage() {
     const res = await sendLoginCode(currentId());
     setBusy(false);
     if (res.error) {
-      setError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
+      setError(sdkDownText(res.error, t) || t('auth.errGeneric'));
       return;
     }
     setPending({ id: currentId(), verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
@@ -443,7 +443,7 @@ export default function LoginPage() {
     });
     setBusy(false);
     if (res.error) {
-      setError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
+      setError(sdkDownText(res.error, t) || t('auth.errGeneric'));
       return;
     }
     setPending(null);
@@ -480,7 +480,7 @@ export default function LoginPage() {
     const res = await requestPasswordReset(account.trim());
     setBusy(false);
     if (res.error) {
-      setError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
+      setError(sdkDownText(res.error, t) || t('auth.errGeneric'));
       return;
     }
     setResetTicket({ updateUser: res.data.updateUser });
@@ -499,7 +499,7 @@ export default function LoginPage() {
     const res = await resetTicket.updateUser({ nonce: code.trim(), password });
     setBusy(false);
     if (res.error) {
-      setError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
+      setError(sdkDownText(res.error, t) || t('auth.errGeneric'));
       return;
     }
     // 重置成功后 SDK 会直接建立会话；再取一次确认，取不到就回登录页（不放行）
@@ -593,7 +593,7 @@ export default function LoginPage() {
     const res = await sendLoginCode({ phone });
     setBindBusy(false);
     if (res.error) {
-      setBindError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
+      setBindError(sdkDownText(res.error, t) || t('auth.errGeneric'));
       return;
     }
     setBindPending({ id: { phone }, verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
@@ -620,7 +620,7 @@ export default function LoginPage() {
     });
     setBindBusy(false);
     if (res.error) {
-      setBindError(sdkDownText(res.error, t) || res.error.message || t('auth.errGeneric'));
+      setBindError(sdkDownText(res.error, t) || t('auth.errGeneric'));
       return;
     }
     setBindPhone(false);
