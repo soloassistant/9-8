@@ -46,6 +46,7 @@
     "verify:interaction": "node .tools/verify-interaction-fixes.mjs",
     "verify:usage": "node .tools/verify-usage-renewal.mjs",
     "verify:legal": "node .tools/verify-legal.mjs",
+    "audit:identity": "node .tools/audit-identity.mjs",
     "verify:mutation": "node .tools/mutation-verify.mjs .tools/mutations-ledger.mjs .tools/mutations-share.mjs .tools/mutations-sync.mjs .tools/mutations-crash.mjs .tools/mutations-gates.mjs .tools/mutations-pref.mjs .tools/mutations-phone.mjs .tools/mutations-cloud.mjs .tools/mutations-briefing.mjs .tools/mutations-cloudflow.mjs .tools/mutations-buttons.mjs .tools/mutations-util.mjs .tools/mutations-usage.mjs .tools/mutations-legal.mjs",
     "verify:layout": "node .tools/verify-layout.mjs",
     "verify:visual": "node .tools/verify-visual-patrol.mjs",

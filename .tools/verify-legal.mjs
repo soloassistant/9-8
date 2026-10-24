@@ -159,7 +159,10 @@ for (const d of DOMAINS) {
 console.log('\n── B. 绝对句反证（条文 → 代码）──');
 
 // B1 「唯一」：逐句过白名单。新加一句「XX 是唯一…」就会红，逼人拿出证明。
-const UNIQ_ALLOW = [/转发是唯一入口/];
+// ⚠️ 2026-10-24：原白名单里有 /转发是唯一入口/ —— 但那句本身是错的（真实入口是粘贴 /
+// Ctrl+V 截屏 / 相册选图，见 pages/inbox），白名单等于把不实表述固化。白名单必须**空**：
+// 只要想留一句「唯一」，就得先证明它，证明不了就别写「唯一」。
+const UNIQ_ALLOW = [];
 const uniqSents = sentencesOf(LEGAL_ALL).filter((s) => s.includes('唯一'));
 ok(
   `B1 「唯一」类绝对句逐句已复核（${uniqSents.length} 句：${uniqSents.map((s) => s.slice(0, 14)).join(' / ') || '无'}）`,
