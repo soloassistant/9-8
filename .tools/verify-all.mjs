@@ -258,11 +258,19 @@ const allVerify = Object.keys(scripts).filter((k) => k.startsWith('verify:'));
 const exempted = [BROWSER, MUTATING, EXTERNAL];
 const staleTables = exempted.flatMap((m) => [...m.keys()]).concat([...SELF]).filter((k) => !scripts[k]);
 
-let list = allVerify.filter((k) => !BROWSER.has(k) && !MUTATING.has(k) && !EXTERNAL.has(k) && !SELF.has(k));
+// --only 时**不预排除**特殊组（否则 --only=mutation 会因先排除后过滤而空跑 0 组、
+// 还退出 0 假绿 —— 2026-10-24 实测踩到）；此时 WITH_* 追加也不再需要。
+let list = ONLY
+  ? [...allVerify]
+  : allVerify.filter((k) => !BROWSER.has(k) && !MUTATING.has(k) && !EXTERNAL.has(k) && !SELF.has(k));
 if (WITH_BROWSER) list = [...list, ...BROWSER.keys()];
 if (WITH_MUTATION) list = [...list, ...MUTATING.keys()];
 if (WITH_LIVE) list = [...list, ...EXTERNAL.keys()];
 if (ONLY) list = list.filter((k) => ONLY.some((o) => k === `verify:${o}` || k === o));
+if (ONLY && list.length === 0) {
+  console.error(`--only 没匹配到任何门禁（${ONLY.join(', ')}），拒绝空跑假绿。可用名见 package.json 的 verify:*`);
+  process.exit(2);
+}
 // 变异性门禁永远排最后：它会改源码，跑完必须让源码复原。
 list.sort((a, b) => Number(MUTATING.has(a)) - Number(MUTATING.has(b)));
 
@@ -275,7 +283,10 @@ for (const name of list) {
     cwd: ROOT,
     shell: true,
     encoding: 'utf8',
-    timeout: 300000,
+    // 变异组单独放宽（2026-10-24 实测定标）：133 条变异 × 每条「变异→跑门禁→还原→复跑」
+    // 实测约 4.3s/条（mutations-verifyall 3 条 12.9s 基线）≈ 5.7 分钟，硬 300s 会把
+    // 最后一口气掐死在还原前 → 退出码 -1 看起来像变异逃逸。900s ≈ 实测 × 1.6。
+    timeout: MUTATING.has(name) ? 900000 : 300000,
     maxBuffer: 64 * 1024 * 1024,
     env: { ...process.env, FORCE_COLOR: '0' }
   });
