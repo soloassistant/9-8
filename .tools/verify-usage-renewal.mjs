@@ -280,12 +280,21 @@ section('C. 记账接线（源码断言，框到具体分支）');
   assert('C1 mock 降级分支内没有任何 recordUsage（记了就是虚报用量）',
     afterMock.length > 0 && !afterMock.includes('recordUsage'));
 
-  // C2 流式路径：只在拿到 res 之后记
-  const streamOk = cloud.indexOf('const res = await chatViaCloudLlm({ message, deep, memories })');
-  const streamGuard = cloud.indexOf('if (!res) return null', streamOk);
-  const streamRec = cloud.indexOf("recordUsage('chat')", streamGuard);
+  // C2 流式路径：只在拿到 res 之后记 —— 必须框到**函数体内**再判，
+  // 否则「守卫之前多插一次 recordUsage」这种变异照样能过（守卫之后那次还在）。
+  // 注意：本仓 CRLF 混存，先归一再用 '\n}' 找顶层闭合（内层闭合都是缩进的）。
+  const cloudN = cloud.replace(/\r\n/g, '\n');
+  const streamFn = cloudN.indexOf('export async function chatCloudStream(');
+  const streamEnd = cloudN.indexOf('\n}', streamFn);
+  const streamBody = streamFn > -1 && streamEnd > streamFn ? cloudN.slice(streamFn, streamEnd + 2) : '';
+  const streamOk = streamBody.indexOf('const res = await chatViaCloudLlm({ message, deep, memories })');
+  const streamGuard = streamBody.indexOf('if (!res) return null', streamOk);
+  const streamRec = streamBody.indexOf("recordUsage('chat')");
+  const streamRecCount = streamBody.split("recordUsage('chat')").length - 1;
   assert('C2 流式对话在 if(!res) return null 之后才记账（空回包不算消耗）',
-    streamOk > -1 && streamGuard > streamOk && streamRec > streamGuard);
+    streamFn > -1 && streamOk > -1 && streamGuard > streamOk && streamRec > streamGuard);
+  assert('C2 流式函数体内 recordUsage(chat) 只出现一次（两次 = 同一次调用计两笔）',
+    streamRecCount === 1);
 }
 
 {
