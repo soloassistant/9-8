@@ -36,8 +36,8 @@ export default [
     // 哪条变红：self-test 里 `parseCounts("失败 2 通过 9")` 期望 fails=2。
     label: 'parseCounts 只认英文 FAIL，解析不出中文「失败 2」',
     file: '.tools/verify-all.mjs',
-    from: '/(?:FAIL|失败)\\s*[:：]?\\s*(\\d+)/',
-    to: '/(?:FAIL)\\s*[:：]?\\s*(\\d+)/',
+    from: '/(?:FAIL|失败)\\s*[:：]?\\s*(\\d+)\\b/',
+    to: '/(?:FAIL)\\s*[:：]?\\s*(\\d+)\\b/',
     cmd: 'node .tools/verify-all.mjs --self-test'
   }
 ];
