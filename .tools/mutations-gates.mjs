@@ -204,5 +204,35 @@ export default [
     from: '{ background: l.accent, borderColor: l.accent }',
     to: '{ borderColor: l.accent, color: l.accent }',
     cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+
+  /* ---------------- 第三轮：首屏以下（滚动实测才暴露的三处） ---------------- */
+  {
+    // 行为后果：破坏性操作文案 3.91:1，白底不达标 —— 而这行字恰恰是「删数据」的确认处。
+    // 哪条变红：J19 .dangerText 白底 ≥4.5。
+    label: '删除类文案改回 #E5484D（白底 3.91）',
+    file: 'src/pages/mine/index.module.scss',
+    from: '  color: #cc2e34;',
+    to: '  color: #E5484D;',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    // 行为后果：--brand-deep 是给图标/边线的，当文字色压在 --brand-soft 上只有 3.20:1。
+    // 哪条变红：J20 .scaleTextActive 不用 --brand-deep。
+    label: '界面大小激活项文字改回 --brand-deep（soft 底 3.20）',
+    file: 'src/pages/mine/index.module.scss',
+    from:
+      '  color: var(--brand-strong, #{$color-primary-strong});\n  font-weight: $font-weight-semibold;\n}\n\n// 协议/隐私半屏查看层',
+    to: '  color: var(--brand-deep, #{$color-primary-dark});\n  font-weight: $font-weight-semibold;\n}\n\n// 协议/隐私半屏查看层',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    // 行为后果：白勾压在用户自选的色卡上，四个预设分别是 2.59 / 3.23 / 2.78 / 2.89，全不过。
+    // 哪条变红：J21 四档色卡 ≥4.5（取第一档就会红）。
+    label: '色卡勾选改回白字（四色 2.59–3.23 全不达标）',
+    file: 'src/pages/mine/index.module.scss',
+    from: '  color: #2b1800;\n  font-size: $font-size-xs;',
+    to: '  color: $color-text-white;\n  font-size: $font-size-xs;',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
   }
 ];

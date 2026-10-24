@@ -275,6 +275,7 @@ const FEATURE_LABEL_KEY: Record<FeatureKey, LangKey> = {
 
 /** 续费状态文案（键由 utils/renewal.ts 的 copyKeyOf 决定，映射放这里是为了 i18n 类型安全） */
 const RENEW_STATUS_KEY: Record<RenewalCopyKey, LangKey> = {
+  statusNone: 'mine.renewStatusNone',
   statusActive: 'mine.renewStatusActive',
   statusExpiring: 'mine.renewStatusExpiring',
   statusToday: 'mine.renewStatusToday',
@@ -1404,23 +1405,33 @@ function MinePage() {
         ) : null}
 
         {/* ①-b 续费管理（2026-10-24）：到期倒计时 + 到期后会怎样 + 提醒开关。
-            只在**有订阅**时出现 —— 没订阅过的用户看到"到期提醒"只会困惑。 */}
-        {renewal.status !== 'none' ? (
-          <View className={styles.renewBlock}>
-            <View className={styles.renewHead}>
-              <Text className={styles.renewTitle}>{t('mine.renewMgmtTitle')}</Text>
-              <View className={renewal.status === 'active' ? styles.renewTagIdle : styles.renewTag}>
-                <Text className={renewal.status === 'active' ? styles.renewTagTextIdle : styles.renewTagText}>
-                  {renewalStatusText}
-                </Text>
-              </View>
-            </View>
-            <Text className={styles.renewUntil}>{t('mine.renewUntil', { date: renewal.expiredAt })}</Text>
-            {renewal.status === 'active' ? null : (
-              <Text className={styles.renewWarn}>
-                {renewal.status === 'expired' ? t('mine.renewWarnExpired') : t('mine.renewWarnExpiring')}
+            **必须始终渲染**，分两条理由：
+              ① 产品上：没订阅的人更需要知道「不会自动扣费」，藏起来等于让人猜；
+              ② 工程上：H5 的 `subscribed` 恒为 false（`localProfile.buildProfileFromSession`
+                 没有订阅态来源，见那里的说明），若按「有订阅才显示」收起，这块在
+                 **唯一能跑的形态里就是不可达代码**，永远测不到、也永远看不到。
+            none 态**只给状态徽标 + 不自动扣费**：不给到期日、不给倒计时、不给提醒开关
+            （`daysLeft` 是 null，编一个日期出来就是假信息）。 */}
+        <View className={styles.renewBlock}>
+          <View className={styles.renewHead}>
+            <Text className={styles.renewTitle}>{t('mine.renewMgmtTitle')}</Text>
+            <View className={renewal.status === 'active' ? styles.renewTagIdle : styles.renewTag}>
+              <Text className={renewal.status === 'active' ? styles.renewTagTextIdle : styles.renewTagText}>
+                {renewalStatusText}
               </Text>
-            )}
+            </View>
+          </View>
+          {renewal.status === 'none' ? (
+            <Text className={styles.renewUntil}>{t('mine.renewNoneHint')}</Text>
+          ) : (
+            <Text className={styles.renewUntil}>{t('mine.renewUntil', { date: renewal.expiredAt })}</Text>
+          )}
+          {renewal.status === 'active' || renewal.status === 'none' ? null : (
+            <Text className={styles.renewWarn}>
+              {renewal.status === 'expired' ? t('mine.renewWarnExpired') : t('mine.renewWarnExpiring')}
+            </Text>
+          )}
+          {renewal.status === 'none' ? null : (
             <View className={styles.renewSwitchRow}>
               <Text className={styles.renewSwitchLabel}>{t('mine.renewRemind')}</Text>
               <Switch
@@ -1430,10 +1441,10 @@ function MinePage() {
                 onChange={(e) => handleToggleRemind(!!e.detail.value)}
               />
             </View>
-            {/* 明确写出"不自动续费"：否则用户会默认以为到期自动扣款，反而不敢开提醒 */}
-            <Text className={styles.renewNote}>{t('mine.renewNoAuto')}</Text>
-          </View>
-        ) : null}
+          )}
+          {/* 明确写出"不自动续费"：否则用户会默认以为到期自动扣款，反而不敢开提醒 */}
+          <Text className={styles.renewNote}>{t('mine.renewNoAuto')}</Text>
+        </View>
 
         {/* ① 方案卡片横排（替换原 Picker） */}
         <View className={styles.planList}>

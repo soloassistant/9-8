@@ -116,5 +116,35 @@ export default [
     from: '  color: rgba(255, 255, 255, 0.92);\n}\n\n.renewWarn',
     to: '  color: rgba(255, 255, 255, 0.75);\n}\n\n.renewWarn',
     cmd: 'node .tools/verify-usage-renewal.mjs'
+  },
+
+  /* ---------------- 续费块的「可达性」与 none 态诚实性 ---------------- */
+  {
+    // 行为后果：没订阅的人看到「订阅有效」（甚至「有效 n 天」）—— 纯编事实。
+    // 哪条变红：B1b 未订阅的文案键必须是 statusNone。
+    label: '未订阅的文案键回落到 statusActive（编一个「订阅有效」）',
+    file: 'src/utils/renewal.ts',
+    from: "  if (info.status === 'none') return 'statusNone';",
+    to: "  if (info.status === 'none') return 'statusActive';",
+    cmd: 'node .tools/verify-usage-renewal.mjs'
+  },
+  {
+    // 行为后果：未订阅也给「到期前提醒我」开关，拨了没有任何东西会到期 —— 死开关。
+    // 哪条变红：D2 未订阅时不渲染提醒开关。
+    label: '未订阅也渲染提醒开关（拨了没有东西会到期）',
+    file: 'src/pages/mine/index.tsx',
+    from: "          {renewal.status === 'none' ? null : (",
+    to: '          {false ? null : (',
+    cmd: 'node .tools/verify-usage-renewal.mjs'
+  },
+  {
+    // 行为后果：H5 的 subscribed 恒 false ⇒ 整块在唯一能跑的形态里不可达，
+    // 无法看到也无法测量（这正是本轮发现的第一版问题）。
+    // 哪条变红：D2 续费块无条件渲染。
+    label: '续费块收回「有订阅才显示」（H5 上变成不可达代码）',
+    file: 'src/pages/mine/index.tsx',
+    from: '        <View className={styles.renewBlock}>',
+    to: "        {renewal.status !== 'none' ? (<View className={styles.renewBlock}>",
+    cmd: 'node .tools/verify-usage-renewal.mjs'
   }
 ];

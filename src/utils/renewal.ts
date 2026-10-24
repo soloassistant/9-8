@@ -79,9 +79,12 @@ export function shouldRemind(lastRemindDay: string | null | undefined, today: st
  * 到期后降级说明里要用到的"还剩多久"文案键。
  * 单独抽出来是因为页面要 t()，而 utils 层不许硬编码中文。
  */
-export type RenewalCopyKey = 'statusActive' | 'statusExpiring' | 'statusToday' | 'statusExpired';
+export type RenewalCopyKey = 'statusNone' | 'statusActive' | 'statusExpiring' | 'statusToday' | 'statusExpired';
 
 export function copyKeyOf(info: RenewalInfo): RenewalCopyKey {
+  // 未订阅必须单独一档：落到 statusActive 会给没订阅的人显示「订阅有效」
+  // 甚至「有效 n 天」—— 那是**编事实**，比不显示更坏。
+  if (info.status === 'none') return 'statusNone';
   if (info.status === 'expired') return 'statusExpired';
   if (info.status === 'expiring') return info.daysLeft === 0 ? 'statusToday' : 'statusExpiring';
   return 'statusActive';

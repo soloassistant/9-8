@@ -496,7 +496,9 @@
 
 .dangerText {
   font-size: $font-size-md;
-  color: #E5484D;
+  // 5.24:1（原 #E5484D = 3.91:1，白底不达标）。这是「清空全部记忆 / 删除全部数据」的
+  // 破坏性操作文案，**因而不许用浅红**；但仍要一眼看出是危险动作，所以压深不换色系。
+  color: #cc2e34;
 }
 
 .arrow {
@@ -555,7 +557,10 @@
 }
 
 .swatchCheck {
-  color: $color-text-white;
+  // 勾选落在**用户自选的色卡底色**上（橙/蓝/绿/粉四选一），所以不能用白字：
+  // 白勾在四个预设上分别是 2.59 / 3.23 / 2.78 / 2.89，全都不达标。
+  // 深棕 #2b1800 在四个底色上最差 5.27（天空蓝），最好 6.58（晨光橙）→ 一个方案通吃。
+  color: #2b1800;
   font-size: $font-size-xs;
   font-weight: $font-weight-semibold;
 }
@@ -594,7 +599,9 @@
 }
 
 .scaleTextActive {
-  color: var(--brand-deep, #{$color-primary-dark});
+  // `--brand-deep` 当**文字色**压在 `--brand-soft` 上只有 3.20:1（deep 是给图标/边线的）。
+  // 文字一律走 `--brand-strong`：晨光橙 soft 底上 4.83:1，白底 5.26:1。
+  color: var(--brand-strong, #{$color-primary-strong});
   font-weight: $font-weight-semibold;
 }
 

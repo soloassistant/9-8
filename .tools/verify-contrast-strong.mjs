@@ -477,6 +477,66 @@ try {
   ok('J15 读取失败: ' + e.message, false);
 }
 
+// ============ J19 – J21. 第三轮：滚动实测（首屏以下，旧巡检器不滚动 ⇒ 从未测到） ============
+// 起因：2026-10-24 给「我的」页加了续费/记账两块，顺手写了**滚动版**巡检
+// （.tmp-verify/runtime-scan-scroll.expr.js）。首屏以下立刻暴露 7 处不足，全在 J 组之外：
+//   · .scaleTextActive 用 --brand-deep 压 --brand-soft → 3.20:1（4 个档位项）
+//   · .dangerText #E5484D 白底 → 3.91:1（清空记忆 / 删除数据）
+//   · .swatchCheck 白勾压用户自选色卡 → 四色 2.59 / 3.23 / 2.78 / 2.89
+// 结论：**「跑过巡检 0 处不足」只在「扫到了」的前提下才有意义**。不滚动 = 没测到 ≠ 没问题。
+const hexRGB = (h) => {
+  const s = String(h).replace('#', '');
+  return { r: parseInt(s.slice(0, 2), 16), g: parseInt(s.slice(2, 4), 16), b: parseInt(s.slice(4, 6), 16) };
+};
+const relLum = (c) => {
+  const f = (v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+};
+const contrastOf = (a, b) => {
+  const l1 = relLum(hexRGB(a));
+  const l2 = relLum(hexRGB(b));
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+};
+
+try {
+  const mineScss = stripComments(read('src/pages/mine/index.module.scss'));
+
+  const danger = blockOf(mineScss, 'dangerText');
+  const dangerHex = (/#[0-9a-f]{6}/i.exec(danger || '') || [])[0];
+  ok(
+    `J19 mine .dangerText 白底 ≥4.5（当前 ${dangerHex || '?'} = ${dangerHex ? contrastOf(dangerHex, '#ffffff').toFixed(2) : '?'}:1，原 #E5484D 3.91）`,
+    Boolean(dangerHex) && contrastOf(dangerHex, '#ffffff') >= 4.5
+  );
+
+  const scaleActive = blockOf(mineScss, 'scaleTextActive');
+  ok(
+    'J20 mine .scaleTextActive 文字色不用 --brand-deep（soft 底 3.20:1），用 --brand-strong',
+    Boolean(scaleActive) && scaleActive.includes('--brand-strong') && !scaleActive.includes('--brand-deep')
+  );
+
+  // 勾选落在**用户自选的色卡底色**上，四选一都要过 —— 单看橙色那一档会漏掉天空蓝
+  const swatch = blockOf(mineScss, 'swatchCheck');
+  const swatchHex = (/#[0-9a-f]{6}/i.exec(swatch || '') || [])[0];
+  const CHIPS = [
+    ['晨光橙', '#FF7A45'],
+    ['天空蓝', '#5B8DEF'],
+    ['森林绿', '#00B42A'],
+    ['樱花粉', '#F5669C']
+  ];
+  for (const [name, chip] of CHIPS) {
+    const r = swatchHex ? contrastOf(swatchHex, chip) : 0;
+    ok(
+      `J21 mine .swatchCheck 勾选色压${name} ${chip} ≥4.5（当前 ${swatchHex || '?'} = ${r.toFixed(2)}:1，原白勾 2.59–3.23）`,
+      Boolean(swatchHex) && r >= 4.5
+    );
+  }
+} catch (e) {
+  ok('J19/J20/J21 读取失败: ' + e.message, false);
+}
+
 console.log('──────────────────────────────────────────────────────────');
 console.log(`PASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);

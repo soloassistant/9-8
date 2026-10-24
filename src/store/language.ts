@@ -41,6 +41,8 @@ const zh = {
   'mine.fUsageSearch': '全网搜索',
   // 续费管理（2026-10-24）：只判定与提示，不自动扣款
   'mine.renewMgmtTitle': '续费管理',
+  'mine.renewStatusNone': '未开通',
+  'mine.renewNoneHint': '当前没有订阅，到期日会在开通后显示。',
   'mine.renewStatusActive': '订阅有效',
   'mine.renewStatusExpiring': '还剩 {n} 天',
   'mine.renewStatusToday': '今天到期',
@@ -976,6 +978,8 @@ const en: Record<keyof typeof zh, string> = {
   'mine.fUsageVoice': 'Voice',
   'mine.fUsageSearch': 'Web search',
   'mine.renewMgmtTitle': 'Renewal',
+  'mine.renewStatusNone': 'Not subscribed',
+  'mine.renewNoneHint': 'No subscription yet — the expiry date shows up here once you subscribe.',
   'mine.renewStatusActive': 'Active',
   'mine.renewStatusExpiring': '{n} days left',
   'mine.renewStatusToday': 'Expires today',

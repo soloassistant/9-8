@@ -225,6 +225,9 @@ const rn = await loadModule('src/utils/renewal.ts');
   assert('B1 未订阅 → status=none', none.status === 'none');
   assert('B1 未订阅时 daysLeft 必须是 null（不许编一个数字出来）', none.daysLeft === null);
   assert('B1 未订阅时不提醒', none.remind === false);
+  // 未订阅落到 statusActive 会给没订阅的人显示「订阅有效」（甚至「有效 n 天」）—— 编事实。
+  assert('B1b 未订阅的文案键必须是 statusNone（落到 statusActive 就是编一个「订阅有效」）',
+    rn.copyKeyOf(none) === 'statusNone');
 
   assert('B2 到期日非法（空串/undefined/2026-02-31）→ none',
     rn.resolveRenewal({ subscribed: true, expiredAt: '', today: TODAY }).status === 'none' &&
@@ -336,11 +339,23 @@ section('D. 我的页 UI 与配色');
     mine.includes("t('mine.usageWeek')") && mine.includes("t('mine.usageNote')"));
   assert('D1 空账本走独立空态（不是把 0 渲染成一条记录）', mine.includes("t('mine.usageEmpty')"));
 
-  assert('D2 续费管理块只在有订阅时渲染（renewal.status !== none）',
-    mine.includes("renewal.status !== 'none'"));
+  // D2 续费块**必须无条件渲染**。这不是风格偏好：
+  // H5 的 buildProfileFromSession 把 subscribed 硬编码为 false（无订阅态来源），
+  // 若按「有订阅才显示」收起，这块在**唯一能跑的形态里就是不可达代码** —— 永远看不到、也永远测不到。
+  assert('D2 续费块无条件渲染（没订阅也要看到「不会自动扣费」）',
+    mine.includes('<View className={styles.renewBlock}>') &&
+      !mine.includes("{renewal.status !== 'none' ? ("));
   assert('D2 续费块有状态徽标 + 到期日 + 提醒开关 + 不自动续费说明',
     mine.includes('{renewalStatusText}') && mine.includes("t('mine.renewUntil'") &&
       mine.includes('onChange={(e) => handleToggleRemind') && mine.includes("t('mine.renewNoAuto')"));
+  // none 态不许给日期/开关：daysLeft 是 null，编个日期出来就是假信息
+  const noneHintIdx = mine.indexOf("t('mine.renewNoneHint')");
+  const untilIdx = mine.indexOf("t('mine.renewUntil'");
+  assert('D2 未订阅时给的是「没有订阅」的说明，不是到期日（不编日期）',
+    noneHintIdx > -1 && untilIdx > noneHintIdx);
+  const switchGuard = mine.indexOf("renewal.status === 'none' ? null : (");
+  assert('D2 未订阅时不渲染提醒开关（开关只对已订阅的人有意义）',
+    switchGuard > -1 && switchGuard < mine.indexOf('styles.renewSwitchRow'));
   assert('D2 提醒受偏好开关控制（关掉就不弹）', mine.includes('if (!renewal.remind || !remindOn) return;'));
   assert('D2 提醒写入"已提示日期"做节流（一天一次）', mine.includes('writeRenewRemindDay(today)'));
 }
@@ -351,7 +366,8 @@ section('D. 我的页 UI 与配色');
   const keys = [
     'mine.usageTitle', 'mine.usageToday', 'mine.usageWeek', 'mine.usageEmpty', 'mine.usageNote',
     'mine.fUsageChat', 'mine.fUsageExtract', 'mine.fUsageVoice', 'mine.fUsageSearch',
-    'mine.renewMgmtTitle', 'mine.renewStatusActive', 'mine.renewStatusExpiring',
+    'mine.renewMgmtTitle', 'mine.renewStatusNone', 'mine.renewNoneHint',
+    'mine.renewStatusActive', 'mine.renewStatusExpiring',
     'mine.renewStatusToday', 'mine.renewStatusExpired', 'mine.renewUntil',
     'mine.renewWarnExpiring', 'mine.renewWarnExpired', 'mine.renewNoAuto',
     'mine.renewRemind', 'mine.renewToast', 'mine.renewToastToday',
