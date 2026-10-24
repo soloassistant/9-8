@@ -75,6 +75,9 @@ function parseRss(xml, source, limit, tag) {
       id: 'rss_' + hash(source + title),
       title,
       summary: clampText(desc || title, 80),
+      // 站内文章视图用：源自己在 feed 里发布的描述（上限 1000 码点），不是抓取的正文页；
+      // 与 webSearch 云函数的 content 字段同语义（2026-10-25）。无 description 不字段化。
+      content: desc ? clampText(desc, 1000) : undefined,
       source,
       url: link,
       tags: tag ? [tag] : [],

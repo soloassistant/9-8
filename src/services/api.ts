@@ -165,6 +165,24 @@ export function apiGetHotspot(): Promise<HotspotNews[]> {
   return callFunction<HotspotNews[]>('getHotspot');
 }
 
+/** 视频精选（2026-10-25）：webSearch action=videoNews 的 B 站热榜视频（带封面/时长/播放量）。
+ *  任何失败（rpc 未注册 / 网络抖动 / 数据为空）一律返回 [] —— 调用方按空数组隐藏板块，
+ *  不显示假加载态也不报错弹窗（免费增值内容，不值得打扰）。 */
+export async function apiVideoNews(): Promise<HotspotNews[]> {
+  try {
+    const payload = (await invoke('webSearch', { action: 'videoNews' })) as {
+      code: number;
+      data: HotspotNews[] | null;
+      message?: string;
+    };
+    if (payload && payload.code === 0 && Array.isArray(payload.data)) return payload.data;
+    return [];
+  } catch (err) {
+    console.warn('[api] videoNews failed:', err);
+    return [];
+  }
+}
+
 /** 全网资讯搜索（F29）：走 webSearch 云函数（Bing News RSS）。
  *  2026-10-05 起 H5 也走真后端 —— 经 dataSource 转到云服务 database.rpc，
  *  此前这里直接 `return null`，等于 H5 的全网搜索从来没真正工作过。 */

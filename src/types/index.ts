@@ -182,6 +182,13 @@ export interface HotspotNews {
   aiReason?: string;
   /** Why it matters（P1-X1：为什么值得看，AI 过滤时生成，≤30 字；缺失不显示） */
   whyItMatters?: string;
+  /** 站内阅读正文：**源自己在 feed 里发布的摘要/描述**（上限 1000 码点），不是抓取的正文页 ——
+   *  合规口径「不转载正文」不变；缺失时站内视图退回 summary + 阅读原文（2026-10-25） */
+  content?: string;
+  /** 视频条目附加字段（webSearch action=videoNews 的 B 站热榜；仅 tags 含「视频」时出现） */
+  duration?: string;
+  author?: string;
+  play?: number;
 }
 
 /** 浏览历史条目（v2.0） */

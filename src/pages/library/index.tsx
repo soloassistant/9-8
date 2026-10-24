@@ -7,7 +7,7 @@ import TagChip from '@/components/TagChip';
 import EmptyState from '@/components/EmptyState';
 import DemoDataHint from '@/components/DemoDataHint';
 import { NewsCardSkeleton } from '@/components/Skeleton';
-import { apiGetLibrary, apiGetHotspot, apiNewsSearch } from '@/services/api';
+import { apiGetLibrary, apiGetHotspot, apiNewsSearch, apiVideoNews } from '@/services/api';
 import { getHotspotMeta, apiAiNewsFilter, apiGetAffinity, apiSaveAffinity } from '@/services/cloud';
 import { invoke } from '@/services/dataSource';
 import { useUserStore } from '@/store/user';
@@ -177,6 +177,10 @@ function LibraryPage() {
   const [items, setItems] = useState<CollectionItem[]>([]);
   const [news, setNews] = useState<HotspotNews[]>([]);
   const [hotMeta, setHotMeta] = useState<ReturnType<typeof getHotspotMeta>>(null);
+  /** 视频精选（2026-10-25）：webSearch action=videoNews 的 B 站热榜；空数组 = 板块隐藏 */
+  const [videos, setVideos] = useState<HotspotNews[]>([]);
+  /** 站内文章视图（2026-10-25）：点卡片先进来读，正文 = 源 feed 自带摘要（不抓正文页） */
+  const [article, setArticle] = useState<HotspotNews | null>(null);
   const [activeNewsTag, setActiveNewsTag] = useState('全部');
   // F29 全网搜索：回车触发；真机走 webSearch 云函数（Bing News RSS），H5 预览/云端空结果走本地过滤兜底
   const [searchMode, setSearchMode] = useState(false);
@@ -416,10 +420,16 @@ function LibraryPage() {
       }, SKELETON_DELAY_MS);
     }
     try {
-      const [lib, hotspot] = await Promise.all([apiGetLibrary(), apiGetHotspot().catch(() => [])]);
+      // 视频精选（2026-10-25）：失败/为空 = []，板块整个隐藏（免费增值内容不配打扰，见 apiVideoNews）
+      const [lib, hotspot, vids] = await Promise.all([
+        apiGetLibrary(),
+        apiGetHotspot().catch(() => []),
+        apiVideoNews()
+      ]);
       if (!aliveRef.current || seq !== loadSeq.current) return;
       setItems(lib);
       setNews(hotspot);
+      setVideos(vids);
       // 数据来源元信息（mock/真机 webSearch 路径为 null，不显示来源栏）
       setHotMeta(getHotspotMeta());
       refreshUsage();
@@ -542,12 +552,15 @@ function LibraryPage() {
     scheduleAffinitySync();
     logActivity('🔥', `浏览热点：${item.title.slice(0, 14)}`);
 
-    // ★ 2026-10-24 修（用户反馈「热点打不开看详情」的根因）：
-    // 原实现到这里只 `showToast({ title: '来源：xxx' })` 就结束了 —— 没有任何打开原文的动作，
-    // 卡片点了等于没点。现在真正走 openExternalPage：
-    //   · H5：window.open 新标签打开原文（被拦截降级 location.href，见 utils/externalLink.ts）
-    //   · weapp：微信不允许个人主体 web-view，复制链接 + 明确告知去哪儿打开
-    //   · url 缺失/非 http(s)：如实提示，不假装打开
+    // ★ 2026-10-25 演进：先开**站内文章视图**（读源 feed 自带的摘要，合规口径「不转载正文」
+    // 不变——不另行抓原文页），想看全文再点「阅读原文」→ openExternalPage（见 handleReadOriginal）。
+    // 2026-10-24 修的「点了没反应」问题由本视图承接：卡片点击必有下文。
+    setArticle(item);
+  };
+
+  /** 「阅读原文」：与 2026-10-24 修的打开语义完全一致（H5 新标签 / weapp 复制链接告知 / url 缺失如实提示），
+   *  只是从 handleNewsTap 挪进文章视图 —— 原实现逻辑原样保留，别在重构里丢行为。 */
+  const handleReadOriginal = (item: HotspotNews) => {
     if (!item.url) {
       Taro.showToast({ title: '该条暂无原文链接', icon: 'none', duration: 1800 });
       return;
@@ -562,7 +575,7 @@ function LibraryPage() {
         // 'opened'（H5 新标签已开）：不再弹 toast 干扰
       })
       .catch(() => {
-        Taro.showToast({ title: '该条链接无法打开', icon: 'none', duration: 1800 });
+        /* openExternalPage 内部已降级，不叠加错误弹窗 */
       });
   };
 
@@ -896,10 +909,71 @@ function LibraryPage() {
     );
   };
 
+  /** 视频卡（2026-10-25）：B 站热榜视频，横滑条。封面 + 时长角标 + 播放量；
+   *  点击走 handleNewsTap 同一链路（历史/归因/站内文章视图），阅读原文进 B 站页面。 */
+  const renderVideoCard = (item: HotspotNews) => {
+    const playText =
+      typeof item.play === 'number' && item.play >= 10000
+        ? `${(item.play / 10000).toFixed(1)}万`
+        : typeof item.play === 'number'
+          ? String(item.play)
+          : '';
+    return (
+      <View key={item.id} className={styles.videoCard} onClick={() => handleNewsTap(item)}>
+        <View className={styles.videoCoverWrap}>
+          {item.image ? (
+            <Image src={item.image} mode='aspectFill' lazyLoad className={styles.videoCover} />
+          ) : null}
+          {item.duration ? <Text className={styles.videoDuration}>{item.duration}</Text> : null}
+        </View>
+        <Text className={styles.videoTitle}>{item.title}</Text>
+        <Text className={styles.videoMeta}>
+          {item.source}
+          {playText ? ` · ▶ ${playText}` : ''}
+        </Text>
+      </View>
+    );
+  };
+
+  /** 站内文章视图（2026-10-25）：正文 = 源 feed 自带的摘要/描述（content，缺失退回 summary），
+   *  **不抓取正文页** —— 合规口径「不转载正文只出摘要」不变；想看全文走「阅读原文」。 */
+  const renderArticleView = (item: HotspotNews) => (
+    <View className={styles.blockMask} onClick={() => setArticle(null)}>
+      <View className={styles.articleSheet} onClick={(e) => e.stopPropagation()}>
+        <View className={styles.articleHead}>
+          <Text className={styles.articleTitle}>{item.title}</Text>
+          <Text className={styles.articleMeta}>
+            {item.source} · {(item.createTime || '').slice(0, 10)}
+          </Text>
+        </View>
+        {item.image ? (
+          <Image src={item.image} mode='widthFix' lazyLoad className={styles.articleImage} />
+        ) : null}
+        <Text className={styles.articleBody}>{item.content || item.summary}</Text>
+        <Text className={styles.articleSourceNote}>{t('library.articleSourceNote')}</Text>
+        <View className={styles.articleCta}>
+          {item.url ? (
+            <Button
+              className={styles.articleCtaBtn}
+              onClick={() => {
+                setArticle(null);
+                handleReadOriginal(item);
+              }}
+            >
+              <Text className={styles.articleCtaText}>{t('library.readOriginal')}</Text>
+            </Button>
+          ) : null}
+          <Button className={styles.articleCloseBtn} onClick={() => setArticle(null)}>
+            <Text className={styles.articleCtaText}>{t('cancel')}</Text>
+          </Button>
+        </View>
+      </View>
+    </View>
+  );
+
   /** 资讯卡片（原始列表与 AI 精选共用；showReason 时视为 AI 筛选条目：L1 角标 + X5 推荐理由） */
   const renderNewsCard = (item: HotspotNews, showReason: boolean) => {
-    const fb = feedbackMap[item.id];
-    const showAiBadge = showReason || !!item.aiReason;
+    const fb = feedbackMap[item.id];    const showAiBadge = showReason || !!item.aiReason;
     const reasonExpanded = !!expandedReasons[item.id];
     // 跨源同事件合并（服务端可选字段 alsoFrom）：类型可能尚未声明该字段，
     // 且运行时可能缺失或非数组 —— 用 unknown + Array.isArray 收窄，不做任何假设。
@@ -1177,6 +1251,19 @@ function LibraryPage() {
               ) : null}
             </View>
           ) : null}
+          {/* 视频精选（2026-10-25）：webSearch action=videoNews 的 B 站热榜。
+              空数组整段隐藏（apiVideoNews 失败也是 []），不显示空态不报错 —— 免费增值内容。 */}
+          {!searchMode && videos.length > 0 ? (
+            <View className={styles.sectionBar}>
+              <Text className={styles.sectionBarIcon}>🎬</Text>
+              <Text className={styles.sectionBarTitle}>{t('library.videoSectionTitle')}</Text>
+            </View>
+          ) : null}
+          {!searchMode && videos.length > 0 ? (
+            <ScrollView scrollX className={styles.videoScroll} showScrollbar={false} enhanced>
+              {videos.map((v) => renderVideoCard(v))}
+            </ScrollView>
+          ) : null}
           {!searchMode && newsTags.length > 2 ? (
             <View className={styles.filterBar}>
               <ScrollView scrollX className={styles.chipScroll}>
@@ -1273,6 +1360,9 @@ function LibraryPage() {
       ) : null}
 
       {blockTarget ? renderBlockSheet() : null}
+
+      {/* 站内文章视图（2026-10-25）：点资讯卡先进这里读，想看全文再「阅读原文」出站 */}
+      {article ? renderArticleView(article) : null}
     </View>
   );
 }

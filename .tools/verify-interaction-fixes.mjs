@@ -38,16 +38,22 @@ const ok = (name, cond) => {
   }
 };
 
-/* ---------------- A. 热点卡片点击 → 真正打开原文 ---------------- */
+/* ---------------- A. 热点卡片点击 → 站内文章视图 + 阅读原文（2026-10-25 演进） ----------------
+   旧判据「handleNewsTap 里直接 openExternalPage」已过时：现在点卡片先开站内文章视图
+   （读源 feed 自带摘要，合规口径不转载正文），「阅读原文」按钮承接原来的打开语义。 */
 const lib = stripComments(read('src/pages/library/index.tsx'));
 const tapFn = /const handleNewsTap = \(item: HotspotNews\) => \{([\s\S]*?)\n  \};/.exec(lib);
 const tapBody = tapFn ? tapFn[1] : '';
 ok('A1 handleNewsTap 函数体可定位', tapBody.length > 0);
-ok('A2 函数体内调用 openExternalPage(item.url)', /openExternalPage\(\s*item\.url\s*\)/.test(tapBody));
-ok('A3 url 缺失有如实提示（if (!item.url)）', /if\s*\(\s*!item\.url\s*\)/.test(tapBody));
+ok('A2 点击打开站内文章视图（setArticle(item)）', /setArticle\(item\)/.test(tapBody));
+const readFn = /const handleReadOriginal = \(item: HotspotNews\) => \{([\s\S]*?)\n  \};/.exec(lib);
+const readBody = readFn ? readFn[1] : '';
+ok('A3 阅读原文函数体可定位（打开语义的承接处）', readBody.length > 0);
+ok('A4 阅读原文调用 openExternalPage(item.url)', /openExternalPage\(\s*item\.url\s*\)/.test(readBody));
+ok('A5 url 缺失有如实提示（if (!item.url)）', /if\s*\(\s*!item\.url\s*\)/.test(readBody));
 ok(
-  'A4 复制态提示带来源（weapp 复制后告知去哪儿打开）',
-  /r === 'copied'/.test(tapBody) && /来源：\$\{item\.source\}，链接已复制/.test(tapBody)
+  'A6 复制态提示带来源（weapp 复制后告知去哪儿打开）',
+  /r === 'copied'/.test(readBody) && /来源：\$\{item\.source\}，链接已复制/.test(readBody)
 );
 
 /* ---------------- B. 时间块不被压缩 ---------------- */
@@ -93,6 +99,19 @@ ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.tes
   ok('K5 弹窗三个密码输入（旧/新/确认，password 类型不回显）', /password\s*\n\s*value=\{oldPwd\}|password\s*\n\s*value=\{newPwd\}|password\s*\n\s*value=\{confirmPwd\}/.test(mineSrc));
   ok('K6 后端不可用 ≠ 旧密码错（分开提示，不误导反复试）', /res\.error\.kind === 'backend-unavailable'/.test(mineSrc));
   ok('K7 如实说明「补设密码不可用」（不编造短信重置）', /mine\.pwdHintPasswordless/.test(mineSrc));
+}
+
+/* ---------------- L. 视频精选 + 站内文章视图（2026-10-25） ---------------- */
+{
+  ok('L1 视频精选已接线（apiVideoNews 进并行加载）', /apiVideoNews\(\)/.test(lib));
+  ok('L2 视频板块条件渲染（空数组整段隐藏）', /videos\.length > 0 \? \(/.test(lib));
+  ok('L3 站内正文优先 content、缺失退回 summary', /item\.content \|\| item\.summary/.test(lib));
+  ok('L4 文章视图带来源标注（articleSourceNote）', /library\.articleSourceNote/.test(lib));
+  ok('L5 正文来自源 feed 自带内容而非抓取（webSearch content 上限 1000）', /content: clampSummary\(summary, 1000\)/.test(read('cloudfunctions/webSearch/index.js')));
+  ok('L6 H5 静态管线同步 content 字段', /content: desc \? clampText\(desc, 1000\)/.test(read('.tools/fetch-data.js')));
+  // ⚠️ 别断言 tsx 里的注释（stripComments 会剥掉，2026-10-25 实测 NOT 找到）——
+  //    合规口径的落地锚点是**用户可见的来源说明文案**（language.ts），不是开发者注释。
+  ok('L7 合规口径落在用户可见文案（源摘要 + 引导原文）', /以上为来源媒体在其订阅源中发布的摘要/.test(read('src/store/language.ts')));
 }
 
 /* ---------------- E. 搜索接全网 + 失败态独立 ---------------- */

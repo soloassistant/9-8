@@ -308,7 +308,18 @@ function parseFeed(xml, sourceName, tag) {
     }
     const dateStr = pickTag(b, 'pubDate') || pickTag(b, 'updated') || pickTag(b, 'published');
     const ts = dateStr ? new Date(dateStr).getTime() : 0;
-    return { title, link, image, summary: clampSummary(summary, 120), ts, sourceName, tag };
+    // content = 源自己在 feed 里发布的描述（上限 1000 码点），供站内文章视图；**不是**抓取的正文页。
+    // 合规口径「不转载正文」不变：不另行抓原文，只展示源选择 syndicate 的内容 + 强制来源标注 + 原文链接。
+    return {
+      title,
+      link,
+      image,
+      summary: clampSummary(summary, 120),
+      content: clampSummary(summary, 1000),
+      ts,
+      sourceName,
+      tag
+    };
   });
 }
 
@@ -318,6 +329,7 @@ function toNews(it) {
     id: `web-${shortHash(it.link || it.title || it.sourceName)}`,
     title: it.title,
     summary: it.summary,
+    content: it.content || undefined,
     source: it.sourceName,
     url: it.link || undefined,
     // 跨源同题合并的机构佐证（2026-10-22）：仅合并组产出，不含本条自身 source；
@@ -842,6 +854,7 @@ async function getVideoNews(limit = VIDEO_NEWS_LIMIT) {
           id: bvid ? `bili-${bvid}` : `bili-${shortHash(String(it.title || ''))}`,
           title: String(it.title || '').slice(0, 80),
           summary: clampSummary(stripHtml(String(it.description || it.desc || '')), 120),
+          content: clampSummary(stripHtml(String(it.description || it.desc || '')), 1000),
           source: '哔哩哔哩',
           url: bvid ? `https://www.bilibili.com/video/${bvid}` : undefined,
           image: safeMediaUrl(pic),
