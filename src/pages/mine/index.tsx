@@ -182,7 +182,10 @@ const PUSH_MODULE_LABEL: Record<(typeof PUSH_MODULES)[number], LangKey> = {
 const DELETE_CONFIRM_WORD = '注销';
 
 /** TODO：上线前在小程序后台绑定企业微信客服后替换 */
-const SERVICE_CORP_ID = 'TODO_CORP_ID';
+const SERVICE_CORP_ID: string = 'TODO_CORP_ID';
+/** 客服联系方式（与 legal.ts 协议承诺的「15 个工作日答复」配套；改这里要同步协议文本） */
+const SERVICE_EMAIL = 'support@morningbrief.cn';
+const SERVICE_WECHAT = '私人晨报助理';
 
 const PREF_TAGS = ['科技', '效率工具', '财经', '健康', '出行', '生活', 'AI', '科学', '文化'];
 const REPLY_STYLES = ['简洁', '均衡', '详细'];
@@ -1032,30 +1035,54 @@ function MinePage() {
   };
 
   const handleContactService = () => {
-    const fallback = () => {
+    /** 复制 + 明确告知下一步；复制失败如实提示，不静默 */
+    const copy = (data: string, okText: string) => {
+      Taro.setClipboardData({ data })
+        .then(() => Taro.showToast({ title: okText, icon: 'none', duration: 2400 }))
+        .catch(() => Taro.showToast({ title: '复制失败，请手动记录', icon: 'none' }));
+    };
+
+    const showServiceInfo = () => {
       Taro.showModal({
-        title: '联系客服',
-        content: '工作时间 9:00-21:00\n微信搜索公众号「私人晨报助理」留言\n或发邮件至 support@morningbrief.cn',
+        title: '客服服务时间',
+        content: `每天 9:00–21:00\n邮箱：${SERVICE_EMAIL}\n微信公众号：${SERVICE_WECHAT}\n我们会在 15 个工作日内答复`,
         confirmText: '知道了',
         showCancel: false
       });
     };
-    if (isWeapp) {
+
+    /**
+     * 2026-10-24 升级：原实现只弹一段纯文本（邮箱不可点、不可复制），用户必须自己抄下来
+     * 再离开 App —— 与协议承诺的「我的-联系客服」落差太大。现在给可执行动作。
+     */
+    const showContactActions = () => {
+      Taro.showActionSheet({
+        itemList: [`复制客服邮箱（${SERVICE_EMAIL}）`, `复制公众号名（${SERVICE_WECHAT}）`, '客服服务时间']
+      })
+        .then((res) => {
+          if (res.tapIndex === 0) copy(SERVICE_EMAIL, '邮箱已复制，去邮件 App 发给我们');
+          else if (res.tapIndex === 1) copy(SERVICE_WECHAT, '公众号名已复制，去微信搜索');
+          else showServiceInfo();
+        })
+        // 用户取消：不打扰、不报错
+        .catch(() => undefined);
+    };
+
+    // 仅在客服 ID 已真实配置时才调 openCustomerServiceChat；
+    // TODO 占位时调用必然 fail 再回退（无意义的失败请求），直接给可执行的联系方式
+    if (isWeapp && SERVICE_CORP_ID !== 'TODO_CORP_ID') {
       const openChat = (Taro as unknown as { openCustomerServiceChat?: (opt: Record<string, unknown>) => void })
         .openCustomerServiceChat;
       if (typeof openChat === 'function') {
         try {
-          openChat({ corpId: SERVICE_CORP_ID, extInfo: { url: '' }, fail: fallback });
+          openChat({ corpId: SERVICE_CORP_ID, extInfo: { url: '' }, fail: showContactActions });
+          return;
         } catch (err) {
           console.warn('[MinePage] openCustomerServiceChat failed:', err);
-          fallback();
         }
-      } else {
-        fallback();
       }
-    } else {
-      fallback();
     }
+    showContactActions();
   };
 
   const renderRow = (label: string, valueNode: React.ReactNode, onClick?: () => void) => (

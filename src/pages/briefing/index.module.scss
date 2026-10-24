@@ -398,12 +398,17 @@
 
 .timeBlock {
   min-width: 96rpx;
+  // 2026-10-24：长标题/大字号下时间块不得被压缩（此前只有 min-width，靠下限兜着；
+  // 与日历页 .timeTag 的 flex-shrink:0 对齐，让「日程遮住时间」在结构上不可能发生）
+  flex-shrink: 0;
 }
 
 .time {
   font-size: $font-size-md;
   font-weight: $font-weight-semibold;
   color: $color-primary-dark;
+  // 大字号/英文环境下 "HH:mm" 不折行成「14:」/「30」两行
+  white-space: nowrap;
 }
 
 .eventBody {
@@ -844,12 +849,15 @@
   display: flex;
   align-items: center;
   gap: $spacing-sm;
-  // 2026-10-21 视觉巡检：AI 悬浮建议气泡（AiAssistant wrapper，z-index: var(--z-fab)=900）
-  // 在 414px 手机宽度下会盖住本常驻条右侧文字「…建议把小程序添加」。把本条抬到 900 之上：
-  // 气泡 8s 自动收起且可手动关闭，是瞬时装饰；订阅提示是常驻信息，优先保证可读。
-  // position:relative 是让 z-index 生效的前提（静态元素不参与 stacking）。
-  position: relative;
-  z-index: 910;
+  // ⚠️ 不要把本条抬到输入栏之上（2026-10-24 视觉巡检截图实测的层叠事故）：
+  // 曾为压住 AI 悬浮气泡（--z-fab=900）把这里写成 z-index:910，结果它同时高于
+  // 固定输入栏（--z-tabbar=700）—— 本条滚动到视口底部时会**画在输入栏上面**，
+  // 压住「安排日程/记一条/完成待办」与输入框，「订阅」按钮还和「完成待办」叠在一起。
+  // 正确层级：内容 < 输入栏(700) < 悬浮球/气泡(900) < 弹窗。
+  // 气泡是瞬时（8s 自动收起 + 可手动关闭）的浮层，压在内容上属正常；输入栏是主操作面，
+  // 任何内容都不该盖住它。本条因此回到普通内容层（z-index: auto）。
+  // 若将来气泡遮挡正文造成实际不可读，应在 AiAssistant 侧收窄气泡宽度/自动收起，
+  // 而不是把内容抬到输入栏之上。
 }
 
 .tipIcon {

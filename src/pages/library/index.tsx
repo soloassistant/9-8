@@ -13,6 +13,7 @@ import { invoke } from '@/services/dataSource';
 import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { fromNow } from '@/utils/date';
+import { openExternalPage } from '@/utils/externalLink';
 import { logActivity } from '@/utils/activityLog';
 import type { CollectionItem, HotspotNews } from '@/types';
 import { useT } from '@/store/language';
@@ -540,7 +541,29 @@ function LibraryPage() {
     // 云同步：防抖合并，避免每次点击都打云函数
     scheduleAffinitySync();
     logActivity('🔥', `浏览热点：${item.title.slice(0, 14)}`);
-    Taro.showToast({ title: `来源：${item.source}`, icon: 'none', duration: 1500 });
+
+    // ★ 2026-10-24 修（用户反馈「热点打不开看详情」的根因）：
+    // 原实现到这里只 `showToast({ title: '来源：xxx' })` 就结束了 —— 没有任何打开原文的动作，
+    // 卡片点了等于没点。现在真正走 openExternalPage：
+    //   · H5：window.open 新标签打开原文（被拦截降级 location.href，见 utils/externalLink.ts）
+    //   · weapp：微信不允许个人主体 web-view，复制链接 + 明确告知去哪儿打开
+    //   · url 缺失/非 http(s)：如实提示，不假装打开
+    if (!item.url) {
+      Taro.showToast({ title: '该条暂无原文链接', icon: 'none', duration: 1800 });
+      return;
+    }
+    void openExternalPage(item.url)
+      .then((r) => {
+        if (r === 'copied') {
+          Taro.showToast({ title: `来源：${item.source}，链接已复制`, icon: 'none', duration: 2200 });
+        } else if (r === 'failed') {
+          Taro.showToast({ title: '该条链接无法打开', icon: 'none', duration: 1800 });
+        }
+        // 'opened'（H5 新标签已开）：不再弹 toast 干扰
+      })
+      .catch(() => {
+        Taro.showToast({ title: '该条链接无法打开', icon: 'none', duration: 1800 });
+      });
   };
 
   /** 点封面图全屏预览（F29）；不触发卡片浏览行为 */

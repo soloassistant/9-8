@@ -51,6 +51,44 @@
   }
 }
 
+/* 搜索范围切换（2026-10-24）：本站 = 本地三组过滤；全网 = webSearch.searchNews */
+.scopeTabs {
+  display: flex;
+  gap: $spacing-sm;
+  padding: 0 $page-padding $spacing-sm;
+}
+
+.scopeTab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 80rpx = 40px 可点高度，与 backButton 同档 */
+  min-height: $button-height-md;
+  background: $color-bg-card;
+  border-radius: $radius-button;
+  box-sizing: border-box;
+
+  &:active {
+    opacity: 0.6;
+  }
+}
+
+.scopeTabActive {
+  background: var(--brand-soft);
+}
+
+.scopeTabText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.scopeTabTextActive {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: var(--brand-deep);
+}
+
 .hint {
   display: flex;
   flex-direction: column;

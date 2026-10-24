@@ -710,6 +710,17 @@ export default function LoginPage() {
           ))}
         </View>
 
+        {/* 2026-10-24：手机通道（默认通道）的页签只有 [验证码, 注册]，密码登录页签
+            仅在切到邮箱通道后才出现 —— 用户感知不到「本应用支持密码登录」。
+            这里给一条显式入口：点击即切到邮箱通道并落在密码页签（切换会清空验证码凭据）。 */}
+        {channel === 'phone' ? (
+          <View className={styles.passwordHint} onClick={() => switchChannel('email')}>
+            <Text className={styles.passwordHintText}>
+              {t('auth.idEmail')} · {t('auth.tabPassword')} →
+            </Text>
+          </View>
+        ) : null}
+
         <View className={styles.field}>
           <Text className={styles.label}>{channel === 'phone' ? t('auth.phone') : t('auth.email')}</Text>
           {channel === 'phone' ? (
