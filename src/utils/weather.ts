@@ -41,6 +41,27 @@ export interface WeatherNow {
   updateTime: string;
 }
 
+/** 城市名 → Open-Meteo 认可的规范地名；查不到返回 null。
+ *
+ * 为什么单独暴露：手动设置城市时若直接存用户输入（「杭州」写成「杭州市」「hangzhou」），
+ * 下游 geocoding 可能命中别的同名地点或查不到 —— 用户会看到「已保存」但天气是错的。
+ * 保存前先用这个函数换取规范名，存规范名，才算真的设置成功。
+ */
+export async function resolveCityName(name: string): Promise<string | null> {
+  const keyword = name.trim();
+  if (!keyword) return null;
+  try {
+    const geo = await fetchJson<GeoResponse>(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(keyword)}&count=1&language=zh`
+    );
+    const loc = (geo.results || [])[0];
+    return loc ? loc.name : null;
+  } catch (err) {
+    console.warn('[weather] resolve city failed:', err);
+    return null;
+  }
+}
+
 /** 城市名 → 现况天气；失败返回 null（调用方保持降级，不阻塞晨报） */
 export async function fetchWeatherDirect(city: string): Promise<WeatherNow | null> {
   try {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Picker, Button, Image, Input, Switch, ScrollView } from '@tarojs/components';
+import { View, Text, Picker, Button, Image, Input, Switch, ScrollView, Textarea } from '@tarojs/components';
 import type { CommonEvent, PickerSelectorProps, PickerTimeProps } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import classnames from 'classnames';
@@ -11,7 +11,13 @@ import { brandVars, useThemeStore, THEME_PRESETS } from '@/store/theme';
 import { useUiScaleStore, UI_SCALE_PRESETS } from '@/store/uiScale';
 import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
-import { apiCreateOrder, apiDeleteAccount, apiApplyPlan, type CreateOrderPayload } from '@/services/api';
+import {
+  apiCreateOrder,
+  apiDeleteAccount,
+  apiApplyPlan,
+  apiSubmitFeedback,
+  type CreateOrderPayload
+} from '@/services/api';
 import { getPayChannel, getChannelAuth, invokePayment } from '@/services/pay';
 import type { PayChannel, PayOrder } from '@/types';
 import { signOut } from '@/services/cloudAuth';
@@ -23,6 +29,7 @@ import { fromNow } from '@/utils/date';
 import { getActivityLogs } from '@/utils/activityLog';
 import type { ActivityLogItem } from '@/utils/activityLog';
 import { getPersonalization, setPersonalization } from '@/utils/permission';
+import { resolveCityName } from '@/utils/weather';
 import { getTtsPrefs, saveTtsPrefs, TTS_RATE_OPTIONS } from '@/utils/tts';
 import type { TtsPrefs, TtsVoiceMode } from '@/utils/tts';
 import {
@@ -52,6 +59,7 @@ import {
   markHabitNoticeRead
 } from '@/utils/habit';
 import type { Habit, HabitGuardRecord, HabitNotice } from '@/utils/habit';
+import { FEEDBACK_TEXT, FEEDBACK_TYPES, CITY_TEXT, type FeedbackType } from './feedbackText';
 import styles from './index.module.scss';
 
 const isWeapp = process.env.TARO_ENV === 'weapp';
@@ -234,6 +242,25 @@ function MinePage() {
   const [docView, setDocView] = useState<'terms' | 'privacy' | 'ai' | null>(null);
   /** 注销二次确认弹窗 */
   const [deleteOpen, setDeleteOpen] = useState(false);
+  // === 意见反馈（2026-10-24）：主动投诉/建议通道 ===
+  // 草稿在关闭弹层后**保留**（mask 误触不该丢已写的内容），只有真正提交成功才清空。
+  const [fbOpen, setFbOpen] = useState(false);
+  const [fbType, setFbType] = useState<FeedbackType>('suggestion');
+  const [fbContent, setFbContent] = useState('');
+  const [fbContact, setFbContact] = useState('');
+  const [fbSending, setFbSending] = useState(false);
+  // === 天气城市手动设置（2026-10-24）===
+  // user-city 此前只有 GPS 逆地理编码会写：拒绝定位就永远是「北京」，天气静默显示错城市。
+  const [city, setCity] = useState(() => {
+    try {
+      return String(Taro.getStorageSync('user-city') || '');
+    } catch {
+      return '';
+    }
+  });
+  const [cityOpen, setCityOpen] = useState(false);
+  const [cityDraft, setCityDraft] = useState('');
+  const [cityChecking, setCityChecking] = useState(false);
   // v1.2 新增：C-03 个性化推荐开关 / V-05 V-07 TTS 偏好 / M-01 M-02 记忆 / N-03 屏蔽清单 / B-01 B-02 订阅
   const [personalOn, setPersonalOn] = useState(true);
   const [ttsPrefs, setTtsPrefs] = useState<TtsPrefs>({ rate: 1.0, voiceMode: 'auto' });
@@ -1085,6 +1112,112 @@ function MinePage() {
     showContactActions();
   };
 
+  const fbCopy = FEEDBACK_TEXT[lang];
+
+  /**
+   * 关闭反馈弹层：**不清草稿**。
+   * 误触遮罩就丢掉刚打完的一段字，是最容易让人放弃反馈的那种细节。
+   */
+  const closeFeedback = () => setFbOpen(false);
+
+  /**
+   * 提交意见反馈。
+   *
+   * 诚实性铁律：只有云端真实落库（`apiSubmitFeedback` 返回 true）才可以说「已收到」。
+   * 其余一切路径 —— H5 无 RPC 通道 / 云端写失败 / 抛错 —— 都走「复制全文 + 告知邮件入口」，
+   * **不显示任何成功态**。把用户的投诉吞掉还回一句「提交成功」，比没有这个入口更糟。
+   */
+  const handleSubmitFeedback = async () => {
+    if (fbSending) return;
+    const content = fbContent.trim();
+    const contact = fbContact.trim();
+    if (!content) {
+      Taro.showToast({ title: fbCopy.emptyHint, icon: 'none' });
+      return;
+    }
+    setFbSending(true);
+    let landed = false;
+    try {
+      landed = await apiSubmitFeedback({ type: fbType, content, contact, page: 'mine' });
+    } catch (err) {
+      console.error('[MinePage] submitFeedback failed:', err);
+      landed = false;
+    }
+    setFbSending(false);
+    if (landed) {
+      setFbContent('');
+      setFbContact('');
+      setFbOpen(false);
+      Taro.showToast({ title: fbCopy.success, icon: 'none', duration: 2600 });
+      return;
+    }
+    // 未落库：复制成可直接粘贴的邮件正文，明确告诉用户下一步
+    const typeLabel = (FEEDBACK_TYPES.find((o) => o.id === fbType) || FEEDBACK_TYPES[0])[lang];
+    const mailBody = `${fbCopy.title} · ${typeLabel}\n\n${content}${contact ? `\n\n${fbCopy.contactLabel}: ${contact}` : ''}`;
+    let copied = false;
+    try {
+      await Taro.setClipboardData({ data: mailBody });
+      copied = true;
+    } catch (err) {
+      console.error('[MinePage] copy feedback failed:', err);
+    }
+    Taro.showModal({
+      title: copied ? fbCopy.copiedTitle : fbCopy.copyFailedTitle,
+      content: `${copied ? fbCopy.copiedBody : fbCopy.copyFailedBody}\n\n${SERVICE_EMAIL}`,
+      confirmText: lang === 'zh' ? '知道了' : 'Got it',
+      showCancel: false
+    });
+  };
+
+  const cityCopy = CITY_TEXT[lang];
+  /** 未设置时如实标注「默认」—— 别让用户以为定位成功过 */
+  const cityLabel = city || cityCopy.defaultTag;
+
+  const openCityEditor = () => {
+    setCityDraft(city);
+    setCityOpen(true);
+  };
+
+  /**
+   * 保存天气城市。
+   *
+   * 关键点：存的是 **Open-Meteo 回传的规范地名**，不是用户原文。
+   * 先校验再落库 —— 「已保存」必须意味着「下游 geocode 一定能解析出这个城市」，
+   * 否则用户会得到一条看起来成功、实际天气还是错的消息。
+   */
+  const handleSaveCity = async () => {
+    if (cityChecking) return;
+    const name = cityDraft.trim();
+    if (!name) {
+      Taro.showToast({ title: cityCopy.empty, icon: 'none' });
+      return;
+    }
+    setCityChecking(true);
+    let canonical: string | null = null;
+    try {
+      canonical = await resolveCityName(name);
+    } catch (err) {
+      console.error('[MinePage] resolveCity failed:', err);
+      canonical = null;
+    }
+    setCityChecking(false);
+    if (!canonical) {
+      Taro.showToast({ title: cityCopy.notFound, icon: 'none', duration: 2400 });
+      return;
+    }
+    try {
+      Taro.setStorageSync('user-city', canonical);
+    } catch (err) {
+      // 写盘失败不能报成功：提示重试，并保持弹层打开（草稿还在）
+      console.error('[MinePage] save city failed:', err);
+      Taro.showToast({ title: cityCopy.saveFailed, icon: 'none' });
+      return;
+    }
+    setCity(canonical);
+    setCityOpen(false);
+    Taro.showToast({ title: `${cityCopy.savedPrefix}：${canonical}`, icon: 'none', duration: 2200 });
+  };
+
   const renderRow = (label: string, valueNode: React.ReactNode, onClick?: () => void) => (
     <View className={styles.row} onClick={onClick}>
       <Text className={styles.rowLabel}>{label}</Text>
@@ -1462,6 +1595,16 @@ function MinePage() {
             onChange={(e) => persistCustom({ morningReminderEnabled: e.detail.value })}
           />
         )}
+        {/* 天气城市（2026-10-24）：手动兜底，见 CITY_TEXT 注释 —— 拒绝定位不再等于「永远是北京」。
+            文案复用既有的 sync.key.user-city（'所在城市' / 'City'），不新增 i18n 键。 */}
+        {renderRow(
+          t('sync.key.user-city'),
+          <>
+            <Text className={styles.valueText}>{cityLabel}</Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          openCityEditor
+        )}
         {/* V-05 语速三档（取值来自 utils/tts.ts 的 TTS_RATE_OPTIONS） */}
         <View className={styles.row}>
           <Text className={styles.rowLabel}>{t('tts.rateLabel')}</Text>
@@ -1837,14 +1980,19 @@ function MinePage() {
           t('ai.metaHint'),
           <Text className={styles.valueText}>{t('ai.labelVersion', { version: AI_LABEL_VERSION })}</Text>
         )}
-        <View className={styles.row}>
-          <Text className={styles.rowLabel}>{t('mine.service')}</Text>
-          <View className={styles.rowValue}>
-            <Text className={styles.linkText} onClick={handleContactService}>
-              {t('mine.feedback')}
-            </Text>
-          </View>
-        </View>
+        {/* 投诉/建议通道（2026-10-24 升级）：
+            原来这行只弹一个 showActionSheet（复制邮箱 / 复制公众号）—— 用户想「反映问题」得先
+            自己抄联系方式、离开 App、再写邮件，等于把投诉推给了用户的耐心。现在主路径是
+            页内表单直接提交；人工联系降为表单底部的次级入口（handleContactService）。
+            整行可点（不只是右侧小字），热区 ≥44px。 */}
+        {renderRow(
+          t('mine.service'),
+          <>
+            <Text className={styles.linkText}>{t('mine.feedback')}</Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          () => setFbOpen(true)
+        )}
         {/* C-04：注销不可逆提示 + 15 个工作日处理时限（页内明示） */}
         <Text className={styles.deleteWarn}>{t('mine.deleteWarn')}</Text>
         {renderRow(
@@ -1948,6 +2096,100 @@ function MinePage() {
               </Button>
               <Button className={styles.docClose} onClick={handlePinSubmit}>
                 确定
+              </Button>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {/* 意见反馈弹层（2026-10-24）：类型四选 + 描述 + 可选联系方式。
+          选择半屏层而不是新页面：反馈是「顺手说一句」，跳页会丢掉当前上下文，
+          且不新增路由 = 不动 app.config、不增加首屏分包体积。
+          提交按钮**只在提交中**才 disabled —— 内容为空时按下去要有 toast 说明缺什么，
+          按了没反应才是更差的体验。 */}
+      {fbOpen ? (
+        <View className={styles.docMask} onClick={closeFeedback}>
+          <View className={classnames(styles.docPanel, styles.fbPanel)} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.docTitle}>{fbCopy.title}</Text>
+            <ScrollView scrollY className={styles.fbScroll}>
+              <Text className={styles.fbIntro}>{fbCopy.intro}</Text>
+              <Text className={styles.fbLabel}>{fbCopy.typeLabel}</Text>
+              <View className={styles.fbTypes}>
+                {FEEDBACK_TYPES.map((opt) => (
+                  <View
+                    key={opt.id}
+                    className={classnames(styles.fbChip, fbType === opt.id && styles.fbChipActive)}
+                    onClick={() => setFbType(opt.id)}
+                  >
+                    <Text className={classnames(styles.fbChipText, fbType === opt.id && styles.fbChipTextActive)}>
+                      {opt[lang]}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <Text className={styles.fbLabel}>{fbCopy.contentLabel}</Text>
+              <Textarea
+                className={styles.fbTextarea}
+                value={fbContent}
+                maxlength={500}
+                placeholder={fbCopy.contentPlaceholder}
+                onInput={(e) => setFbContent(e.detail.value)}
+              />
+              <Text className={styles.fbCount}>{fbContent.length}/500</Text>
+              <Text className={styles.fbLabel}>{fbCopy.contactLabel}</Text>
+              <Input
+                className={styles.fbInput}
+                value={fbContact}
+                maxlength={80}
+                placeholder={fbCopy.contactPlaceholder}
+                onInput={(e) => setFbContact(e.detail.value)}
+              />
+              {/* H5 没有 feedback 的 RPC 通道：提交前就说清实际送达方式，不留到点完才告知 */}
+              {isWeapp ? null : <Text className={styles.fbNote}>{fbCopy.h5Note}</Text>}
+            </ScrollView>
+            <View className={styles.fbActions}>
+              <Button className={styles.fbCancel} onClick={closeFeedback}>
+                {t('cancel')}
+              </Button>
+              <Button
+                className={styles.fbSubmit}
+                disabled={disabledAttr(fbSending)}
+                onClick={() => void handleSubmitFeedback()}
+              >
+                {fbSending ? fbCopy.submitting : fbCopy.submit}
+              </Button>
+            </View>
+            {/* 人工通道不丢：原来的「复制邮箱 / 复制公众号 / 服务时间」action sheet 挂在这里 */}
+            <Text className={styles.fbService} onClick={handleContactService}>
+              {fbCopy.service}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      {/* 天气城市编辑弹层（与反馈共用半屏语言与控件样式，不引入第三套观感） */}
+      {cityOpen ? (
+        <View className={styles.docMask} onClick={() => setCityOpen(false)}>
+          <View className={classnames(styles.docPanel, styles.fbPanel)} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.docTitle}>{t('sync.key.user-city')}</Text>
+            <Text className={styles.fbIntro}>{cityCopy.hint}</Text>
+            <Input
+              className={styles.fbInput}
+              value={cityDraft}
+              maxlength={20}
+              placeholder={cityCopy.placeholder}
+              onInput={(e) => setCityDraft(e.detail.value)}
+            />
+            <View className={styles.fbActions}>
+              <Button className={styles.fbCancel} onClick={() => setCityOpen(false)}>
+                {t('cancel')}
+              </Button>
+              <Button
+                className={styles.fbSubmit}
+                disabled={disabledAttr(cityChecking)}
+                onClick={() => void handleSaveCity()}
+              >
+                {cityChecking ? cityCopy.saving : cityCopy.save}
               </Button>
             </View>
           </View>

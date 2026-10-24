@@ -203,6 +203,39 @@ export function apiNewsFeedback(id: string, feedback: 'up' | 'down'): Promise<{ 
     });
 }
 
+/**
+ * 用户主动反馈（2026-10-24 新增）—— 补齐「有问题怎么办」的主动通道。
+ *
+ * 通道矩阵（与 dataSource 的白名单口径一致）：
+ *   · weapp：调 feedback 云函数落 feedback 集合（含 openid 归属、类型白名单、长度上限）；
+ *   · H5：**没有** feedback 的 RPC 通道 —— 应用库未注册对应 PG 函数，白名单也不放行
+ *     （放行只会得到 rpc-not-allowed 或 404）。这里直接返回 false，
+ *     由 UI 转为「复制内容 + 邮件 support@morningbrief.cn」的诚实降级路径。
+ *
+ * 返回值语义：true = 已落库；false = 未落库（调用方必须让用户看见，不能显示"提交成功"）。
+ */
+export async function apiSubmitFeedback(input: {
+  type: 'suggestion' | 'data' | 'account' | 'other';
+  content: string;
+  contact?: string;
+  page?: string;
+}): Promise<boolean> {
+  if (!isWeapp) return false;
+  try {
+    const res = (await invoke('feedback', {
+      type: input.type,
+      content: input.content,
+      contact: input.contact || '',
+      page: input.page || ''
+    })) as { ok?: boolean } | null;
+    return Boolean(res && res.ok === true);
+  } catch (err) {
+    // 生产构建会剔除 console.warn，故失败路径同时由返回值告诉 UI（不依赖日志）
+    console.warn('[api] submitFeedback failed:', err);
+    return false;
+  }
+}
+
 /** 更新习惯设置。
  *
  * H5 同样不走云函数（原因同 apiLogin）：`updateSettings` 也不在白名单内，

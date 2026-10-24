@@ -10,6 +10,7 @@ import IntelGroupCard, { IntelItemRow } from '@/components/IntelGroupCard';
 import HabitGuardBar from '@/components/HabitGuardBar';
 import PlanProposalCard from '@/components/PlanProposalCard';
 import { BriefingSkeleton } from '@/components/Skeleton';
+import BurstBanner from '@/components/BurstBanner';
 import { resolveIntelGroups } from '@/utils/intelGroups';
 import { disabledAttr } from '@/utils/buttonDisabled';
 import type { IntelSourceRef } from '@/utils/intelGroups';
@@ -998,6 +999,9 @@ function BriefingPage() {
 
   return (
     <View className={styles.page} style={brandVars(theme)}>
+      {/* 突发/重大新闻横幅（2026-10-24）：复用已拿到的情报条目做关键词识别，零额外请求。
+          诚实边界见 components/BurstBanner 头注释 —— 不是推送、不是官方通报，且可当天关闭。 */}
+      <BurstBanner items={briefing?.intel?.intelItems} />
       <View className={styles.header}>
         <View className={styles.headerTop}>
           <View className={styles.headerMain}>

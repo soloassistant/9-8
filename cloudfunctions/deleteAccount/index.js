@@ -22,6 +22,7 @@ exports.main = async () => {
   //   user_affinity chat saveAffinity / getAffinity
   //   newsFeedback  webSearch feedback
   //   errors        reportError（崩溃上报：openid / page / stack / extra）
+  //   feedback      feedback（用户主动反馈：openid / type / content / contact / page）
   //   history    早期版本遗留，当前无写入点；保留以清理历史存量，集合不存在时忽略
   //
   // 2026-10 补：原清单**漏了 errors**（reportError 会写 openid/page/stack），等于「注销后崩溃
@@ -40,6 +41,7 @@ exports.main = async () => {
     'user_affinity',
     'newsFeedback',
     'errors',
+    'feedback',
     'history'
   ];
   // ⚠️ 2026-10-12 修：原来 catch 只 console.warn 就继续，末尾**无条件** `return { code: 0,

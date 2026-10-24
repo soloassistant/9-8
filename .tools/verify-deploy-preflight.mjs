@@ -150,7 +150,7 @@ console.log('\n8. 全部合法（--check 不上传）');
   const r = runCheck(f);
   ok('exit 0', r.status === 0, '实际 ' + r.status + (r.signal ? ' signal=' + r.signal : ''));
   ok('打印预检通过', r.out.includes('预检通过'));
-  ok('列出 24 个待部署函数', r.out.includes('24 个函数'));
+  ok('列出 25 个待部署函数', r.out.includes('25 个函数'));
   ok('打印待配环境变量清单', r.out.includes('INTERNAL_CALL_TOKEN'));
   ok('未配置项被显式点名', r.out.includes('连本机都没有的'));
   ok('不把「本机有值」说成「云上已配」', r.out.includes('不代表云上已配'));

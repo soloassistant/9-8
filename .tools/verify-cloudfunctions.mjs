@@ -53,6 +53,7 @@ const OPENID_GUARDED = [
   { name: 'createOrder', probe: {} },
   { name: 'deleteAccount', probe: {} },
   { name: 'extract', probe: {} },
+  { name: 'feedback', probe: {} },
   { name: 'getBriefing', probe: {} },
   { name: 'getLibrary', probe: {} },
   { name: 'getUsage', probe: {} },
@@ -329,7 +330,7 @@ const allDirs = fs.readdirSync(FN_DIR).filter((n) => fs.statSync(path.join(FN_DI
 const noIndex = allDirs.filter((n) => !fs.existsSync(path.join(FN_DIR, n, 'index.js')));
 ok('目录数与已校验函数数一致（没有「有目录没 index.js」被静默跳过）', noIndex.length === 0 && names.length === allDirs.length,
   '目录 ' + allDirs.length + ' / 已校验 ' + names.length + (noIndex.length ? '；缺 index.js: ' + noIndex.join(', ') : ''));
-ok('函数总数与非空目录数相等（当前应为 24）', names.length === 24, '实际 ' + names.length);
+ok('函数总数与非空目录数相等（当前应为 25）', names.length === 25, '实际 ' + names.length);
 
 /* ---------- B. 可加载性 ---------- */
 section('B. 可加载性（vm 加载 + exports.main 是函数）');
@@ -358,7 +359,7 @@ ok('读取 WXContext 的函数全部已分类（新增函数必须显式登记�
   undeclared.length ? '未登记: ' + undeclared.join(', ') : '');
 ok('分类表没有过期条目（声明的函数确实读了 WXContext）', stale.length === 0,
   stale.length ? '过期: ' + stale.join(', ') : '');
-ok('分类覆盖数 = 实际读取数（19）', actualReaders.length === declared.size && actualReaders.length === 19,
+ok('分类覆盖数 = 实际读取数（20）', actualReaders.length === declared.size && actualReaders.length === 20,
   '实际读取 ' + actualReaders.length + ' / 声明 ' + declared.size);
 
 /* C2. OPENID_GUARDED 的函数在缺 OPENID 时必须明确拒绝（行为断言，不靠 grep） */

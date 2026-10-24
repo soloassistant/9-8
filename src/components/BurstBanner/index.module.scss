@@ -1,0 +1,60 @@
+@use '@/styles/variables.scss' as *;
+@use '@/styles/theme.scss' as *;
+
+// 突发新闻应用内横幅（2026-10-24）
+// 视觉定位：比情报卡片更「重」一点点（左侧品牌色竖条 + 事件底色），
+// 但**不**用红色警示：判据只是标题关键词，必有误报，红色会让人当成官方警报。
+
+.wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+  padding: $spacing-md;
+  border-left: 6rpx solid var(--brand-strong, #{$color-primary-strong});
+  border-radius: $radius-md;
+  background: $color-event-bg;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.label {
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  color: var(--brand-strong, #{$color-primary-strong});
+}
+
+.text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  line-height: $line-height-normal;
+  color: $color-text-primary;
+}
+
+// 免责说明用 tertiary 而非 disabled：它是**信息**，不是失效控件（D 组口径）
+.note {
+  font-size: $font-size-xs;
+  line-height: $line-height-normal;
+  color: $color-text-tertiary;
+}
+
+.close {
+  flex-shrink: 0;
+  // 热区 ≥44px（22px ≈ 44rpx × 2）：小叉号最难按，别省这几十 rpx
+  width: 88rpx;
+  height: 88rpx;
+  line-height: 88rpx;
+  text-align: center;
+  font-size: $font-size-xl;
+  color: $color-text-tertiary;
+}

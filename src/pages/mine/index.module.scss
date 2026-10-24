@@ -485,6 +485,155 @@
   line-height: $button-height-md;
 }
 
+// ===== 意见反馈弹层（2026-10-24）=====
+// 遮罩与圆角复用 .docMask / .docPanel（同一种半屏语言，用户不必学两套）；
+// 这里只放开高度并补齐表单控件。新增颜色一律取自既有色板：
+// · 白字主按钮用 `--brand-strong`（四种主题白字实测均 ≥5:1；`--brand` 偏浅，会掉到 3.x）
+// · 输入框底色用 $color-bg-page 与卡片区分层次，边框 $color-divider
+.fbPanel {
+  max-height: 88vh;
+}
+
+.fbScroll {
+  flex: 1;
+  min-height: 320rpx;
+  max-height: 56vh;
+}
+
+.fbIntro {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+  margin-bottom: $spacing-md;
+}
+
+.fbLabel {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-text-secondary;
+  margin: $spacing-sm 0;
+}
+
+.fbTypes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+}
+
+.fbChip {
+  padding: 10rpx 24rpx;
+  border: 1rpx solid $color-divider;
+  border-radius: $radius-round;
+  background: $color-bg-hover;
+}
+
+.fbChipActive {
+  background: var(--brand-soft, #{$color-primary-light});
+  border-color: var(--brand-strong, #{$color-primary-strong});
+}
+
+.fbChipText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.fbChipTextActive {
+  font-weight: $font-weight-medium;
+  color: var(--brand-strong, #{$color-primary-strong});
+}
+
+.fbTextarea {
+  display: block;
+  width: 100%;
+  min-height: 200rpx;
+  box-sizing: border-box;
+  padding: $spacing-md;
+  border: 1rpx solid $color-divider;
+  border-radius: $radius-md;
+  background: $color-bg-page;
+  font-size: $font-size-md;
+  line-height: $line-height-normal;
+  color: $color-text-primary;
+}
+
+.fbCount {
+  display: block;
+  margin: 4rpx 0 $spacing-sm;
+  text-align: right;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.fbInput {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  height: $button-height-md;
+  padding: 0 $spacing-md;
+  border: 1rpx solid $color-divider;
+  border-radius: $radius-button;
+  background: $color-bg-page;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.fbNote {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-xs;
+  line-height: $line-height-loose;
+  color: $color-text-tertiary;
+}
+
+.fbActions {
+  display: flex;
+  gap: $spacing-md;
+  margin-top: $spacing-md;
+}
+
+.fbCancel {
+  @include button-reset;
+  flex: 1;
+  // button-reset 不含 width：taro-button-core 的 width:100% 由运行时注入，
+  // 不写 auto 会把 flex:1 的兄弟挤扁（2026-10-16 已在别处踩过）
+  width: auto;
+  height: $button-height-md;
+  border-radius: $radius-button;
+  background: $color-bg-hover;
+  font-size: $font-size-md;
+  line-height: $button-height-md;
+  color: $color-text-secondary;
+}
+
+.fbSubmit {
+  @include button-reset;
+  flex: 1.4;
+  width: auto;
+  height: $button-height-md;
+  border-radius: $radius-button;
+  background: var(--brand-strong, #{$color-primary-strong});
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  line-height: $button-height-md;
+  color: $color-text-white;
+
+  // 真禁用（提交中）时夺回被 taro-button-core[disabled] 顶掉的 color，详见 .subButton 注释
+  &[disabled] {
+    background: $color-bg-hover;
+    color: $color-text-secondary;
+  }
+}
+
+.fbService {
+  display: block;
+  padding: $spacing-xs 0;
+  text-align: center;
+  font-size: $font-size-xs;
+  color: var(--brand-strong, #{$color-primary-strong});
+}
+
 .logCard {
   @include card-surface;
   margin-bottom: $spacing-md;
