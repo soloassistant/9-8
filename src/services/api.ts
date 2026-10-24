@@ -21,6 +21,7 @@ import type { PlanProposalRaw } from '@/utils/schedule';
 import { setTodoStatus } from '@/data/dailyPlan';
 import { normalizeVideoItems } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
+import { recordUsage } from '@/utils/usageLog';
 import { callFunction, chatCloudStream } from './cloud';
 import type { ChatStreamHooks, ChatStreamResult } from './cloud';
 import { invoke, isWeapp } from './dataSource';
@@ -175,7 +176,11 @@ export async function apiNewsSearch(keyword: string): Promise<HotspotNews[] | nu
       data: HotspotNews[] | null;
       message?: string;
     };
-    if (payload && payload.code === 0 && Array.isArray(payload.data)) return payload.data;
+    if (payload && payload.code === 0 && Array.isArray(payload.data)) {
+      // 功能记账：`code===0` 且是数组才算"真拿到结果"；下面两条失败分支都不记。
+      recordUsage('search');
+      return payload.data;
+    }
     console.warn('[api] newsSearch bad payload:', payload && payload.message);
     return null;
   } catch (err) {

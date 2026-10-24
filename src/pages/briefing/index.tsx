@@ -36,6 +36,7 @@ import { brandVars, useThemeStore } from '@/store/theme';
 import { formatEventTime } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
 import { bumpVoiceUsage } from '@/utils/usage';
+import { recordUsage } from '@/utils/usageLog';
 import { computeAdaptive } from '@/utils/adaptive';
 import { sceneByHour, splitTtsChunks, startSpeak, stopSpeak } from '@/utils/tts';
 import { loadChatLog, saveChatLog } from '@/utils/chatLog';
@@ -710,6 +711,8 @@ function BriefingPage() {
     if (!checkVoiceQuota()) return;
     // 用量真记账：语音确认发送即计 1 次，并刷新免费额度展示
     bumpVoiceUsage();
+    // 功能记账（按天聚合，与上面的月度额度计数是两套口径：一个管配额，一个给用户看"用在哪"）
+    recordUsage('voice');
     void refreshUsage();
     if (result.transcript) {
       // 有转写文本：微信端同声传译插件识别成功，直接进对话链路

@@ -25,13 +25,18 @@ import { kvClear } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { disabledAttr } from '@/utils/buttonDisabled';
-import { fromNow } from '@/utils/date';
+import { fromNow, dayKey } from '@/utils/date';
 import { getActivityLogs } from '@/utils/activityLog';
 import type { ActivityLogItem } from '@/utils/activityLog';
 import { getPersonalization, setPersonalization } from '@/utils/permission';
 import { resolveCityName } from '@/utils/weather';
 import { getTtsPrefs, saveTtsPrefs, TTS_RATE_OPTIONS } from '@/utils/tts';
 import type { TtsPrefs, TtsVoiceMode } from '@/utils/tts';
+import { FEATURES } from '@/utils/featureUsage';
+import type { FeatureKey, UsageSummary } from '@/utils/featureUsage';
+import { readUsageSummary } from '@/utils/usageLog';
+import { copyKeyOf, resolveRenewal, shouldRemind } from '@/utils/renewal';
+import type { RenewalCopyKey } from '@/utils/renewal';
 import {
   EARLYBIRD_PRICE,
   formatPrice,
@@ -217,6 +222,65 @@ const DEFAULT_CUSTOM: CustomSettings = {
   morningReminderEnabled: true
 };
 
+/* ---------------- 续费提醒偏好（2026-10-24） ----------------
+ * 两个 key 都是**本机偏好**，刻意不进 cloudSync：
+ *   · `mb_renew_remind`     —— 开关（默认开）
+ *   · `mb_renew_remind_day` —— 上次提示的日期，用于"一天最多一次"的节流
+ * 为什么不进同步：提醒是"在这台设备上看到的"，与账号无关；而且这是高频写（每次提示都写），
+ * 进同步只会制造无意义的拉取/覆盖。功能记账（feature-usage）才需要跨端一致。 */
+const RENEW_REMIND_KEY = 'mb_renew_remind';
+const RENEW_REMIND_DAY_KEY = 'mb_renew_remind_day';
+
+function readRenewRemindPref(): boolean {
+  try {
+    const v = Taro.getStorageSync(RENEW_REMIND_KEY);
+    // 缺键返回 ''（不是 undefined）—— 默认开，所以只有明确写 false 才关
+    return v === false ? false : true;
+  } catch {
+    return true;
+  }
+}
+
+function writeRenewRemindPref(on: boolean): void {
+  try {
+    Taro.setStorageSync(RENEW_REMIND_KEY, on);
+  } catch (err) {
+    console.warn('[MinePage] save renew remind pref failed:', err);
+  }
+}
+
+function readRenewRemindDay(): string {
+  try {
+    return String(Taro.getStorageSync(RENEW_REMIND_DAY_KEY) || '');
+  } catch {
+    return '';
+  }
+}
+
+function writeRenewRemindDay(day: string): void {
+  try {
+    Taro.setStorageSync(RENEW_REMIND_DAY_KEY, day);
+  } catch (err) {
+    console.warn('[MinePage] save renew remind day failed:', err);
+  }
+}
+
+/** 功能记账的展示顺序与文案键（顺序与 utils/featureUsage.ts 的 FEATURES 一致） */
+const FEATURE_LABEL_KEY: Record<FeatureKey, LangKey> = {
+  chat: 'mine.fUsageChat',
+  extract: 'mine.fUsageExtract',
+  voice: 'mine.fUsageVoice',
+  search: 'mine.fUsageSearch'
+};
+
+/** 续费状态文案（键由 utils/renewal.ts 的 copyKeyOf 决定，映射放这里是为了 i18n 类型安全） */
+const RENEW_STATUS_KEY: Record<RenewalCopyKey, LangKey> = {
+  statusActive: 'mine.renewStatusActive',
+  statusExpiring: 'mine.renewStatusExpiring',
+  statusToday: 'mine.renewStatusToday',
+  statusExpired: 'mine.renewStatusExpired'
+};
+
 function loadCustom(): CustomSettings {
   try {
     return { ...DEFAULT_CUSTOM, ...(Taro.getStorageSync(CUSTOM_SETTINGS_KEY) || {}) };
@@ -268,6 +332,9 @@ function MinePage() {
   const [blocks, setBlocks] = useState<BlockRule[]>([]);
   const [locked, setLocked] = useState<LockedPriceInfo | null>(null);
   const [notices, setNotices] = useState<PriceChangeNotice[]>([]);
+  // v2.2（2026-10-24）：功能记账 + 续费提醒
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
+  const [remindOn, setRemindOn] = useState(true);
   // v2.1：晨报连续阅读（只读展示 + 清空入口）
   const [readStreak, setReadStreak] = useState(0);
   const [readFreezeCards, setReadFreezeCards] = useState(0);
@@ -409,8 +476,57 @@ function MinePage() {
     setGuardRecords(listRestorableRecords());
     setHabitNotices(listHabitNotices());
     setAppPrefs(readPrefs());
+    // 功能记账：每次进页面重算（别的页面可能刚发生过 AI 调用/语音）
+    setUsageSummary(readUsageSummary());
+    setRemindOn(readRenewRemindPref());
     void loadOrders();
   });
+
+  /* ---------------- 续费管理（2026-10-24） ---------------- */
+  // 判定全在 utils/renewal.ts（纯函数、有断言）。这里只负责「拿 profile → 决定要不要提示」。
+  // profile 是异步来的（store.init），所以放在依赖 profile 的 effect 里，而不是 useDidShow：
+  // 冷启动时 useDidShow 早于 profile 落库，在那里判会永远判成 status='none'。
+  const renewal = useMemo(
+    () =>
+      resolveRenewal({
+        subscribed: !!profile?.subscribed,
+        expiredAt: profile?.expiredAt || undefined,
+        today: dayKey()
+      }),
+    [profile?.subscribed, profile?.expiredAt]
+  );
+
+  useEffect(() => {
+    if (!renewal.remind || !remindOn) return;
+    const today = dayKey();
+    if (!shouldRemind(readRenewRemindDay(), today, renewal)) return;
+    // 站内提示（不是推送）：产品明确不做自动续费，也不发模板消息，这里只提醒一次/天。
+    Taro.showToast({
+      title:
+        renewal.status === 'expired'
+          ? t('mine.renewWarnExpired')
+          : (renewal.daysLeft || 0) === 0
+            ? t('mine.renewToastToday')
+            : t('mine.renewToast', { n: renewal.daysLeft || 0 }),
+      icon: 'none',
+      duration: 2600
+    });
+    writeRenewRemindDay(today);
+  }, [renewal, remindOn, t]);
+
+  /** 到期状态一句话（有效 / 还剩 N 天 / 今天到期 / 已过期 N 天） */
+  const renewalStatusText = useMemo(() => {
+    const k = copyKeyOf(renewal);
+    const n = Math.abs(renewal.daysLeft || 0);
+    return t(RENEW_STATUS_KEY[k], { n });
+  }, [renewal, t]);
+
+  const handleToggleRemind = useCallback((next: boolean) => {
+    setRemindOn(next);
+    writeRenewRemindPref(next);
+    // 重新打开时清掉"今天已提示过"：否则开关拨回来却什么都不会发生，用户会以为开关是坏的
+    if (next) writeRenewRemindDay('');
+  }, []);
 
   // 偏好变化（或重新回到本页）后重算免打扰状态，辅助说明用
   useEffect(() => {
@@ -1287,6 +1403,38 @@ function MinePage() {
           </Text>
         ) : null}
 
+        {/* ①-b 续费管理（2026-10-24）：到期倒计时 + 到期后会怎样 + 提醒开关。
+            只在**有订阅**时出现 —— 没订阅过的用户看到"到期提醒"只会困惑。 */}
+        {renewal.status !== 'none' ? (
+          <View className={styles.renewBlock}>
+            <View className={styles.renewHead}>
+              <Text className={styles.renewTitle}>{t('mine.renewMgmtTitle')}</Text>
+              <View className={renewal.status === 'active' ? styles.renewTagIdle : styles.renewTag}>
+                <Text className={renewal.status === 'active' ? styles.renewTagTextIdle : styles.renewTagText}>
+                  {renewalStatusText}
+                </Text>
+              </View>
+            </View>
+            <Text className={styles.renewUntil}>{t('mine.renewUntil', { date: renewal.expiredAt })}</Text>
+            {renewal.status === 'active' ? null : (
+              <Text className={styles.renewWarn}>
+                {renewal.status === 'expired' ? t('mine.renewWarnExpired') : t('mine.renewWarnExpiring')}
+              </Text>
+            )}
+            <View className={styles.renewSwitchRow}>
+              <Text className={styles.renewSwitchLabel}>{t('mine.renewRemind')}</Text>
+              <Switch
+                className={styles.renewSwitch}
+                checked={remindOn}
+                color='#ffd24a'
+                onChange={(e) => handleToggleRemind(!!e.detail.value)}
+              />
+            </View>
+            {/* 明确写出"不自动续费"：否则用户会默认以为到期自动扣款，反而不敢开提醒 */}
+            <Text className={styles.renewNote}>{t('mine.renewNoAuto')}</Text>
+          </View>
+        ) : null}
+
         {/* ① 方案卡片横排（替换原 Picker） */}
         <View className={styles.planList}>
           {PLAN_LIST.map((p) => {
@@ -1457,6 +1605,34 @@ function MinePage() {
               style={{ width: `${collectionPercent}%` }}
             />
           </View>
+        </View>
+        {/* 功能记账（2026-10-24）：额度条只说明"还剩多少"，这里说明"用在哪"。
+            数据来自 utils/usageLog.ts（按天聚合、只记真实调用）。 */}
+        <View className={styles.usageBlock}>
+          <View className={styles.usageHead}>
+            <Text className={styles.usageTitle}>{t('mine.usageTitle')}</Text>
+            <Text className={styles.usageRange}>{t('mine.usageWeek')}</Text>
+          </View>
+          {usageSummary === null ? (
+            <Text className={styles.usageEmpty}>…</Text>
+          ) : usageSummary.weekTotal === 0 ? (
+            <Text className={styles.usageEmpty}>{t('mine.usageEmpty')}</Text>
+          ) : (
+            <View className={styles.usageList}>
+              {FEATURES.map((f) => (
+                <View className={styles.usageItem} key={f}>
+                  <Text className={styles.usageName}>{t(FEATURE_LABEL_KEY[f])}</Text>
+                  <Text className={styles.usageNum}>
+                    {usageSummary.week[f]}
+                    <Text className={styles.usageToday}>
+                      {` · ${t('mine.usageToday')} ${usageSummary.today[f]}`}
+                    </Text>
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+          <Text className={styles.usageNote}>{t('mine.usageNote')}</Text>
         </View>
       </View>
 

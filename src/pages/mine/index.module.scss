@@ -127,6 +127,98 @@
   gap: $spacing-sm;
 }
 
+/* ===== 续费管理（2026-10-24）=====
+   整块压在 .subCard 的 --brand-strong(#C7371A) 上，所以文字全部按"白字 ≥4.5"选：
+   纯白 5.26、92% 白 4.67（70 多行前踩过 75% 白 3.58 的坑，这里不再用半透明白当正文）。 */
+.renewBlock {
+  margin-bottom: $spacing-lg;
+  padding: $spacing-md;
+  border-radius: $radius-md;
+  // 压暗而不是提亮：白色蒙版会把深底提亮、白字掉到 4 以下（.planCard 的同款教训）
+  background: rgba(0, 0, 0, 0.18);
+  border: 2rpx solid rgba(255, 255, 255, 0.22);
+}
+
+.renewHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+}
+
+.renewTitle {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-white;
+}
+
+/* 到期状态徽标：告警态用金底深棕字（#5a3200 on #ffd24a ≈ 9:1），
+   与 .planBadge 同一套语言 —— 金色**只能**配深字，配白字只有 2.2:1。 */
+.renewTag {
+  padding: 2rpx 14rpx;
+  border-radius: $radius-round;
+  background: linear-gradient(135deg, #ffd24a, #ff9d2d);
+}
+
+.renewTagText {
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  color: #5a3200;
+}
+
+/* 有效态不做成告警色：低对比的"静默"徽标就够了，避免天天闪红灯 */
+.renewTagIdle {
+  padding: 2rpx 14rpx;
+  border-radius: $radius-round;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.renewTagTextIdle {
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  color: $color-text-white;
+}
+
+.renewUntil {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.renewWarn {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  line-height: $line-height-normal;
+  color: $color-text-white;
+}
+
+.renewSwitchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: $spacing-sm;
+}
+
+.renewSwitchLabel {
+  font-size: $font-size-xs;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.renewSwitch {
+  transform: scale(0.8);
+  transform-origin: right center;
+}
+
+.renewNote {
+  display: block;
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  line-height: $line-height-normal;
+  color: rgba(255, 255, 255, 0.92);
+}
+
 .priceTag {
   flex: 1;
   font-size: $font-size-sm;
@@ -205,6 +297,77 @@
 .quotaValue {
   margin-left: auto;
   font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+/* ===== 功能记账（2026-10-24）=====
+   卡片是白底（$color-bg-card），所以用 secondary(#4e5969 ≈ 7.5:1)/tertiary(#657080 ≈ 4.9:1)，
+   不要用 $color-text-disabled(#c9cdd4 ≈ 1.5:1) —— 那是「失效控件」专用的，这里全是内容。 */
+.usageBlock {
+  margin-top: $spacing-lg;
+  padding-top: $spacing-md;
+  border-top: 2rpx solid $color-border;
+}
+
+.usageHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: $spacing-sm;
+}
+
+.usageTitle {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.usageRange {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.usageList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm $spacing-lg;
+}
+
+.usageItem {
+  display: flex;
+  align-items: baseline;
+  min-width: 44%;
+}
+
+.usageName {
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+}
+
+.usageNum {
+  margin-left: auto;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.usageToday {
+  font-size: 20rpx;
+  font-weight: $font-weight-normal;
+  color: $color-text-tertiary;
+}
+
+.usageEmpty {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.usageNote {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: 20rpx;
+  line-height: $line-height-normal;
   color: $color-text-tertiary;
 }
 

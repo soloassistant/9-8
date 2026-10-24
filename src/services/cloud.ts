@@ -8,6 +8,7 @@ import { selectByPreference } from '../utils/prefSelect'
 import { readProfileSettings } from './localProfile'
 import { invoke, isWeapp } from './dataSource'
 import { chatViaCloudLlm, extractViaCloudLlm, typewriter } from './cloudLlm'
+import { recordUsage } from '../utils/usageLog'
 
 /** 热点数据来源元信息（服务端 /api/hotspot 附带，mock/真机路径为 null） */
 export interface HotspotMeta {
@@ -184,6 +185,9 @@ export async function chatCloudStream(
   if (hooks && hooks.onThinking) hooks.onThinking()
   const res = await chatViaCloudLlm({ message, deep, memories })
   if (!res) return null
+  // 流式对话是**另一条真实路径**（AiAssistant 走它，不走 callFunction('chat')），
+  // 所以这里也要记一次；两处不会同一次调用都命中（成功即 return）。
+  recordUsage('chat')
   if (hooks && hooks.onClear) hooks.onClear()
   await typewriter(res.reply, onDelta)
   // proposals/memories 一并透传：调用方（AiAssistant 流式分支）要靠它们
@@ -391,6 +395,9 @@ export async function callFunction<T = unknown>(
       const ai = await callChatOrExtract<T>(name, data)
       if (ai) {
         clearDegraded(name)
+        // 功能记账（2026-10-24）：**只在这一支记**。下面的 mock 分支是 src/data 里的
+        // 示例数据，不是一次真实调用 —— 在那里记账等于虚报用户用量（诚实性铁律）。
+        recordUsage(name === 'chat' ? 'chat' : 'extract')
         return ai
       }
       console.warn(`[Cloud] all AI paths unavailable, fallback to mock: ${name}`)

@@ -62,3 +62,52 @@ export function fromNow(time: string): string {
   if (diffDays < 30) return `${diffDays} 天前`;
   return d.format('YYYY-MM-DD');
 }
+
+/* ------------------------------------------------------------------ *
+ * 自然日工具（2026-10-24 新增，供「功能记账」与「续费管理」共用）
+ *
+ * 为什么不用 toISOString().slice(0,10)：那是 **UTC** 日期。北京时间 10-24 07:00
+ * 之前（UTC 还是 10-23）记账会落到前一天；到期提醒同样会把"今天到期"算成"已过期"。
+ * ------------------------------------------------------------------ */
+
+/** 本地时区的 'YYYY-MM-DD' */
+export function dayKey(now: number | Date = Date.now()): string {
+  return dayjs(now).format('YYYY-MM-DD');
+}
+
+/**
+ * 把 'YYYY-MM-DD' 映射成"自 1970-01-01 起的第几天"（整数），用于做日历日差。
+ * 用 `Date.UTC(y, m-1, d)` 而不是本地时间相减：夏令时切换那天只有 23 小时，
+ * 直接相减会得到 0.958 天 → 四舍五入后偶尔差 1 天。
+ * 严格校验：'2026-02-31' 会被 dayjs 顺延成 3-03，所以回写比对一次，不一致就当非法输入。
+ */
+export function dayIndex(day: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day || ''));
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const dt = dayjs(day);
+  if (!dt.isValid() || dt.format('YYYY-MM-DD') !== day) return null;
+  return Math.round(Date.UTC(y, mo - 1, d) / 86400000);
+}
+
+/** 自然日加减（delta 可为负）；非法输入原样返回，不抛错 */
+export function shiftDay(day: string, delta: number): string {
+  const idx = dayIndex(day);
+  if (idx === null) return day;
+  // ⚠️ 这里必须走 getUTC*：day index 是按 UTC 整数天定义的，
+  // 用本地 getFullYear 的话在 UTC-5 时区会整体退一天（1970-01-01T00:00Z = 1969-12-31 本地）。
+  const d = new Date((idx + Math.trunc(delta)) * 86400000);
+  const pad = (v: number) => String(v).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+/** toDay - fromDay（整数天）；任一非法返回 null（调用方必须显式处理 null，不能当 0） */
+export function daysBetween(fromDay: string, toDay: string): number | null {
+  const a = dayIndex(fromDay);
+  const b = dayIndex(toDay);
+  if (a === null || b === null) return null;
+  return b - a;
+}

@@ -48,6 +48,7 @@ const SYNC_KEYS = [
   'user-city',        // 城市
   'collectionStore',  // 收藏库（收件箱确认入库）
   'usage-voice',      // 语音用量月度计数
+  'feature-usage',    // 功能记账：按天聚合的各功能真实调用次数（2026-10-24）
   'briefingChatLog',  // 晨报 AI 对话（限长 60）
   'aiAssistantLog',   // 悬浮球 AI 对话（限长 60）
   'brand-theme',      // 主题
@@ -96,6 +97,9 @@ const REMOVE_PLACEHOLDER: Record<string, unknown> = {
   aiAssistantLog: [],
   // 对象类
   'user-settings': {},
+  // 功能记账是 `{ 'YYYY-MM-DD': { chat: n } }` 的对象，占位必须是空对象；
+  // 写成 '' 会被 parseBuckets 当成空账本 —— 删除动作传不出去，云端留着旧计数。
+  'feature-usage': {},
   // 标量类
   'user-city': '',
   'usage-voice': '',
