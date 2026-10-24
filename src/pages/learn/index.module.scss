@@ -394,7 +394,8 @@
 
 .footerText {
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  // 这是**内容**（说明文案），不是失效控件 —— 禁用灰 #c9cdd4 压在页面底 #f7f8fa 上只有 1.50:1。
+  color: $color-text-tertiary;
 }
 
 /* 社区与成就入口 */

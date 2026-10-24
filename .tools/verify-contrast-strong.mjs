@@ -537,6 +537,44 @@ try {
   ok('J19/J20/J21 读取失败: ' + e.message, false);
 }
 
+// ============ J22 – J24. 滚动巡检第二波（其余页面首屏以下的同类问题） ============
+// 「我的」页修完后把滚动巡检扩到全部 13 个路由，又露出 3 处 —— 同样是**从来没测到过**：
+//   · EmptyState .action 白字压 $color-primary(#ff7a45) = 2.59（空态主行动按钮，恰好最该看清）
+//   · learn / learnCommunity 的 .footerText 拿禁用灰当**内容**色 → #c9cdd4 压 #f7f8fa = 1.50
+try {
+  const themeScss = read('src/styles/theme.scss');
+  const varOf = (name) => (new RegExp(`\\$${name}\\s*:\\s*(#[0-9a-f]{6})`, 'i').exec(themeScss) || [])[1];
+  const strong = varOf('color-primary-strong');
+  const tertiary = varOf('color-text-tertiary');
+  const pageBg = varOf('color-bg-page');
+
+  const emptyScss = stripComments(read('src/components/EmptyState/index.module.scss'));
+  const action = blockOf(emptyScss, 'action');
+  ok(
+    `J22 EmptyState .action 白字底 ≥4.5（$color-primary-strong ${strong} = ${strong ? contrastOf('#ffffff', strong).toFixed(2) : '?'}:1；原 $color-primary 2.59）`,
+    // ⚠️ 必须用 (?!-) 负向前瞻：`\$color-primary\b` 里的 \b 在 `-` 前也成立，
+    // 于是 `$color-primary-strong` 会被判成「还在用 primary」—— 子串误匹配的老坑。
+    Boolean(strong) && action.includes('$color-primary-strong') && !/\$color-primary(?!-)/.test(action) &&
+      contrastOf('#ffffff', strong) >= 4.5
+  );
+
+  // 两页的 .footerText 都要用 tertiary（内容色），且 tertiary 压页面底 ≥4.5
+  for (const page of ['learn', 'learnCommunity']) {
+    const s = stripComments(read(`src/pages/${page}/index.module.scss`));
+    const foot = blockOf(s, 'footerText');
+    ok(
+      `J23/24 ${page} .footerText 用 tertiary 而不是禁用灰（#c9cdd4 压 ${pageBg} = 1.50:1）`,
+      Boolean(foot) && foot.includes('$color-text-tertiary') && !foot.includes('$color-text-disabled')
+    );
+  }
+  ok(
+    `J23/24 tertiary ${tertiary} 压页面底 ${pageBg} ≥4.5（当前 ${tertiary && pageBg ? contrastOf(tertiary, pageBg).toFixed(2) : '?'}:1）`,
+    Boolean(tertiary) && Boolean(pageBg) && contrastOf(tertiary, pageBg) >= 4.5
+  );
+} catch (e) {
+  ok('J22/J23/J24 读取失败: ' + e.message, false);
+}
+
 console.log('──────────────────────────────────────────────────────────');
 console.log(`PASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);

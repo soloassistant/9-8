@@ -28,10 +28,11 @@
 }
 
 // 空态主行动按钮：让「去收件箱」这种指令真的可点（2026-10-12 增长审计）
+// 底色用 strong 而不是 primary：白字压 #ff7a45 只有 2.59:1（滚动巡检才发现，首屏以下）。
 .action {
   margin-top: $spacing-lg;
   padding: $spacing-sm $spacing-xl;
-  background: $color-primary;
+  background: $color-primary-strong;
   border-radius: $radius-button;
 }
 

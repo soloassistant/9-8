@@ -234,5 +234,34 @@ export default [
     from: '  color: #2b1800;\n  font-size: $font-size-xs;',
     to: '  color: $color-text-white;\n  font-size: $font-size-xs;',
     cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+
+  /* ---------------- 滚动巡检第二波：其他页面首屏以下 ---------------- */
+  {
+    // 行为后果：空态主行动按钮（「去收件箱」）白字压 #ff7a45 = 2.59:1，最该看清的按钮最看不清。
+    // 哪条变红：J22。
+    label: '空态主行动按钮底色改回 $color-primary（白字 2.59）',
+    file: 'src/components/EmptyState/index.module.scss',
+    from: '  background: $color-primary-strong;',
+    to: '  background: $color-primary;',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    // 行为后果：说明文案掉回禁用灰，#c9cdd4 压 #f7f8fa = 1.50:1。
+    // 哪条变红：J23。
+    label: 'learn 页脚说明改回禁用灰（1.50）',
+    file: 'src/pages/learn/index.module.scss',
+    from:
+      '  // 这是**内容**（说明文案），不是失效控件 —— 禁用灰 #c9cdd4 压在页面底 #f7f8fa 上只有 1.50:1。\n  color: $color-text-tertiary;',
+    to: '  color: $color-text-disabled;',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    // 同上，社区页。
+    label: 'learnCommunity 页脚说明改回禁用灰（1.50）',
+    file: 'src/pages/learnCommunity/index.module.scss',
+    from: '  // 同上：内容文案，禁用灰 #c9cdd4 压 #f7f8fa 只有 1.50:1。\n  color: $color-text-tertiary;',
+    to: '  color: $color-text-disabled;',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
   }
 ];

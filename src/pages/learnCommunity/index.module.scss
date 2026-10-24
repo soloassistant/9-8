@@ -268,5 +268,6 @@
 
 .footerText {
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  // 同上：内容文案，禁用灰 #c9cdd4 压 #f7f8fa 只有 1.50:1。
+  color: $color-text-tertiary;
 }
