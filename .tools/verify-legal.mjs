@@ -146,7 +146,9 @@ ok('A3 条文里的 H5 模型标识必须带「平台目录」限定（否则把
 // 出网域名：代码里真的在请求 + 条文里真的披露了这家
 const DOMAINS = [
   { host: 'api.bigdatacloud.net', vendor: 'BigDataCloud', file: 'src/services/location.ts' },
-  { host: 'api.open-meteo.com', vendor: 'OpenMeteo', file: 'src/utils/weather.ts' }
+  // 2026-10-25：webSearch 云函数天气也从和风切到 Open-Meteo —— 两端同源，条文披露才对得上小程序端
+  { host: 'api.open-meteo.com', vendor: 'OpenMeteo', file: 'src/utils/weather.ts' },
+  { host: 'api.open-meteo.com', vendor: 'OpenMeteo', file: 'cloudfunctions/webSearch/index.js' }
 ];
 for (const d of DOMAINS) {
   ok(`A4 ${d.host} 在 ${d.file} 里真的被请求（不是只写在条文里）`, read(d.file).includes(d.host));

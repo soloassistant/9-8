@@ -2,12 +2,11 @@
  * webSearch 云函数 —— 联网内容聚合（F15 今日情报 / F29 热点资讯流）
  *
  * action=hotspot   热点页资讯流：RSS 聚合，强制标注来源，免费可用，1 小时缓存，无 LLM 成本
- * action=briefing  今日情报：和风天气 + 偏好 RSS → 订阅档 LLM 摘要（日限额 10 次）/ 免费档原始 3 条
+ * action=briefing  今日情报：Open-Meteo 天气（免 key）+ 偏好 RSS → 订阅档 LLM 摘要（日限额 10 次）/ 免费档原始 3 条
  *                  每一步失败均降级，绝不阻塞调用方（getBriefing 晨报生成）
  *
  * 环境变量（云开发控制台配置）：
- *   WEATHER_KEY        和风天气 Key（免费档；缺失时天气降级为 null）
- *   WEATHER_LOCATION   和风天气 location（坐标或城市 ID，选填，默认北京 116.41,39.92）
+ *   （2026-10-25 起**无必配项**：天气已切 Open-Meteo 免 key，原 WEATHER_KEY/WEATHER_LOCATION 下线）
  *   LLM_API_KEY        DeepSeek Key（摘要用；缺失/失败时降级为原始资讯并标 degraded）
  *   LLM_BASE_URL       选填，默认 https://api.deepseek.com
  *   LLM_MODEL          选填，默认 deepseek-chat
@@ -118,6 +117,21 @@ const RSS_SOURCES = [
   { name: '掘金', url: 'https://juejin.cn/rss', tag: '开发者' },
   // [audit] 数字生活/软件工具 · ≈0% · 保留，低风险（实测 10/10 条存活，最新 0.2 天）
   { name: '小众软件', url: 'https://www.appinn.com/feed/', tag: '数字生活' },
+
+  // ↓↓↓ 2026-10-25 免费扩源（第二轮，.tools/vet-feeds.js 生产同款口径两轮复测）↓↓↓
+  // [audit] 科技/科学 · 中文科技社区，时政占比 ≈0%（10/10 存活，2091ms，最新 0.21 天，两轮 ADOPT）
+  { name: 'Solidot', url: 'https://www.solidot.org/index.rss', tag: '科技' },
+  // [audit] 科技 · Ars Technica，技术深度报道，时政占比 ≈0%（10/10 存活，2354ms，最新 0.33 天，两轮 ADOPT）
+  { name: 'Ars Technica', url: 'https://feeds.arstechnica.com/arstechnica/index', tag: '科技' },
+  // 本轮淘汰（勿回填，理由留档防止重复踩坑）：
+  //   V2EX        https://www.v2ex.com/index.xml        两轮 TIMEOUT（8s）
+  //   cnBeta      https://rss.cnbeta.com/rss            NET-ERR（fetch failed）
+  //   快科技      https://news.mydrivers.com/rss.xml    HTTP 404
+  //   虎嗅        https://www.huxiu.com/rss/0.xml       两轮 TIMEOUT（直连也超时，非镜像问题）
+  //   GitHub Blog https://github.blog/feed/             轮1 TIMEOUT / 轮2 NET-ERR（本机网络不稳定，按最差判）
+  //   The Verge   https://www.theverge.com/rss/index.xml 两轮 TIMEOUT
+  //   Hacker News https://hnrss.org/frontpage           轮1 TIMEOUT / 轮2 ADOPT —— 抖动源，6s 闸门下不可靠，不接
+  //   Product Hunt https://www.producthunt.com/feed     轮1 TIMEOUT / 轮2 ATOM-ONLY（parseRss 只认 <item>，预览侧恒 0 条）
 
   // ↓↓↓ 2026-10-23 科学 / 健康 / 文化扩源 ↓↓↓
   // 依据：.tmp-verify/feeds-vet/report.md（QA 用生产同款 https.get、FETCH_TIMEOUT_MS=6000、
@@ -924,28 +938,61 @@ async function consumeIntelQuota(usage) {
     .update({ data: { intelUsed, intelDate: today, updatedAt: new Date().toISOString() } });
 }
 
-/** 和风天气现况（免费档）；未配 KEY 或失败返回 null，不阻塞。
- *  F21：传入 tripCity 时改查目的地天气（和风 location 支持中文城市名），失败回退默认位置。 */
+/** Open-Meteo 现况（免 key、免配置）；失败返回 null，不阻塞。
+ *  2026-10-25 从和风天气切过来：和风免费档也要注册取 WEATHER_KEY，而条文（legal.ts 第 2 条）
+ *  只披露了 OpenMeteo —— 小程序端用和风属于「条文没披露的第三方」。切到 Open-Meteo 后
+ *  两端同源（H5 的 src/utils/weather.ts 同一家），WEATHER_KEY / WEATHER_LOCATION 两个配置项
+ *  整体下线，部署预检清单同步收窄。
+ *  F21 语义保留：tripCity 走 geocoding 换坐标（与 H5 一致，只发城市名不发坐标）。
+ *  WMO 码表与 src/utils/weather.ts、.tools/static-server.js 同表（三处手工同步，改一处要三处）。 */
+const WMO_TEXT = {
+  0: '晴', 1: '多云', 2: '多云', 3: '阴', 45: '雾', 48: '雾',
+  51: '毛毛雨', 53: '毛毛雨', 55: '毛毛雨', 56: '冻毛毛雨', 57: '冻毛毛雨',
+  61: '小雨', 63: '中雨', 65: '大雨', 66: '冻雨', 67: '冻雨',
+  71: '小雪', 73: '中雪', 75: '大雪', 77: '雪粒',
+  80: '阵雨', 81: '阵雨', 82: '强阵雨', 85: '阵雪', 86: '阵雪',
+  95: '雷阵雨', 96: '雷阵雨伴冰雹', 99: '雷阵雨伴冰雹'
+};
+
 async function getWeather(tripCity) {
-  const key = process.env.WEATHER_KEY;
-  if (!key) return null;
-  const loc = tripCity
-    ? encodeURIComponent(String(tripCity).slice(0, 12))
-    : process.env.WEATHER_LOCATION || '116.41,39.92';
   try {
+    // 默认北京（纬度,经度）；Open-Meteo 的参数顺序是 latitude 在前 —— 和风的 location 是「经度,纬度」，别照抄
+    let lat = 39.92;
+    let lng = 116.41;
+    let label = '北京';
+    if (tripCity) {
+      const geoRaw = await fetchText(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(String(tripCity).slice(0, 12))}&count=1&language=zh`
+      );
+      const hit = (JSON.parse(geoRaw).results || [])[0];
+      if (!hit) {
+        console.warn('[webSearch] weather geocode empty:', tripCity);
+        return null;
+      }
+      lat = hit.latitude;
+      lng = hit.longitude;
+      label = hit.name || tripCity;
+    }
     const raw = await fetchText(
-      `https://devapi.qweather.com/v7/weather/now?location=${loc}`,
-      { 'X-QW-Api-Key': key }
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+        '&current_weather=true&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1'
     );
     const data = JSON.parse(raw);
-    if (data.code !== '200' || !data.now) {
-      console.warn('[webSearch] weather bad response:', data.code);
+    const cw = data.current_weather;
+    if (!cw || typeof cw.temperature !== 'number') {
+      console.warn('[webSearch] weather bad response: no current_weather');
       return null;
     }
-    const n = data.now;
-    const wind = n.windDir ? `，${n.windDir}${n.windScale || ''}级` : '';
+    const desc = WMO_TEXT[cw.weathercode] || '多云';
+    const dailyMin = data.daily && data.daily.temperature_2m_min;
+    const dailyMax = data.daily && data.daily.temperature_2m_max;
+    const min = dailyMin && dailyMin.length > 0 ? Math.round(dailyMin[0]) : '?';
+    const max = dailyMax && dailyMax.length > 0 ? Math.round(dailyMax[0]) : '?';
     const prefix = tripCity ? `目的地${tripCity}：` : '';
-    return { text: `${prefix}${n.text} ${n.temp}°C${wind}`, updateTime: new Date().toISOString() };
+    return {
+      text: `${prefix}${label} ${desc}，当前 ${Math.round(cw.temperature)}°C，今日 ${min}~${max}°C`,
+      updateTime: new Date().toISOString()
+    };
   } catch (err) {
     console.warn('[webSearch] weather failed:', err && err.message);
     return null;
