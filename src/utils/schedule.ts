@@ -193,24 +193,36 @@ function countDayEvents(day: string, existing: ScheduleEvent[]): number {
 /**
  * 前后留白：与前一日程结束的间隔 + 与后一日程开始的间隔（分钟）。
  * 单侧无日程时按 DEFAULT_EDGE_BUFFER_MINUTES 计；总时长封顶 MAX_BUFFER_MINUTES。
+ *
+ * ⚠️ 2026-10-24 修（P1）：原实现把 prevGap / nextGap 都初始化为
+ * `DEFAULT_EDGE_BUFFER_MINUTES`（= 0）再用 `Math.min` 收缩，于是
+ * 「该侧只要有一个日程，间隔就被压成 min(0, 正数) = 0」，两侧同理 ——
+ * **函数恒返回 0**。后果是 scorer 里 SCORE_MAX_BUFFER_BONUS(30) 永远加 0 分、
+ * `reason: 'buffer'` 永远不可能出现（bufferScore 恒 0，不可能 > earliestScore），
+ * 「尽量别把日程排得背靠背」这条产品规则等于没实现。
+ * 正确语义：该侧**有**日程时取最近一个的间隔；该侧**无**日程时才用默认值。
  */
 function computeBufferMinutes(startTime: string, endTime: string, existing: ScheduleEvent[]): number {
   const startMs = dayjs(startTime).valueOf();
   const endMs = dayjs(endTime).valueOf();
-  let prevGap = DEFAULT_EDGE_BUFFER_MINUTES;
-  let nextGap = DEFAULT_EDGE_BUFFER_MINUTES;
+  let prevGap: number | null = null;
+  let nextGap: number | null = null;
   existing.forEach((ex) => {
     if (!ex || !ex.startTime) return;
     const exStart = dayjs(ex.startTime).valueOf();
     const exEnd = eventEnd(ex.startTime, ex.endTime);
     if (exEnd <= startMs) {
-      prevGap = Math.min(prevGap, (startMs - exEnd) / 60000);
+      const gap = (startMs - exEnd) / 60000;
+      prevGap = prevGap === null ? gap : Math.min(prevGap, gap);
     } else if (exStart >= endMs) {
-      nextGap = Math.min(nextGap, (exStart - endMs) / 60000);
+      const gap = (exStart - endMs) / 60000;
+      nextGap = nextGap === null ? gap : Math.min(nextGap, gap);
     }
   });
-  const total = Math.max(0, prevGap) + Math.max(0, nextGap);
-  return Math.round(Math.min(total, MAX_BUFFER_MINUTES));
+  const total =
+    (prevGap === null ? DEFAULT_EDGE_BUFFER_MINUTES : prevGap) +
+    (nextGap === null ? DEFAULT_EDGE_BUFFER_MINUTES : nextGap);
+  return Math.round(Math.min(Math.max(0, total), MAX_BUFFER_MINUTES));
 }
 
 interface ScoreBreakdown {

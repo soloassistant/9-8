@@ -19,7 +19,7 @@
  * 3. **规划与提交分离**：`guardHabitsOnOpen` 只规划、不落盘；调用方必须在**远端写库成功后**
  *    再调 `commitHabitGuards()` 登记本地记录与站内信。这样写库失败时不会留下「已守护」记录
  *    去误导用户（用户会以为日程已改，实际没有）。
- * 4. 所有 storage 读写 try/catch，失败只 `console.warn`，**绝不 throw**、绝不阻断主流程。
+ * 4. 所有 storage 读写 try/catch，失败只 `console.error`，**绝不 throw**、绝不阻断主流程。
  */
 import Taro from '@tarojs/taro';
 import dayjs from 'dayjs';
@@ -277,17 +277,17 @@ export function readHabitStore(): HabitStore {
       return { habits, records, maxRecords };
     }
   } catch (err) {
-    console.warn('[habit] read store failed:', err);
+    console.error('[habit] read store failed:', err);
   }
   return emptyStore();
 }
 
-/** 写盘：失败只 warn，绝不阻断主流程 */
+/** 写盘：失败用 console.error 留痕（生产会剔除 console.warn），绝不阻断主流程 */
 function writeHabitStore(store: HabitStore): void {
   try {
     Taro.setStorageSync(HABIT_STORE_KEY, store);
   } catch (err) {
-    console.warn('[habit] write store failed:', err);
+    console.error('[habit] write store failed:', err);
   }
 }
 
@@ -585,7 +585,7 @@ export function pushHabitNotice(record: HabitGuardRecord): void {
   try {
     Taro.setStorageSync(HABIT_NOTICE_KEY, next);
   } catch (err) {
-    console.warn('[habit] push notice failed:', err);
+    console.error('[habit] push notice failed:', err);
   }
 }
 
@@ -599,7 +599,7 @@ export function listHabitNotices(): HabitNotice[] {
       );
     }
   } catch (err) {
-    console.warn('[habit] read notices failed:', err);
+    console.error('[habit] read notices failed:', err);
   }
   return [];
 }
@@ -610,7 +610,7 @@ export function markHabitNoticeRead(id: string): void {
   try {
     Taro.setStorageSync(HABIT_NOTICE_KEY, next);
   } catch (err) {
-    console.warn('[habit] mark notice read failed:', err);
+    console.error('[habit] mark notice read failed:', err);
   }
 }
 

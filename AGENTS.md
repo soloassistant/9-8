@@ -386,3 +386,14 @@ node .tools/mutation-verify.mjs .tools/mutations-share.mjs   # 变异验证（�
 1. 微信小程序 AppID 与云环境 ID（`WX_APPID` / `WX_CLOUD_ENV`）—— 没有它无法部署云函数、无法真机预览
 2. 主体类型是否已按「个体工商户」办理（决定类目与支付能否走通）
 3. 第三方 LLM 供应商是否愿意提供算法备案截图 + 盖章合作协议
+
+## 10. 多 AI 并发协作（2026-10-24 起）
+
+本仓可能同时有多个 AI 在工作。**动 `src/` 之前先读 `.tools/COORDINATION.md`**（本地文件，已被
+`.tools/*` 忽略，不进 public 仓），动完把「改了什么 + 建立了什么不变量」追加进去（倒序、带时间戳）。
+
+- 分工现状：视觉线负责 `*.module.scss` / `theme.*` / `app.config.ts`；逻辑线负责 `src/services/*`、
+  页面 `.tsx` 业务逻辑、`src/store/language.ts`。改跨线文件前在「交接/释放区」登记。
+- 不变量清单（例如 `hasContent` 必须含字面量 `|| hasIntel`、内联 style 禁用 `rpx`）都写在该看板第 2/3 节；
+  改到相关代码先跑对应 `verify:*`。
+- 仍然适用本文件 4.1 / 6.1 的全部铁律：**禁止 `git add -A`**，只加精确路径；有未提交改动时变异验证会拒绝变异，属预期。

@@ -18,7 +18,7 @@ import { formatPlayCount } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
 import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews, apiTodoSetStatus } from '@/services/api';
 import { buildTodayBrief, resolveCategory, type TodayBrief } from '@/utils/ledgerAggregate';
-import { buildPlanProposal } from '@/utils/schedule';
+import { buildPlanProposal, DEFAULT_DURATION_MINUTES } from '@/utils/schedule';
 import type { PlanProposal, PlanApplyEvent } from '@/utils/schedule';
 import { guardHabitsOnOpen, commitHabitGuards, listRestorableRecords, undoHabitGuard, createHabit } from '@/utils/habit';
 import type { HabitGuardRecord } from '@/utils/habit';
@@ -33,7 +33,7 @@ import {
 } from '@/utils/permission';
 import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore } from '@/store/theme';
-import { getGreeting, formatEventTime } from '@/utils/date';
+import { formatEventTime } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
 import { bumpVoiceUsage } from '@/utils/usage';
 import { computeAdaptive } from '@/utils/adaptive';
@@ -771,6 +771,68 @@ function BriefingPage() {
         location: undefined as string | undefined
       }))
   ].sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf());
+
+  /**
+   * 今日「接下来」的那条日程（对标 Sunsama / Structured / Motion 的 Now/Next 头部）：
+   * 取尚未结束的最近一条；缺 endTime 时按 DEFAULT_DURATION_MINUTES 推算，与 utils/schedule.ts 同口径。
+   * ⚠️ 刻意**不**用 useMemo 缓存：它依赖 `Date.now()`，缓存会在 briefing 不变的这段时间里
+   * 让「接下来 14:00」在 14:30 之后仍然显示 —— 比多算一次排序更糟。
+   */
+  const nowMs = Date.now();
+  const nextEventToday =
+    todayEvents
+      .filter((e) => {
+        const startMs = dayjs(e.startTime).valueOf();
+        if (!Number.isFinite(startMs)) return false;
+        const endMs = e.endTime ? dayjs(e.endTime).valueOf() : startMs + DEFAULT_DURATION_MINUTES * 60000;
+        return endMs > nowMs;
+      })
+      .sort((a, b) => dayjs(a.startTime).valueOf() - dayjs(b.startTime).valueOf())[0] ?? null;
+
+  /**
+   * 头部问候 = 时间基调 + **内容事实**。修三件事（2026-10-24 视觉巡检截图发现）：
+   * ① 原 `getGreeting()` 在 12–14 点固定说「下午的日程在这」、14–18 点说「别忘了待办清单」——
+   *    当天没有日程/待办时这是**谎报**（截图里首屏只有情报，问候语却说日程在这）；
+   * ② 原实现是硬编码中文，英文界面（lang='en'）也显示中文；
+   * ③ 上市产品首屏都给「接下来是什么」，这里用同一行文字承载，不新增 UI 元素、不改布局。
+   */
+  const greetingHour = dayjs().hour();
+  const greetingBaseKey =
+    greetingHour < 6
+      ? 'greet.night'
+      : greetingHour < 11
+        ? 'greet.morning'
+        : greetingHour < 14
+          ? 'greet.noon'
+          : greetingHour < 18
+            ? 'greet.afternoon'
+            : 'greet.evening';
+  const greetingBase = t(greetingBaseKey);
+  const pendingTodayTodos = (briefing?.todos || []).filter(
+    (td) => td.status !== 'done' && !!td.dueDate && dayjs(td.dueDate).isSame(dayjs(), 'day')
+  ).length;
+  /**
+   * 头部称呼：只在昵称「像人名」时才展示。
+   * H5 会话链路里 nickname 可能回落到**邮箱**（视觉巡检截图实测：
+   * `p***@example.test，中午好 · 今天没有安排`）。上市产品不会用邮箱称呼用户，
+   * 这类值直接不展示、退化为纯问候；不动数据层（`updateSettings` 仍可写任意昵称）。
+   */
+  const displayName = profile?.nickname && !profile.nickname.includes('@') ? profile.nickname : '';
+
+  const headerGreeting = !briefing
+    ? // 数据未到（首帧骨架期）：只说时间基调，**不能**断言「今天没有安排」——
+      // 那是把「还没加载」谎报成「确实没安排」，与本次修的问候语问题同源。
+      greetingBase
+    : nextEventToday
+      ? `${greetingBase} · ${t('greet.next', {
+          time: dayjs(nextEventToday.startTime).format('HH:mm'),
+          title: nextEventToday.title
+        })}`
+      : todayEvents.length > 0
+        ? `${greetingBase} · ${t('greet.allDone')}`
+        : pendingTodayTodos > 0
+          ? `${greetingBase} · ${t('greet.todoOnly', { n: pendingTodayTodos })}`
+          : `${greetingBase} · ${t('greet.empty')}`;
   /**
    * 首屏「有没有东西可看」的唯一判据 —— contentFade 只在它为真时挂载。
    * ⚠️ 情报（briefing.intel）必须计入：它渲染在 contentFade 内部（见 sectionIntel），
@@ -1006,7 +1068,7 @@ function BriefingPage() {
         <View className={styles.headerTop}>
           <View className={styles.headerMain}>
             <Text className={styles.greeting}>
-              {profile ? `${profile.nickname}，${getGreeting(dayjs().hour())}` : getGreeting(dayjs().hour())}
+              {displayName ? `${displayName}，${headerGreeting}` : headerGreeting}
             </Text>
             <View className={styles.dateRow}>
               <Text className={styles.date}>

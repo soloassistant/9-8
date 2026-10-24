@@ -7,7 +7,7 @@
  * 3. 个性化推荐开关（C-03）持久化。
  *
  * 约定：
- * - 所有 storage 读写统一 Taro.getStorageSync / setStorageSync + try/catch，失败只 console.warn；
+ * - 所有 storage 读写统一 Taro.getStorageSync / setStorageSync + try/catch，失败只 console.error；
  * - storage key 统一 `mb_` 前缀：`mb_perm_<name>`、`mb_personalization`；
  * - 所有对外函数**绝不 throw**，异常一律 catch 后返回降级值。
  */
@@ -83,7 +83,7 @@ export const PERMISSION_DENY_LIMIT = 3;
 const isWeapp = process.env.TARO_ENV === 'weapp';
 
 /* ------------------------------------------------------------------ */
-/* storage 读写（统一 try/catch，失败只 warn）                          */
+/* storage 读写（统一 try/catch，失败用 console.error 留痕）             */
 /* ------------------------------------------------------------------ */
 
 function storageKey(name: PermissionName): string {
@@ -106,7 +106,7 @@ export function readPermission(name: PermissionName): PermissionRecord {
       };
     }
   } catch (err) {
-    console.warn('[permission] read failed:', name, err);
+    console.error('[permission] read failed:', name, err);
   }
   return emptyRecord();
 }
@@ -115,7 +115,7 @@ function writePermission(name: PermissionName, record: PermissionRecord): Permis
   try {
     Taro.setStorageSync(storageKey(name), record);
   } catch (err) {
-    console.warn('[permission] write failed:', name, err);
+    console.error('[permission] write failed:', name, err);
   }
   return record;
 }
@@ -169,9 +169,12 @@ export async function syncWithSystemSetting(name: PermissionName): Promise<Permi
       // 系统侧已撤销：降级为已拒绝，但不累加计数（用户并非主动拒绝弹窗）
       writePermission(name, { agreed: false, deniedCount: record.deniedCount, updatedAt: Date.now() });
     }
-    return granted ? 'granted' : record.deniedCount > 0 ? 'denied' : 'unknown';
+    // 系统侧撤销（原 agreed=true、现 granted=false）必须归为 'denied' —— 类型注释写明
+    // denied 就包含「系统侧拒绝」；原来这里返回 'unknown'，与紧邻的写回语义自相矛盾，
+    // 调用方会误以为「还没问过」，从而再次拉起本不该再弹的系统授权弹窗（2026-10-24 修）。
+    return granted ? 'granted' : record.deniedCount > 0 || record.agreed ? 'denied' : 'unknown';
   } catch (err) {
-    console.warn('[permission] getSetting failed:', name, err);
+    console.error('[permission] getSetting failed:', name, err);
     return getLocalState(name);
   } finally {
     inflightSync[name] = false;
@@ -201,7 +204,7 @@ export async function openAppSetting(name?: PermissionName): Promise<boolean> {
     if (name) await syncWithSystemSetting(name);
     return true;
   } catch (err) {
-    console.warn('[permission] openSetting failed:', err);
+    console.error('[permission] openSetting failed:', err);
     return false;
   }
 }
@@ -215,25 +218,30 @@ export function openSystemSettings(name?: PermissionName): Promise<boolean> {
 /* 统一授权入口（双端双轨，绝不 throw）                                  */
 /* ------------------------------------------------------------------ */
 
-/** weapp：Taro.authorize 拉起授权；已授权直接返回 true */
+/**
+ * weapp：Taro.authorize 拉起授权；已授权直接返回 true。
+ *
+ * ⚠️ 2026-10-24 修（P1）：本函数内**不再**写权限记录 —— 记录统一由唯一入口
+ * `ensurePermission` 在拿到结果后写一次。原实现这里写一次、`ensurePermission`
+ * 又写一次，导致 weapp 端**一次拒绝计 2 次**（deniedCount +2）：用户在
+ * PERMISSION_DENY_LIMIT=3 的设计下，拒绝 2 次就被判进降级态（不再弹窗、只留
+ * 「去设置」提示条），比产品设计的 3 次提前一次，且拒绝计数整体翻倍。
+ */
 async function authorizeWeapp(name: PermissionName): Promise<boolean> {
   const scope = SCOPE_MAP[name];
   try {
     const setting = await Taro.getSetting();
     if (setting && setting.authSetting && setting.authSetting[scope] === true) {
-      recordPermissionResult(name, true);
       return true;
     }
   } catch (err) {
-    console.warn('[permission] getSetting before authorize failed:', name, err);
+    console.error('[permission] getSetting before authorize failed:', name, err);
   }
   try {
     await Taro.authorize({ scope });
-    recordPermissionResult(name, true);
     return true;
   } catch (err) {
-    console.warn('[permission] authorize denied:', name, err);
-    recordPermissionResult(name, false);
+    console.error('[permission] authorize denied:', name, err);
     return false;
   }
 }
@@ -297,7 +305,7 @@ export async function ensurePermission(name: PermissionName): Promise<boolean> {
     recordPermissionResult(name, ok);
     return ok;
   } catch (err) {
-    console.warn('[permission] ensurePermission failed:', name, err);
+    console.error('[permission] ensurePermission failed:', name, err);
     recordPermissionResult(name, false);
     return false;
   }
@@ -315,7 +323,7 @@ export function getPersonalization(): boolean {
     if (typeof raw === 'string') return raw !== 'false';
     return raw !== false;
   } catch (err) {
-    console.warn('[permission] read personalization failed:', err);
+    console.error('[permission] read personalization failed:', err);
     return true;
   }
 }
@@ -325,7 +333,7 @@ export function setPersonalization(on: boolean): void {
   try {
     Taro.setStorageSync(PERSONALIZATION_KEY, on);
   } catch (err) {
-    console.warn('[permission] write personalization failed:', err);
+    console.error('[permission] write personalization failed:', err);
   }
 }
 

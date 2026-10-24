@@ -347,6 +347,18 @@ const zh = {
   'briefing.streak': '连续阅读 {n} 天',
   'briefing.weekendBanner': '周末轻量版 · 资讯已减量',
   'briefing.ttsGreeting': '早上好，你的晨报准备好了',
+  // 头部问候：时间基调（纯时间，不含内容断言）+ 内容事实（Now/Next）。
+  // 拆开的原因：原 getGreeting 把「下午的日程在这」写死在 12–14 点，当天没有日程
+  // 就是谎报；且只有中文，英文界面也显示中文。
+  'greet.night': '夜深了，先看看明天的安排',
+  'greet.morning': '早上好，新的一天从晨报开始',
+  'greet.noon': '中午好',
+  'greet.afternoon': '下午好',
+  'greet.evening': '晚上好，为明天做好准备',
+  'greet.next': '接下来 {time} {title}',
+  'greet.allDone': '今天的日程已结束',
+  'greet.todoOnly': '还剩 {n} 个待办',
+  'greet.empty': '今天没有安排',
   'briefing.audioPlay': '听晨报',
   'briefing.audioStop': '停止播报',
 
@@ -483,6 +495,12 @@ const zh = {
   'perm.micBody': '用于把你「按住说话」的内容转成文字。仅在你主动按住时录音，不会在后台录音；音频仅用于本次转写，不会长期保存；你可以随时在系统设置中关闭。',
   'perm.locTitle': '需要位置权限',
   'perm.locBody': '用于获取你所在城市的天气，以及在你说「去上海出差」时自动带出目的地天气。位置信息仅用于天气查询，不会与你的日程内容关联；解析城市名由第三方境外地图服务完成，坐标不存储；你可以随时在系统设置中关闭。',
+  // PIPL 第 39 条「向境外提供个人信息的单独同意」：必须在真实发起定位前单独征求，
+  // 不能只靠上面那段权限说明（那一段是权限用途告知，不是出境同意）。
+  'perm.locCrossTitle': '位置坐标出境说明',
+  'perm.locCrossBody': '天气功能会把你的位置坐标发送给 BigDataCloud Pty Ltd（澳大利亚，ACN 627 240 162）解析城市名，这属于个人信息出境。我们不存储该坐标，但该服务收到坐标后如何留存与使用不受我们控制。是否同意本次出境？',
+  'perm.locCrossAgree': '同意并继续',
+  'perm.locCrossDecline': '不同意',
   'perm.decline': '暂不使用',
   'perm.agree': '同意并开启',
   'perm.goSettings': '去设置开启',
@@ -801,11 +819,10 @@ const zh = {
   'library.abReset': '重置统计',
   'library.abResetDone': '已重置效果统计',
 
-  // 进入门禁（登录）文案。★ Web 端**只支持邮箱**标识（2026-10-05 平台文档校正：Web 应用不支持
-  //   手机号/微信登录，加了 UI 也会编译通过、运行时必然失败）。手机号走微信小程序那条线。
-  //   `auth.idPhone` / `auth.phone` / `auth.phonePlaceholder` / `auth.errPhone*` / `auth.smsSentHint`
-  //   均为历史遗留 key，当前 src/ 内**无任何渲染点**；保留只为不让 zh/en key 数变化。
-  //   ★ 不要在登录页把手机号选项加回来（详见 src/pages/login/index.tsx 顶部注释）。
+  // 进入门禁（登录）文案。★ Web 端**支持邮箱与手机号两种标识**（2026-10-24 校正：本条注释此前写
+  //   「只支持邮箱」，那是 2026-10-05 对旧 SDK 的读数，早已失效 —— login/index.tsx:178 默认就是手机号通道，
+  //   且登录后强弹绑定手机号。写反了会诱导后来者把手机号通道删掉，务必按代码为准）。
+  //   手机号相关 key（`auth.idPhone` / `auth.phone` / `auth.smsSentHint` 等）当前**有渲染点**。
   'auth.checking': '正在校验登录状态…',
   'auth.title': '需要登录',
   // 注册前唯一能看到的「产品是什么」。原文是「这是一个私人应用，登录后才能进入。」
@@ -851,7 +868,7 @@ const zh = {
   'auth.errResetEmailOnly': '改密暂只支持邮箱，请切到「邮箱登录」',
   'auth.otpSentHint': '没收到？先看垃圾邮件箱，再确认邮箱地址没写错',
   // 个保法要求的「明示同意」：登录前必须让用户看到收集范围并主动勾选，不能默认勾、也不能藏在协议里
-  'auth.privacyNotice': '邮箱仅用于账号登录与晨报推送；位置信息只在你开启天气功能后采集，且不会用于广告，解析城市名由第三方境外地图服务完成。数据存放在你自己的账号下，可在「我的 - 注销账号」一键删除。',
+  'auth.privacyNotice': '邮箱或手机号仅用于账号登录与账号找回，订阅消息仅用于晨报提醒；位置信息只在你为天气功能主动授权后采集，不用于广告，坐标会发送至第三方境外地图服务解析城市名（不存储）。数据存放在你的账号下：可在「我的 - 注销账号」清除本地与云端同步数据，账号本身可联系客服删除。',
   'auth.privacyAgree': '我已阅读并同意上述隐私说明',
   'auth.errPrivacy': '请先勾选同意隐私说明',
   'auth.bindPhoneTitle': '绑定手机号',
@@ -1235,6 +1252,15 @@ const en: Record<keyof typeof zh, string> = {
   'briefing.streak': '{n}-day reading streak',
   'briefing.weekendBanner': 'Weekend lite · fewer news items',
   'briefing.ttsGreeting': 'Good morning, your daily brief is ready',
+  'greet.night': 'Late night — rest up a bit',
+  'greet.morning': 'Good morning — your brief is ready',
+  'greet.noon': 'Midday check-in',
+  'greet.afternoon': 'Good afternoon',
+  'greet.evening': 'Good evening — prep for tomorrow',
+  'greet.next': 'Next up {time} {title}',
+  'greet.allDone': "Today's schedule is done",
+  'greet.todoOnly': '{n} todos left today',
+  'greet.empty': 'Nothing scheduled today',
   'briefing.audioPlay': 'Listen',
   'briefing.audioStop': 'Stop',
 
@@ -1367,6 +1393,10 @@ const en: Record<keyof typeof zh, string> = {
   'perm.micBody': 'Used to turn what you say into text. Records only while you hold the button, never in the background; audio is used for this transcription only and not stored. You can turn it off in system settings anytime.',
   'perm.locTitle': 'Location access',
   'perm.locBody': 'Used for your city\'s weather and for destination weather when you say "business trip to Shanghai". Location is used for weather lookup only and is never linked to your schedule; resolving the city name is done by a third-party overseas map service and the coordinates are not stored. You can turn it off in system settings anytime.',
+  'perm.locCrossTitle': 'Cross-border transfer of coordinates',
+  'perm.locCrossBody': 'The weather feature sends your coordinates to BigDataCloud Pty Ltd (Australia, ACN 627 240 162) to resolve the city name. This is a cross-border transfer of personal information. We do not store the coordinates, but how that service retains and uses them is outside our control. Do you agree to this transfer?',
+  'perm.locCrossAgree': 'Agree & continue',
+  'perm.locCrossDecline': 'Do not agree',
   'perm.decline': 'Not now',
   'perm.agree': 'Allow',
   'perm.goSettings': 'Open settings',
@@ -1721,7 +1751,7 @@ const en: Record<keyof typeof zh, string> = {
   'auth.errResetEmailOnly': 'Password reset is email-only for now — switch to Email',
   'auth.otpSentHint': 'Not seeing it? Check your spam folder first, then confirm the address is correct',
   // 个保法要求的「明示同意」：登录前必须让用户看到收集范围并主动勾选
-  'auth.privacyNotice': 'Your email is used only to sign in and deliver your briefing. Location is collected only after you turn the weather feature on, is never used for advertising, and the city name is resolved by a third-party overseas map service. Your data lives under your own account and can be deleted at any time under My - Delete account.',
+  'auth.privacyNotice': 'Your email or phone number is used only to sign in and recover your account; subscription messages are used only for briefing reminders. Location is collected only after you grant permission for the weather feature and is never used for advertising; the coordinates are sent to a third-party overseas map service to resolve the city name (not stored). Your data lives under your account: My - Delete account clears local and synced data, and support can delete the account itself.',
   'auth.bindPhoneTitle': 'Link a phone number',
   'auth.bindPhoneSubtitle': 'For account security and SMS alerts, we recommend linking a phone number',
   'auth.bindPhoneConfirm': 'Verify & link',

@@ -20,4 +20,22 @@ module.exports = {
   // localProfile 不直接用下面这些，但保留以免将来 import 面变大：
   getStorage: function (o) { var v = module.exports.getStorageSync(o.key); return v === '' ? Promise.reject({ errMsg: 'data not found' }) : Promise.resolve({ data: v }); },
   setStorage: function (o) { module.exports.setStorageSync(o.key, o.data); return Promise.resolve(); },
+  // ── 权限相关（utils/permission.ts 的 verify-util-logic.mjs 用；其余脚本不受影响）──
+  // 授权结果由用例通过 globalThis.__AUTHORIZE_OK__ / __AUTH_SETTING__ 控制。
+  getSetting: function () {
+    globalThis.__AUTH_SETTING__ = globalThis.__AUTH_SETTING__ || {};
+    return Promise.resolve({ authSetting: globalThis.__AUTH_SETTING__ });
+  },
+  authorize: function (o) {
+    if (globalThis.__AUTHORIZE_OK__ === false) {
+      return Promise.reject({ errMsg: 'authorize:fail auth deny' });
+    }
+    globalThis.__AUTH_SETTING__ = globalThis.__AUTH_SETTING__ || {};
+    globalThis.__AUTH_SETTING__[o.scope] = true;
+    return Promise.resolve({});
+  },
+  openSetting: function () {
+    globalThis.__AUTH_SETTING__ = globalThis.__AUTH_SETTING__ || {};
+    return Promise.resolve({ authSetting: globalThis.__AUTH_SETTING__ });
+  },
 };

@@ -35,11 +35,16 @@ const sessionStub = noSession
   ? null
   : fs.readFileSync(path.join(ROOT, '.tools', 'cdp-probe-session.js'), 'utf8');
 
-// 预置「已同意隐私协议」：legal.ts 的 CONSENT_KEY='privacy-consent'、LEGAL_VERSION='v1.5-20261013'，
+// 预置「已同意隐私协议」：legal.ts 的 CONSENT_KEY='privacy-consent'，版本号从该文件现读。
 // Taro H5 storage 是 {data:...} 包装。不预置则每次全新 user-data-dir 都弹协议窗，
 // 等它消失 + 点掉要多花 ~3s，会把「8s 自动收起的建议气泡」挤出截图窗口，验证不了遮挡问题。
+// ⚠️ 2026-10-24：原先硬编码 'v1.5-20261013'，法务文本升版后预置即失效（同意层会挡住每张截图）。
+// 与 verify-visual-patrol.mjs 同一做法：从源码读，避免版本号漂移。
+const legalSrc = fs.readFileSync(path.join(ROOT, 'src', 'data', 'legal.ts'), 'utf8');
+const legalVersion = (legalSrc.match(/LEGAL_VERSION = '([^']+)'/) || [])[1];
+if (!legalVersion) throw new Error('读不到 LEGAL_VERSION（legal.ts 变了？）');
 const consentSeed =
-  `(function(){try{localStorage.setItem('privacy-consent',JSON.stringify({data:{agreed:true,version:'v1.5-20261013',time:Date.now()}}))}catch(e){}})();`;
+  `(function(){try{localStorage.setItem('privacy-consent',JSON.stringify({data:{agreed:true,version:'${legalVersion}',time:Date.now()}}))}catch(e){}})();`;
 const initSource = consentSeed + (sessionStub ? '\n' + sessionStub : '');
 
 const udd = path.join(os.tmpdir(), `visual-pass-${Date.now()}`);

@@ -1,13 +1,18 @@
 import dayjs from 'dayjs';
 
-/** 晨报问候语：按小时返回 */
-export function getGreeting(hour: number): string {
-  if (hour < 6) return '夜深了，先看看明天的安排';
-  if (hour < 11) return '早上好，新的一天从晨报开始';
-  if (hour < 14) return '中午好，下午的日程在这';
-  if (hour < 18) return '下午好，别忘了待办清单';
-  return '晚上好，为明天做好准备';
-}
+/**
+ * 原先的 `getGreeting(hour)` 已删除（2026-10-24）。
+ *
+ * 删除原因（两条，都实测过）：
+ * 1. **文案谎报**：12–14 点固定返回「中午好，下午的日程在这」、14–18 点返回
+ *    「下午好，别忘了待办清单」—— 当天根本没有日程/待办时，用户第一眼看到的就是
+ *    一句不成立的事实（视觉巡检截图：首屏只有情报，问候语却说日程在这）。
+ * 2. **假 i18n**：返回值是硬编码中文，英文界面（lang='en'）同样显示中文。
+ *
+ * 现在问候语由 `pages/briefing` 的 `headerGreeting` 组合：时间基调来自 `greet.*`
+ * i18n 键（中英各一份），事实部分来自真实数据（接下来哪条日程 / 今天无安排 / 剩余待办数）。
+ * 这样「头部说的每句话」都有数据依据，且跟随语言切换。
+ */
 
 /** 格式化事件时间显示：今天/明天/X月X日 HH:mm */
 export function formatEventTime(time: string): string {

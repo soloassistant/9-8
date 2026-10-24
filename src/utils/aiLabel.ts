@@ -21,8 +21,16 @@ import Taro from '@tarojs/taro';
  */
 export const AI_LABEL_VERSION = 'v1.0-20260901';
 
-/** 模型供应商标识：隐式标识里用于标注内容由哪个模型产出 */
-export const AI_LABEL_VENDOR = 'deepseek';
+/**
+ * 模型供应商标识：隐式标识里用于标注内容由哪个模型产出。
+ *
+ * ⚠️ 2026-10-24 法务一致性核对：原先硬编码 'deepseek'，但**网页端根本不走 DeepSeek** ——
+ * H5 的 AI 全部经 `services/cloudLlm.ts` 调 WorkBuddy 云服务下发的大模型（实测 hy4-preview），
+ * 只有微信小程序端走 cloudfunctions 里的 DeepSeek。继续硬编码会让网页端产出的
+ * 音频 / 文本隐式标识**指向错误的供应商**，与《第三方 AI 服务说明》第 1 条自相矛盾。
+ * 平台换了目录里的模型时，这里要跟着改（与 legal.ts 的披露同步）。
+ */
+export const AI_LABEL_VENDOR = process.env.TARO_ENV === 'h5' ? 'workbuddy:hy4-preview' : 'deepseek';
 
 /** 音频合成隐式标识文件名前缀：使合成音频文件本身可被识别为 AIGC */
 export const AI_AUDIO_FILE_PREFIX = 'aigc_';

@@ -5,7 +5,8 @@
  * - 独立 storage key `readStreakStore`，绝不与 `learnStore` 混用；
  * - 旧 learn streak **冻结保留、天数不迁移**（诚实性优先），靠 `migrateFromLearnStreak()` 幂等标记；
  * - 纯函数架构：业务逻辑全部可单测，页面层只做事件翻译（useDidShow/useDidHide）；
- * - storage 读写全 try/catch，失败只 warn，**绝不 throw**、绝不阻断晨报渲染。
+ * - storage 读写全 try/catch，失败用 console.error 留痕（生产会剔除 console.warn），
+ *   **绝不 throw**、绝不阻断晨报渲染。
  */
 import Taro from '@tarojs/taro';
 import dayjs from 'dayjs';
@@ -315,17 +316,17 @@ export function readReadStore(): ReadStreakStore {
       };
     }
   } catch (err) {
-    console.warn('[readStreak] read store failed:', err);
+    console.error('[readStreak] read store failed:', err);
   }
   return emptyStore();
 }
 
-/** 写盘：失败只 warn，绝不阻断主流程 */
+/** 写盘：失败用 console.error 留痕（生产会剔除 console.warn），绝不阻断主流程 */
 function writeReadStore(store: ReadStreakStore): void {
   try {
     Taro.setStorageSync(READ_STORE_KEY, store);
   } catch (err) {
-    console.warn('[readStreak] write store failed:', err);
+    console.error('[readStreak] write store failed:', err);
   }
 }
 
