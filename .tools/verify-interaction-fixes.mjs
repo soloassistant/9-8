@@ -82,6 +82,19 @@ ok('D5 手机号密码页签有「忘记密码」诚实引导（forgotPhoneHint�
 ok('D6 引导点击切回验证码页签（switchTab(\'otp\')）', /switchTab\('otp'\)/.test(login));
 ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.test(loginScss));
 
+/* ---------------- K. 我的页「修改密码」常驻入口（2026-10-25） ----------------
+   安全措施是产品要求，所以断言框到具体行为：旧密码 sudo、双输入一致、≥8 位、诚实说明补设不可用。 */
+{
+  const mineSrc = stripComments(read('src/pages/mine/index.tsx'));
+  ok('K1 账号卡有常驻「修改密码」入口（mine.pwdRow）', /mine\.pwdRow/.test(mineSrc));
+  ok('K2 走 SDK 已登录改密契约（resetPasswordForOld）', /resetPasswordForOld\(\{ oldPassword: oldPwd, newPassword: newPwd \}\)/.test(mineSrc));
+  ok('K3 新密码 ≥8 位校验', /newPwd\.length < 8/.test(mineSrc));
+  ok('K4 两次输入一致性校验（防手滑锁死）', /newPwd !== confirmPwd/.test(mineSrc));
+  ok('K5 弹窗三个密码输入（旧/新/确认，password 类型不回显）', /password\s*\n\s*value=\{oldPwd\}|password\s*\n\s*value=\{newPwd\}|password\s*\n\s*value=\{confirmPwd\}/.test(mineSrc));
+  ok('K6 后端不可用 ≠ 旧密码错（分开提示，不误导反复试）', /res\.error\.kind === 'backend-unavailable'/.test(mineSrc));
+  ok('K7 如实说明「补设密码不可用」（不编造短信重置）', /mine\.pwdHintPasswordless/.test(mineSrc));
+}
+
 /* ---------------- E. 搜索接全网 + 失败态独立 ---------------- */
 const search = stripComments(read('src/pages/search/index.tsx'));
 ok('E1 搜索页调用 apiNewsSearch', /apiNewsSearch\(/.test(search));

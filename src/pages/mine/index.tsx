@@ -20,7 +20,7 @@ import {
 } from '@/services/api';
 import { getPayChannel, getChannelAuth, invokePayment } from '@/services/pay';
 import type { PayChannel, PayOrder } from '@/types';
-import { signOut } from '@/services/cloudAuth';
+import { signOut, resetPasswordForOld } from '@/services/cloudAuth';
 import { kvClear } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
@@ -1144,6 +1144,60 @@ function MinePage() {
     setDeleteOpen(true);
   };
 
+  /** 修改密码（2026-10-25，「账号与合规」卡片常驻入口）。
+   *
+   *  安全措施（一个都不少）：
+   *    ① 必须先出示**旧密码** —— 服务端 sudo 校验通过才发 sudo_token，拿着别人手机改不了密；
+   *    ② 新密码 ≥8 位（与登录注册同一阈值）；
+   *    ③ 新密码 + 确认输入两次一致，防手滑设错把自己锁在外面；
+   *    ④ password 类型输入不回显；提交按钮 busy 防连点；
+   *    ⑤ 失败文案过 sdkDownText 口径：后端不可用 ≠ 旧密码错，不误导用户反复试。
+   *  ⚠️ 只支持「知道旧密码」的改密。没设过密码的账户（手机号注册时未填）无法补设 ——
+   *     服务端没有短信重置接口（SDK 穷举实录，见 cloudAuth.resetPasswordForOld 注释），
+   *     弹窗底部如实说明，短信登录不受影响。 */
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [oldPwd, setOldPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [pwdBusy, setPwdBusy] = useState(false);
+  const [pwdErr, setPwdErr] = useState('');
+
+  const openPwdEditor = () => {
+    setOldPwd('');
+    setNewPwd('');
+    setConfirmPwd('');
+    setPwdErr('');
+    setPwdOpen(true);
+  };
+
+  const submitChangePassword = async () => {
+    if (pwdBusy) return;
+    if (!oldPwd || !newPwd) {
+      setPwdErr(t('auth.errPassword'));
+      return;
+    }
+    if (newPwd.length < 8) {
+      setPwdErr(t('auth.errPassword'));
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      setPwdErr(t('mine.pwdErrMismatch'));
+      return;
+    }
+    setPwdErr('');
+    setPwdBusy(true);
+    const res = await resetPasswordForOld({ oldPassword: oldPwd, newPassword: newPwd });
+    setPwdBusy(false);
+    if (res.error) {
+      // sudo 失败通常是旧密码不对；后端整体不可用是另一回事，必须分开说（否则误导反复试）
+      const down = res.error.kind === 'backend-unavailable' ? t('auth.errSdkUnavailable') : '';
+      setPwdErr(down || t('auth.errWrongCredentials'));
+      return;
+    }
+    setPwdOpen(false);
+    Taro.showToast({ title: t('mine.pwdDone'), icon: 'success' });
+  };
+
   /** 注销二次确认：必须逐字输入 DELETE_CONFIRM_WORD，H5 与小程序同一判据 */
   const confirmDeleteAccount = async (typed: string) => {
     // 旧实现在 showModal 拿不到 content（H5 的全部情况）时用 `: true` 兜底，
@@ -2160,6 +2214,16 @@ function MinePage() {
       {/* 账号与合规（F18 提审硬门槛） */}
       <View className={styles.card}>
         <Text className={styles.cardTitle}>{t('mine.settingAccount')}</Text>
+        {/* 修改密码（2026-10-25 常驻入口）：安全措施见 submitChangePassword 注释。
+            放在卡片首位 —— 账号安全先于合规文档阅读。 */}
+        {renderRow(
+          t('mine.pwdRow'),
+          <>
+            <Text className={styles.valueText}>{t('mine.pwdAction')}</Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          openPwdEditor
+        )}
         {renderRow(
           t('mine.terms'),
           <Text className={styles.arrow} onClick={() => setDocView('terms')}>
@@ -2377,6 +2441,54 @@ function MinePage() {
             <Text className={styles.fbService} onClick={handleContactService}>
               {fbCopy.service}
             </Text>
+          </View>
+        </View>
+      ) : null}
+
+      {/* 修改密码弹层（与城市/反馈共用半屏语言与控件样式，不引入第三套观感） */}
+      {pwdOpen ? (
+        <View className={styles.docMask} onClick={() => setPwdOpen(false)}>
+          <View className={classnames(styles.docPanel, styles.fbPanel)} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.docTitle}>{t('mine.pwdRow')}</Text>
+            <Input
+              className={styles.fbInput}
+              password
+              value={oldPwd}
+              maxlength={64}
+              placeholder={t('mine.pwdOld')}
+              onInput={(e) => setOldPwd(e.detail.value)}
+            />
+            <Input
+              className={styles.fbInput}
+              password
+              value={newPwd}
+              maxlength={64}
+              placeholder={t('auth.passwordPlaceholder')}
+              onInput={(e) => setNewPwd(e.detail.value)}
+            />
+            <Input
+              className={styles.fbInput}
+              password
+              value={confirmPwd}
+              maxlength={64}
+              placeholder={t('mine.pwdConfirm')}
+              onInput={(e) => setConfirmPwd(e.detail.value)}
+            />
+            {pwdErr ? <Text className={styles.fbError}>{pwdErr}</Text> : null}
+            {/* 诚实边界：补设密码无服务端接口。短信登录不受影响，不会被锁在门外。 */}
+            <Text className={styles.fbIntro}>{t('mine.pwdHintPasswordless')}</Text>
+            <View className={styles.fbActions}>
+              <Button className={styles.fbCancel} onClick={() => setPwdOpen(false)}>
+                {t('cancel')}
+              </Button>
+              <Button
+                className={styles.fbSubmit}
+                disabled={disabledAttr(pwdBusy)}
+                onClick={() => void submitChangePassword()}
+              >
+                {t('mine.pwdSubmit')}
+              </Button>
+            </View>
           </View>
         </View>
       ) : null}

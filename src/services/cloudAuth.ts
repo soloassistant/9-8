@@ -79,6 +79,10 @@ interface CloudAuthApi {
   resetPasswordForEmail(
     email: string
   ): Promise<AuthResp<{ updateUser(input: { nonce: string; password: string }): Promise<AuthResp<CloudSession>> }>>;
+  /** 已登录改密（SDK 契约）：先 POST /v1/user/sudo 用旧密码换 sudo_token，再 PATCH /v1/user/password。
+   *  这是**唯一**不依赖邮箱的改密路径 —— 但必须证明持有旧密码，所以「忘了密码的手机号」走不了这条，
+   *  服务端没有短信重置接口（2026-10-25 对证 wb-sdk：resetPassword/setPasswordForEmail 仅收 email）。 */
+  resetPasswordForOld(input: { oldPassword: string; newPassword: string }): Promise<AuthResp<CloudSession>>;
   signOut(): Promise<AuthResp<null>>;
   onAuthStateChange(cb: (event: string, session: CloudSession | null) => void): () => void;
 }
@@ -263,6 +267,16 @@ export function verifyLoginCode(input: {
 }): Promise<AuthResp<CloudSession>> {
   const { id, ...rest } = input;
   return safeAuth((c) => c.auth.verifyOtp({ ...id, ...rest }), {} as CloudSession);
+}
+
+/** 已登录修改密码（「我的」页入口）。安全模型：必须先出示**旧密码**（服务端 sudo 校验）
+ *  才允许设新密码 —— 手机被别人拿着时改不了密。忘了旧密码的手机号用户走短信验证码登录，
+ *  服务端没有短信重置接口（见 CloudAuthApi.resetPasswordForOld 注释）。 */
+export function resetPasswordForOld(input: {
+  oldPassword: string;
+  newPassword: string;
+}): Promise<AuthResp<CloudSession>> {
+  return safeAuth((c) => c.auth.resetPasswordForOld(input), {} as CloudSession);
 }
 
 /** 供 dataSource 层取已登录的云函数调用面。**未登录返回 null** —— 调用方据此决定降级。

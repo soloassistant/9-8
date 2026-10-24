@@ -1388,3 +1388,10 @@
     background: rgba(232, 93, 42, 0.08);
   }
 }
+
+/* 修改密码弹层的错误行（2026-10-25）：色值对齐 .dangerText（#cc2e34 白底 5.24:1），
+   同属「必须看清的警示文字」，不许用浅红。 */
+.fbError {
+  font-size: $font-size-sm;
+  color: #cc2e34;
+}
