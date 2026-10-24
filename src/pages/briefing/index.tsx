@@ -450,15 +450,18 @@ function BriefingPage() {
         const brief = buildTodayBrief(entries as LedgerEntry[], budget as LedgerBudget);
         ledgerBriefRef.current = brief;
         setLedgerBrief(brief);
-        // 用 console.error 而非 warn：生产构建会剔除 console.warn（app.tsx:174 有注释），
-        // 用 warn 的话线上排查时这条痕迹根本不存在。
-        console.error(
+        // 成功路径的统计信息用 info：这是调试信息不是故障。原先用 console.error
+        // （怕 warn 被生产构建剔除）——但成功路径根本不需要线上留痕，用 error
+        // 反而污染 error 通道，2026-10-24 视觉巡检把它报成 consoleErrors 假阳性。
+        console.info(
           '[BriefingPage] ledger brief loaded:',
           JSON.stringify({ entries: (entries as LedgerEntry[]).length, cats: cats.length, brief: ledgerBriefRef.current })
         );
       } catch (err) {
-        // 记账读失败**不阻塞晨报**：整张卡片不显示即可，绝不能因此白屏
-        console.warn('[BriefingPage] ledger brief load failed:', err);
+        // 记账读失败**不阻塞晨报**：整张卡片不显示即可，绝不能因此白屏。
+        // 失败留痕必须 console.error：console.warn 会被生产构建剔除（铁律），
+        // 线上排查时这条痕迹必须存在。
+        console.error('[BriefingPage] ledger brief load failed:', err);
       }
     })();
     // 首次进入标记旧 learn streak 已归档（幂等，仅标记不迁移天数）

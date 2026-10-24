@@ -400,7 +400,8 @@
   display: flex;
   align-items: center;
   gap: $spacing-md;
-  margin: 0 $page-padding $spacing-lg;
+  // 右侧 160rpx 避让 FAB 悬浮球（巡检实测压住社区入口右下角 8%）
+  margin: 0 160rpx $spacing-lg $page-padding;
   padding: $spacing-lg;
   background: $color-bg-card;
   border-radius: $radius-lg;

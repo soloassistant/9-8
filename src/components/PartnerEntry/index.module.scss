@@ -64,6 +64,6 @@
   flex-shrink: 0;
   font-size: $font-size-sm;
   font-weight: $font-weight-medium;
-  color: var(--brand, $color-secondary);
+  color: var(--brand-strong, $color-secondary-strong); // 4.95:1（原 var(--brand, $color-secondary)：品牌橙 2.59 / 回退蓝 3.23，均不达 AA）
   white-space: nowrap;
 }

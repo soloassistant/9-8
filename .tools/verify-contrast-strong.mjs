@@ -55,11 +55,13 @@ function read(rel) {
  *  2) 同一类名可能出现多次（组合选择器 `.tab,\n.tabActive {` + 单独规则
  *     `.tabActive {`）。只取第一段会漏掉后面真正改了颜色的那段。
  *     故返回**所有**匹配块，由断言侧判断「任一段满足」。
- *
- * 本仓 scss 点状规则都顶格，`(^|\n)\.` 足够；若将来出现缩进嵌套规则需另行处理。
+ * 3) 类名允许行首空白（缩进嵌套规则，如 calendar 的 `.dim { .cellDay { } }`）——
+ *    2026-10-24 前不支持缩进，导致 `.dim .cellDay` 的禁用灰误用一直抓不到，
+ *    运行时巡检报硬伤才发现。缩进只允许空白字符，`&.cellDay` 仍不匹配
+ *    （那种是状态复合，语义不同）。
  */
 function blocksOf(src, className) {
-  const re = new RegExp(`(^|\\n)\\.${className}\\s*\\{`, 'g');
+  const re = new RegExp(`(^|\\n)[ \\t]*\\.${className}\\s*\\{`, 'g');
   const out = [];
   let m;
   while ((m = re.exec(src)) !== null) {
@@ -153,7 +155,11 @@ const STRONG_POINTS = [
   ['src/pages/inbox/index.module.scss', 'addButton', '--brand-strong'],
   ['src/pages/learn/index.module.scss', 'makeupBtn', '--brand-strong'],
   ['src/pages/learn/index.module.scss', 'statNumOn', '--brand-strong'],
-  ['src/pages/learn/index.module.scss', 'doneBadge', '--brand-strong']
+  ['src/pages/learn/index.module.scss', 'doneBadge', '--brand-strong'],
+  // 2026-10-24 运行时巡检逮到的三处漏网（首轮静态扫描没覆盖组件目录与 chip 激活态）
+  ['src/components/IntelGroupCard/index.module.scss', 'itemIndex', '$color-primary-strong'],
+  ['src/components/TagChip/index.module.scss', 'active', '$color-primary-strong'],
+  ['src/components/PartnerEntry/index.module.scss', 'action', '--brand-strong']
 ];
 console.log('\nC 组 品牌色文字/白字控件 → strong（逐类名定位）');
 for (const [file, cls, expect] of STRONG_POINTS) {
@@ -180,6 +186,9 @@ const TERTIARY_POINTS = [
   ['src/pages/library/index.module.scss', 'blockEmpty'],
   ['src/pages/calendar/index.module.scss', 'weekDay'],
   ['src/pages/calendar/index.module.scss', 'statsTitle'],
+  // 2026-10-24：其他月日期是信息性占位而非失效控件，豁免口径修正——
+  // 运行时巡检实测 1.59:1 报硬伤。blocksOf 已支持缩进嵌套才能抓到它。
+  ['src/pages/calendar/index.module.scss', 'cellDay'],
   ['src/pages/calendar/index.module.scss', 'todoDue'],
   ['src/pages/mine/index.module.scss', 'cardTitle'],
   ['src/pages/mine/index.module.scss', 'subSectionTitle'],
@@ -243,11 +252,13 @@ for (const [file, marker] of [
 // ============ H. FAB 浮层收缩 + 滚动收起 ============
 try {
   const ai = read('src/components/AiAssistant/index.module.scss');
-  const wBlk = blockOf(ai, 'wrapper');
+  // blocksOf：.wrapper 有两段（基础规则 + @media (min-width:500px) 里的宽屏适配），
+  // blockOf 单块版会抛「出现 2 段」——2026-10-24 blocksOf 支持缩进嵌套后抓到第二段。
+  const wBlks = blocksOf(ai, 'wrapper');
   ok('H1 AiAssistant wrapper 收缩为 width:max-content（原 left:0;right:0 全宽 → 幻影遮挡）',
-    wBlk !== null && wBlk.includes('width: max-content'));
+    wBlks.some((b) => b.includes('width: max-content')));
   ok('H2 wrapper 有收起过渡（transform/opacity 200ms）',
-    wBlk !== null && wBlk.includes('transition: transform 200ms'));
+    wBlks.some((b) => b.includes('transition: transform 200ms')));
   ok('H3 尊重 prefers-reduced-motion（动效可关，20 款 App 共同结论）',
     ai.includes('prefers-reduced-motion'));
 
@@ -257,8 +268,30 @@ try {
   ok('H5 下滑阈值 8px 且 48px 内视为顶部常驻', /dy > 8/.test(tsx) && /y <= 48/.test(tsx));
   ok('H6 面板打开时强制显示（对话中收起会让用户以为 AI 消失）',
     /fabHidden && !open/.test(tsx));
+  // H7-H9：底部内容右避让。球固定在右下角，全宽底部元素会被它的盒子压住
+  // （2026-10-24 巡检实测：免责声明 11-13% / 隐私卡 7% / 社区入口 8%）。
+  // 避让量 160rpx = 球 ≈108rpx + right:24rpx + 余量。
+  ok('H7 briefing disclaimerFooter 右避让 160rpx（巡检实测被球压 11-13%）',
+    (blockOf(read('src/pages/briefing/index.module.scss'), 'disclaimerFooter') || '').includes('160rpx'));
+  ok('H8 mine privacyCard 右避让 160rpx（巡检实测被球压 7%）',
+    (blockOf(read('src/pages/mine/index.module.scss'), 'privacyCard') || '').includes('margin-right: 160rpx'));
+  ok('H9 learn communityEntry 右避让 160rpx（巡检实测被球压 8%）',
+    (blockOf(read('src/pages/learn/index.module.scss'), 'communityEntry') || '').includes('160rpx'));
 } catch (e) {
   ok('H 组读取失败: ' + e.message, false);
+}
+
+// ============ J. 日志级别：信息不进 error 通道，故障必须留痕 ============
+try {
+  const bp = read('src/pages/briefing/index.tsx');
+  // 2026-10-24：ledger brief 两条日志原先级别写反——成功路径用 error（污染
+  // consoleErrors，巡检报假阳性），失败路径用 warn（生产构建剔除、线上零痕迹）。
+  ok('J1 ledger brief 成功统计用 console.info（调试信息不进 error 通道）',
+    /console\.info\(\s*'\[BriefingPage\] ledger brief loaded:'/.test(bp));
+  ok('J2 ledger brief 失败留痕用 console.error（warn 会被生产构建剔除，铁律）',
+    /console\.error\('\[BriefingPage\] ledger brief load failed:'/.test(bp));
+} catch (e) {
+  ok('J 组读取失败: ' + e.message, false);
 }
 
 // ============ I. mine 订单失败态不再伪装成空态 ============

@@ -244,7 +244,9 @@
 
 /* L3 免责页脚：合规要求常驻（次级色小字） */
 .disclaimerFooter {
-  margin: $spacing-md $page-padding 0;
+  // 右侧 160rpx 避让 FAB 悬浮球（球 ≈108rpx + right:24rpx + 余量）：
+  // 2026-10-24 运行时巡检实测球压住免责声明右下角 11-13%（bottom 位硬伤）。
+  margin: $spacing-md 160rpx 0 $page-padding;
   padding-bottom: $spacing-sm;
   text-align: center;
 }

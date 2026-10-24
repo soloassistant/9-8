@@ -21,6 +21,6 @@
 
 .active {
   color: $color-text-white;
-  background: $color-primary;
+  background: $color-primary-strong; // 白字 5.26:1（原 #ff7a45 仅 2.59:1；选中态是导航信息必须可读）
   font-weight: $font-weight-medium;
 }

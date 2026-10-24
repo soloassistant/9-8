@@ -72,7 +72,7 @@
 }
 
 .itemIndex {
-  color: $color-primary;
+  color: $color-primary-strong; // 白底 5.26:1（原 $color-primary 仅 2.59:1，序号是信息性文字）
   font-weight: $font-weight-medium;
 }
 

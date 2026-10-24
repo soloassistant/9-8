@@ -538,6 +538,8 @@
 
 .privacyCard {
   @include card-surface;
+  // 右侧 160rpx 避让 FAB 悬浮球（巡检实测压住隐私卡右下角 7%）
+  margin-right: 160rpx;
 }
 
 .privacyText {
