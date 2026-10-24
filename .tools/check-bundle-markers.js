@@ -88,7 +88,11 @@ const marks = [
   ['降级文案在翻译表里（中英各一条）', dictEntries('briefing.degraded') >= 2],
   ['降级文案真的被空态消费（不是孤儿键）', callSites('briefing.degraded') >= 1],
   ['收藏配额错误码 collection-quota-exceeded', src.includes('collection-quota-exceeded')],
-  ['生产态文案「支付功能即将开放」', src.includes('支付功能即将开放')]
+  // 2026-10-24：原判据搜占位文案「支付功能即将开放」。那句是真支付落地前的占位，
+  // 475e46f feat(pay) 有意删掉换成了真流程，判据随之过时（搜不到就 MISS，但不是修复丢了）。
+  // 改判「真支付链路在产物里」：下单 + 拉起支付两个调用点都要在。
+  ['真支付链路在产物里（createOrder + invokePayment）',
+    src.includes('createOrder') && src.includes('invokePayment')]
 ];
 
 let bad = 0;
