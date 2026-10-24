@@ -11,10 +11,12 @@
 export default [
   {
     // 守「情报被 hasContent 吃掉」：去掉 hasIntel，pure-intel 用户重新看到空态卡
+    // 锚点 2026-10-24 二次校正：并行会话把 hasContent 压行 + optional chaining 空值保护后，
+    // 旧锚点（briefing.digest.length > 0 || hasIntel）命中 0 次 → 框架判 ERROR。
     label: 'hasContent 不再统计情报（有情报却显示「今天还没有安排」）',
     file: 'src/pages/briefing/index.tsx',
-    from: ' || briefing.digest.length > 0 || hasIntel);',
-    to: ' || briefing.digest.length > 0);',
+    from: '(briefing.digest?.length ?? 0) > 0 || hasIntel);',
+    to: '(briefing.digest?.length ?? 0) > 0);',
     cmd: 'node .tools/verify-briefing-structure.js'
   },
   {
