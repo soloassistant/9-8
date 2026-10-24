@@ -1,7 +1,7 @@
 # AGENTS.md — 私人晨报助理（Personal Morning Brief Assistant）
 
 > 本文件给在本仓库工作的 AI 代理/开发者。只写**可验证的事实与硬约束**，不写愿景。
-> 最后更新：2026-10-20
+> 最后更新：2026-10-24（本轮修正了 7 处与仓库现状不符的表述，并加了 `npm run verify:docs` 防再腐烂）
 
 ## 1. 这是什么
 
@@ -9,9 +9,10 @@
 （天气 + 按偏好排序的 RSS + LLM 提炼）+ 语音播报；另有收件箱、资讯库/收藏、
 购物清单与比价、习惯守护、学习模块。
 
-- **项目根**：本仓库根目录（Windows 路径形如 `D:\Agent`）
-- **H5 线上**：https://soloassistant.github.io/9-8/
-- **代码仓库**：https://github.com/soloassistant/9-8 （**public**）
+- **项目根**：`D:/Agent/晨报`（`git rev-parse --show-toplevel` 即此；`D:/Agent` 根下还有别的项目，别动）
+- **H5 产品入口**：WorkBuddy 应用面板发布（发布目录、发布后四查、为什么不能用 gh-pages，统一见 §4）
+- **H5 静态镜像**：https://soloassistant.github.io/9-8/ —— 云端能力不可用，仅静态外壳 + 热点镜像
+- **代码仓库**：https://github.com/soloassistant/9-8（**public** ⇒ 任何进库文件都视为对外公开）
 
 ## 2. 技术栈
 
@@ -63,22 +64,17 @@ npx tsc --noEmit      # 类型检查
 - 判「真卡死」的判据是**日志文件 mtime 冻结**（不是「屏幕上没滚动」）+ `dist/` 长时间不出文件；
   进度条不动也可能只是 webpack 进入了不打进度条的阶段（seal / minify）。
 
-**产物指纹（判断「本地是否等于线上」用）**：`main` 上 H5 的稳定产物是
-`js/app.a8cbdfbb.js`（1,864,973 B，sha256 `a10e8634…`）、
-`css/app.a8cbdfbbff5e90af8b73.css`（154,005 B，sha256 `ef445990…`）、
-`index.html`（1,191 B，sha256 `7aee7486…`）。2026-10-09 重建后与线上 gh-pages 三个文件
-**逐字节相同** → gh-pages 上就是 `main` 源码的产物，且产物目录改造未改变 H5 输出。
+**不要背产物指纹，现查**。bundle 名与字节数每次构建都变，写死在文档里必然腐烂
+（本文档过去写过 `app.a8cbdfbb.js / 1,864,973 B`，下一次构建就失效了）：
 
-> ★★ **本项目的"网页版"有两个入口，它们会各自漂移 —— 判断"线上是哪一版"必须两个都查**（2026-10-09 实测）：
->
-> | 入口 | 发布源 | 是否随 `main` 自动更新 |
-> |---|---|---|
-> | `https://soloassistant.github.io/9-8/`（gh-pages 分支） | `origin/gh-pages` | ❌ **不会** —— `.github/workflows/refresh-data.yml` **只刷新 `api/hotspot.json`，不构建前端**；bundle 要人工推 |
-> | `https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host/` | 本地 `D:\Agent\dist` | ❌ 不会 —— 要靠平台侧重新发布 |
->
-> 教训：改了 `src/` 只把代码提交/推送，**两个线上入口都不会变**。当天实测两者差了整整一个
-> 合规提交（`01f6296`）：WorkBuddy 那个仍指 `app.2fedd178.js`，包里 `panelNotice` 命中 **0** 次，
-> 而 gh-pages 已是 `a8cbdfbb`（命中 2 次）。
+```bash
+ls dist/js/ | grep '^app\.'                          # 本地包名
+curl -s <入口>/ | grep -o 'js/app\.[0-9a-f]*\.js'    # 线上包名，两者应一致
+```
+
+> ★★ **两个网页入口各自漂移 —— 判断"线上是哪一版"必须两个都查。**
+> 哪个是产品入口、为什么 gh-pages 上云端能力全废、"改了 `src/` 两个入口都不会自动变"，
+> 统一见 **§4 上线通道**（单一事实来源，别在这里重复维护一份）。
 >
 > 查法（30 秒）：`curl <入口>/ | grep -o 'js/app\.[0-9a-f]*\.js'`，再把那份 JS 拉下来
 > `grep -o <特征符号> | wc -l`。特征符号要选**完整词**（`panelNotice` / `ai.notice`），
@@ -108,10 +104,12 @@ npx tsc --noEmit      # 类型检查
 实测新域名页面 `fetch(旧域名/v1/...)` 直接 `TypeError: Failed to fetch`，
 连 401 都拿不到。**只要页面 origin 变了，登录、云同步、AI 全部挂掉。**
 
-**正确做法**：发布前先确保 `D:\Agent\dist` 存在且是最新产物，再 `deploy` 这个目录：
+**正确做法**：发布前先确保 `D:\Agent\dist` 存在且是最新产物，再 `deploy` 这个目录。
+用 `robocopy /MIR` 而不是 `rm -rf && cp -r` —— 后者会被批量删除守卫拦（见上），
+且 **Git Bash 会把 `/MIR` 当路径**，必须带 `MSYS_NO_PATHCONV=1`：
 
 ```bash
-rm -rf "D:/Agent/dist" && cp -r "D:/Agent/晨报/dist" "D:/Agent/dist"
+MSYS_NO_PATHCONV=1 robocopy "D:\Agent\晨报\dist" "D:\Agent\dist" /MIR
 ```
 
 发布成功的判据：返回的 `sandboxId` 必须是 `48f86dcd48e3462dbe897b5fce534551`。
@@ -127,15 +125,32 @@ rm -rf "D:/Agent/dist" && cp -r "D:/Agent/晨报/dist" "D:/Agent/dist"
 
 ```bash
 H=https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host
-curl -s $H/ | grep -o 'js/app\.[0-9a-f]*\.js'          # 1 包名与本地 dist/index.html 一致
-curl -s -o /dev/null -w '%{http_code}\n' $H/assets/wb-sdk.js   # 2 SDK 自托管文件在（200）
-curl -s $H/api/hotspot.json | head -c 60               # 3 真实热点 JSON（不是 index.html）
+KEY=$(grep -o "wbpk_[A-Za-z0-9_]*" src/services/cloudAuth.ts | head -1)
+
+# 1 包名与本地一致
+curl -s $H/ | grep -o 'js/app\.[0-9a-f]*\.js'
+# 2 关键资源都在（200，且 size 应与本地文件一致）
+for f in assets/wb-sdk.js api/hotspot.json; do
+  curl -s -o /dev/null -w "$f %{http_code} %{size_download}\n" $H/$f
+done
+# 3 Origin 白名单：必须 204 且 ACAO 精确等于 $H（跨域被拒时是 403 且无 ACAO）
+curl -s -o /dev/null -D - -X OPTIONS $H/.cloud/database/rest/user_kv \
+  -H "Origin: $H" -H "Access-Control-Request-Method: GET" \
+  -H "Access-Control-Request-Headers: authorization" | grep -iE '^HTTP|access-control-allow-origin'
+# 4 未登录语义：认证接口应回结构化 401，匿名读 user_kv 应回 []
+curl -s $H/.cloud/auth/v1/user/me -H "Origin: $H" -H "X-Wb-Webapp-Access-Key: $KEY"
+curl -s "$H/.cloud/database/rest/user_kv?select=*" -H "Origin: $H" -H "X-Wb-Webapp-Access-Key: $KEY"
 ```
 
-4. **云登录连通性**（唯一能证明 Origin 校验通过的方法）：CDP 在页面里跑
-   `createWorkBuddyCloud({endpoint:location.origin,publishableKey:…}).auth.signInWithPassword(...)`
-   用一个**不存在的账号** —— 必须返回业务错误 `invalid-request / "Username or password incorrect."`。
-   若返回 `Failed to fetch`，就是 Origin/CORS 问题，**不是密码问题**。
+> ★ 云端路径前缀是 **`/.cloud/`**（`auth` / `database/rest` / `storage` / `llm`）。
+> 直接请求 `/v1/user/me` 会落到静态服务并返回 **404 `python http.server`** —— 那是路径写错，
+> **不是云接口坏了**。数据库 REST 的鉴权头是 **`X-Wb-Webapp-Access-Key`**，不是 `apikey`；
+> 用错会得到 `invalid_client`，看起来像凭据失效。
+>
+> 上面第 3/4 条比"用 CDP 在页面里跑 SDK 登录"更快更稳；需要更强证据时再用 CDP：
+> `createWorkBuddyCloud({endpoint:location.origin, publishableKey:…}).auth.signInWithPassword(不存在的账号)`
+> 必须返回业务错误 `invalid-request / "Username or password incorrect."`；返回 `Failed to fetch`
+> 就是 Origin/CORS 问题，**不是密码问题**。
 
 顺带一条隔离举证（顺手做的，可复用）：**未登录** `database.from('user_kv').select('*')` 返回
 `rows: 0, error: null` —— 库里 20+ 行真实数据对匿名用户完全不可见，即 RLS 生效。
@@ -199,14 +214,17 @@ placeholder 一个字都不显示。修法是 `.wrapper.compact{width:auto;flex:
 > 同类"看起来没事其实内容盒为 0"的情况，光看宽度不够 —— 要同时读 `getBoundingClientRect().width`
 > 与该元素的 `paddingLeft/Right`，二者相等就是塌了。
 
-**量几何的脚手架**（都在 `.tmp-verify/inputui/`，不进 `dist/`、不进版本控制）：
+**量几何的脚手架**：用 `.tools/cdp-probe.mjs`（通用单视口版，`--expr` 注入测量表达式）。
+2026-10-09 那次排查还写过一套多视口特化脚本，放在 `.tmp-verify/inputui/` —— 那是**临时目录，
+现在已被清理**。⚠️ 别把文档锚点挂在 `.tmp-verify/` 下（它随时会没），需要时按下面重搭：
+
 ```bash
-bash .tmp-verify/inputui/run.sh                                    # ① 线上多视口量测（注入 SDK 桩 + 点掉开屏封面）
-PROBE=.tmp-verify/inputui/probe-intervention.mjs bash .tmp-verify/inputui/run.sh   # ② 干预验证
-bash .tmp-verify/inputui/run-local.sh                              # ③ 本地构建产物复测
+node .tools/cdp-probe.mjs <url> 375 812 --init-script .tools/cdp-probe-session.js \
+  --dismiss-splash --expr <测量表达式文件>
 ```
-**先做②再做①**：直接改源码再测，分不清"我修对了"和"问题本来会自己好"；先在浏览器里注入候选修法、
-拿到明确的好/坏值变化，才把假设钉成根因。（另：`.tools/cdp-probe.mjs` 是通用单视口版，本目录是它的多视口特化版。）
+
+**先做②「浏览器里注入候选修法」再做①「改源码复测」**：直接改源码再测，分不清"我修对了"和
+"问题本来会自己好"；先在浏览器里注入候选修法、拿到明确的好/坏值变化，才把假设钉成根因。
 
 ## 4. 上线通道
 
@@ -223,6 +241,10 @@ bash .tmp-verify/inputui/run-local.sh                              # ③ 本地�
 （浏览器只会报 `TypeError: Failed to fetch`，连 401 都拿不到，极像"断网"）。
 gh-pages 现在只适合当**静态外壳 + 热点数据镜像**，不是产品入口。
 
+**★★ 两个入口都不会随 `main` 自动更新**（这是最容易误判的一条）：
+`.github/workflows/refresh-data.yml` **只刷新 `api/hotspot.json`，不构建前端**；
+WorkBuddy 那个要平台侧重发。⇒ 改了 `src/` 只提交/推送，**两个线上入口都还是旧代码**。
+
 | 端 | 通道 | 说明 |
 |---|---|---|
 | **H5（产品入口）** | **WorkBuddy 应用面板发布** | 发布目录 `D:\Agent\dist`（平台按**目录**认 app，换目录=换 app=换域名且登录必挂）。产物要**真实目录副本**，junction/symlink 会被 tar 打包拒绝。云端能力只在这里可用 |
@@ -237,7 +259,8 @@ gh-pages 现在只适合当**静态外壳 + 热点数据镜像**，不是产品�
 
 ## 5. 云函数
 
-`cloudfunctions/` 下 24 个函数：
+`cloudfunctions/` 下的函数按功能分组（**数量用 `ls -d cloudfunctions/*/ | wc -l` 现查，别背数字**；
+本文档曾写"24 个"，实际已是 25）：
 
 | 分组 | 函数 |
 |---|---|
@@ -354,9 +377,12 @@ node .tools/mutation-verify.mjs .tools/mutations-share.mjs   # 变异验证（�
    拆成多条或改用 PowerShell；长命令（构建 / 多 harness 串联）必须
    `run_in_background` + 日志；node 一律用绝对路径
    `/c/Users/geral/.workbuddy/binaries/node/versions/22.22.2-6/node.exe`（`.bin` 无 shim）。
-6. **变异用例即回归资产**：`.tools/mutations-*.mjs` 是三个既有 harness 的变异集
-   （share 3 例 / sync 4 例 / ledger 3 例），改对应模块后重跑一遍，10/10 CAUGHT
-   才算断言仍有判别力。新 harness 落地时应同步补一份 mutations 文件。
+6. **变异用例即回归资产**：`.tools/mutations-*.mjs`（数量与用例条数用
+   `npm run verify:mutation-coverage` 现查 —— 它会打印"覆盖 19 / 浏览器类 9 / 缺口 14"与用例总数；
+   本文档曾写"10/10 CAUGHT"，早就不止）。改对应模块后必须重跑；结果只认
+   `caught=N not_caught=0 error=0` **且** `restored_green=true`。
+   新 harness 落地时要同步补一份 mutations 文件 —— 这条已由 `verify:mutation-coverage` 强制：
+   零变异又未登记的 verify 脚本会让 CI 红，纯静态缺口有上限（只许减不许增）。
 
 ## 7. 合规硬约束（微信小程序发布前必读）
 
@@ -374,7 +400,11 @@ node .tools/mutation-verify.mjs .tools/mutations-share.mjs   # 变异验证（�
 - 修问题优先在**数据入口一处收口**，而不是每个使用点各自防御；每处修复留一句原因注释
 - 不吞错误：`2>/dev/null` 这类会掩盖失败，涉及成败判断的命令不要吞
 - 不静默失败：保存失败/降级/额度耗尽必须让用户看见
-- `.tools/` 已被 gitignore 但**已在版本控制中**：新增文件需 `git add -f`，改已有文件用 `git add -u`
+- `.tools/` 是「默认忽略 + 白名单放行」：脚本类文件（`*.js|mjs|cjs|ts|py`）和
+  `lib/` `fixtures/` `sql/` `stubs/` 直接 `git add` 即可，**不需要 `-f`**（本文档曾写错成"需 -f"）。
+  但**新建其它子目录必须先补两行白名单**（`!.tools/<dir>/` + `!.tools/<dir>/**`），
+  否则文件**静默不进库** —— 本地能跑、CI 一拉就 `Cannot find module`（2026-10-23 `.tools/lib/` 就这么炸过）。
+  自查：`git ls-files .tools/<子目录>/` 为空即是漏了。
 
 ### 8.1 诚实性：示例数据与平台能力
 
