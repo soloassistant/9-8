@@ -349,3 +349,17 @@
   font-weight: $font-weight-semibold;
   letter-spacing: 2rpx;
 }
+
+/* 手机号密码页签下的「忘记密码」诚实引导（2026-10-25）：
+   服务端无手机号重置接口（resetPassword 仅 email；verifyOtp 对已有用户丢弃 password），
+   所以这里不是「重置」入口，而是引导切回短信验证码登录 —— 短信进账户不受密码遗忘影响。 */
+.forgotPhoneRow {
+  margin-top: 12rpx;
+}
+
+.forgotPhoneText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  text-decoration: underline;
+}
+

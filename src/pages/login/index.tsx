@@ -767,6 +767,14 @@ export default function LoginPage() {
               placeholder={t('auth.passwordPlaceholder')}
               onInput={(e) => setPassword(String(e.detail.value || ''))}
             />
+            {/* 手机号没有「忘记密码」可做：SDK 对已有用户把 verifyOtp 的 password 整个丢弃
+                （验证码只换 verification_token 用于登录），/v1/reset 仅收 email，已登录改密
+                又必须先用旧密码过 sudo。能给的只有诚实引导：忘了就用短信直接进，不是假重置。 */}
+            {channel === 'phone' ? (
+              <View className={styles.forgotPhoneRow} onClick={() => switchTab('otp')}>
+                <Text className={styles.forgotPhoneText}>{t('auth.forgotPhoneHint')}</Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
 

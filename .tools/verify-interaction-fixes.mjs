@@ -76,6 +76,11 @@ ok('D2 密码登录标识随通道取值（currentId：手机号 E.164 / 邮箱�
 ok('D3 旧的「切邮箱」绕行入口已移除', !/passwordHint/.test(login));
 const loginScss = stripComments(read('src/pages/login/index.module.scss'));
 ok('D4 passwordHint 样式已删除', !/\.passwordHint\s*\{/.test(loginScss));
+// 2026-10-25：服务端无手机号重置接口（resetPassword 仅 email、verifyOtp 对已有用户丢弃
+// password），所以手机号「忘记密码」只允许诚实引导（切回短信登录），不许接假重置。
+ok('D5 手机号密码页签有「忘记密码」诚实引导（forgotPhoneHint）', /forgotPhoneHint/.test(login));
+ok('D6 引导点击切回验证码页签（switchTab(\'otp\')）', /switchTab\('otp'\)/.test(login));
+ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.test(loginScss));
 
 /* ---------------- E. 搜索接全网 + 失败态独立 ---------------- */
 const search = stripComments(read('src/pages/search/index.tsx'));
