@@ -43,7 +43,9 @@
   display: block;
   margin-top: $spacing-sm;
   font-size: $font-size-sm;
-  color: rgba(255, 255, 255, 0.88);
+  // 88% 白在头部渐变最亮档上实测 4.49:1 —— 差 0.01 落榜，没有意义的"刚好不合格"；
+  // 92% 白 = 4.67:1，留出主题差异（2026-10-24 巡检）
+  color: rgba(255, 255, 255, 0.92);
 }
 
 /* 区块卡 */
@@ -102,7 +104,9 @@
 
 .badgeDesc {
   font-size: 20rpx;
-  color: $color-text-disabled;
+  // 2026-10-24（巡检实测 1.50:1）：这里写的是成就进度「0%」，不是失效控件 ——
+  // 误用禁用灰 #c9cdd4 在卡片白底上几乎看不见。tertiary #657080 = 4.9:1。
+  color: $color-text-tertiary;
 }
 
 /* 打卡墙 */
@@ -137,7 +141,8 @@
   height: 60rpx;
   line-height: 60rpx;
   border-radius: $radius-round;
-  background: #ff7a45;
+  // 白字 on #ff7a45 = 2.59:1（巡检实测）；用品牌深色 #C7371A = 5.26:1
+  background: $color-primary-strong;
   color: #fff;
   font-size: $font-size-sm;
 
@@ -222,7 +227,8 @@
 .postLang,
 .postTime {
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  // 「3 小时前 / · 」是信息不是禁用态：禁用灰 1.46:1 → tertiary 4.9:1（2026-10-24 巡检实测）
+  color: $color-text-tertiary;
 }
 
 .postText {

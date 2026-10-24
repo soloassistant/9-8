@@ -313,7 +313,9 @@
   width: 100%;
   height: $button-height-md;
   border-radius: $radius-button;
-  background: $color-sub-gradient;
+  // 2026-10-24（巡检实测）：原 `$color-sub-gradient`（#ff9a76→#ff7a45）压白字，
+  // 最亮档 2.07:1、暗档 2.59:1 —— 两个停靠色都过不了 AA。改用品牌深色（5.26:1）。
+  background: var(--brand-strong, #{$color-primary-strong});
   color: $color-text-white;
   font-size: $font-size-md;
   font-weight: $font-weight-medium;

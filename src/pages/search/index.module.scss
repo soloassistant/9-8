@@ -86,7 +86,9 @@
 .scopeTabTextActive {
   font-size: $font-size-sm;
   font-weight: $font-weight-semibold;
-  color: var(--brand-deep);
+  // 2026-10-24（巡检实测）：`--brand-deep`(#e85d2a) 压 `--brand-soft` 底色只有 3.20:1，
+  // 12.5px 半粗属于正文尺寸、必须 4.5。同一处修法在 calendar/inbox 已用过：换 --brand-strong(5.26:1)。
+  color: var(--brand-strong, #{$color-primary-strong});
 }
 
 .hint {

@@ -79,6 +79,13 @@ function blocksOf(src, className) {
   return out;
 }
 
+/** 剥掉 scss 注释。比「某字符串是否出现」的断言**必须先剥注释**：
+ *  解释性注释里往往照抄了被禁掉的那个值（例："原来是 rgba(255,255,255,0.14) 的白膜"），
+ *  不剥就会自己命中自己 —— 2026-10-24 J9 就是这么被自己的说明误杀成红的。 */
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+}
+
 /** 单块版：只在该类只出现一次时用（出现多次会抛，防止断言 silently 看漏） */
 function blockOf(src, className) {
   const blocks = blocksOf(src, className);
@@ -335,6 +342,125 @@ try {
     shareBlocks.length > 0 && shareBlocks.some((b) => b.includes('min-height: 88rpx')));
 } catch (e) {
   ok('K 组读取失败: ' + e.message, false);
+}
+
+// ============ J. 运行时巡检实测的「白字压在浅橙上」（2026-10-24 补） ============
+// 这几处此前**都不在本清单里** —— 静态清单是按类名逐条加的，漏一条就等于没有保护。
+// 数值来自 cdp-probe 真页面实测（先关开屏/同意遮罩再量）：
+//   · --brand(#FF7A45) 上白字 2.59；--brand-strong(#C7371A) 上白字 5.26
+//   · $color-sub-gradient(#ff9a76→#ff7a45) 上白字 2.07 / 2.59
+console.log('\nJ 组 巡检实测白字过淡 → 品牌深色');
+const J_POINTS = [
+  ['src/components/ConsentGate/index.module.scss', 'consentAgree', '--brand-strong', '首启同意按钮（每个新用户第一个按钮）'],
+  ['src/pages/learnCommunity/index.module.scss', 'postButton', 'color-primary-strong', '社区发布'],
+  ['src/pages/inbox/index.module.scss', 'extractButton', '--brand-strong', 'AI 提取'],
+  ['src/pages/mine/index.module.scss', 'subCard', '--brand-strong', '付费卡底（卡内 14 处文字）']
+];
+for (const [file, cls, expect, why] of J_POINTS) {
+  try {
+    const blocks = blocksOf(read(file), cls);
+    ok(`J ${cls} 用 ${expect}（${why}）`, blocks.length > 0 && blocks.some((b) => b.includes(expect)));
+  } catch (e) {
+    ok(`J ${cls} 读取失败: ${e.message}`, false);
+  }
+}
+// J5 付费卡内文字不得再用 75% 白：深橙底上只有 3.58:1，小字号过不了 AA
+try {
+  const mineScss = read('src/pages/mine/index.module.scss');
+  const FADED = ['subTitle', 'subDesc', 'subscribedUntil', 'planLabel', 'planPrice', 'planUnit', 'lockTitle', 'lockBody', 'lockLose'];
+  const bad = FADED.filter((cls) => {
+    const blocks = blocksOf(mineScss, cls);
+    return blocks.some((b) => /rgba\(255, 255, 255, 0\.75\)/.test(b));
+  });
+  ok(`J5 付费卡 9 个文字类均不用 75% 白（违规：${bad.join(',') || '无'}）`, bad.length === 0);
+  // J6 金色不能承载正文：$color-gold(#f7ba1e) 在深橙底 2.22、浅橙底 1.09，任何主题都过不了
+  const lockBlocks = blocksOf(mineScss, 'lockTitle');
+  ok('J6 lockTitle 不再用 $color-gold（任何橙底都 <4.5）',
+    lockBlocks.length > 0 && lockBlocks.every((b) => !b.includes('$color-gold')));
+} catch (e) {
+  ok('J5/J6 读取失败: ' + e.message, false);
+}
+// J7 「真禁用」必须有自己的 [disabled] 规则：disabledAttr() 只治「假 disabled」，
+// 真禁用时 WeUI 会把字染成 rgba(255,255,255,.6)，浅底上等于按钮消失。
+try {
+  const clearBlocks = blocksOf(read('src/pages/history/index.module.scss'), 'clearButton');
+  ok('J7 history .clearButton 自带 [disabled] 规则（防回退）',
+    clearBlocks.length > 0 && clearBlocks.some((b) => b.includes('[disabled]')));
+  const mineScss2 = read('src/pages/mine/index.module.scss');
+  const subBtn = blocksOf(mineScss2, 'subButton');
+  ok('J8 mine .subButton 自带 [disabled] 规则（同上）',
+    subBtn.length > 0 && subBtn.some((b) => b.includes('[disabled]')));
+} catch (e) {
+  ok('J7/J8 读取失败: ' + e.message, false);
+}
+
+// ============ J9 – J15. 第二轮巡检（修正「渐变当白底」口径后仍不合格的项） ============
+// 这批的成因与 J1–J8 不同，不是「白字压在浅橙按钮上」，而是三类：
+//   ① 半透明白膜把深底提亮（.planCard / .planCardActive）；
+//   ② 把 `$color-text-disabled`(#c9cdd4) 当**内容**色用（成就进度、动态时间戳）；
+//   ③ 旧品牌深色 `--brand-deep`(#e85d2a) 当正文色（3.07–3.20:1）。
+// 数值全部来自 .tmp-verify/run-sweep.mjs 真页面实测（先点掉开屏 + 同意遮罩再量）。
+try {
+  const mineScss3 = stripComments(read('src/pages/mine/index.module.scss'));
+  const pc = blocksOf(mineScss3, 'planCard');
+  const pca = blocksOf(mineScss3, 'planCardActive');
+  ok('J9 mine .planCard 不再用白色蒙版（白膜把 brand-strong 提亮 → 白字 3.83:1）',
+    pc.length > 0 && pc.every((b) => !/rgba\(255,\s*255,\s*255/.test(b)));
+  ok('J9b mine .planCardActive 也不提亮（选中态由白边框 + 阴影表达）',
+    pca.length > 0 && pca.every((b) => !/rgba\(255,\s*255,\s*255/.test(b)));
+  const planText = [...blocksOf(mineScss3, 'planLabel'), ...blocksOf(mineScss3, 'planUnit')];
+  ok('J10 mine .planLabel/.planUnit 用纯白（92%/90% 白没有余量）',
+    planText.length >= 2 && planText.every((b) => b.includes('$color-text-white') && !/rgba\(255,\s*255,\s*255/.test(b)));
+} catch (e) {
+  ok('J9/J10 读取失败: ' + e.message, false);
+}
+
+try {
+  const lc = read('src/pages/learnCommunity/index.module.scss');
+  const meta = [...blocksOf(lc, 'badgeDesc'), ...blocksOf(lc, 'postTime')];
+  ok('J11 learnCommunity 成就进度/动态时间不误用禁用灰（#c9cdd4 白底 1.5:1）',
+    meta.length >= 2 && meta.every((b) => !b.includes('$color-text-disabled')));
+  const headSub = blocksOf(lc, 'headSub');
+  ok('J11b learnCommunity .headSub 不用 88% 白（实测 4.49:1，差 0.01 落榜）',
+    headSub.length > 0 && headSub.every((b) => !/rgba\(255,\s*255,\s*255,\s*0\.88\)/.test(b)));
+} catch (e) {
+  ok('J11 读取失败: ' + e.message, false);
+}
+
+try {
+  const sq = read('src/pages/search/index.module.scss');
+  const st = blocksOf(sq, 'scopeTabTextActive');
+  ok('J12 search .scopeTabTextActive 用 --brand-strong（原 --brand-deep 3.20:1）',
+    st.length > 0 && st.some((b) => b.includes('--brand-strong')) && st.every((b) => !b.includes('var(--brand-deep')));
+} catch (e) {
+  ok('J12 读取失败: ' + e.message, false);
+}
+
+try {
+  const cal = read('src/pages/calendar/index.module.scss');
+  // 去掉注释再比顺序：注释里也写着 `.today`/`.selected`，直接 indexOf 会被自己的解释误杀
+  const calCode = cal.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const today = blocksOf(cal, 'today');
+  const sel = blocksOf(cal, 'selected');
+  ok('J13 calendar .today .cellDay 底色用 --brand-strong（原 --brand 渐变最亮档白字 2.59）',
+    today.length > 0 && today.some((b) => b.includes('--brand-strong') && !/var\(--brand,/.test(b)));
+  ok('J14 calendar .today 规则排在 .selected 之后（今天恰被选中时白字必须赢，原 1.35:1）',
+    calCode.indexOf('.today {') > -1 &&
+      calCode.indexOf('.selected {') > -1 &&
+      calCode.indexOf('.today {') > calCode.indexOf('.selected {'));
+  ok('J14b calendar .selected .cellDay 不用 --brand-deep（#e85d2a 浅底 3.07:1）',
+    sel.length > 0 && sel.every((b) => !b.includes('var(--brand-deep')));
+} catch (e) {
+  ok('J13/J14 读取失败: ' + e.message, false);
+}
+
+try {
+  const learnScss = read('src/pages/learn/index.module.scss');
+  const freeze = blocksOf(learnScss, 'freezeText');
+  ok('J15 learn .freezeText 用 #0b57c9（#1266e0 在浅蓝冻结卡上实测 4.36:1）',
+    freeze.length > 0 && freeze.some((b) => /#0b57c9/i.test(b)));
+} catch (e) {
+  ok('J15 读取失败: ' + e.message, false);
 }
 
 console.log('──────────────────────────────────────────────────────────');

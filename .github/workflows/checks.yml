@@ -261,6 +261,28 @@ jobs:
         # 任何 <Button> 带 disabled 就必须是 disabledAttr(...)。CSS 层无法区分真禁用/没禁用。
         run: npm run verify:buttons
 
+      - name: 对比度静态门禁（106 条）
+        # 2026-10-24 审计指出「verify:contrast 写好了却没接 CI」—— 这里补上。
+        # 它与 verify:buttons 是**两层**：buttons 守「属性渲染方式」，这一步守「配色算出来能不能读」
+        # （白字压浅橙、金色当正文、付费卡 75% 白、真禁用被 WeUI 染白）。
+        # 纯静态读 scss/ts，不拉浏览器、不联网，CI 里可稳定跑。
+        # ⚠️ 局限（据实写明）：只覆盖清单里的类名 —— 清单外的类它看不见。
+        # 所以每发现一处新的「看得见但读不清」，必须同时加进 STRONG_POINTS/J_POINTS，
+        # 否则下次还是漏（本次 subCard/consentAgree/postButton/extractButton 就是这么漏的）。
+        run: npm run verify:contrast
+
+      - name: 交互契约门禁（49 条）
+        # 守用户实际反馈过的交互：热点点开原文、时间块不被压、客服可执行、密码登录入口、
+        # 全网搜索失败≠空态、意见反馈不谎报成功、天气城市先校验后落库、突发横幅不冒充推送。
+        # 其中 I 组是**运行时**断言（esbuild 编译 src/utils/burst.ts 后真调 pickBurst）。
+        run: npm run verify:interaction
+
+      - name: 工具逻辑门禁（29 条）
+        # 与上面同一条教训：verify:util 写好了却没接 CI 就等于没写。
+        # 守 utils/{schedule,permission,habit,readStreak,date} 的纯逻辑契约（时间块排序/权限降级/
+        # 连续阅读/问候语四种事实分支），都是**行为断言**而不是「文件里出现过某符号」。
+        run: npm run verify:util
+
       # 放在最后：这一步会**临时改写源码**再复原（写完做 sha256 逐字节校验，失配退出码 3），
       # 因此必须等其他只读步骤跑完，避免与它们在同一个工作区里互相踩。
       # 它守的不是产品行为，而是「上面这些断言本身有没有判别力」——把已知缺陷改回去，

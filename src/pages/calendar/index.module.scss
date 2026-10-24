@@ -90,23 +90,30 @@
   }
 }
 
-.today {
-  .cellDay {
-    color: #fff;
-    font-weight: $font-weight-semibold;
-    background: linear-gradient(135deg, var(--brand, #6366f1) 0%, var(--brand-deep, #4f46e5) 100%);
-    border-radius: $radius-button;
-    box-shadow: 0 4rpx 12rpx rgba(99, 102, 241, 0.3);
-  }
-}
-
 .selected {
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.08) 100%);
   border-radius: $radius-md;
 
   .cellDay {
-    color: var(--brand-deep);
+    // 2026-10-24（巡检实测 3.07:1）：原 `--brand-deep`(#e85d2a) 压在浅色选中底上不合格。
+    // 与 calendar:228 / inbox:143 同一修法。
+    color: var(--brand-strong, $color-primary-strong);
     font-weight: $font-weight-semibold;
+  }
+}
+
+// ⚠️ 顺序有意义：`.today` 必须排在 `.selected` **之后**。
+// 两者特异性都是 (0,2,0)，原先 `.selected` 在后 → 今天恰好被选中时，
+// `.selected .cellDay` 的深橙字会盖掉 `.today` 的白字，压在深橙底上只剩 1.35:1（巡检实测）。
+.today {
+  .cellDay {
+    color: #fff;
+    font-weight: $font-weight-semibold;
+    // 白字压渐变：原 `--brand`(#ff7a45) 那一档只有 2.59:1。改实色 `--brand-strong` = 5.26:1；
+    // 日期是 14.6px 半粗（不足 18.66px），不能按大字 3:1 放宽。
+    background: var(--brand-strong, $color-primary-strong);
+    border-radius: $radius-button;
+    box-shadow: 0 4rpx 12rpx rgba(99, 102, 241, 0.3);
   }
 }
 

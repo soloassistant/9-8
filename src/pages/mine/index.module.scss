@@ -84,7 +84,11 @@
 }
 
 .subCard {
-  background: $color-sub-gradient;
+  // 2026-10-24（运行时巡检实测）：原 `$color-sub-gradient`（#ff9a76→#ff7a45）上压白字，
+  // 最亮档只有 **2.07:1**，卡片里 14 处文字（标题/权益说明/价格/锁价提示）全在 1.1–2.6 之间 ——
+  // 这是付费转化卡片，等于把「值多少钱」写得看不清。改成品牌深色后白字 5.26:1（四套主题均 ≥5.1）。
+  // 渐变改平色：现有主题变量里没有比 strong 更深的一档，硬拼第二个停靠色会在非暖色主题下串色。
+  background: var(--brand-strong, #{$color-primary-strong});
   border-radius: $radius-lg;
   padding: $spacing-lg;
   margin-bottom: $spacing-md;
@@ -111,7 +115,8 @@
 .subscribedUntil {
   display: block;
   font-size: $font-size-sm;
-  color: rgba(255, 255, 255, 0.75);
+  // 90% 白（深橙底 4.53:1）；75% 只有 3.58:1，小字号过不了 AA
+  color: rgba(255, 255, 255, 0.9);
   margin-top: -$spacing-md;
   margin-bottom: $spacing-lg;
 }
@@ -716,7 +721,9 @@
 .lockTitle {
   font-size: $font-size-sm;
   font-weight: $font-weight-semibold;
-  color: $color-gold;
+  // 金色 #f7ba1e 在深橙底上只有 2.22:1（在原来的浅橙渐变上更是 1.09:1，几乎看不见）。
+  // 12px 半粗属于正文尺寸，必须 4.5:1 → 改白字（5.26:1）。金色留给图标/徽标，不再承载文字。
+  color: $color-text-white;
 }
 
 .lockPrice {
@@ -736,7 +743,7 @@
   display: block;
   margin-top: $spacing-xs;
   font-size: $font-size-xs;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.9);
   line-height: $line-height-normal;
 }
 
@@ -766,7 +773,11 @@
   flex-direction: column;
   align-items: center;
   padding: $spacing-md $spacing-xs;
-  background: rgba(255, 255, 255, 0.14);
+  // 2026-10-24（运行时巡检实测）：原来是 rgba(255,255,255,0.14) 的**白膜**，它把
+  // `--brand-strong`(#C7371A, L=0.149) 提亮到 L=0.198，卡片里的白字从 5.26 掉到 3.83:1；
+  // 早鸟卡那层黄色渐变（rgba(255,200,0,.28)）提亮更多，白字只剩 ~3.6:1。
+  // 选中态本来靠「白边框 + 阴影」表达，所以这里改成**压暗**：深膜只会让白字更清楚（6.2:1）。
+  background: rgba(0, 0, 0, 0.1);
   border-radius: $radius-md;
   border: 2rpx solid transparent;
   transition: all $transition-fast;
@@ -778,16 +789,16 @@
 
 .planCardActive {
   border-color: $color-text-white;
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.2);
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.2);
 }
 
 .planCardEarlyBird {
-  background: linear-gradient(135deg, rgba(255, 200, 0, 0.28), rgba(255, 140, 0, 0.18));
-  border-color: rgba(255, 220, 100, 0.5);
+  // 「早鸟」改用**金色边框**承载：金色一旦铺成底色就会把白字压到 3.6:1，
+  // 而金色边框 + 金色徽章（深棕字压金底 ≈ 7:1）已经足够把它和另两张区分开。
+  border-color: rgba(255, 220, 100, 0.55);
 
   &.planCardActive {
-    background: linear-gradient(135deg, rgba(255, 210, 20, 0.42), rgba(255, 160, 30, 0.3));
     border-color: #fff3c0;
   }
 }
@@ -809,7 +820,8 @@
 
 .planLabel {
   font-size: $font-size-sm;
-  color: rgba(255, 255, 255, 0.92);
+  // 92% 白在深膜底上只有 4.67:1 的余量，12.5px 正文没有缓冲；纯白 = 5.5:1，留出主题差异
+  color: $color-text-white;
   margin-bottom: 8rpx;
 }
 
@@ -823,7 +835,7 @@
 .planUnit {
   font-size: 22rpx;
   font-weight: $font-weight-normal;
-  color: rgba(255, 255, 255, 0.75);
+  color: $color-text-white;
   margin-left: 2rpx;
 }
 

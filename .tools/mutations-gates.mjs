@@ -126,5 +126,73 @@ export default [
     to:
       "    if (false) {\n      Taro.showToast({ title: t('briefing.voiceWeappOnly'), icon: 'none' });\n      return;\n    }",
     cmd: 'node .tools/verify-honesty-sample.js'
+  },
+
+  /* ==================================================================
+   * 9) verify-contrast-strong.mjs —— J 组（运行时巡检实测出的白字过淡）
+   *
+   * 这三处的共同教训：静态清单只保护**清单里有的类名**。
+   * subCard / consentAgree / postButton / extractButton 之前都不在清单里，
+   * 于是「白字压在 2.07–2.59:1 的浅橙上」活了很久，直到真页面巡检才被发现。
+   * 变异打在「改回浅色」这一下 —— 如果 J 组没有判别力，它会照绿。
+   * ================================================================== */
+  {
+    label: '付费卡底色改回浅橙渐变（卡内 14 处文字掉到 1.1–2.6）',
+    file: 'src/pages/mine/index.module.scss',
+    // 锚点必须带下一行 border-radius：只写 background 那行会同时命中 .fbSubmit（本轮新增的反馈提交按钮）
+    from: '  background: var(--brand-strong, #{$color-primary-strong});\n  border-radius: $radius-lg;',
+    to: '  background: $color-sub-gradient;\n  border-radius: $radius-lg;',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    label: '首启同意按钮改回 --brand（每个新用户第一个按钮 2.59:1）',
+    file: 'src/components/ConsentGate/index.module.scss',
+    from: 'background: var(--brand-strong, #{$color-primary-strong});',
+    to: 'background: var(--brand, #{$color-primary});',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    label: '锁价标题改回金色（金 on 橙 2.22，任何主题都过不了）',
+    file: 'src/pages/mine/index.module.scss',
+    from: '  // 12px 半粗属于正文尺寸，必须 4.5:1 → 改白字（5.26:1）。金色留给图标/徽标，不再承载文字。\n  color: $color-text-white;',
+    to: '  color: $color-gold;',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+
+  /* ==================================================================
+   * 10) 第二轮巡检 J9–J15（2026-10-24 修正「渐变当白底」口径后仍不合格的一批）
+   *
+   * 这一批的教训：**工具口径错了会同时产生假红和假绿**。
+   * 旧口径把半透明渐变压到白底上算，于是 mine 早鸟卡被报成 1.17:1（真实 ~3.6）；
+   * 修好口径后早鸟卡仍然不合格，但原因换成了「白膜提亮 + 92% 白不够」——
+   * 所以判据既要有判别力，也不能因为它背后是同一个"配色脏"就放弃量化。
+   * ================================================================== */
+  {
+    label: '套餐卡白膜回来（白字 5.5 → 3.83，付费转化卡片读不清）',
+    file: 'src/pages/mine/index.module.scss',
+    from: 'background: rgba(0, 0, 0, 0.1);',
+    to: 'background: rgba(255, 255, 255, 0.14);',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    label: '成就进度改回禁用灰（#c9cdd4 白底 1.50，进度数字几乎不可见）',
+    file: 'src/pages/learnCommunity/index.module.scss',
+    from: '  color: $color-text-tertiary;\n}\n\n/* 打卡墙 */',
+    to: '  color: $color-text-disabled;\n}\n\n/* 打卡墙 */',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    label: '搜索范围页签改回 --brand-deep（3.20:1）',
+    file: 'src/pages/search/index.module.scss',
+    from: 'color: var(--brand-strong, #{$color-primary-strong});',
+    to: 'color: var(--brand-deep);',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    label: '冻结卡提示色改回 #1266e0（浅蓝底 4.36，差 3% 落榜）',
+    file: 'src/pages/learn/index.module.scss',
+    from: 'color: #0b57c9;',
+    to: 'color: #1266e0;',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
   }
 ];

@@ -101,7 +101,10 @@
   height: 80rpx;
   line-height: 80rpx;
   border-radius: $radius-round;
-  background: var(--brand, #{$color-primary});
+  // 2026-10-24（运行时巡检实测）：`--brand`（#FF7A45）上压白字只有 **2.59:1**，
+  // 而这是**每个新用户看到的第一个按钮**（首启合规同意层，14 个路由都能命中）。
+  // 换 `--brand-strong` 后四套主题均 ≥5.1:1。文字保持白色，不做深色字（与全站主按钮一致）。
+  background: var(--brand-strong, #{$color-primary-strong});
   color: #fff;
   font-size: $font-size-md;
   font-weight: 600;
