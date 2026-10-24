@@ -292,8 +292,14 @@ const zh = {
   'briefing.emptyHint': '把微信里聊的会议、约定复制到收件箱，我自动变成今天的日程',
   // 空态主行动：文案指挥了动作就必须能点（2026-10-12 增长审计）
   'briefing.emptyCta': '去收件箱粘贴 →',
-  // 云端未接通时的诚实横幅：降级到 mock 却让用户以为是真数据，违反 AGENTS.md 的「不静默失败」
-  'briefing.degraded': '当前为演示数据，云端服务尚未接通',
+  // 降级横幅拆成两把钥匙（2026-10-24）：共用一句是病灶 —— 两个消费点的事由不同，
+  // 旧文案「云端服务尚未接通」对两个场景都不真：云服务本身已接通（auth/db/llm 实测 200），
+  // 没通的是个别功能的云端实现；晨报空态则是天气/资讯拉取失败，与「演示数据」无关。
+  // ① 晨报空态（intel.degraded）：只说真实发生的事 —— 天气与资讯没取到。
+  'briefing.degraded': '天气与资讯暂时没有取到，当前为本地内容，可稍后重试',
+  // ② 通用降级横幅（DemoDataHint）：登记的都是「真实路径失败、落到本地演示实现」的功能。
+  // 「暂不可用」对未建 PG 函数与瞬时故障都为真，且不断言整个云服务挂了。
+  'cloud.degradedHint': '云端功能暂不可用，当前为本地演示数据',
   'briefing.loadFailed': '晨报加载失败',
   // 加载失败**不能**落进「今天还没有安排」空态：那是句确定性的谎话，用户照做也救不回来（2026-10-24）
   'briefing.loadFailedTitle': '晨报没加载出来',
@@ -1229,7 +1235,8 @@ const en: Record<keyof typeof zh, string> = {
   'briefing.emptyTitle': 'Nothing scheduled today',
   'briefing.emptyHint': 'Copy meeting plans and promises from WeChat into your Inbox and I will turn them into today’s schedule',
   'briefing.emptyCta': 'Go to Inbox →',
-  'briefing.degraded': 'Showing demo data — the cloud service is not connected yet',
+  'briefing.degraded': "Couldn't fetch weather & news just now — showing local content, try again later",
+  'cloud.degradedHint': 'Cloud feature unavailable — showing local demo data',
   'briefing.loadFailed': 'Failed to load briefing',
   'briefing.loadFailedTitle': 'Could not load your briefing',
   'briefing.loadFailedHint': 'Network or service may be temporarily unavailable. Tap retry — nothing will be lost.',

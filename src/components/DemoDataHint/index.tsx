@@ -15,10 +15,13 @@ import styles from './index.module.scss';
  * 这里复用同一套「可被 UI 观察」的机制：services/cloud.ts 维护降级登记表，
  * 本组件订阅它，有降级就渲染一行提示，真实路径成功后条目被清掉、提示自动消失。
  *
- * 文案复用 `briefing.degraded`（「当前为演示数据，云端服务尚未接通」）：
+ * 文案用 `cloud.degradedHint`（「云端功能暂不可用，当前为本地演示数据」）：
  * 被登记的 action 都是回退到**演示/本地实现**的，措辞准确；返回**真实本地数据**的
  * action（getLibrary / shopping / confirmItem / getUsage）已在 cloud.ts 侧排除，
  * 不会出现「把真实数据说成演示数据」的反向谎言。
+ * 2026-10-24：不再复用 `briefing.degraded` —— 那把钥匙现在专指晨报空态的
+ * 「天气与资讯没取到」，与这里的「功能云端版不可用」是两件事；共用一句曾让
+ * 旧文案写成不实的「云端服务尚未接通」（云服务本身实测是通的）。
  *
  * 无障碍：这里只渲染文本，**不写 role/aria-*** —— Taro 的 View/Text 不把这些未知属性
  * 透传到 H5 真实节点（详见 components/Splash 的 nativeProps 说明），写上去属于假修。
@@ -35,7 +38,7 @@ function DemoDataHint() {
 
   return (
     <View className={styles.hint}>
-      <Text className={styles.text}>{t('briefing.degraded')}</Text>
+      <Text className={styles.text}>{t('cloud.degradedHint')}</Text>
     </View>
   );
 }

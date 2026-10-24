@@ -335,7 +335,9 @@ export async function getCloudLlm(): Promise<CloudLlmApi | null> {
  *
  *  另注：`cloud.database.rpc()` 调的是**应用数据库里的 PostgreSQL 函数**，不是
  *  `cloudfunctions/` 下的微信云函数（后者跑在微信云开发里，只认 `getWXContext().OPENID`）。
- *  本应用数据库当前未建表，H5 的云端数据通路尚未接通。
+ *  应用数据库现状（2026-10-24 核实）：已有 user_kv / llm_events 表与 kv_clear /
+ *  kv_set_many / log_client_error 三个 PG 函数（同步键与用量记账在用）；业务函数
+ *  （getUsage / shopping / createOrder 等）的 PG 版尚未注册，对应功能仍走本地降级。
  *
  *  未登录返回 null。 */
 export async function getCloudUserId(): Promise<string | null> {
