@@ -24,12 +24,13 @@ $spacing-md: 24rpx;
 $spacing-lg: 32rpx;
 $spacing-xl: 48rpx;
 
-// 圆角（语义化）
-$radius-xs: 4rpx; // 小元素：标签、徽章
-$radius-sm: 8rpx; // 卡片内小元素
-$radius-md: 12rpx; // 常规卡片
-$radius-lg: 16rpx; // 大卡片
-$radius-xl: 20rpx; // 特大卡片
+// 圆角（语义化）——「晨光 v2」2026-10-25 视觉焕新：全面放大圆角，
+// 现代移动端的「大软圆角」语言（原值 4/8/12/16/20，见 git 历史回退）。
+$radius-xs: 6rpx; // 小元素：标签、徽章
+$radius-sm: 12rpx; // 卡片内小元素
+$radius-md: 20rpx; // 常规卡片内图/输入框
+$radius-lg: 24rpx; // 大卡片
+$radius-xl: 32rpx; // 特大卡片 / 弹层（card-surface 用）
 $radius-button: 48rpx; // 按钮专用（全圆角，符合主流小程序）
 $radius-round: 999rpx; // 完全圆形
 
@@ -38,11 +39,12 @@ $button-height-sm: 64rpx; // 小按钮（次要操作）
 $button-height-md: 80rpx; // 常规按钮（主流标准）
 $button-height-lg: 96rpx; // 大按钮（主要操作、底部固定）
 
-// 阴影（语义化）
-$shadow-card: 0 2rpx 12rpx rgba(0, 0, 0, 0.08); // 卡片阴影
-$shadow-card-hover: 0 4rpx 20rpx rgba(0, 0, 0, 0.12); // 卡片悬浮
-$shadow-float: 0 4rpx 16rpx rgba(0, 0, 0, 0.1); // 浮层阴影（如筛选栏、底部操作栏）
-$shadow-popup: 0 8rpx 32rpx rgba(0, 0, 0, 0.15); // 弹窗阴影
+// 阴影（语义化）——「晨光 v2」：双层柔和投影，色相随正文灰（#1d2129）不再用纯黑，
+// 低透明度 + 大模糊 = 「浮得更高、压得更轻」的现代层次感。
+$shadow-card: 0 1rpx 2rpx rgba(29, 33, 41, 0.04), 0 4rpx 16rpx rgba(29, 33, 41, 0.06); // 卡片阴影
+$shadow-card-hover: 0 2rpx 4rpx rgba(29, 33, 41, 0.05), 0 8rpx 24rpx rgba(29, 33, 41, 0.1); // 卡片悬浮
+$shadow-float: 0 4rpx 12rpx rgba(29, 33, 41, 0.08), 0 12rpx 32rpx rgba(29, 33, 41, 0.1); // 浮层阴影（如筛选栏、底部操作栏）
+$shadow-popup: 0 12rpx 40rpx rgba(29, 33, 41, 0.16); // 弹窗阴影
 
 // 字体大小
 $font-size-xs: 22rpx;
@@ -134,12 +136,15 @@ $transition-slow: 0.35s ease;
   }
 }
 
-// 卡片表面：白底 + 大圆角 + 卡片阴影 + 大内边距。
-// 只包含「全仓一字不差」的那 4 条声明；各处的 margin / position / transition
+// 卡片表面：白底 + 特大圆角 + 双层柔影 + 发丝描边 + 大内边距。
+// 「晨光 v2」（2026-10-25）：阴影放轻后用 1rpx 描边补回轮廓定义，白卡在暖纸底上更「立」；
+// 描边色走 $color-card-border（theme.scss），与 $color-border（表单边框）语义分开。
+// 只包含「全仓一字不差」的那 5 条声明；各处的 margin / position / transition
 // 等差异声明请留在 @include 之后，避免顺手改变视觉。
 @mixin card-surface {
   background: $color-bg-card;
-  border-radius: $radius-lg;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-xl;
   box-shadow: $shadow-card;
   padding: $spacing-lg;
 }

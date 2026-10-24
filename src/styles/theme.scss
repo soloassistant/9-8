@@ -29,10 +29,12 @@ $color-todo-bg: #f0f5ff;     // 待办浅底
 $color-event-bg: #fff7e8;    // 日程浅底
 $color-sub-gradient: linear-gradient(135deg, #ff9a76 0%, #ff7a45 100%); // 会员卡渐变
 
-// 背景色
-$color-bg-page: #f7f8fa;
+// 背景色 ——「晨光 v2」（2026-10-25）：页面底从冷灰转**暖纸色**（晨光的「晨」落在纸上），
+// 明度与原 #f7f8fa 几乎一致，tertiary/secondary 文字对比度只升不降（verify-contrast 现算把关）。
+$color-bg-page: #f8f6f3;
 $color-bg-card: #ffffff;
-$color-bg-hover: #f2f3f5;
+$color-bg-hover: #f1efec;
+$color-card-border: rgba(29, 33, 41, 0.06); // 卡片发丝描边（card-surface 专用，非表单边框）
 $color-bg-header: #fff3ec;   // 页面顶部晨光渐变起点
 
 // 文本色
