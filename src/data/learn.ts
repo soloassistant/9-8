@@ -64,7 +64,7 @@ export const LEARN_LANGS: LearnLang[] = [
   {
     id: 'en',
     name: '英语',
-    accent: '#4A90D9',
+    accent: '#2F6DB5', // 文字色 5.4:1（原 #4A90D9 仅 3.15:1，作 levelName/recBadge 文字不达 AA）
     levels: [
       {
         id: 'en-a1',
@@ -170,7 +170,7 @@ export const LEARN_LANGS: LearnLang[] = [
   {
     id: 'ja',
     name: '日语',
-    accent: '#E8636F',
+    accent: '#C7394A', // 文字色 5.3:1（原 #E8636F 仅 3.4:1）
     levels: [
       {
         id: 'ja-a1',
@@ -276,7 +276,7 @@ export const LEARN_LANGS: LearnLang[] = [
   {
     id: 'ko',
     name: '韩语',
-    accent: '#7C6FE0',
+    accent: '#5B4FC4', // 文字色 5.7:1（原 #7C6FE0 仅 4.2:1）
     levels: [
       {
         id: 'ko-a1',

@@ -7,6 +7,7 @@ import EmptyState from '@/components/EmptyState';
 import DemoDataHint from '@/components/DemoDataHint';
 import { apiExtract, apiConfirmItem, apiGetBriefing, apiChat, type WorkAction } from '@/services/api';
 import { useUserStore } from '@/store/user';
+import { brandVars, useThemeStore } from '@/store/theme';
 import { fromNow } from '@/utils/date';
 import { detectConflicts, buildPlanProposal, type ConflictInfo, type PlanProposal, type PlanProposalRaw, type PlanApplyEvent } from '@/utils/schedule';
 import PlanProposalCard from '@/components/PlanProposalCard';
@@ -52,6 +53,7 @@ function fileToDataURL(file: File): Promise<string> {
 
 function InboxPage() {
   const t = useT();
+  const theme = useThemeStore((s) => s.theme);
   const [content, setContent] = useState('');
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -408,7 +410,16 @@ function InboxPage() {
       refreshUsage();
     } catch (err) {
       console.error('[InboxPage] confirm failed:', err);
-      Taro.showToast({ title: '入库失败，请重试', icon: 'none' });
+      // 收藏配额耗尽必须给出可操作提示（铁律「额度耗尽必须让用户看见」）：
+      // mock 路径抛 'collection-quota-exceeded'，云函数路径抛
+      // 'collection quota exceeded, please subscribe'（cloudfunctions/confirmItem/index.js:41）——
+      // 两者都含 quota。此前一律 toast「入库失败，请重试」，用户不知道是 50 条收藏满了。
+      const msg = String((err as Error)?.message || err || '');
+      if (/quota/i.test(msg)) {
+        Taro.showToast({ title: '收藏空间已满（50 条），升级订阅后可继续入库', icon: 'none', duration: 3000 });
+      } else {
+        Taro.showToast({ title: '入库失败，请重试', icon: 'none' });
+      }
     } finally {
       setSaving(false);
     }
@@ -421,7 +432,7 @@ function InboxPage() {
   };
 
   return (
-    <View className={styles.page}>
+    <View className={styles.page} style={brandVars(theme)}>
       <View className={styles.howTo}>
         <Text className={styles.howIcon}>💡</Text>
         <Text className={styles.howText}>

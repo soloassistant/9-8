@@ -53,7 +53,7 @@
 .weekDay {
   text-align: center;
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1 —— 表头「日一二…」不是禁用态）
   padding-bottom: $spacing-xs;
 }
 
@@ -166,7 +166,7 @@
 .statsTitle {
   display: block;
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
   margin-bottom: $spacing-xs;
 }
 
@@ -222,7 +222,7 @@
   padding: 0 $spacing-md;
   border-radius: $radius-button;
   background: var(--brand-soft);
-  color: var(--brand-deep);
+  color: var(--brand-strong, $color-primary-strong); // 5.55:1（原 --brand-deep #e85d2a 仅 3.2:1）
   font-size: $font-size-xs;
   font-weight: $font-weight-medium;
   line-height: 56rpx;
@@ -262,7 +262,7 @@
 
 .qaBtn {
   @include button-reset;
-  background: var(--brand);
+  background: var(--brand-strong); // 白字 4.95:1（原 --brand 白字 2.59:1）
   color: #fff;
   border-radius: $radius-sm;
   padding: 10rpx 26rpx;
@@ -406,6 +406,6 @@
 
 .todoDue {
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1 —— 截止时间不是禁用态）
   flex-shrink: 0;
 }

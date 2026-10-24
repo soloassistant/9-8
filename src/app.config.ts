@@ -46,8 +46,11 @@ export default defineAppConfig({
     navigationBarTextStyle: 'black'
   },
   tabBar: {
-    color: '#999999',
-    selectedColor: '#FF7A45',
+    // 2026-10-24 无障碍修正：原 #999999（2.85:1）/ #FF7A45（2.59:1）双双不达 WCAG AA 4.5:1。
+    // 未选中改 $color-text-tertiary 同值 #657080（5.02:1）；选中改 sunrise 的 strong 变体
+    // #C7371A（白底 5.26:1）—— tabBar 选中态承载「当前在哪个页」的导航信息，必须可读。
+    color: '#657080',
+    selectedColor: '#C7371A',
     backgroundColor: '#FFFFFF',
     borderStyle: 'white',
     list: [

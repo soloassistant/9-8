@@ -296,8 +296,10 @@ function MinePage() {
   }, [profile]);
 
   // ========== 订阅记录 + 退款 ==========
+  const [ordersError, setOrdersError] = useState(false);
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true);
+    setOrdersError(false);
     try {
       const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
       if (!cloud?.callFunction) return;
@@ -305,9 +307,15 @@ function MinePage() {
       const r = res as { result?: { ok?: boolean; orders?: OrderSummary[] } } | null;
       if (r?.result?.ok && Array.isArray(r.result.orders)) {
         setOrders(r.result.orders);
+      } else {
+        // 云函数明确回 ok:false = 服务端拒绝（不是网络抖动），同样算失败：
+        // 老写法在这里静默返回，orders 停在空数组 → 用户看到「暂无订阅记录」，
+        // 把「查询失败」伪装成「你没订阅过」。已付费用户会误以为自己被吞了订单。
+        setOrdersError(true);
       }
     } catch (e) {
       console.warn('[MinePage] loadOrders failed:', e);
+      setOrdersError(true);
     } finally {
       setOrdersLoading(false);
     }
@@ -381,6 +389,18 @@ function MinePage() {
 
   /* ---------------- X3 偏好云上报（仅 weapp；失败静默，不影响本机写入） ---------------- */
   const prefsReportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 支付成功后的对账兜底定时器（1800ms）；卸载时清理，避免卸载后 setState + 重复查单 */
+  const payReconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 卸载清理：偏好上报防抖 + 支付对账两个定时器都必须取消。
+  // 原实现只清了 undoTimers（library 页同款），这两个漏了 —— 快速切走时会触发
+  // 一次无谓的云函数调用 / 卸载后 setState（2026-10-24 审计）。
+  useEffect(
+    () => () => {
+      if (prefsReportTimerRef.current) clearTimeout(prefsReportTimerRef.current);
+      if (payReconcileTimerRef.current) clearTimeout(payReconcileTimerRef.current);
+    },
+    []
+  );
   /** 设置变更后的 1s 防抖上报：连续切换只上报最后一次 */
   const queuePrefsReport = (next: UserPrefs) => {
     if (!isWeapp) return;
@@ -530,18 +550,22 @@ function MinePage() {
       if (!result.ok) throw new Error('createOrder 返回 ok=false');
       console.info('[MinePage] order created:', result.orderId, 'channel:', channel, 'plan:', result.planId);
 
-      // 4. 锁价（B-01：首次成功订阅自动早鸟锁价；已锁时内部跳过）
-      setLocked(lockPrice(result.planId, result.price));
-
-      // 5. 拉起小程序原生支付
+      // 4. 拉起小程序原生支付
       try {
         const payRes = await invokePayment(channel, result.payment);
         if (payRes.success) {
+          // 5. 锁价（B-01：首次成功订阅自动早鸟锁价；已锁时内部跳过）
+          // ⚠️ 必须在支付成功分支内：原先锁价写在下单后、支付前，用户取消支付 /
+          //    支付失败同样会写入 active 锁价，getEffectivePrice 此后一直返回这个
+          //    未成交价，UI 常驻「锁价 ¥6.9」——把没成交的单子当成成交价展示。
+          setLocked(lockPrice(result.planId, result.price));
           Taro.showToast({ title: '支付成功', icon: 'success' });
           // 对账兜底：先 init 拉 profile；如果 pay-callback 还没到（支付宝/抖音 HTTP 稍慢），
           // profile 还是未订阅 → 立刻调 queryOrder 云函数查通道真相（会完成对账），再 init 刷新 UI
           const paidOrderId = result.orderId;
-          setTimeout(async () => {
+          // 定时器存 ref：用户支付后立刻切走页面时，卸载清理会 clearTimeout，
+          // 避免回调在卸载后 setState + 重复查单（2026-10-24 审计）。
+          payReconcileTimerRef.current = setTimeout(async () => {
             try {
               await init();
               // init 之后如果 profile 还是未订阅，补一次主动查单
@@ -1167,12 +1191,28 @@ function MinePage() {
         <Text className={styles.cardTitle}>{t('mine.ordersTitle')}</Text>
         {ordersLoading && orders.length === 0 ? (
           <Text className={styles.orderLoading}>…</Text>
+        ) : ordersError && orders.length === 0 ? (
+          /* 查询失败与「真的没有记录」必须分开：老写法把两者都渲染成 ordersEmpty，
+             已付费用户查不到订单时会看到「暂无订阅记录」——这是把故障伪装成空态。
+             20 款 App 调研的共同结论：错误态三要素 = 发生了什么 + 为什么 + 怎么办。 */
+          <View className={styles.orderErrorBox}>
+            <Text className={styles.orderErrorText}>{t('mine.ordersError')}</Text>
+            <Text className={styles.orderRetry} onClick={() => void loadOrders()}>
+              {t('common.retry')}
+            </Text>
+          </View>
         ) : orders.length === 0 ? (
           <Text className={styles.orderEmpty}>{t('mine.ordersEmpty')}</Text>
         ) : (
           <ScrollView scrollY className={styles.orderList}>
             {orders.map((o) => {
-              const channelLabel = t(`mine.orderChannel${o.channel[0].toUpperCase()}${o.channel.slice(1)}` as LangKey);
+              // channel 是云函数返回的不可信输入：空串时 o.channel[0] 为 undefined，
+              // .toUpperCase() 直接抛错整页崩（2026-10-24 审计）。空值/未知值
+              // 都回落到原始串展示，绝不让一条脏数据带崩整个订阅记录列表。
+              const ch = String(o.channel || '');
+              const channelLabel = ch
+                ? t(`mine.orderChannel${ch[0].toUpperCase()}${ch.slice(1)}` as LangKey)
+                : o.channel || '—';
               const statusLabel = getOrderStatusLabel(o.status, o.refundStatus);
               const statusColor = getOrderStatusColor(o.status, o.refundStatus);
               const canRefund = o.status === 'paid' && o.refundStatus !== 'refunded' && o.refundStatus !== 'refunding';

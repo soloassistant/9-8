@@ -140,7 +140,7 @@
   box-shadow: $shadow-card;
 
   .modeTabText {
-    color: var(--brand-deep, #{$color-primary-dark});
+    color: var(--brand-strong, #{$color-primary-strong}); // 5.26:1（原 --brand-deep #e85d2a 仅 3.48:1）
     font-weight: $font-weight-semibold;
   }
 }
@@ -244,7 +244,7 @@
   padding: 0 $spacing-lg;
   border-radius: $radius-button;
   background: var(--brand-soft, #{$color-bg-hover});
-  color: var(--brand-deep, #{$color-primary-dark});
+  color: var(--brand-strong, #{$color-primary-strong}); // 4.95:1（原 --brand-deep #e85d2a 仅 3.14:1）
   font-size: $font-size-md;
   font-weight: $font-weight-medium;
   white-space: nowrap;

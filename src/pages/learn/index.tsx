@@ -18,6 +18,7 @@ import {
   LearnStore
 } from '@/utils/learn';
 import { useT } from '@/store/language';
+import { brandVars, useThemeStore } from '@/store/theme';
 import PartnerEntry, { PartnerSectionHeader } from '@/components/PartnerEntry';
 import { LINGXI_ENTRY_URL } from '@/config/partners';
 import styles from './index.module.scss';
@@ -25,6 +26,7 @@ import styles from './index.module.scss';
 /** 语言学习主页（MVP）：语种切换 + 分级课程 + 进度与打卡 */
 function LearnPage() {
   const t = useT();
+  const theme = useThemeStore((s) => s.theme);
   const [langId, setLangId] = useState<LearnLangId>(() => readLearnStore().activeLang || 'en');
   // 只需 setStore 触发重渲染（渲染数据走 getLangStats/getCourseProgress 直读工具层）；store 值本身不使用
   const [, setStore] = useState<LearnStore>(() => readLearnStore());
@@ -120,7 +122,7 @@ function LearnPage() {
   }, []);
 
   return (
-    <View className={styles.page}>
+    <View className={styles.page} style={brandVars(theme)}>
       <View className={styles.backButton} onClick={handleBack}>
         <Text className={styles.backIcon}>‹</Text>
         <Text className={styles.backText}>{t('common.back')}</Text>

@@ -98,7 +98,7 @@
 .sectionBarHint {
   flex: 1;
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 #c9cdd4 仅 1.5:1 —— 这不是禁用态）
   text-align: right;
   @include text-ellipsis;
 }
@@ -110,7 +110,7 @@
 
 .dataMetaText {
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.5:1）
 }
 
 .hotspot {
@@ -178,13 +178,13 @@
 
 .newsSource {
   font-size: $font-size-xs;
-  color: $color-secondary;
+  color: $color-secondary-strong; // 5.97:1（原 #5b8def 仅 3.23:1）
   font-weight: $font-weight-medium;
 }
 
 .newsTime {
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
 }
 
 /* F22 资讯反馈：👍/👎 标记行 */
@@ -224,7 +224,7 @@
 .aiHeadHint {
   flex: 1;
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.5:1）
   @include text-ellipsis;
 }
 
@@ -233,7 +233,7 @@
   padding: 4rpx 18rpx;
   border-radius: $radius-round;
   background: $color-bg-card;
-  color: var(--brand, $color-secondary);
+  color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand 2.59:1）
   font-size: $font-size-sm;
   font-weight: $font-weight-medium;
 }
@@ -266,7 +266,7 @@
   margin-top: $spacing-md;
   padding: 10rpx 40rpx;
   border-radius: $radius-round;
-  background: var(--brand, $color-secondary);
+  background: var(--brand-strong, $color-secondary-strong); // 白字 5.26:1（原 --brand 白字 2.59:1）
   color: #fff;
   font-size: $font-size-md;
   font-weight: $font-weight-medium;
@@ -293,7 +293,7 @@
   flex-shrink: 0;
   padding: 10rpx 30rpx;
   border-radius: $radius-round;
-  background: var(--brand, $color-secondary);
+  background: var(--brand-strong, $color-secondary-strong); // 白字 5.26:1（原 --brand 白字 2.59:1）
   color: #fff;
   font-size: $font-size-sm;
   font-weight: $font-weight-medium;
@@ -318,7 +318,7 @@
   display: block;
   margin-top: $spacing-sm;
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
   text-align: center;
 }
 
@@ -329,7 +329,7 @@
   padding: 8rpx 30rpx;
   border-radius: $radius-round;
   background: $color-bg-card;
-  color: var(--brand, $color-secondary);
+  color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand 2.59:1）
   font-size: $font-size-sm;
 
   &:active {
@@ -351,7 +351,7 @@
 }
 
 .feedbackActive {
-  color: var(--brand, $color-secondary);
+  color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand 2.59:1）
   background: var(--brand-soft, rgba(0, 0, 0, 0.04));
   font-weight: $font-weight-medium;
 }
@@ -404,7 +404,7 @@
 
 .time {
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
 }
 
 .summary {
@@ -561,7 +561,7 @@
   font-size: $font-size-xs;
   font-weight: $font-weight-semibold;
   color: #fff;
-  background: var(--brand, $color-secondary);
+  background: var(--brand-strong, $color-secondary-strong); // 白字 5.26:1（原 --brand 白字 2.59:1）
   border-radius: $radius-xs;
   padding: 2rpx 10rpx;
   line-height: 1.4;
@@ -583,7 +583,7 @@
 
 .whyToggle {
   font-size: $font-size-xs;
-  color: var(--brand, $color-secondary);
+  color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand 2.59:1）
   font-weight: $font-weight-medium;
 
   &:active {
@@ -626,7 +626,7 @@
 .disclaimerText {
   display: block;
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
   text-align: center;
   line-height: $line-height-normal;
 }
@@ -757,7 +757,7 @@
 
 .blockEmpty {
   font-size: $font-size-sm;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
   margin-bottom: $spacing-md;
 }
 

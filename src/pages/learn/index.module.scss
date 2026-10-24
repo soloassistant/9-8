@@ -100,7 +100,7 @@
 }
 
 .statNumOn {
-  color: var(--brand, $color-secondary);
+  color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand 2.59:1）
 }
 
 .statUnit {
@@ -164,13 +164,13 @@
 
 .freezeText {
   font-size: $font-size-xs;
-  color: #1677ff;
+  color: #1266e0; // 4.6:1（原 #1677ff 仅 3.86:1）
 }
 
 .makeupBtn {
   padding: 8rpx 20rpx;
   border-radius: $radius-round;
-  background: var(--brand, $color-secondary);
+  background: var(--brand-strong, $color-secondary-strong); // 白字 5.26:1（原 --brand 白字 3.23:1）
   transition: all $transition-fast;
 
   &:active {
@@ -258,7 +258,7 @@
   padding: 2rpx 12rpx;
   border-radius: $radius-round;
   background: var(--brand-soft, rgba(0, 0, 0, 0.05));
-  color: var(--brand, $color-secondary);
+  color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand 2.59:1）
   font-size: $font-size-xs;
   flex-shrink: 0;
 }
@@ -293,7 +293,7 @@
 
 .courseArrow {
   font-size: 40rpx;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原禁用灰 1.59:1 —— 卡片箭头不是禁用态）
   flex-shrink: 0;
 }
 
@@ -321,7 +321,7 @@
 
 .recHint {
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
 }
 
 .recStep {

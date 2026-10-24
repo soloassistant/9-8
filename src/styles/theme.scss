@@ -6,10 +6,15 @@
 $color-primary: #ff7a45;
 $color-primary-light: #ffa06b;
 $color-primary-dark: #e85d2a;
+// strong 变体：品牌色承载「文字」或「白字控件」时的加深色。
+// 2026-10-24 无障碍修复：#ff7a45 对白底仅 2.59:1（WCAG AA 需 4.5），
+// 大场面背景仍用 $color-primary 保留品牌识别，凡信息性文字/白字按钮改用 strong。
+$color-primary-strong: #c7371a;   // 白底 5.26:1 / 浅橙底 4.95:1
 
 // 辅助色：晨空蓝（语音、对话、信息）
 $color-secondary: #5b8def;
 $color-secondary-light: #8fb2f5;
+$color-secondary-strong: #3560b8; // 白底 5.97:1（原 #5b8def 仅 3.23:1）
 
 // 功能色
 $color-success: #00b42a;

@@ -152,7 +152,7 @@
    见下方 .addBtn:233-244 的注释） */
 .catExport {
   font-size: $font-size-xs;
-  color: var(--brand, #{$color-primary});
+  color: var(--brand-strong, #{$color-primary-strong}); // 5.26:1（原 --brand 2.59:1）
   margin-left: $spacing-sm;
   flex-shrink: 0;
 }
@@ -280,7 +280,7 @@
   height: $button-height-md;
   padding: 0 $spacing-lg;
   border-radius: $radius-button;
-  background: var(--brand, #{$color-primary});
+  background: var(--brand-strong, #{$color-primary-strong}); // 白字 4.95:1（原 --brand 白字 2.59:1）
   color: #fff;
   font-size: $font-size-md;
   font-weight: $font-weight-medium;

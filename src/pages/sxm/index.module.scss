@@ -51,8 +51,8 @@
 }
 
 .tabActive {
-  background: var(--brand, #{$color-primary});
-  border-color: var(--brand, #{$color-primary});
+  background: var(--brand-strong, #{$color-primary-strong}); // 白字 5.26:1（原 --brand 白字 2.59:1）
+  border-color: var(--brand-strong, #{$color-primary-strong});
 }
 
 .tabText {
@@ -238,7 +238,7 @@
 .verdictPick {
   font-size: $font-size-sm;
   font-weight: $font-weight-medium;
-  color: $color-secondary;
+  color: $color-secondary-strong; // 5.97:1（原 #5b8def 仅 3.23:1）
   background: $color-todo-bg;
   padding: 2rpx $spacing-sm;
   border-radius: $radius-xs;

@@ -2,14 +2,28 @@
 
 .wrapper {
   position: fixed;
-  left: 0;
-  right: 0;
+  left: auto;
+  right: 24rpx;
+  /* 收缩到贴合内容（= 悬浮球宽度），不再拉成整屏宽的透明层。
+     2026-10-24：原写法 left:0; right:0 让这个 fixed 盒子横跨整个视口，
+     视觉巡检把「球右边那 320px 空白」也算成遮挡面积，报出大量幻影遮挡
+     （如「悬浮球 100% 压住本月额度行」——实际只有 54px 的球压在右缘）。
+     收缩后盒子几何 == 可见内容几何，度量才诚实；视觉完全不变
+     （fab 与气泡仍右对齐在同一竖线，24rpx 距右缘）。 */
+  width: max-content;
+  max-width: calc(100vw - 48rpx);
   z-index: var(--z-fab);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  padding-right: 24rpx;
   pointer-events: none;
+  /* 滚动收起（下滑隐藏 / 上滑归位）的过渡；200ms 与 20 款 App 的中位时长一致 */
+  transition: transform 200ms ease, opacity 200ms ease;
+
+  /* 尊重系统「减少动态效果」偏好：直接跳变，不做位移动画 */
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
 }
 
 /* P1：桌面端（≥500px）内容限宽居中为 20rem 卡片，悬浮球须跟随内容栏右缘，
@@ -62,9 +76,13 @@
 
 .hintBubble {
   pointer-events: auto;
-  position: relative;
-  max-width: 560rpx;
-  margin-right: 16rpx;
+  /* 绝对定位到浮层盒子**上方**：这样浮层盒子收缩后只等于悬浮球，
+     气泡不会把盒子撑宽（否则 fixed 盒子又变成气泡宽度，度量重新失真）。
+     right:16rpx 复刻原「气泡右缘比球右缘再内缩 16rpx」的视觉。 */
+  position: absolute;
+  right: 16rpx;
+  bottom: calc(100% + 16rpx);
+  max-width: min(560rpx, calc(100vw - 48rpx));
   background: $color-bg-card;
   border: 1rpx solid rgba(255, 122, 69, 0.3);
   border-radius: $radius-lg;

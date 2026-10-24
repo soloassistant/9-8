@@ -86,6 +86,10 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
   const t = useT();
   const [open, setOpen] = useState(false);
   const [hintVisible, setHintVisible] = useState(false);
+  /** 滚动收起：下滑时隐藏悬浮球，避免它压住正文（20 款 App 通例，FAB 不与内容争地盘）。
+   *  声明放在所有 effect 之前：useEffect 的依赖数组会引用它，后声明会触发
+   *  TS2448/2454 与 no-use-before-define。 */
+  const [fabHidden, setFabHidden] = useState(false);
   // AI 对话本地持久化：重进恢复上下文；恢复后打开面板不再重复欢迎语（messages.length > 0）
   const [messages, setMessages] = useState<AssistantMsg[]>(() => loadChatLog<AssistantMsg>(AI_LOG_KEY));
   const [input, setInput] = useState('');
@@ -114,6 +118,11 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
       setHintVisible(false);
       return;
     }
+    // 悬浮球被滚动收起时，气泡跟着藏 —— 否则会出现「球走了、气泡还在原地飘」的割裂态
+    if (fabHidden) {
+      setHintVisible(false);
+      return;
+    }
     if (!suggestion) return;
     if (activeHint) {
       setHintVisible(true);
@@ -124,7 +133,7 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
       const timer = setTimeout(() => setHintVisible(true), 1200);
       return () => clearTimeout(timer);
     }
-  }, [open, activeHint, suggestion]);
+  }, [open, activeHint, suggestion, fabHidden]);
 
   /** 气泡 8s 自动收起 */
   useEffect(() => {
@@ -239,15 +248,35 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
         if (isH5) {
           // F-03 H5 流式：空气泡打字机追加；失败移除空气泡降级整段 apiChat
           const streamId = push('assistant', '');
-          const streamed = await apiChatStream(content, false, (chunk) => appendMsg(streamId, chunk), memories);
-          if (streamed) {
-            setMsgContent(streamId, streamed.reply);
-            // P1-E：流式完成后与降级路径汇合——action='plan'（即排班提案回复）时补记记忆溯源
-            if (streamed.action === 'plan' && memoryTrace) {
-              patchMsg(streamId, memoryTrace);
+          try {
+            const streamed = await apiChatStream(content, false, (chunk) => appendMsg(streamId, chunk), memories);
+            if (streamed) {
+              setMsgContent(streamId, streamed.reply);
+              // S-01：与非流式路径汇合——action='plan' 时补齐候选时段与冲突标记。
+              // 2026-10-24 审计：此前流式路径只取 {reply, action}，proposals 被整个丢弃，
+              // H5（产品主入口）用户永远看不到方案卡片、无法勾选批准。
+              let proposal: PlanProposal | undefined;
+              if (streamed.action === 'plan' && Array.isArray(streamed.proposals) && streamed.proposals.length > 0) {
+                if (existingEventsRef.current.length === 0) await loadExistingEvents();
+                proposal = buildPlanProposal(streamed.proposals as PlanProposalRaw[], existingEventsRef.current);
+              }
+              // P1-E：携带排班提案的回复补记记忆溯源 footnote（与非流式路径同口径）
+              if (proposal && memoryTrace) {
+                patchMsg(streamId, { proposal, memoryCount: memoryTrace.memoryCount, memoryItems: memoryTrace.memoryItems });
+              }
+              // M-03：模型返回记忆条目时写入并展示 toast（此前流式路径丢弃，H5 上记忆永不落库）
+              if (Array.isArray(streamed.memories) && streamed.memories.length > 0) {
+                showMemoryToast(writeMemory(streamed.memories, 'chat', content));
+              }
+              res = { ...streamed, proposals: streamed.proposals as PlanProposalRaw[] | undefined };
+            } else {
+              removeMsg(streamId);
             }
-            res = streamed;
-          } else {
+          } catch (streamErr) {
+            // 流式失败（超时/断流）：移除空气泡后**继续往下走非流式 apiChat**，
+            // 与上方注释声明的「降级整段 apiChat」一致。此前直接抛到外层 catch，
+            // 用户看到一条空气泡 + 一条兜底文案（双气泡），且没有真正降级重试。
+            console.error('[AiAssistant] chat stream failed, degrade to apiChat:', streamErr);
             removeMsg(streamId);
           }
         }
@@ -478,6 +507,41 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
     setHintVisible(false);
   };
 
+  /**
+   * 滚动收起悬浮球（H5）。
+   *
+   * 20 款 App 调研结论（2026-10-24）：FAB 的通行做法是「下滑收起、上滑归位、回顶常驻」，
+   * 绝不与正文争地盘 —— 实测本仓悬浮球在中/底滚动位压住「本月额度」行 100%、
+   * 课程卡 95%、反馈行 100%，用户想点的按钮正好在球下面。
+   *
+   * ⚠️ 必须挂在**真实滚动容器**（.taro_page）上，不是 window：Taro H5 把页面装进
+   * position:absolute + overflow:auto 的容器里滚动，window 上永远收不到 scroll 事件
+   * （与视觉巡检 2026-10-24 踩的是同一个坑）。
+   * 面板打开时强制显示：用户正在跟 AI 对话，收起会让入口消失、误以为对话中断。
+   */
+  useEffect(() => {
+    if (!isH5 || typeof document === 'undefined') return;
+    const findScroller = (): HTMLElement | null => {
+      const taroPage = document.querySelector('.taro_page');
+      if (taroPage instanceof HTMLElement) return taroPage;
+      return document.scrollingElement as HTMLElement | null;
+    };
+    const scroller = findScroller();
+    if (!scroller) return;
+    let lastY = scroller.scrollTop;
+    const onScroll = () => {
+      const y = scroller.scrollTop;
+      const dy = y - lastY;
+      // 8px 阈值过滤触摸抖动与惯性尾段；48px 内视为顶部，常驻不收起
+      if (y <= 48) setFabHidden(false);
+      else if (dy > 8) setFabHidden(true);
+      else if (dy < -8) setFabHidden(false);
+      lastY = y;
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, []);
+
   const lastMsgId = messages.length > 0 ? messages[messages.length - 1].id : '';
 
   /**
@@ -492,7 +556,13 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
   const fabStyle = {
     bottom: isH5
       ? `calc(50px + env(safe-area-inset-bottom) + ${((FAB_BASE_OFFSET_RPX + offset) / DESIGN_PX_PER_REM).toFixed(5)}rem)`
-      : `calc(0px + env(safe-area-inset-bottom) + ${FAB_BASE_OFFSET_RPX + offset}rpx)`
+      : `calc(0px + env(safe-area-inset-bottom) + ${FAB_BASE_OFFSET_RPX + offset}rpx)`,
+    // 滚动收起：下滑时整层右移出屏并淡出。transform/opacity 走 GPU，不触发重排。
+    // 面板打开时（open）强制可见：正在对话中收起会让用户以为 AI 消失了。
+    transform: fabHidden && !open ? 'translateX(140%)' : 'translateX(0)',
+    opacity: fabHidden && !open ? 0 : 1,
+    // 隐藏时不吃事件：否则球虽看不见，仍在原位置拦截背后按钮的点击
+    pointerEvents: (fabHidden && !open ? 'none' : undefined) as React.CSSProperties['pointerEvents']
   };
 
   /** 拖过位后位置生效：wrapper 从「全宽贴底」切换为「按坐标定位」 */

@@ -11,6 +11,7 @@ import { apiGetLibrary, apiGetHotspot, apiNewsSearch } from '@/services/api';
 import { getHotspotMeta, apiAiNewsFilter, apiGetAffinity, apiSaveAffinity } from '@/services/cloud';
 import { invoke } from '@/services/dataSource';
 import { useUserStore } from '@/store/user';
+import { brandVars, useThemeStore } from '@/store/theme';
 import { fromNow } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
 import type { CollectionItem, HotspotNews } from '@/types';
@@ -53,6 +54,9 @@ const TYPE_ICONS: Record<CollectionItem['sourceType'], string> = {
   message: '💬',
   link: '🔗'
 };
+/** sourceType 脏值兜底（云同步/旧数据可能是任意串）：未知类型渲染通用文档图标，
+ *  而不是空图标（2026-10-24 审计）。口径同 cloudLlm.ts 的 sourceType 归一。 */
+const TYPE_ICON_FALLBACK = '📄';
 
 const HISTORY_KEY = 'browseHistory';
 const HISTORY_LIMIT = 50;
@@ -168,6 +172,7 @@ export function recordBrowseHistory(entry: { id: string; title: string; source?:
 
 function LibraryPage() {
   const t = useT();
+  const theme = useThemeStore((s) => s.theme);
   const [items, setItems] = useState<CollectionItem[]>([]);
   const [news, setNews] = useState<HotspotNews[]>([]);
   const [hotMeta, setHotMeta] = useState<ReturnType<typeof getHotspotMeta>>(null);
@@ -972,7 +977,7 @@ function LibraryPage() {
   };
 
   return (
-    <View className={styles.page}>
+    <View className={styles.page} style={brandVars(theme)}>
       {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
       <DemoDataHint />
       {/* 竞品分析 X11：未成年人模式低调横幅 */}
@@ -1210,7 +1215,7 @@ function LibraryPage() {
         {filtered.map((item) => (
           <View key={item.id} className={styles.card} onClick={() => handleCopy(item)}>
             <View className={styles.cardHeader}>
-              <Text className={styles.typeIcon}>{TYPE_ICONS[item.sourceType]}</Text>
+              <Text className={styles.typeIcon}>{TYPE_ICONS[item.sourceType] || TYPE_ICON_FALLBACK}</Text>
               <Text className={styles.title}>{item.title}</Text>
               <Text className={styles.time}>{fromNow(item.createTime)}</Text>
             </View>

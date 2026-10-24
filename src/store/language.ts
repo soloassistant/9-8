@@ -197,6 +197,10 @@ const zh = {
   'mine.payChannelDouyin': '抖音支付',
   'mine.ordersTitle': '订阅记录',
   'mine.ordersEmpty': '暂无支付记录',
+  // 查询失败态：与 ordersEmpty 分开。老写法把「ordersList 调用失败」也渲染成
+  // 「暂无支付记录」——已付费用户会以为订单被吞了。错误态要说清「发生了什么 + 怎么办」。
+  'mine.ordersError': '订阅记录加载失败，可能是网络波动',
+  'common.retry': '重试',
   'mine.orderStatusPaid': '已支付',
   'mine.orderStatusCreated': '待支付',
   'mine.orderStatusRefunded': '已退款',
@@ -531,6 +535,9 @@ const zh = {
   'ledger.exportCopied': '小程序端无法直接保存文件，内容已复制到剪贴板，可粘贴到别处保存',
   'ledger.exportEmpty': '暂无记账数据，先记一笔吧',
   'ledger.exportFailed': '导出失败，请稍后重试',
+  'ledger.deleteTitle': '删除账目',
+  'ledger.deleteConfirm': '确定删除这条账目吗？删除后不可恢复',
+  'ledger.deleted': '已删除',
   /* ---- 晨报记账卡片 ---- */
   'briefing.sectionLedger': '今日账单',
   'briefing.ledgerToday': '今日支出',
@@ -1087,6 +1094,8 @@ const en: Record<keyof typeof zh, string> = {
   'mine.payChannelDouyin': 'Douyin Pay',
   'mine.ordersTitle': 'Order History',
   'mine.ordersEmpty': 'No payment records yet',
+  'mine.ordersError': "Couldn't load your order history — the network may be flaky",
+  'common.retry': 'Retry',
   'mine.orderStatusPaid': 'Paid',
   'mine.orderStatusCreated': 'Pending',
   'mine.orderStatusRefunded': 'Refunded',
@@ -1411,6 +1420,9 @@ const en: Record<keyof typeof zh, string> = {
     'Mini programs cannot save files directly. The content was copied to your clipboard — paste it somewhere to keep it',
   'ledger.exportEmpty': 'No entries yet — log your first one',
   'ledger.exportFailed': 'Export failed, please try again later',
+  'ledger.deleteTitle': 'Delete entry',
+  'ledger.deleteConfirm': 'Delete this entry? This cannot be undone.',
+  'ledger.deleted': 'Deleted',
   /* ---- Briefing ledger card ---- */
   'briefing.sectionLedger': "Today's Spending",
   'briefing.ledgerToday': "Spent today",

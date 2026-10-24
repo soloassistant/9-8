@@ -507,7 +507,7 @@
   flex-shrink: 0;
   padding: 6rpx 16rpx;
   font-size: $font-size-xs;
-  color: $color-primary;
+  color: $color-primary-strong; // 白底 5.26:1（原 $color-primary 仅 2.59:1）
   background: rgba(255, 122, 69, 0.12); // 品牌色 12% 底（主题色为 CSS 变量，scss 用固定近似值）
   border-radius: $radius-round;
 }
@@ -554,18 +554,18 @@
   display: block;
   margin-top: 8rpx;
   font-size: $font-size-xs;
-  color: #999;
+  color: $color-text-tertiary; // 白底 5.02:1（原硬编码 #999 仅 2.85:1）
 }
 
 // intelNote 免费档：flex 容器，左边提示文字 + 右边 CTA
 .intelNoteText {
   font-size: $font-size-xs;
-  color: #999;
+  color: $color-text-tertiary; // 白底 5.02:1（原硬编码 #999 仅 2.85:1）
 }
 
 .intelNoteCta {
   font-size: $font-size-xs;
-  color: $color-primary;
+  color: $color-primary-strong; // 白底 5.26:1（原 $color-primary 仅 2.59:1）
   font-weight: $font-weight-semibold;
   padding: 0 4rpx;
   margin-left: auto;
@@ -608,13 +608,13 @@
   display: block;
   margin-top: 4rpx;
   font-size: $font-size-xs;
-  color: #999;
+  color: $color-text-tertiary; // 5.02:1（原硬编码 #999 仅 2.85:1）
 }
 
 .aiGeneratedTag {
   text-align: center;
   font-size: $font-size-sm;
-  color: #999;
+  color: $color-text-tertiary; // 5.02:1（原硬编码 #999 仅 2.85:1）
   padding: 8rpx 0 4rpx;
 }
 
@@ -626,7 +626,7 @@
 
 .chatHint {
   font-size: $font-size-sm;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
 }
 
 .messages {
@@ -796,7 +796,7 @@
   flex-shrink: 0;
   height: $button-height-md;
   border-radius: $radius-round;
-  background: var(--brand, $color-secondary);
+  background: var(--brand-strong, $color-secondary-strong); // 白字 4.95:1（原 --brand 白字仅 2.59:1）
   color: $color-text-white;
   font-size: $font-size-sm;
   font-weight: $font-weight-medium;
@@ -868,7 +868,9 @@
   padding: 0 $spacing-lg;
   border-radius: $radius-button;
   background: $color-gold;
-  color: $color-text-white;
+  // 金底 #f7ba1e 上白字仅 1.75:1（任何加深都救不回白字）→ 改深色字 9.22:1。
+  // 这是「白字改深字」而非「改背景色」：保留订阅金标识别别度，同时满足 WCAG AA。
+  color: $color-text-primary;
   font-size: $font-size-sm;
   white-space: nowrap;
   transition: all $transition-fast;

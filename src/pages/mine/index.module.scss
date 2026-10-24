@@ -147,7 +147,7 @@
   background: $color-text-white;
   font-size: $font-size-md;
   font-weight: $font-weight-semibold;
-  color: var(--brand-deep, #{$color-primary-dark});
+  color: var(--brand-strong, #{$color-primary-strong}); // 5.26:1（原 --brand-deep #e85d2a 仅 3.48:1）
   white-space: nowrap;
   transition: all $transition-fast;
 
@@ -255,7 +255,7 @@
 }
 
 .entryArrow {
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原禁用灰 1.59:1 —— 入口箭头不是禁用态）
   font-size: $font-size-sm;
 }
 
@@ -271,7 +271,7 @@
 .cardTitle {
   display: block;
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1 —— 卡片分组标题不是禁用态）
   font-weight: $font-weight-medium;
   padding: $spacing-xs 0;
 }
@@ -317,12 +317,12 @@
 
 .valueHint {
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
 }
 
 .linkText {
   font-size: $font-size-md;
-  color: var(--brand-deep, $color-secondary);
+  color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand-deep #e85d2a 仅 3.48:1）
   font-weight: $font-weight-medium;
 }
 
@@ -333,7 +333,7 @@
 
 .arrow {
   font-size: $font-size-xl;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原禁用灰 1.59:1 —— 行尾箭头不是禁用态）
   line-height: 1;
 }
 
@@ -829,7 +829,7 @@
 .subSectionTitle {
   display: block;
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
   font-weight: $font-weight-medium;
   padding: $spacing-xs 0;
 }
@@ -879,7 +879,7 @@
   display: block;
   padding: $spacing-sm 0;
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
   line-height: $line-height-normal;
 }
 
@@ -904,7 +904,7 @@
 // X3 免打扰起止之间的连字符
 .dndSep {
   font-size: $font-size-xs;
-  color: $color-text-disabled;
+  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
   align-self: center;
 }
 
@@ -951,6 +951,37 @@
   text-align: center;
   color: $color-text-tertiary;
   font-size: $font-size-sm;
+}
+
+/* 订阅记录查询失败态：与「暂无记录」视觉上区分（错误态有主按钮，空态没有），
+   文案说清原因 + 给重试入口。已付费用户查不到订单时不能再看到「暂无支付记录」。 */
+.orderErrorBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-lg $spacing-sm;
+}
+
+.orderErrorText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary; // 4e5969，白底 7.0:1
+  text-align: center;
+}
+
+.orderRetry {
+  @include button-reset;
+  width: auto; // 覆盖 taro-button-core 默认 width:100%
+  padding: 8rpx 32rpx;
+  border-radius: $radius-round;
+  background: var(--brand-strong, #{$color-primary-strong}); // 白字 5.26:1
+  color: $color-text-white;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+
+  &:active {
+    opacity: 0.85;
+  }
 }
 
 .orderList {
