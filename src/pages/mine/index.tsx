@@ -1475,6 +1475,29 @@ function MinePage() {
         ) : null}
       </View>
 
+      {/* ===== 功能宫格（2026-10-25）：高频功能从页面底部捞到顶部 =====
+          记账/购物/学习原先埋在「其他入口」底卡（本轮已去重上移，底卡整卡移除）；
+          浏览历史此前只藏在头像 actionSheet 里，全网搜索只在晨报页头部 ——
+          宫格是它们第一排的一等入口。放在个人卡与订阅卡之间：先「我能用什么」再「要不要付费」。 */}
+      <View className={styles.featureGrid}>
+        {([
+          { icon: '🧾', label: t('mine.gridLedger'), url: '/pages/ledger/index' },
+          { icon: '🛒', label: t('mine.gridShopping'), url: '/pages/shopping/index' },
+          { icon: '📚', label: t('mine.gridLearn'), url: '/pages/learn/index' },
+          { icon: '🕘', label: t('mine.gridHistory'), url: '/pages/history/index' },
+          { icon: '🔍', label: t('mine.gridSearch'), url: '/pages/search/index' }
+        ] as Array<{ icon: string; label: string; url: string }>).map((it) => (
+          <View
+            key={it.url}
+            className={styles.featureTile}
+            onClick={() => Taro.navigateTo({ url: it.url })}
+          >
+            <Text className={styles.featureIcon}>{it.icon}</Text>
+            <Text className={styles.featureLabel}>{it.label}</Text>
+          </View>
+        ))}
+      </View>
+
       {/* ===== 订阅区（B-01 锁价文案 / B-02 涨价通知 / 三通道支付） ===== */}
       <View className={styles.subCard}>
         <Text className={styles.subTitle}>{t('mine.subTitle')}</Text>
@@ -2292,32 +2315,8 @@ function MinePage() {
         {renderRow(t('mine.signOut'), <Text>{t('mine.signOutHint')}</Text>, handleSignOut)}
       </View>
 
-      {/* 其他入口 */}
-      <View className={styles.settingCard}>
-        <View className={styles.settingRow} onClick={() => Taro.navigateTo({ url: '/pages/learn/index' })}>
-          <Text className={styles.settingLabel}>{t('mine.learn')}</Text>
-          <View className={styles.settingValue}>
-            <Text>{t('mine.learnDesc')}</Text>
-            <Text className={styles.entryArrow}>›</Text>
-          </View>
-        </View>
-        <View className={styles.settingRow} onClick={() => Taro.navigateTo({ url: '/pages/shopping/index' })}>
-          <Text className={styles.settingLabel}>{t('mine.shopping')}</Text>
-          <View className={styles.settingValue}>
-            <Text>{t('mine.shoppingDesc')}</Text>
-            <Text className={styles.entryArrow}>›</Text>
-          </View>
-        </View>
-        {/* 记账（v2.0 F23）：放在购物清单正下方 —— 两者的心智模型相邻（都是「花钱」相关），
-            且这是记账页唯一的常驻入口；晨报卡片另有「查看全部」直达。 */}
-        <View className={styles.settingRow} onClick={() => Taro.navigateTo({ url: '/pages/ledger/index' })}>
-          <Text className={styles.settingLabel}>{t('mine.ledger')}</Text>
-          <View className={styles.settingValue}>
-            <Text>{t('mine.ledgerDesc')}</Text>
-            <Text className={styles.entryArrow}>›</Text>
-          </View>
-        </View>
-      </View>
+      {/* 记账/购物/学习三行已上移至顶部功能宫格（2026-10-25 去重，原「其他入口」底卡整卡移除）。
+          晨报页记账卡的「查看全部」直达保留，双入口不冲突。 */}
 
       <View className={styles.privacyCard}>
         <Text className={styles.privacyText}>

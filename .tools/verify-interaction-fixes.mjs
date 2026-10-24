@@ -114,6 +114,22 @@ ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.tes
   ok('L7 合规口径落在用户可见文案（源摘要 + 引导原文）', /以上为来源媒体在其订阅源中发布的摘要/.test(read('src/store/language.ts')));
 }
 
+/* ---------------- M. 我的页功能宫格（2026-10-25） ----------------
+   高频功能（记账/购物/学习/历史/搜索）的一等入口；历史此前只藏头像 actionSheet，搜索只在晨报页。 */
+{
+  const mineGrid = stripComments(read('src/pages/mine/index.tsx'));
+  ok('M1 功能宫格存在（featureGrid + gridLedger）', /featureGrid/.test(mineGrid) && /mine\.gridLedger/.test(mineGrid));
+  ok(
+    'M2 五入口路由齐备（ledger/shopping/learn/history/search）',
+    ['/pages/ledger/index', '/pages/shopping/index', '/pages/learn/index', '/pages/history/index', '/pages/search/index'].every((u) =>
+      mineGrid.includes(u)
+    )
+  );
+  ok('M3 底部旧入口已去重（ledger 路由在 mine 页只出现一次）', (mineGrid.match(/pages\/ledger\/index/g) || []).length === 1);
+  ok('M4 浏览历史获得一等入口（mine.gridHistory）', /mine\.gridHistory/.test(mineGrid));
+  ok('M5 宫格样式定义（featureTile + featureIcon）', /\.featureTile\s*\{/.test(read('src/pages/mine/index.module.scss')) && /\.featureIcon\s*\{/.test(read('src/pages/mine/index.module.scss')));
+}
+
 /* ---------------- E. 搜索接全网 + 失败态独立 ---------------- */
 const search = stripComments(read('src/pages/search/index.tsx'));
 ok('E1 搜索页调用 apiNewsSearch', /apiNewsSearch\(/.test(search));

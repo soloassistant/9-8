@@ -1395,3 +1395,42 @@
   font-size: $font-size-sm;
   color: #cc2e34;
 }
+
+/* ===== 功能宫格（2026-10-25）：高频功能一等入口 =====
+   flex 五等分（不用 grid：旧基础库兼容面更稳）；图上文下两行 tile。 */
+.featureGrid {
+  display: flex;
+  align-items: stretch;
+  margin-top: $spacing-md;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-xl;
+  box-shadow: $shadow-card;
+  padding: $spacing-sm $spacing-xs;
+}
+
+.featureTile {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-sm 0;
+  border-radius: $radius-md;
+  transition: background $transition-fast;
+
+  &:active {
+    background: $color-bg-hover;
+  }
+}
+
+.featureIcon {
+  font-size: $font-size-xxl;
+  line-height: 1.2;
+}
+
+.featureLabel {
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+}
