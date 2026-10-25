@@ -131,6 +131,7 @@ ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.tes
   const sxmFn = /const handleGridSxm = \(\) => \{([\s\S]*?)\n  \};/.exec(mineGrid);
   const sxmBody = sxmFn ? sxmFn[1] : '';
   ok('M7 省心买外放逐端镜像（H5 开 /sxm/ 服务、weapp 进原生页）',
+    sxmBody.includes('if (isH5)') &&
     sxmBody.includes('openExternalPage(SXM_ENTRY_URL)') &&
     sxmBody.includes("navigateTo({ url: '/pages/sxm/index' })"));
   ok('M3 底部旧入口已去重（ledger 路由在 mine 页只出现一次）', (mineGrid.match(/pages\/ledger\/index/g) || []).length === 1);
