@@ -127,5 +127,13 @@ export default [
     from: ".filter((b) => b && typeof b.amount === 'number' && b.amount > 0)",
     to: '.filter((b) => b)',
     cmd: 'node .tools/verify-interaction-fixes.mjs'
+  },
+  {
+    // P 组：促销码到期日比较翻转（过期码也能兑 —— 活动截止闸失效）
+    label: '促销码 goodUntil 比较翻转（过期码可兑）',
+    file: 'src/utils/promo.ts',
+    from: "if (todayStr() > hit.goodUntil) return { ok: false, reason: 'expired' };",
+    to: 'if (false) return { ok: false, reason: \'expired\' };',
+    cmd: 'node .tools/verify-interaction-fixes.mjs'
   }
 ];

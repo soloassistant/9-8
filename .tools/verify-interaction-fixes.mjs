@@ -164,6 +164,80 @@ ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.tes
     /bills\.length > 0 \? \(/.test(inboxSrc) && /shoppingHits\.length > 0 \? \(/.test(inboxSrc));
 }
 
+/* ---------------- P. 促销码兑换（2026-10-25，H5 端 PRO 开通路径） ---------------- */
+async function loadPromo() {
+  const built = await esbuild.build({
+    entryPoints: [path.join(ROOT, 'src/utils/promo.ts')],
+    bundle: true,
+    write: false,
+    format: 'cjs',
+    platform: 'node',
+    target: 'node18',
+    // promo.ts import Taro —— 打包侧桩掉（门禁只测纯逻辑；Taro 调用在别处有人工路径）
+    external: ['@tarojs/taro'],
+    logLevel: 'silent'
+  });
+  const sandbox = {
+    module: { exports: {} },
+    exports: {},
+    console: { log: (...a) => console.log('[promo]', ...a), warn: () => {}, error: (...a) => console.log('[promo-err]', ...a) },
+    // Taro 桩：内存版 storage。直接返回方法对象（esbuild 的 __toESM 会把它设为
+    // import_taro.default —— 包一层 {default:...} 反而会多套一层命不中方法）
+    require: (id) => ({ getStorageSync: () => sandbox.__store, setStorageSync: (k, v) => { sandbox.__store = v; } }),
+    JSON, Math, Array, String, Number, Date
+  };
+  sandbox.globalThis = sandbox;
+  sandbox.__store = '';
+  vm.createContext(sandbox);
+  vm.runInContext(built.outputFiles[0].text, sandbox, { filename: 'src/utils/promo.ts' });
+  return sandbox.module.exports;
+}
+
+const promoMod = await loadPromo();
+ok('P0 promo 模块可加载（SHA/ redeem 导出齐）',
+  typeof promoMod.redeemPromo === 'function' && typeof promoMod._sha256HexForTest === 'function');
+if (typeof promoMod._sha256HexForTest === 'function') {
+  // SHA-256 标准测试向量（NIST/FIPS 180-2 公有域值）—— 实现错则一切校验皆假
+  ok('P1 SHA-256 实现正确（"abc" 标准向量）',
+    promoMod._sha256HexForTest('abc') === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  // 自造码表测全行为（明文 TEST 码不进生产表）
+  const crypto = await import('node:crypto');
+  const mkCode = 'PRO-TEST-0001';
+  const mkHash = crypto.createHash('sha256').update(mkCode).digest('hex');
+  const goodUntil = new Date(Date.now() + 30 * 86400 * 1000).toISOString().slice(0, 10);
+  const pastUntil = '2020-01-01';
+  const testCodes = [
+    { hash: mkHash, planDays: 30, goodUntil },
+    { hash: mkHash, planDays: 30, goodUntil: pastUntil }
+  ];
+  ok('P2 有效码兑换成功且写凭证（30 天）',
+    (() => { const r = promoMod.redeemPromo(mkCode, testCodes); return r.ok === true && !!r.expiredAt; })());
+  ok('P3 错码返回 unknown（不猜、不写凭证）',
+    promoMod.redeemPromo('PRO-WRNG-9999', testCodes).reason === 'unknown');
+  ok('P4 格式错返回 format（防手滑长串打爆存储）',
+    promoMod.redeemPromo('随便什么乱码!', testCodes).reason === 'format');
+  ok('P5 活动截止码返回 expired（goodUntil 已过不可兑）',
+    (() => { const codes2 = [{ hash: mkHash, planDays: 30, goodUntil: pastUntil }]; return promoMod.redeemPromo(mkCode, codes2).reason === 'expired'; })());
+  ok('P6 重复兑换时长叠加（第二次在第一次到期日上顺延 60 天总量）',
+    (() => {
+      const codes3 = [{ hash: mkHash, planDays: 30, goodUntil }];
+      const r1 = promoMod.redeemPromo(mkCode, codes3);
+      const r2 = promoMod.redeemPromo(mkCode, codes3);
+      const span = Math.round((Date.parse(r2.expiredAt) - Date.parse(r1.expiredAt)) / 86400000);
+      return r2.ok === true && span === 30;
+    })());
+  ok('P7 生产码表非空且哈希形状合法（64 位十六进制，防占位符/空表上线）',
+    Array.isArray(promoMod.PROMO_CODES) && promoMod.PROMO_CODES.length > 0 &&
+    promoMod.PROMO_CODES.every((p) => /^[0-9a-f]{64}$/.test(p.hash)));
+  // P8：兑换入口仅 H5 渲染。weapp 的兑换走 redeemCode 云函数（服务端 users 表发权益），
+  // 云函数未部署前 weapp 没有入口 —— 不能放一个写本地凭证的入口：weapp 订阅态以服务端为准，
+  // 本地凭证不改变云函数 getUsage 额度，会呈现「UI 说订阅了、权益没给」的假订阅。
+  const promoEntryIdx = mine.indexOf('mine.promoEntry');
+  ok('P8 促销码入口仅 H5 渲染（weapp 无本地凭证假订阅）',
+    promoEntryIdx > 0 && mine.lastIndexOf('isH5 ? (', promoEntryIdx) > 0 &&
+    mine.lastIndexOf('isH5 ? (', promoEntryIdx) < promoEntryIdx);
+}
+
 /* ---------------- E. 搜索接全网 + 失败态独立 ---------------- */
 const search = stripComments(read('src/pages/search/index.tsx'));
 ok('E1 搜索页调用 apiNewsSearch', /apiNewsSearch\(/.test(search));

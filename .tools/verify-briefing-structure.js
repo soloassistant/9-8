@@ -67,9 +67,14 @@ assert('记账卡不在 headerActions 里（否则卡片在 flex 行内被撑开
   headerWindow.includes('ledgerBrief') === false);
 
 const ledgerIdx = PAGE.indexOf('ledgerBrief && ledgerBrief.count > 0');
-const bannerIdx = PAGE.indexOf('hasContent && adaptiveBanner', haClose);
+// 2026-10-25 信息架构重排（用户：「第一面最重要的是工作安排提醒，不要本末倒置」）：
+// 日程/待办（contentFade）升为 header 后第一主内容；记账/工具行/行情/回顾等附加块
+// 后移到 contentFade 收口之后。新判据钉死这个顺序，防回退。
+const fadeOpen = PAGE.indexOf('styles.contentFade');
+const fadeClose = PAGE.indexOf(')}', fadeOpen);
 assert('记账卡渲染在 header 闭合之后（即 header 之外）', ledgerIdx > haClose && haClose > 0);
-assert('记账卡仍在横幅区之前（信息优先级：当日概览排在提示条前）', ledgerIdx < bannerIdx && bannerIdx > 0);
+assert('记账卡在主内容（contentFade 日程/待办）之后 —— 工作安排是第一面主角，附加内容后置',
+  fadeOpen > 0 && fadeClose > fadeOpen && ledgerIdx > fadeClose);
 
 /* ============================================================
  * 二、hasContent 必须把情报算进去

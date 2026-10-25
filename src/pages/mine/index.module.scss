@@ -1468,3 +1468,12 @@
   font-size: $font-size-md;
   color: $color-text-tertiary;
 }
+
+/* 促销码入口行（续费管理块底部，2026-10-25）：次级动作样式（链接色，不与主按钮争权重） */
+.promoEntry {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-sm;
+  color: $color-primary-strong;
+  text-decoration: underline;
+}

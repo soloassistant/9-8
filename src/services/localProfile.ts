@@ -1,4 +1,5 @@
 import Taro from '@tarojs/taro';
+import { readH5Subscription } from '@/utils/promo';
 import type { UserProfile } from '../types';
 import type { CloudSession, CloudUser } from './cloudAuth';
 
@@ -169,10 +170,11 @@ export function buildProfileFromSession(session: CloudSession | null): UserProfi
     nickname: settings.nickname || maskIdentifier(user) || '晨友',
     briefingTime: settings.briefingTime,
     preferences: settings.preferences,
-    // 订阅态无服务端来源（H5 拿不到订阅云函数），不编造：按未订阅呈现，
-    // 前端的订阅入口本身会引导到小程序那条线。
-    subscribed: false,
-    expiredAt: null,
-    isEarlyBird: false
+    // 订阅态（2026-10-25 起有本地来源）：促销码兑换成功会写 h5-subscription 凭证
+    // （utils/promo.ts，兑换有哈希校验、到期自动失效）。没兑换过/已过期 → 如实未订阅。
+    // 注意这不是编造：凭证的来源是一次通过校验的真实兑换。
+    ...(readH5Subscription()
+      ? { subscribed: true, expiredAt: readH5Subscription()!.expiredAt, isEarlyBird: false }
+      : { subscribed: false, expiredAt: null, isEarlyBird: false }),
   };
 }

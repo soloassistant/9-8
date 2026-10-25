@@ -1,0 +1,9 @@
+{
+  "name": "redeemCode",
+  "version": "1.0.0",
+  "description": "兑换码兑换（一码一用，事务保证并发安全）：开通/顺延订阅",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

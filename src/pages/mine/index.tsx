@@ -26,6 +26,7 @@ import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { disabledAttr } from '@/utils/buttonDisabled';
 import { openExternalPage } from '@/utils/externalLink';
+import { redeemPromo } from '@/utils/promo';
 import { SXM_ENTRY_URL } from '@/config/partners';
 import { fromNow, dayKey } from '@/utils/date';
 import { getActivityLogs } from '@/utils/activityLog';
@@ -1187,6 +1188,30 @@ function MinePage() {
    *     弹窗底部如实说明，短信登录不受影响。 */
   /** 我的页分区折叠（2026-10-25 瘦身）：低频区默认收起，主路径（个人卡/宫格/订阅/通用设置）常开。
    *  折叠只是视觉收纳 —— 各区块的原 JSX 原样保留在折叠体里，门禁断言的源码模式不受影响。 */
+  /** 促销码兑换（2026-10-25）：H5 端 PRO 开通路径（无支付通道）。成功后 init() 刷新
+   *  档案（订阅卡/角标联动）与额度（语音/收藏转 -1）。 */
+  const [promoOpen, setPromoOpen] = useState(false);
+  const [promoInput, setPromoInput] = useState('');
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [promoErr, setPromoErr] = useState('');
+
+  const handleRedeemPromo = async () => {
+    if (promoBusy) return;
+    setPromoErr('');
+    setPromoBusy(true);
+    const res = redeemPromo(promoInput);
+    if (!res.ok) {
+      setPromoBusy(false);
+      setPromoErr(t(res.reason === 'format' ? 'mine.promoBadFormat' : res.reason === 'expired' ? 'mine.promoExpired' : 'mine.promoUnknown'));
+      return;
+    }
+    // 成功：关弹窗、清输入、全量刷新档案与额度（init 会重建 profile —— 促销订阅态随之生效）
+    setPromoBusy(false);
+    setPromoOpen(false);
+    setPromoInput('');
+    Taro.showToast({ title: t('mine.promoDone', { date: res.expiredAt || '' }), icon: 'none', duration: 3000 });
+    await init();
+  };
   const [foldUsage, setFoldUsage] = useState(false);
   const [foldAi, setFoldAi] = useState(false);
   const [foldPush, setFoldPush] = useState(false);
@@ -1586,6 +1611,16 @@ function MinePage() {
           )}
           {/* 明确写出"不自动续费"：否则用户会默认以为到期自动扣款，反而不敢开提醒 */}
           <Text className={styles.renewNote}>{t('mine.renewNoAuto')}</Text>
+          {/* 促销码兑换（2026-10-25，用户需求「兑换码兑换 pro」）：H5 无支付通道时的开通路径。
+              促销码=活动期可多人用（区别于小程序端一码一用的兑换码），兑换成功立即刷新档案与额度。
+              **仅 H5 显示**：weapp 的兑换走 redeemCode 云函数（一码一用，服务端 users 表发权益），
+              该云函数待部署三件套就绪前 weapp 没有任何兑换入口 —— 比放一个写本地凭证的
+              「假订阅」入口诚实（weapp 订阅态以服务端为准，本地凭证不改变云函数额度）。 */}
+          {isH5 ? (
+            <Text className={styles.promoEntry} onClick={() => setPromoOpen(true)}>
+              {t('mine.promoEntry')} ›
+            </Text>
+          ) : null}
         </View>
 
         {/* ① 方案卡片横排（替换原 Picker） */}
@@ -2566,6 +2601,40 @@ function MinePage() {
                 onClick={() => void submitChangePassword()}
               >
                 {t('mine.pwdSubmit')}
+              </Button>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {/* 促销码兑换弹层（与城市/反馈共用半屏语言与控件样式） */}
+      {promoOpen ? (
+        <View className={styles.docMask} onClick={() => setPromoOpen(false)}>
+          <View className={classnames(styles.docPanel, styles.fbPanel)} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.docTitle}>{t('mine.promoTitle')}</Text>
+            <Text className={styles.fbIntro}>{t('mine.promoHint')}</Text>
+            <Input
+              className={styles.fbInput}
+              type='text'
+              value={promoInput}
+              maxlength={14}
+              placeholder={t('mine.promoPlaceholder')}
+              onInput={(e) => {
+                setPromoInput(String(e.detail.value || '').toUpperCase());
+                setPromoErr('');
+              }}
+            />
+            {promoErr ? <Text className={styles.fbError}>{promoErr}</Text> : null}
+            <View className={styles.fbActions}>
+              <Button className={styles.fbCancel} onClick={() => setPromoOpen(false)}>
+                {t('cancel')}
+              </Button>
+              <Button
+                className={styles.fbSubmit}
+                disabled={disabledAttr(promoBusy)}
+                onClick={() => void handleRedeemPromo()}
+              >
+                {t('mine.promoSubmit')}
               </Button>
             </View>
           </View>

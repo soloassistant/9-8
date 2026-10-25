@@ -1190,6 +1190,22 @@ function BriefingPage() {
           诚实边界见 components/BurstBanner 头注释 —— 不是推送、不是官方通报，且可当天关闭。 */}
       <BurstBanner items={briefing?.intel?.intelItems} />
       <View className={styles.header}>
+
+      {hasContent && adaptiveBanner ? (
+        <View className={styles.adaptiveBanner}>
+          <Text className={styles.adaptiveIcon}>⚡</Text>
+          <Text className={styles.adaptiveText}>{adaptiveBanner}</Text>
+        </View>
+      ) : null}
+
+      {/* X6 周末轻量版横幅：仅生成侧标记了 weekendEdition 且用户未关闭周末版偏好时显示；
+          旧当日缓存无该字段（=== true 不成立）不显示横幅 */}
+      {hasContent && briefing?.weekendEdition === true && prefsWeekendEdition ? (
+        <View className={styles.weekendBanner}>
+          <Text className={styles.weekendIcon}>🧺</Text>
+          <Text className={styles.weekendText}>{t('briefing.weekendBanner')}</Text>
+        </View>
+      ) : null}
         <View className={styles.headerTop}>
           <View className={styles.headerMain}>
             <Text className={styles.greeting}>
@@ -1242,223 +1258,6 @@ function BriefingPage() {
         </View>
       </View>
 
-      {/* 记账卡片：独立于 hasContent 门禁 —— 记账与日程无关，
-          用户「今天没安排日程但记了账」时也必须能看到账单。
-          早前把它放进 contentFade 内，结果被 hasContent（仅看日程/待办/收藏）挡住，
-          实测：数据算对了、state 更新了，卡片就是不渲染（2026-10-15）。
-          ⚠️ 2026-10-24：它曾被误粘进 headerActions（右上角「🔊 / 🔍」那一行，flex 且
-          flex-shrink:0）内部 —— 卡片按内容宽度撑开，
-          把问候语列压到 0 宽、整页横向溢出。位置必须在这里：**header 之外、contentFade 之外**。 */}
-      {ledgerBrief && ledgerBrief.count > 0 ? (
-        <View className={styles.section}>
-          <View className={styles.sectionHeader}>
-            <Text className={styles.sectionIcon}>🧾</Text>
-            <Text className={styles.sectionTitle}>{t('briefing.sectionLedger')}</Text>
-            <Text className={styles.sectionCount}>
-              {ledgerBrief.count} {t('briefing.ledgerCount')}
-            </Text>
-          </View>
-
-          <View style={{ display: 'flex', alignItems: 'baseline', gap: r2r(16), padding: `0 ${r2r(32)}` }}>
-            <Text style={{ fontSize: r2r(44), fontWeight: '700', color: 'var(--brand, #e85d2a)' }}>
-              ¥{ledgerBrief.expense.toFixed(2)}
-            </Text>
-            <Text style={{ fontSize: r2r(26), color: '#86909c' }}>{t('briefing.ledgerToday')}</Text>
-          </View>
-
-          {/* 较昨日：昨日为 0 时 deltaFromYesterday 为 null，此时**整行不渲染** ——
-              显示成「+100%」会是误导性的百分比（分母为 0）。 */}
-          {ledgerBrief.deltaFromYesterday !== null ? (
-            <Text style={{ fontSize: r2r(26), color: '#86909c', padding: `${r2r(8)} ${r2r(32)} 0` }}>
-              {ledgerBrief.deltaFromYesterday > 0
-                ? `${t('briefing.ledgerMore')} ¥${Math.abs(ledgerBrief.deltaFromYesterday).toFixed(2)}`
-                : ledgerBrief.deltaFromYesterday < 0
-                  ? `${t('briefing.ledgerLess')} ¥${Math.abs(ledgerBrief.deltaFromYesterday).toFixed(2)}`
-                  : t('briefing.ledgerSame')}
-            </Text>
-          ) : null}
-
-          {ledgerBrief.income > 0 ? (
-            <Text style={{ fontSize: r2r(26), color: 'var(--brand-deep, #e85d2a)', padding: `${r2r(8)} ${r2r(32)} 0` }}>
-              {t('briefing.ledgerIncome')} ¥{ledgerBrief.income.toFixed(2)}
-            </Text>
-          ) : null}
-
-          {ledgerBrief.topCategories.length > 0 ? (
-            <View style={{ padding: `${r2r(12)} ${r2r(32)} 0` }}>
-              {ledgerBrief.topCategories.map((c) => {
-                const cat = resolveCategory(ledgerCats, c.categoryId);
-                return (
-                  <Text
-                    key={c.categoryId}
-                    style={{ fontSize: r2r(26), color: '#4e5969', display: 'block', padding: `${r2r(2)} 0` }}
-                  >
-                    {cat.icon} {cat.name} ¥{c.amount.toFixed(2)}
-                  </Text>
-                );
-              })}
-            </View>
-          ) : null}
-
-          {ledgerBrief.overDaily ? (
-            <View style={{ padding: `${r2r(12)} ${r2r(32)} 0` }}>
-              <Text style={{ fontSize: r2r(26), color: '#f53f3f' }}>
-                ⚠️ {t('ledger.overDaily', { amount: `¥${(ledgerBrief.dailyBudget ?? 0).toFixed(2)}` })}
-              </Text>
-            </View>
-          ) : null}
-
-          <Text
-            style={{ fontSize: r2r(26), color: 'var(--brand, #e85d2a)', padding: `${r2r(12)} ${r2r(32)} 0` }}
-            onClick={() => Taro.navigateTo({ url: '/pages/ledger/index' })}
-          >
-            {t('briefing.ledgerViewAll')} ›
-          </Text>
-        </View>
-      ) : null}
-
-      {/* 快捷工具行（2026-10-25，用户指令「把记账/购物清单/语言学习/全网搜索融入前面几页」）：
-          四个工具在晨报主页一排直达 —— 记账另有上方数据卡，此处给无数据日一个常驻入口；
-          标签复用 mine.grid* 键（同一份功能名录，不另起一套叫法）。 */}
-      <View style={{ display: 'flex', gap: r2r(16), padding: `0 ${r2r(32)}`, margin: `${r2r(24)} 0` }}>
-        {TOOL_TILES.map((tool) => (
-          <View
-            key={tool.url}
-            style={{
-              flex: 1,
-              background: 'var(--bg-card, #ffffff)',
-              border: '1rpx solid var(--card-border, rgba(29, 33, 41, 0.06))',
-              borderRadius: r2r(24),
-              padding: `${r2r(20)} 0`,
-              textAlign: 'center'
-            }}
-            onClick={() => Taro.navigateTo({ url: tool.url })}
-          >
-            <Text style={{ fontSize: r2r(40), display: 'block' }}>{tool.icon}</Text>
-            <Text style={{ fontSize: r2r(24), color: '#4e5969', display: 'block', marginTop: r2r(8) }}>
-              {t(tool.label)}
-            </Text>
-          </View>
-        ))}
-      </View>
-
-      {/* ===== 📈 自选股行情（2026-10-25）：腾讯免 key 行情 + AI 中性解读 =====
-          仅 H5 渲染（weapp 无 GBK 解码器，云函数代理又卡部署凭据 —— 隐藏而非假数据）。
-          红涨绿跌：A 股习惯，三市场统一，注释钉死避免后人"顺手国际化"。 */}
-      {isH5 ? (
-        <View style={{ margin: `0 ${r2r(32)} ${r2r(24)}`, background: 'var(--bg-card, #fff)', border: '1rpx solid var(--card-border, rgba(29,33,41,0.06))', borderRadius: r2r(24), padding: r2r(24) }}>
-          <View style={{ display: 'flex', alignItems: 'center', gap: r2r(12) }}>
-            <Text style={{ fontSize: r2r(32), fontWeight: '600', flex: 1 }}>{t('briefing.quoteTitle')}</Text>
-            <Text style={{ fontSize: r2r(24), color: '#c7371a' }} onClick={() => setQuoteOpen(!quoteOpen)}>
-              {quoteOpen ? t('briefing.quoteManageClose') : t('briefing.quoteManage')}
-            </Text>
-          </View>
-          {quotes.length === 0 ? (
-            <Text style={{ fontSize: r2r(26), color: '#657080', display: 'block', marginTop: r2r(12) }}>
-              {t('briefing.quoteEmpty')}
-            </Text>
-          ) : (
-            quotes.map((q, idx) => (
-              <View key={`${q.code}-${idx}`} style={{ display: 'flex', alignItems: 'baseline', gap: r2r(12), marginTop: r2r(12) }}>
-                <Text style={{ fontSize: r2r(28), fontWeight: '500', flex: 1 }}>
-                  {q.name}
-                  <Text style={{ fontSize: r2r(22), color: '#657080' }}> {q.code}</Text>
-                </Text>
-                <Text style={{ fontSize: r2r(28) }}>{q.price.toFixed(2)}</Text>
-                <Text style={{ fontSize: r2r(26), color: q.changePct >= 0 ? '#c7371a' : '#00b42a', minWidth: r2r(110), textAlign: 'right' }}>
-                  {q.changePct >= 0 ? '+' : ''}{q.changePct.toFixed(2)}%
-                </Text>
-                {quoteOpen ? (
-                  <Text style={{ fontSize: r2r(26), color: '#657080' }} onClick={() => void handleRemoveStock(q.code)}>
-                    ✕
-                  </Text>
-                ) : null}
-              </View>
-            ))
-          )}
-          {quoteOpen ? (
-            <View style={{ display: 'flex', gap: r2r(12), marginTop: r2r(20) }}>
-              <input
-                style={{ flex: 1, fontSize: r2r(26), padding: `${r2r(10)} ${r2r(16)}`, border: '1rpx solid #e5e6eb', borderRadius: r2r(12), background: '#fff' }}
-                value={quoteInput}
-                placeholder={t('briefing.quotePlaceholder')}
-                maxLength={12}
-                onChange={(e) => setQuoteInput((e.target as HTMLInputElement).value)}
-              />
-              <Text
-                style={{ fontSize: r2r(26), color: '#fff', background: quoteBusy ? '#c9cdd4' : '#c7371a', borderRadius: r2r(12), padding: `${r2r(10)} ${r2r(20)}` }}
-                onClick={() => void handleAddStock()}
-              >
-                {quoteBusy ? t('common.loading') : t('briefing.quoteAdd')}
-              </Text>
-            </View>
-          ) : null}
-          {quotes.length > 0 ? (
-            <Text
-              style={{ fontSize: r2r(26), color: '#c7371a', display: 'block', marginTop: r2r(16) }}
-              onClick={() => void handleAnalyzeQuotes()}
-            >
-              {quoteAnalyzing ? t('common.loading') : t('briefing.quoteAnalyze')} ›
-            </Text>
-          ) : null}
-          {quoteAnalysis ? (
-            <Text style={{ fontSize: r2r(26), color: '#4e5969', display: 'block', marginTop: r2r(12), lineHeight: 1.6 }}>
-              🤖 {quoteAnalysis}
-            </Text>
-          ) : null}
-          {quotes.length > 0 && quotes[0].timeText ? (
-            <Text style={{ fontSize: r2r(22), color: '#657080', display: 'block', marginTop: r2r(8) }}>
-              {t('briefing.quoteAsOf', { time: quotes[0].timeText })} · {t('briefing.quoteSource')}
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
-
-      {/* 💾 每日回顾（竞品倒推 2026-10-25，flomo/Readwise 模式）：随机回望 ≥30 天前的旧收藏，
-          把「存了就忘」变「存了会回」。点击查看原文（openExternalPage 与热点页同语义）。 */}
-      {memoryFlash ? (
-        <View style={{ margin: `0 ${r2r(32)} ${r2r(24)}`, background: 'var(--bg-card, #fff)', border: '1rpx solid var(--card-border, rgba(29,33,41,0.06))', borderRadius: r2r(24), padding: r2r(24) }}>
-          <Text style={{ fontSize: r2r(26), color: '#657080' }}>{t('briefing.memoryFlashTitle')}</Text>
-          <Text style={{ fontSize: r2r(30), fontWeight: '600', display: 'block', marginTop: r2r(8) }}>
-            {memoryFlash.title}
-          </Text>
-          <Text style={{ fontSize: r2r(26), color: '#4e5969', display: 'block', marginTop: r2r(8), lineHeight: 1.6 }}>
-            {memoryFlash.summary}
-          </Text>
-          {memoryFlash.url ? (
-            <Text
-              style={{ fontSize: r2r(26), color: '#c7371a', display: 'block', marginTop: r2r(12) }}
-              onClick={() => void openExternalPage(memoryFlash.url!)}
-            >
-              {t('library.readOriginal')} ›
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
-
-      {/* ✓ 今日已读完（竞品倒推 2026-10-25，Kagi「每日一份定版」模式）：有情报且今天
-          浏览过热点 → 给"读完"闭环感。判据刻意从宽（浏览≥1条即算），不搞打卡压力。 */}
-      {hasContent && intelCount > 0 && viewedToday ? (
-        <View style={{ margin: `0 ${r2r(32)} ${r2r(24)}`, padding: r2r(20), borderRadius: r2r(20), background: '#f0f9eb', textAlign: 'center' }}>
-          <Text style={{ fontSize: r2r(26), color: '#00b42a' }}>✓ {t('briefing.readDone')}</Text>
-        </View>
-      ) : null}
-
-      {hasContent && adaptiveBanner ? (
-        <View className={styles.adaptiveBanner}>
-          <Text className={styles.adaptiveIcon}>⚡</Text>
-          <Text className={styles.adaptiveText}>{adaptiveBanner}</Text>
-        </View>
-      ) : null}
-
-      {/* X6 周末轻量版横幅：仅生成侧标记了 weekendEdition 且用户未关闭周末版偏好时显示；
-          旧当日缓存无该字段（=== true 不成立）不显示横幅 */}
-      {hasContent && briefing?.weekendEdition === true && prefsWeekendEdition ? (
-        <View className={styles.weekendBanner}>
-          <Text className={styles.weekendIcon}>🧺</Text>
-          <Text className={styles.weekendText}>{t('briefing.weekendBanner')}</Text>
-        </View>
-      ) : null}
 
       {/* X4 订阅临期续订提醒条：晨报加载完成后（有内容）且授权临期时显示，仅 weapp；可关闭（本次会话不再显示）。
           样式复用周末横幅类，语义为「横幅区提示条」。 */}
@@ -1746,6 +1545,208 @@ function BriefingPage() {
           ) : null}
         </View>
       )}
+
+      {/* 记账卡片：独立于 hasContent 门禁 —— 记账与日程无关，
+          用户「今天没安排日程但记了账」时也必须能看到账单。
+          早前把它放进 contentFade 内，结果被 hasContent（仅看日程/待办/收藏）挡住，
+          实测：数据算对了、state 更新了，卡片就是不渲染（2026-10-15）。
+          ⚠️ 2026-10-24：它曾被误粘进 headerActions（右上角「🔊 / 🔍」那一行，flex 且
+          flex-shrink:0）内部 —— 卡片按内容宽度撑开，
+          把问候语列压到 0 宽、整页横向溢出。位置必须在这里：**header 之外、contentFade 之外**。 */}
+      {ledgerBrief && ledgerBrief.count > 0 ? (
+        <View className={styles.section}>
+          <View className={styles.sectionHeader}>
+            <Text className={styles.sectionIcon}>🧾</Text>
+            <Text className={styles.sectionTitle}>{t('briefing.sectionLedger')}</Text>
+            <Text className={styles.sectionCount}>
+              {ledgerBrief.count} {t('briefing.ledgerCount')}
+            </Text>
+          </View>
+
+          <View style={{ display: 'flex', alignItems: 'baseline', gap: r2r(16), padding: `0 ${r2r(32)}` }}>
+            <Text style={{ fontSize: r2r(44), fontWeight: '700', color: 'var(--brand, #e85d2a)' }}>
+              ¥{ledgerBrief.expense.toFixed(2)}
+            </Text>
+            <Text style={{ fontSize: r2r(26), color: '#86909c' }}>{t('briefing.ledgerToday')}</Text>
+          </View>
+
+          {/* 较昨日：昨日为 0 时 deltaFromYesterday 为 null，此时**整行不渲染** ——
+              显示成「+100%」会是误导性的百分比（分母为 0）。 */}
+          {ledgerBrief.deltaFromYesterday !== null ? (
+            <Text style={{ fontSize: r2r(26), color: '#86909c', padding: `${r2r(8)} ${r2r(32)} 0` }}>
+              {ledgerBrief.deltaFromYesterday > 0
+                ? `${t('briefing.ledgerMore')} ¥${Math.abs(ledgerBrief.deltaFromYesterday).toFixed(2)}`
+                : ledgerBrief.deltaFromYesterday < 0
+                  ? `${t('briefing.ledgerLess')} ¥${Math.abs(ledgerBrief.deltaFromYesterday).toFixed(2)}`
+                  : t('briefing.ledgerSame')}
+            </Text>
+          ) : null}
+
+          {ledgerBrief.income > 0 ? (
+            <Text style={{ fontSize: r2r(26), color: 'var(--brand-deep, #e85d2a)', padding: `${r2r(8)} ${r2r(32)} 0` }}>
+              {t('briefing.ledgerIncome')} ¥{ledgerBrief.income.toFixed(2)}
+            </Text>
+          ) : null}
+
+          {ledgerBrief.topCategories.length > 0 ? (
+            <View style={{ padding: `${r2r(12)} ${r2r(32)} 0` }}>
+              {ledgerBrief.topCategories.map((c) => {
+                const cat = resolveCategory(ledgerCats, c.categoryId);
+                return (
+                  <Text
+                    key={c.categoryId}
+                    style={{ fontSize: r2r(26), color: '#4e5969', display: 'block', padding: `${r2r(2)} 0` }}
+                  >
+                    {cat.icon} {cat.name} ¥{c.amount.toFixed(2)}
+                  </Text>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {ledgerBrief.overDaily ? (
+            <View style={{ padding: `${r2r(12)} ${r2r(32)} 0` }}>
+              <Text style={{ fontSize: r2r(26), color: '#f53f3f' }}>
+                ⚠️ {t('ledger.overDaily', { amount: `¥${(ledgerBrief.dailyBudget ?? 0).toFixed(2)}` })}
+              </Text>
+            </View>
+          ) : null}
+
+          <Text
+            style={{ fontSize: r2r(26), color: 'var(--brand, #e85d2a)', padding: `${r2r(12)} ${r2r(32)} 0` }}
+            onClick={() => Taro.navigateTo({ url: '/pages/ledger/index' })}
+          >
+            {t('briefing.ledgerViewAll')} ›
+          </Text>
+        </View>
+      ) : null}
+
+      {/* 快捷工具行（2026-10-25，用户指令「把记账/购物清单/语言学习/全网搜索融入前面几页」）：
+          四个工具在晨报主页一排直达 —— 记账另有上方数据卡，此处给无数据日一个常驻入口；
+          标签复用 mine.grid* 键（同一份功能名录，不另起一套叫法）。 */}
+      <View style={{ display: 'flex', gap: r2r(16), padding: `0 ${r2r(32)}`, margin: `${r2r(24)} 0` }}>
+        {TOOL_TILES.map((tool) => (
+          <View
+            key={tool.url}
+            style={{
+              flex: 1,
+              background: 'var(--bg-card, #ffffff)',
+              border: '1rpx solid var(--card-border, rgba(29, 33, 41, 0.06))',
+              borderRadius: r2r(24),
+              padding: `${r2r(20)} 0`,
+              textAlign: 'center'
+            }}
+            onClick={() => Taro.navigateTo({ url: tool.url })}
+          >
+            <Text style={{ fontSize: r2r(40), display: 'block' }}>{tool.icon}</Text>
+            <Text style={{ fontSize: r2r(24), color: '#4e5969', display: 'block', marginTop: r2r(8) }}>
+              {t(tool.label)}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      {/* ===== 📈 自选股行情（2026-10-25）：腾讯免 key 行情 + AI 中性解读 =====
+          仅 H5 渲染（weapp 无 GBK 解码器，云函数代理又卡部署凭据 —— 隐藏而非假数据）。
+          红涨绿跌：A 股习惯，三市场统一，注释钉死避免后人"顺手国际化"。 */}
+      {isH5 ? (
+        <View style={{ margin: `0 ${r2r(32)} ${r2r(24)}`, background: 'var(--bg-card, #fff)', border: '1rpx solid var(--card-border, rgba(29,33,41,0.06))', borderRadius: r2r(24), padding: r2r(24) }}>
+          <View style={{ display: 'flex', alignItems: 'center', gap: r2r(12) }}>
+            <Text style={{ fontSize: r2r(32), fontWeight: '600', flex: 1 }}>{t('briefing.quoteTitle')}</Text>
+            <Text style={{ fontSize: r2r(24), color: '#c7371a' }} onClick={() => setQuoteOpen(!quoteOpen)}>
+              {quoteOpen ? t('briefing.quoteManageClose') : t('briefing.quoteManage')}
+            </Text>
+          </View>
+          {quotes.length === 0 ? (
+            <Text style={{ fontSize: r2r(26), color: '#657080', display: 'block', marginTop: r2r(12) }}>
+              {t('briefing.quoteEmpty')}
+            </Text>
+          ) : (
+            quotes.map((q, idx) => (
+              <View key={`${q.code}-${idx}`} style={{ display: 'flex', alignItems: 'baseline', gap: r2r(12), marginTop: r2r(12) }}>
+                <Text style={{ fontSize: r2r(28), fontWeight: '500', flex: 1 }}>
+                  {q.name}
+                  <Text style={{ fontSize: r2r(22), color: '#657080' }}> {q.code}</Text>
+                </Text>
+                <Text style={{ fontSize: r2r(28) }}>{q.price.toFixed(2)}</Text>
+                <Text style={{ fontSize: r2r(26), color: q.changePct >= 0 ? '#c7371a' : '#00b42a', minWidth: r2r(110), textAlign: 'right' }}>
+                  {q.changePct >= 0 ? '+' : ''}{q.changePct.toFixed(2)}%
+                </Text>
+                {quoteOpen ? (
+                  <Text style={{ fontSize: r2r(26), color: '#657080' }} onClick={() => void handleRemoveStock(q.code)}>
+                    ✕
+                  </Text>
+                ) : null}
+              </View>
+            ))
+          )}
+          {quoteOpen ? (
+            <View style={{ display: 'flex', gap: r2r(12), marginTop: r2r(20) }}>
+              <input
+                style={{ flex: 1, fontSize: r2r(26), padding: `${r2r(10)} ${r2r(16)}`, border: '1rpx solid #e5e6eb', borderRadius: r2r(12), background: '#fff' }}
+                value={quoteInput}
+                placeholder={t('briefing.quotePlaceholder')}
+                maxLength={12}
+                onChange={(e) => setQuoteInput((e.target as HTMLInputElement).value)}
+              />
+              <Text
+                style={{ fontSize: r2r(26), color: '#fff', background: quoteBusy ? '#c9cdd4' : '#c7371a', borderRadius: r2r(12), padding: `${r2r(10)} ${r2r(20)}` }}
+                onClick={() => void handleAddStock()}
+              >
+                {quoteBusy ? t('common.loading') : t('briefing.quoteAdd')}
+              </Text>
+            </View>
+          ) : null}
+          {quotes.length > 0 ? (
+            <Text
+              style={{ fontSize: r2r(26), color: '#c7371a', display: 'block', marginTop: r2r(16) }}
+              onClick={() => void handleAnalyzeQuotes()}
+            >
+              {quoteAnalyzing ? t('common.loading') : t('briefing.quoteAnalyze')} ›
+            </Text>
+          ) : null}
+          {quoteAnalysis ? (
+            <Text style={{ fontSize: r2r(26), color: '#4e5969', display: 'block', marginTop: r2r(12), lineHeight: 1.6 }}>
+              🤖 {quoteAnalysis}
+            </Text>
+          ) : null}
+          {quotes.length > 0 && quotes[0].timeText ? (
+            <Text style={{ fontSize: r2r(22), color: '#657080', display: 'block', marginTop: r2r(8) }}>
+              {t('briefing.quoteAsOf', { time: quotes[0].timeText })} · {t('briefing.quoteSource')}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* 💾 每日回顾（竞品倒推 2026-10-25，flomo/Readwise 模式）：随机回望 ≥30 天前的旧收藏，
+          把「存了就忘」变「存了会回」。点击查看原文（openExternalPage 与热点页同语义）。 */}
+      {memoryFlash ? (
+        <View style={{ margin: `0 ${r2r(32)} ${r2r(24)}`, background: 'var(--bg-card, #fff)', border: '1rpx solid var(--card-border, rgba(29,33,41,0.06))', borderRadius: r2r(24), padding: r2r(24) }}>
+          <Text style={{ fontSize: r2r(26), color: '#657080' }}>{t('briefing.memoryFlashTitle')}</Text>
+          <Text style={{ fontSize: r2r(30), fontWeight: '600', display: 'block', marginTop: r2r(8) }}>
+            {memoryFlash.title}
+          </Text>
+          <Text style={{ fontSize: r2r(26), color: '#4e5969', display: 'block', marginTop: r2r(8), lineHeight: 1.6 }}>
+            {memoryFlash.summary}
+          </Text>
+          {memoryFlash.url ? (
+            <Text
+              style={{ fontSize: r2r(26), color: '#c7371a', display: 'block', marginTop: r2r(12) }}
+              onClick={() => void openExternalPage(memoryFlash.url!)}
+            >
+              {t('library.readOriginal')} ›
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* ✓ 今日已读完（竞品倒推 2026-10-25，Kagi「每日一份定版」模式）：有情报且今天
+          浏览过热点 → 给"读完"闭环感。判据刻意从宽（浏览≥1条即算），不搞打卡压力。 */}
+      {hasContent && intelCount > 0 && viewedToday ? (
+        <View style={{ margin: `0 ${r2r(32)} ${r2r(24)}`, padding: r2r(20), borderRadius: r2r(20), background: '#f0f9eb', textAlign: 'center' }}>
+          <Text style={{ fontSize: r2r(26), color: '#00b42a' }}>✓ {t('briefing.readDone')}</Text>
+        </View>
+      ) : null}
 
       {/* 视频新闻（B站热榜第 1 条）：独立于 hasContent 门禁 —— 与记账卡片同理由，
           视频资讯与当天有没有日程无关；放进 contentFade 会被「三皆空」的空态吃掉
