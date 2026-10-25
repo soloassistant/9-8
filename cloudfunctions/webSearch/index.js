@@ -291,6 +291,12 @@ function stripHtml(s) {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    // &apos; 是 XML 命名实体（NPR 等源在用），与数字实体两轨都要盖住
+    .replace(/&apos;/g, "'")
+    // 高频英文排版命名实体（Scientific American 等源用 &rsquo;/&ldquo;…）——
+    // RSS 世界命名实体上百个，穷举不现实，按实测分布收高频的
+    .replace(/&(rsquo|lsquo|rdquo|ldquo|hellip|mdash|ndash|deg|trade|times|middot|bull|eacute|egrave|agrave|ccedil|uuml|ouml|auml|szlig|reg|copy|laquo|raquo|dArr|rArr|ne|le|ge);/g,
+      (m, e) => ({ rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“', hellip: '…', mdash: '—', ndash: '–', deg: '°', trade: '™', times: '×', middot: '·', bull: '•', eacute: 'é', egrave: 'è', agrave: 'à', ccedil: 'ç', uuml: 'ü', ouml: 'ö', auml: 'ä', szlig: 'ß', reg: '®', copy: '©', laquo: '«', raquo: '»', dArr: '↓', rArr: '→', ne: '≠', le: '≤', ge: '≥' }[e] || m))
     // 数字实体通用解码（2026-10-25 审计 #2）：线上 400 条实测 212 处未解码（&#8217;×74、
     // &#8230;×19、零填充 &#039; 命不中上面的字面 &#39;），集中在国际源 —— 只解 6 个命名
     // 实体等于放走绝大多数撇号/省略号。fromCodePoint 解不了的码点（越界）原样保留。

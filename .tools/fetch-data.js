@@ -35,6 +35,12 @@ function clean(s) {
     .replace(/<!\[CDATA\[|\]\]>/g, '')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+    // &apos; 是 XML 命名实体（NPR 等源在用），十进制/命名两轨都要盖住
+    .replace(/&apos;/g, "'")
+    // 高频英文排版命名实体（Scientific American 等源用 &rsquo;/&ldquo;…）——
+    // RSS 世界命名实体上百个，穷举不现实，按实测分布收高频的
+    .replace(/&(rsquo|lsquo|rdquo|ldquo|hellip|mdash|ndash|deg|trade|times|middot|bull|eacute|egrave|agrave|ccedil|uuml|ouml|auml|szlig|reg|copy|laquo|raquo|dArr|rArr|ne|le|ge);/g,
+      (m, e) => ({ rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“', hellip: '…', mdash: '—', ndash: '–', deg: '°', trade: '™', times: '×', middot: '·', bull: '•', eacute: 'é', egrave: 'è', agrave: 'à', ccedil: 'ç', uuml: 'ü', ouml: 'ö', auml: 'ä', szlig: 'ß', reg: '®', copy: '©', laquo: '«', raquo: '»', dArr: '↓', rArr: '→', ne: '≠', le: '≤', ge: '≥' }[e] || m))
     // 数字实体通用解码（2026-10-25 审计 #2）：与云函数 stripHtml 同修 —— 线上 hotspot.json
     // 实测 212 处 &#8217;/&#8230;/零填充 &#039; 漏进摘要（命名实体只盖住极少数）
     .replace(/&#(\d{1,7});/g, (m, d) => {
