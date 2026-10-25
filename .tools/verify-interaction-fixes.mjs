@@ -115,19 +115,20 @@ ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.tes
 }
 
 /* ---------------- M. 我的页功能宫格（2026-10-25） ----------------
-   高频功能（记账/购物/学习/历史/搜索）的一等入口；历史此前只藏头像 actionSheet，搜索只在晨报页。 */
+   高频功能（记账/购物/学习/搜索）的一等入口；浏览历史已并入热点页（IA 瘦身 13→12 页）。 */
 {
   const mineGrid = stripComments(read('src/pages/mine/index.tsx'));
   ok('M1 功能宫格存在（featureGrid + gridLedger）', /featureGrid/.test(mineGrid) && /mine\.gridLedger/.test(mineGrid));
   ok(
-    'M2 五入口路由齐备（ledger/shopping/learn/history/search）',
-    ['/pages/ledger/index', '/pages/shopping/index', '/pages/learn/index', '/pages/history/index', '/pages/search/index'].every((u) =>
+    'M2 四入口路由齐备（ledger/shopping/learn/search）',
+    ['/pages/ledger/index', '/pages/shopping/index', '/pages/learn/index', '/pages/search/index'].every((u) =>
       mineGrid.includes(u)
     )
   );
   ok('M3 底部旧入口已去重（ledger 路由在 mine 页只出现一次）', (mineGrid.match(/pages\/ledger\/index/g) || []).length === 1);
-  ok('M4 浏览历史获得一等入口（mine.gridHistory）', /mine\.gridHistory/.test(mineGrid));
+  ok('M4 浏览历史已融入热点页（最近浏览区 + 展开标记接力）', /recentOpen/.test(lib) && /library-open-history/.test(mineGrid));
   ok('M5 宫格样式定义（featureTile + featureIcon）', /\.featureTile\s*\{/.test(read('src/pages/mine/index.module.scss')) && /\.featureIcon\s*\{/.test(read('src/pages/mine/index.module.scss')));
+  ok('M6 history 页已删（路由不注册 + 文件不存在）', !/pages\/history\/index/.test(read('src/app.config.ts')) && !fs.existsSync(path.join(ROOT, 'src/pages/history/index.tsx')));
 }
 
 /* ---------------- E. 搜索接全网 + 失败态独立 ---------------- */

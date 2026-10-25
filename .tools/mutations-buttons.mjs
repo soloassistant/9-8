@@ -12,13 +12,7 @@ export default [
     to: 'disabled={paying}',
     cmd: 'node .tools/verify-button-disabled.mjs'
   },
-  {
-    label: '清空按钮退回裸条件（同样白底白字）',
-    file: 'src/pages/history/index.tsx',
-    from: 'disabled={disabledAttr(list.length === 0)}',
-    to: 'disabled={list.length === 0}',
-    cmd: 'node .tools/verify-button-disabled.mjs'
-  },
+  // history .clearButton 的变异条目已随该页并入热点页移除（2026-10-25）
   {
     label: 'helper 退化成 ? true : false（等于没修，属性照样渲染）',
     file: 'src/utils/buttonDisabled.ts',

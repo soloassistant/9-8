@@ -65,15 +65,9 @@ function blockAt(src, startIdx) {
 }
 
 /* =====================================================================
- * A. 四个二级页补返回键（history / learn / shopping / ledger）
+ * A. 二级页返回键（learn / shopping / ledger；history 已并入热点页 2026-10-25）
  * ===================================================================== */
 const PAGES = [
-  {
-    name: 'history',
-    tsx: 'src/pages/history/index.tsx',
-    scss: 'src/pages/history/index.module.scss',
-    anchor: '<View className={styles.header}>'
-  },
   {
     name: 'learn',
     tsx: 'src/pages/learn/index.tsx',

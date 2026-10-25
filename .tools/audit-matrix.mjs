@@ -37,7 +37,6 @@ const ALL_PAGES = [
   { p: 'pages/calendar/index', tab: true },
   { p: 'pages/mine/index', tab: true },
   { p: 'pages/search/index', tab: false },
-  { p: 'pages/history/index', tab: false },
   { p: 'pages/shopping/index', tab: false },
   { p: 'pages/learn/index', tab: false },
   { p: 'pages/learnDetail/index', tab: false },

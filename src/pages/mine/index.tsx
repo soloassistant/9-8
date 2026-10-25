@@ -629,12 +629,22 @@ function MinePage() {
     }
   };
 
-  /** 点头像：更换头像 或 查看浏览历史（v2.0 F26） */
+  /** 点头像：更换头像 或 查看浏览历史（v2.0 F26；2026-10-25 历史页并入热点页 ——
+   *  switchTab 过去并置展开标记，热点页 useDidShow 读标记自动展开「最近浏览」） */
   const handleAvatarTap = () => {
     Taro.showActionSheet({ itemList: ['更换头像', '浏览历史'] })
       .then((res) => {
         if (res.tapIndex === 0) doChangeAvatar();
-        else if (res.tapIndex === 1) Taro.navigateTo({ url: '/pages/history/index' });
+        else if (res.tapIndex === 1) {
+          try {
+            Taro.setStorageSync('library-open-history', 1);
+          } catch {
+            /* 标记写不进去就只是不自动展开 */
+          }
+          Taro.switchTab({ url: '/pages/library/index' }).catch(() => {
+            Taro.navigateTo({ url: '/pages/library/index' });
+          });
+        }
       })
       .catch(() => {
         /* 静默：showActionSheet 被用户取消时 reject，是正常操作而非错误 */
@@ -1484,7 +1494,6 @@ function MinePage() {
           { icon: '🧾', label: t('mine.gridLedger'), url: '/pages/ledger/index' },
           { icon: '🛒', label: t('mine.gridShopping'), url: '/pages/shopping/index' },
           { icon: '📚', label: t('mine.gridLearn'), url: '/pages/learn/index' },
-          { icon: '🕘', label: t('mine.gridHistory'), url: '/pages/history/index' },
           { icon: '🔍', label: t('mine.gridSearch'), url: '/pages/search/index' }
         ] as Array<{ icon: string; label: string; url: string }>).map((it) => (
           <View

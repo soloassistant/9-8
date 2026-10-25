@@ -87,14 +87,11 @@ const zh = {
   'mine.deleteAccount': '注销账号',
   'mine.deleteData': '删除全部数据',
   'mine.shopping': '🛒 购物清单',
-  'mine.ledger': '🧾 记账',
-  'mine.ledgerDesc': '随手记一笔 · 晨报呈报',
   'mine.signOut': '退出登录',
   'mine.signOutHint': '退出后需重新验证才能进入',
   'mine.gridLedger': '记账',
   'mine.gridShopping': '购物清单',
   'mine.gridLearn': '语言学习',
-  'mine.gridHistory': '浏览历史',
   'mine.gridSearch': '全网搜索',
   'mine.pwdRow': '修改密码',
   'mine.pwdAction': '设置',
@@ -453,6 +450,8 @@ const zh = {
   'library.searchEmptyHint': '换个关键词试试；H5 预览仅过滤本地资讯，联网搜索请用小程序',
   'library.favTitle': '我的收藏',
   'library.favHint': '转发内容的 AI 摘要归档',
+  'library.recentTitle': '最近浏览',
+  'library.recentClearConfirm': '将删除 {n} 条浏览记录，此操作不可恢复。',
   'library.videoSectionTitle': '视频精选',
   'library.readOriginal': '阅读原文',
   'library.articleSourceNote': '以上为来源媒体在其订阅源中发布的摘要，阅读全文请前往原文。',
@@ -526,9 +525,7 @@ const zh = {
   'search.groupFavorites': '🔖 收藏 · {n}',
   'search.noDue': '无截止',
 
-  'history.title': '浏览历史',
-  'history.hint': '你看过的热点资讯都会留在这里，并同步到你的账号以便跨设备恢复',
-
+  // history.* 两键已随 pages/history 并入热点页移除（2026-10-25），文案落在 library.recent*
   'shopping.title': '购物清单',
   'shopping.addPlaceholder': '想买什么，如「蓝牙耳机」',
   'shopping.targetPlaceholder': '预算 ¥',
@@ -619,6 +616,7 @@ const zh = {
   'briefing.ledgerViewAll': '查看全部',
   'common.writeFailed': '暂时无法写入，请稍后再试',
   'common.back': '返回',
+  'common.cleared': '已清空',
 
   /* ---- v1.2 · 语音交互（V-01~V-04）---- */
   'voice.listening': '正在聆听…',
@@ -1050,14 +1048,11 @@ const en: Record<keyof typeof zh, string> = {
   'mine.deleteAccount': 'Delete Account',
   'mine.deleteData': 'Delete All Data',
   'mine.shopping': '🛒 Shopping List',
-  'mine.ledger': '🧾 Ledger',
-  'mine.ledgerDesc': 'Log spending · see it in your morning brief',
   'mine.signOut': 'Sign out',
   'mine.signOutHint': 'You will need to verify again to get back in',
   'mine.gridLedger': 'Ledger',
   'mine.gridShopping': 'Shopping',
   'mine.gridLearn': 'Learn',
-  'mine.gridHistory': 'History',
   'mine.gridSearch': 'Web Search',
   'mine.pwdRow': 'Change Password',
   'mine.pwdAction': 'Set up',
@@ -1396,6 +1391,8 @@ const en: Record<keyof typeof zh, string> = {
   'library.searchEmptyHint': 'Try another keyword; H5 preview only filters local feed, use the mini program for web search',
   'library.favTitle': 'My Saved',
   'library.favHint': 'AI-summarized archive of forwarded content',
+  'library.recentTitle': 'Recent',
+  'library.recentClearConfirm': 'This will delete {n} browsing records. This cannot be undone.',
   'library.videoSectionTitle': 'Video Picks',
   'library.readOriginal': 'Read original',
   'library.articleSourceNote': 'The above is the summary published by the source media in its feed. Read the full story at the original page.',
@@ -1469,8 +1466,7 @@ const en: Record<keyof typeof zh, string> = {
   'search.groupFavorites': '🔖 Saved · {n}',
   'search.noDue': 'No due date',
 
-  'history.title': 'Browsing History',
-  'history.hint': 'Everything you viewed stays here, and syncs to your account for cross-device restore',
+  // history.* 两键已随 pages/history 并入热点页移除（2026-10-25）
 
   'shopping.title': 'Shopping List',
   'shopping.addPlaceholder': 'What to buy, e.g. "Bluetooth earbuds"',
@@ -1561,6 +1557,7 @@ const en: Record<keyof typeof zh, string> = {
   'briefing.ledgerViewAll': 'View all',
   'common.writeFailed': 'Unable to save right now, please try again later',
   'common.back': 'Back',
+  'common.cleared': 'Cleared',
 
   /* ---- v1.2 · 语音交互（V-01~V-04）---- */
   'voice.listening': 'Listening…',

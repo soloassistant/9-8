@@ -18,7 +18,7 @@ export default defineAppConfig({
     'pages/calendar/index',
     'pages/mine/index',
     'pages/search/index',
-    'pages/history/index',
+    // pages/history 已于 2026-10-25 并入热点页「最近浏览」区（IA 瘦身：13 → 12 页）
     'pages/shopping/index',
     'pages/ledger/index',
     // 省心买 · 小程序原生页（阶段 B 第一期）：小程序端不再复制外链，改为跳本页

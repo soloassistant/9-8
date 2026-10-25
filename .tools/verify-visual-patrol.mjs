@@ -53,7 +53,6 @@ const PAGES = [
   ['pages/calendar/index', '日历'],
   ['pages/mine/index', '我的'],
   ['pages/search/index', '搜索'],
-  ['pages/history/index', '历史'],
   ['pages/ledger/index', '记账'],
   ['pages/shopping/index', '购物'],
   ['pages/sxm/index', '省心买'],

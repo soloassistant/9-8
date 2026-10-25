@@ -815,6 +815,86 @@
   }
 }
 
+/* ===== 最近浏览（2026-10-25，IA 瘦身：浏览历史从独立页并入热点）===== */
+
+.recentCard {
+  @include card-surface;
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-md $spacing-lg;
+}
+
+.recentHead {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.recentIcon {
+  font-size: $font-size-md;
+}
+
+.recentTitle {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.recentCount {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.recentCaret {
+  margin-left: auto;
+  font-size: $font-size-md;
+  color: $color-text-tertiary;
+}
+
+.recentList {
+  margin-top: $spacing-sm;
+}
+
+.recentItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  padding: $spacing-sm 0;
+
+  & + & {
+    border-top: 1rpx solid $color-divider;
+  }
+}
+
+.recentItemBody {
+  min-width: 0;
+}
+
+.recentItemTitle {
+  display: block;
+  @include text-ellipsis;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.recentItemSource {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.recentItemTime {
+  flex-shrink: 0;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.recentClear {
+  margin-top: $spacing-sm;
+  height: $button-height-sm;
+  background: $color-bg-page;
+  color: $color-text-secondary;
+}
+
 /* ===== 视频精选 + 站内文章视图（2026-10-25）===== */
 
 .videoScroll {

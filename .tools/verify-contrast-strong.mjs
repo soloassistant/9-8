@@ -382,18 +382,16 @@ try {
 } catch (e) {
   ok('J5/J6 读取失败: ' + e.message, false);
 }
-// J7 「真禁用」必须有自己的 [disabled] 规则：disabledAttr() 只治「假 disabled」，
+// J7/J8 「真禁用」必须有自己的 [disabled] 规则：disabledAttr() 只治「假 disabled」，
 // 真禁用时 WeUI 会把字染成 rgba(255,255,255,.6)，浅底上等于按钮消失。
+// （history .clearButton 断言已随该页并入热点页移除，2026-10-25。）
 try {
-  const clearBlocks = blocksOf(read('src/pages/history/index.module.scss'), 'clearButton');
-  ok('J7 history .clearButton 自带 [disabled] 规则（防回退）',
-    clearBlocks.length > 0 && clearBlocks.some((b) => b.includes('[disabled]')));
   const mineScss2 = read('src/pages/mine/index.module.scss');
   const subBtn = blocksOf(mineScss2, 'subButton');
-  ok('J8 mine .subButton 自带 [disabled] 规则（同上）',
+  ok('J8 mine .subButton 自带 [disabled] 规则（防回退）',
     subBtn.length > 0 && subBtn.some((b) => b.includes('[disabled]')));
 } catch (e) {
-  ok('J7/J8 读取失败: ' + e.message, false);
+  ok('J8 读取失败: ' + e.message, false);
 }
 
 // ============ J9 – J15. 第二轮巡检（修正「渐变当白底」口径后仍不合格的项） ============

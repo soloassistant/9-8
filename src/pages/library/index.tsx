@@ -15,7 +15,7 @@ import { brandVars, useThemeStore } from '@/store/theme';
 import { fromNow } from '@/utils/date';
 import { openExternalPage } from '@/utils/externalLink';
 import { logActivity } from '@/utils/activityLog';
-import type { CollectionItem, HotspotNews } from '@/types';
+import type { CollectionItem, HistoryEntry, HotspotNews } from '@/types';
 import { useT } from '@/store/language';
 import { readPrefs } from '@/utils/prefs';
 import { getPersonalization, setPersonalization } from '@/utils/permission';
@@ -181,6 +181,52 @@ function LibraryPage() {
   const [videos, setVideos] = useState<HotspotNews[]>([]);
   /** 站内文章视图（2026-10-25）：点卡片先进来读，正文 = 源 feed 自带摘要（不抓正文页） */
   const [article, setArticle] = useState<HotspotNews | null>(null);
+  /** 最近浏览（2026-10-25，IA 瘦身）：浏览历史从独立页并入热点页 —— 在哪看的就在哪回看。
+   *  默认折叠；清空走 showModal 二次确认。pages/history 已删（-1 页）。 */
+  const [recent, setRecent] = useState<HistoryEntry[]>([]);
+  const [recentOpen, setRecentOpen] = useState(false);
+
+  const refreshRecent = useCallback(() => {
+    try {
+      setRecent((Taro.getStorageSync(HISTORY_KEY) || []) as HistoryEntry[]);
+    } catch (err) {
+      console.error('[LibraryPage] load history failed:', err);
+      setRecent([]);
+    }
+  }, []);
+
+  /** 头像 actionSheet「浏览历史」等入口的接力：置标记 → 本页 useDidShow 自动展开 */
+  const consumeOpenHistoryFlag = useCallback(() => {
+    try {
+      if (Taro.getStorageSync('library-open-history')) {
+        setRecentOpen(true);
+        Taro.removeStorageSync('library-open-history');
+      }
+    } catch {
+      /* 标记读不到就不展开，不影响主流程 */
+    }
+  }, []);
+
+  const handleClearRecent = () => {
+    if (recent.length === 0) return;
+    Taro.showModal({
+      title: t('library.recentTitle'),
+      content: t('library.recentClearConfirm').replace('{n}', String(recent.length)),
+      confirmText: t('mine.clear'),
+      confirmColor: '#E85D2A',
+      success: (res) => {
+        if (res.confirm) {
+          try {
+            Taro.removeStorageSync(HISTORY_KEY);
+          } catch (err) {
+            console.error('[LibraryPage] clear history failed:', err);
+          }
+          setRecent([]);
+          Taro.showToast({ title: t('common.cleared'), icon: 'success' });
+        }
+      }
+    });
+  };
   const [activeNewsTag, setActiveNewsTag] = useState('全部');
   // F29 全网搜索：回车触发；真机走 webSearch 云函数（Bing News RSS），H5 预览/云端空结果走本地过滤兜底
   const [searchMode, setSearchMode] = useState(false);
@@ -430,6 +476,8 @@ function LibraryPage() {
       setItems(lib);
       setNews(hotspot);
       setVideos(vids);
+      refreshRecent();
+      consumeOpenHistoryFlag();
       // 数据来源元信息（mock/真机 webSearch 路径为 null，不显示来源栏）
       setHotMeta(getHotspotMeta());
       refreshUsage();
@@ -460,6 +508,9 @@ function LibraryPage() {
   }, []);
 
   useDidShow(() => {
+    // 最近浏览不受新鲜窗口限制：本页自己写的记录（点击资讯卡）与外部入口的展开标记都要即时反映
+    refreshRecent();
+    consumeOpenHistoryFlag();
     // 60s 新鲜窗口：页面没卸载时数据仍在，每次切回都重拉只会闪骨架 + 白耗一次热点请求。
     // 首次进入 lastLoadedAt=0，必然加载；失败不更新时间，下次切回会重试。
     if (Date.now() - lastLoadedAt.current < LOAD_FRESH_MS) return;
@@ -551,6 +602,8 @@ function LibraryPage() {
     // 云同步：防抖合并，避免每次点击都打云函数
     scheduleAffinitySync();
     logActivity('🔥', `浏览热点：${item.title.slice(0, 14)}`);
+    // 浏览历史并入本页（2026-10-25）：刚记录的立刻反映到「最近浏览」区
+    refreshRecent();
 
     // ★ 2026-10-25 演进：先开**站内文章视图**（读源 feed 自带的摘要，合规口径「不转载正文」
     // 不变——不另行抓原文页），想看全文再点「阅读原文」→ openExternalPage（见 handleReadOriginal）。
@@ -1247,6 +1300,34 @@ function LibraryPage() {
                   <Text className={styles.aiAgainBtn} onClick={handleAiFilter}>
                     {t('library.aiRegenerate')}
                   </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+          {/* 最近浏览（2026-10-25，IA 瘦身）：浏览历史从独立页并入热点 —— 在哪看的就在哪回看。
+              无记录整段隐藏；默认折叠（一行摘要），展开才显示明细与清空。 */}
+          {!searchMode && recent.length > 0 ? (
+            <View className={styles.recentCard}>
+              <View className={styles.recentHead} onClick={() => setRecentOpen(!recentOpen)}>
+                <Text className={styles.recentIcon}>🕘</Text>
+                <Text className={styles.recentTitle}>{t('library.recentTitle')}</Text>
+                <Text className={styles.recentCount}>{recent.length}</Text>
+                <Text className={styles.recentCaret}>{recentOpen ? '▾' : '›'}</Text>
+              </View>
+              {recentOpen ? (
+                <View className={styles.recentList}>
+                  {recent.map((h) => (
+                    <View key={`${h.id}-${h.viewedAt}`} className={styles.recentItem}>
+                      <View className={styles.recentItemBody}>
+                        <Text className={styles.recentItemTitle}>{h.title}</Text>
+                        {h.source ? <Text className={styles.recentItemSource}>{h.source}</Text> : null}
+                      </View>
+                      <Text className={styles.recentItemTime}>{fromNow(h.viewedAt)}</Text>
+                    </View>
+                  ))}
+                  <Button className={styles.recentClear} onClick={handleClearRecent}>
+                    {t('mine.clear')}
+                  </Button>
                 </View>
               ) : null}
             </View>
