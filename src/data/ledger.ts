@@ -44,6 +44,9 @@ export const DEFAULT_CATEGORIES: LedgerCategory[] = [
   { id: 'cat_transport', name: '交通', icon: '🚇', kind: 'expense' },
   { id: 'cat_shopping', name: '购物', icon: '🛍️', kind: 'expense' },
   { id: 'cat_home', name: '居住', icon: '🏠', kind: 'expense' },
+  // 订阅（2026-10-25 用户需求「记账可以记其他 app 的订阅情况」）：流媒体/云盘/AI 工具月费 ——
+  // 这类支出"查"的频率远高于"记"，独立成类才能在月度汇总一眼看到固定订阅花了多少
+  { id: 'cat_subscription', name: '订阅', icon: '🔁', kind: 'expense' },
   { id: 'cat_fun', name: '娱乐', icon: '🎮', kind: 'expense' },
   { id: 'cat_other_exp', name: '其他支出', icon: '📦', kind: 'expense' },
   // 收入
@@ -88,16 +91,27 @@ export function isValidLedgerDate(v: unknown): v is string {
 /** 首次进入时写入内置分类（storage 为空才写，不覆盖用户改动） */
 export function ensureCategories(): LedgerCategory[] {
   const existing = readRaw<LedgerCategory[]>(LEDGER_KEYS.categories, []);
-  if (existing.length > 0) return existing;
+  if (existing.length > 0) return ensureSubscriptionCategory(existing);
   writeRaw(LEDGER_KEYS.categories, DEFAULT_CATEGORIES);
   return DEFAULT_CATEGORIES;
+}
+
+/** 老用户补「订阅」分类（2026-10-25）：ensureCategories 空表才写默认，
+ *  2026-10-25 之前建账的列表里没有 cat_subscription。幂等迁移：无该 id 且
+ *  用户没自建过同名分类时追加；返回迁移后的列表（写库副作用含在内，失败只留痕不抛）。 */
+function ensureSubscriptionCategory(list: LedgerCategory[]): LedgerCategory[] {
+  if (list.some((c) => c && (c.id === 'cat_subscription' || c.name === '订阅'))) return list;
+  const next = [...list, { id: 'cat_subscription', name: '订阅', icon: '🔁', kind: 'expense' as const }];
+  writeRaw(LEDGER_KEYS.categories, next);
+  return next;
 }
 
 export function loadCategories(): LedgerCategory[] {
   const list = readRaw<LedgerCategory[]>(LEDGER_KEYS.categories, []);
   // 存储损坏（不是数组）时回落到内置分类，而不是返回空数组 ——
   // 空数组会让分类选择器变成空白，用户以为功能坏了。
-  return Array.isArray(list) && list.length > 0 ? list : DEFAULT_CATEGORIES;
+  if (Array.isArray(list) && list.length > 0) return ensureSubscriptionCategory(list);
+  return DEFAULT_CATEGORIES;
 }
 
 export function loadEntries(): LedgerEntry[] {

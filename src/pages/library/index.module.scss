@@ -982,6 +982,14 @@
   color: $color-text-tertiary;
 }
 
+/* 多来源并列行（Particle 模式，2026-10-25）：同事件其他来源媒体名 */
+.articleAlsoFrom {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
 .articleImage {
   display: block;
   width: 100%;

@@ -990,7 +990,11 @@ function LibraryPage() {
 
   /** 站内文章视图（2026-10-25）：正文 = 源 feed 自带的摘要/描述（content，缺失退回 summary），
    *  **不抓取正文页** —— 合规口径「不转载正文只出摘要」不变；想看全文走「阅读原文」。 */
-  const renderArticleView = (item: HotspotNews) => (
+  const renderArticleView = (item: HotspotNews) => {
+    // alsoFrom 从这里取（与卡片 multiSourceCount 同源）：文章视图需要具体媒体名列表
+    const alsoFrom = (item as { alsoFrom?: unknown }).alsoFrom;
+    const alsoFromList = Array.isArray(alsoFrom) ? (alsoFrom as string[]) : [];
+    return (
     <View className={styles.blockMask} onClick={() => setArticle(null)}>
       <View className={styles.articleSheet} onClick={(e) => e.stopPropagation()}>
         <View className={styles.articleHead}>
@@ -998,6 +1002,14 @@ function LibraryPage() {
           <Text className={styles.articleMeta}>
             {item.source} · {(item.createTime || '').slice(0, 10)}
           </Text>
+          {/* ② 多来源并列（竞品倒推 2026-10-25，Particle 模式）：同一事件的其他来源媒体名。
+              数据（alsoFrom）服务端早就在传，此前只在卡片角落显示条数 —— 文章视图里
+              把"还有谁在报"直接列出来，多源可交叉核验，提高 AI 时代的可信度。 */}
+          {alsoFromList.length > 0 ? (
+            <Text className={styles.articleAlsoFrom}>
+              {t('library.articleAlsoFrom', { sources: alsoFromList.slice(0, 4).join(' · ') })}
+            </Text>
+          ) : null}
         </View>
         {item.image ? (
           <Image src={item.image} mode='widthFix' lazyLoad className={styles.articleImage} />
@@ -1022,7 +1034,8 @@ function LibraryPage() {
         </View>
       </View>
     </View>
-  );
+    );
+  };
 
   /** 资讯卡片（原始列表与 AI 精选共用；showReason 时视为 AI 筛选条目：L1 角标 + X5 推荐理由） */
   const renderNewsCard = (item: HotspotNews, showReason: boolean) => {

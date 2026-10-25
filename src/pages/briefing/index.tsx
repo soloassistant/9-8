@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Input, Button, Image } from '@tarojs/components';
 import Taro, { usePullDownRefresh, useDidShow, useDidHide, useShareAppMessage } from '@tarojs/taro';
 import dayjs from 'dayjs';
@@ -16,8 +16,9 @@ import { disabledAttr } from '@/utils/buttonDisabled';
 import type { IntelSourceRef } from '@/utils/intelGroups';
 import { formatPlayCount } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
-import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews, apiTodoSetStatus } from '@/services/api';
+import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews, apiTodoSetStatus, apiGetLibrary } from '@/services/api';
 import { buildTodayBrief, resolveCategory, type TodayBrief } from '@/utils/ledgerAggregate';
+import { fetchQuotes, getWatchlist, addToWatchlist, removeFromWatchlist, normalizeStockCode, type StockQuote } from '@/utils/quotes';
 import { buildPlanProposal, DEFAULT_DURATION_MINUTES } from '@/utils/schedule';
 import type { PlanProposal, PlanApplyEvent } from '@/utils/schedule';
 import { guardHabitsOnOpen, commitHabitGuards, listRestorableRecords, undoHabitGuard, createHabit } from '@/utils/habit';
@@ -54,7 +55,7 @@ import {
 } from '@/utils/readStreak';
 import type { ReadSectionKind, ReadSession } from '@/utils/readStreak';
 import { canPromptSubscribe, promptSubscribe, isSubscriptionStale } from '@/utils/subscribe';
-import type { Briefing, ChatMessage, LedgerBudget, LedgerCategory, LedgerEntry, ScheduleEvent, TodoItem } from '@/types';
+import type { Briefing, ChatMessage, CollectionItem, LedgerBudget, LedgerCategory, LedgerEntry, ScheduleEvent, TodoItem } from '@/types';
 import { useT, useLanguageStore } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { readPrefs } from '@/utils/prefs';
@@ -175,6 +176,33 @@ function BriefingPage() {
    *  两套抓取链路，并进 payload 会让任一侧失败互相牵连；且它免登录、可被 H5 静态站
    *  直接调用。失败即空数组 —— 调用方不渲染卡片，不弹错误、不给假数据。 */
   const [videoNews, setVideoNews] = useState<VideoNewsItem[]>([]);
+  /* ===== 自选股行情（2026-10-25，用户需求「今日股价行情和分析，具体到单只股票」）=====
+   * 数据源腾讯行情（免 key、CORS 全开，见 utils/quotes.ts 实测注释）；仅 H5 ——
+   * weapp 无 TextDecoder('gbk')，云函数转码又卡部署凭据，weapp 整卡隐藏（诚实降级）。 */
+  const [watchCodes, setWatchCodes] = useState<string[]>([]);
+  const [quotes, setQuotes] = useState<StockQuote[]>([]);
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [quoteInput, setQuoteInput] = useState('');
+  const [quoteBusy, setQuoteBusy] = useState(false);
+  const [quoteAnalysis, setQuoteAnalysis] = useState<string | null>(null);
+  const [quoteAnalyzing, setQuoteAnalyzing] = useState(false);
+  /** 每日回顾（flomo 模式）：≥30 天前的随机一条旧收藏；null = 不渲染 */
+  const [memoryFlash, setMemoryFlash] = useState<CollectionItem | null>(null);
+  /** 「今日已读完」判据（Kagi 定版模式）：今日浏览过热点（browseHistory 由热点页写入）。
+   *  每次进页面现读 —— 不做 state，避免阅读后要等重渲染才亮。 */
+  const viewedToday = useMemo(() => {
+    try {
+      const list = Taro.getStorageSync('browseHistory') as Array<{ viewedAt?: string }> | '';
+      if (!Array.isArray(list)) return false;
+      const today = new Date().toISOString().slice(0, 10);
+      return list.some((h) => typeof h.viewedAt === 'string' && h.viewedAt.slice(0, 10) === today);
+    } catch {
+      return false;
+    }
+    // briefing 仅作重算钥匙（数据变了页面会重渲染，此时重读一次历史开销可忽略）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [briefing]);
+  const intelCount = briefing?.intel?.intelItems?.length ?? 0;
   /** 最近一次算出的账单摘要。仅供 useDidShow 里的日志读 —— React state 在闭包里是stale 的，
    *  直接打ledgerBrief 永远打出 null，排查时会误判成「没算出来」。 */
   const ledgerBriefRef = useRef<TodayBrief | null>(null);
@@ -440,6 +468,29 @@ function BriefingPage() {
     apiGetVideoNews()
       .then(setVideoNews)
       .catch((err) => console.warn('[BriefingPage] videoNews load failed:', err));
+    // 自选股行情：与视频同款解耦加载。仅 H5（weapp 无 GBK 解码器，卡隐藏）；无自选时跳过。
+    {
+      const codes = getWatchlist();
+      setWatchCodes(codes);
+      if (codes.length > 0) {
+        fetchQuotes(codes)
+          .then((qs) => setQuotes(qs))
+          .catch((err) => console.warn('[BriefingPage] quotes load failed:', err));
+      }
+    }
+    // 每日回顾（竞品倒推 2026-10-25，flomo/Readwise 模式）：拉收藏，挑一条 ≥30 天前的做
+    // 「与过去的收藏不期而遇」。失败静默（无回顾卡，不打扰）；不足 30 天的收藏不算 ——
+    // 太新的没有「回望」感，等于普通收藏列表。
+    apiGetLibrary()
+      .then((list) => {
+        const cutoff = Date.now() - 30 * 86400 * 1000;
+        const old = list.filter((c) => {
+          const ts = Date.parse(c.createTime || '');
+          return Number.isFinite(ts) && ts < cutoff;
+        });
+        if (old.length > 0) setMemoryFlash(old[Math.floor(Math.random() * old.length)]);
+      })
+      .catch((err) => console.warn('[BriefingPage] memory flash load failed:', err));
     // 仅挂载执行一次：init 为 store 动作，loadBriefing 为 useCallback；语言切换无需重跑拉取，故二者都不列入 deps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -655,6 +706,63 @@ function BriefingPage() {
 
   const handleGoSearch = () => {
     Taro.navigateTo({ url: '/pages/search/index' });
+  };
+
+  /* ---------------- 自选股：添加 / 删除 / AI 解读（2026-10-25） ---------------- */
+  const handleAddStock = async () => {
+    if (quoteBusy) return;
+    const code = normalizeStockCode(quoteInput);
+    if (!code) {
+      Taro.showToast({ title: t('briefing.quoteBadCode'), icon: 'none' });
+      return;
+    }
+    if (watchCodes.includes(code)) {
+      Taro.showToast({ title: t('briefing.quoteDup'), icon: 'none' });
+      return;
+    }
+    setQuoteBusy(true);
+    const verified = await fetchQuotes([code]);
+    setQuoteBusy(false);
+    if (verified.length === 0) {
+      // 归一通过但拉不到行情 = 代码不存在（或接口故障）。区分不了就统一按"没查到"说，
+      // 不猜是哪个 —— 与「失败≠空态」口径一致。
+      Taro.showToast({ title: t('briefing.quoteNotFound'), icon: 'none' });
+      return;
+    }
+    const next = addToWatchlist(code);
+    setWatchCodes(next);
+    setQuoteInput('');
+    const qs = await fetchQuotes(next);
+    setQuotes(qs);
+  };
+
+  const handleRemoveStock = async (code: string) => {
+    const next = removeFromWatchlist(code);
+    setWatchCodes(next);
+    setQuotes((prev) => prev.filter((q) => q.code !== code));
+  };
+
+  /** AI 解读：把整表行情（名称/价格/涨跌幅/高低）喂给既有 chat 通道。
+   *  不做投资建议措辞 —— 提示词里明确「中性描述,不构成投资建议」（合规口径）。 */
+  const handleAnalyzeQuotes = async () => {
+    if (quoteAnalyzing || quotes.length === 0) return;
+    setQuoteAnalyzing(true);
+    setQuoteAnalysis(null);
+    try {
+      const table = quotes
+        .map((q) => `${q.name}(${q.code}) 现价${q.price} 涨跌${q.changePct >= 0 ? '+' : ''}${q.changePct}% 最高${q.high} 最低${q.low}`)
+        .join('\n');
+      const res = await apiChat(
+        `以下是用户自选股今日行情：\n${table}\n\n请用3-5句话中性描述今日整体表现与个股差异（哪些强哪些弱、波动幅度），并在结尾加一句"以上为行情描述，不构成投资建议"。不要预测涨跌。`,
+        'text'
+      );
+      setQuoteAnalysis(res.reply || '');
+    } catch (err) {
+      console.error('[BriefingPage] quote analysis failed:', err);
+      Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
+    } finally {
+      setQuoteAnalyzing(false);
+    }
   };
 
   /** 待办勾选完成：走确定性写库接口，不经过 LLM 对话通道。 */
@@ -1120,6 +1228,11 @@ function BriefingPage() {
             <Button className={styles.searchButton} onClick={handleGoSearch}>
               🔍
             </Button>
+            {/* ⑤ 手动刷新（竞品倒推 2026-10-25，SmartNews 模式）：force=true 跳过当日缓存重拉。
+                与下拉刷新同一通道；不加 loading 转圈（apiGetBriefing 秒级返回,骨架已有） */}
+            <Button className={styles.searchButton} onClick={() => void loadBriefing(true)}>
+              🔄
+            </Button>
           </View>
         </View>
       </View>
@@ -1223,6 +1336,108 @@ function BriefingPage() {
           </View>
         ))}
       </View>
+
+      {/* ===== 📈 自选股行情（2026-10-25）：腾讯免 key 行情 + AI 中性解读 =====
+          仅 H5 渲染（weapp 无 GBK 解码器，云函数代理又卡部署凭据 —— 隐藏而非假数据）。
+          红涨绿跌：A 股习惯，三市场统一，注释钉死避免后人"顺手国际化"。 */}
+      {isH5 ? (
+        <View style={{ margin: `0 ${r2r(32)} ${r2r(24)}`, background: 'var(--bg-card, #fff)', border: '1rpx solid var(--card-border, rgba(29,33,41,0.06))', borderRadius: r2r(24), padding: r2r(24) }}>
+          <View style={{ display: 'flex', alignItems: 'center', gap: r2r(12) }}>
+            <Text style={{ fontSize: r2r(32), fontWeight: '600', flex: 1 }}>{t('briefing.quoteTitle')}</Text>
+            <Text style={{ fontSize: r2r(24), color: '#c7371a' }} onClick={() => setQuoteOpen(!quoteOpen)}>
+              {quoteOpen ? t('briefing.quoteManageClose') : t('briefing.quoteManage')}
+            </Text>
+          </View>
+          {quotes.length === 0 ? (
+            <Text style={{ fontSize: r2r(26), color: '#657080', display: 'block', marginTop: r2r(12) }}>
+              {t('briefing.quoteEmpty')}
+            </Text>
+          ) : (
+            quotes.map((q) => (
+              <View key={q.code} style={{ display: 'flex', alignItems: 'baseline', gap: r2r(12), marginTop: r2r(12) }}>
+                <Text style={{ fontSize: r2r(28), fontWeight: '500', flex: 1 }}>
+                  {q.name}
+                  <Text style={{ fontSize: r2r(22), color: '#657080' }}> {q.code}</Text>
+                </Text>
+                <Text style={{ fontSize: r2r(28) }}>{q.price.toFixed(2)}</Text>
+                <Text style={{ fontSize: r2r(26), color: q.changePct >= 0 ? '#c7371a' : '#00b42a', minWidth: r2r(110), textAlign: 'right' }}>
+                  {q.changePct >= 0 ? '+' : ''}{q.changePct.toFixed(2)}%
+                </Text>
+                {quoteOpen ? (
+                  <Text style={{ fontSize: r2r(26), color: '#657080' }} onClick={() => void handleRemoveStock(q.code)}>
+                    ✕
+                  </Text>
+                ) : null}
+              </View>
+            ))
+          )}
+          {quoteOpen ? (
+            <View style={{ display: 'flex', gap: r2r(12), marginTop: r2r(20) }}>
+              <input
+                style={{ flex: 1, fontSize: r2r(26), padding: `${r2r(10)} ${r2r(16)}`, border: '1rpx solid #e5e6eb', borderRadius: r2r(12), background: '#fff' }}
+                value={quoteInput}
+                placeholder={t('briefing.quotePlaceholder')}
+                maxLength={12}
+                onChange={(e) => setQuoteInput((e.target as HTMLInputElement).value)}
+              />
+              <Text
+                style={{ fontSize: r2r(26), color: '#fff', background: quoteBusy ? '#c9cdd4' : '#c7371a', borderRadius: r2r(12), padding: `${r2r(10)} ${r2r(20)}` }}
+                onClick={() => void handleAddStock()}
+              >
+                {quoteBusy ? t('common.loading') : t('briefing.quoteAdd')}
+              </Text>
+            </View>
+          ) : null}
+          {quotes.length > 0 ? (
+            <Text
+              style={{ fontSize: r2r(26), color: '#c7371a', display: 'block', marginTop: r2r(16) }}
+              onClick={() => void handleAnalyzeQuotes()}
+            >
+              {quoteAnalyzing ? t('common.loading') : t('briefing.quoteAnalyze')} ›
+            </Text>
+          ) : null}
+          {quoteAnalysis ? (
+            <Text style={{ fontSize: r2r(26), color: '#4e5969', display: 'block', marginTop: r2r(12), lineHeight: 1.6 }}>
+              🤖 {quoteAnalysis}
+            </Text>
+          ) : null}
+          {quotes.length > 0 && quotes[0].timeText ? (
+            <Text style={{ fontSize: r2r(22), color: '#657080', display: 'block', marginTop: r2r(8) }}>
+              {t('briefing.quoteAsOf', { time: quotes[0].timeText })} · {t('briefing.quoteSource')}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* 💾 每日回顾（竞品倒推 2026-10-25，flomo/Readwise 模式）：随机回望 ≥30 天前的旧收藏，
+          把「存了就忘」变「存了会回」。点击查看原文（openExternalPage 与热点页同语义）。 */}
+      {memoryFlash ? (
+        <View style={{ margin: `0 ${r2r(32)} ${r2r(24)}`, background: 'var(--bg-card, #fff)', border: '1rpx solid var(--card-border, rgba(29,33,41,0.06))', borderRadius: r2r(24), padding: r2r(24) }}>
+          <Text style={{ fontSize: r2r(26), color: '#657080' }}>{t('briefing.memoryFlashTitle')}</Text>
+          <Text style={{ fontSize: r2r(30), fontWeight: '600', display: 'block', marginTop: r2r(8) }}>
+            {memoryFlash.title}
+          </Text>
+          <Text style={{ fontSize: r2r(26), color: '#4e5969', display: 'block', marginTop: r2r(8), lineHeight: 1.6 }}>
+            {memoryFlash.summary}
+          </Text>
+          {memoryFlash.url ? (
+            <Text
+              style={{ fontSize: r2r(26), color: '#c7371a', display: 'block', marginTop: r2r(12) }}
+              onClick={() => void openExternalPage(memoryFlash.url!)}
+            >
+              {t('library.readOriginal')} ›
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* ✓ 今日已读完（竞品倒推 2026-10-25，Kagi「每日一份定版」模式）：有情报且今天
+          浏览过热点 → 给"读完"闭环感。判据刻意从宽（浏览≥1条即算），不搞打卡压力。 */}
+      {hasContent && intelCount > 0 && viewedToday ? (
+        <View style={{ margin: `0 ${r2r(32)} ${r2r(24)}`, padding: r2r(20), borderRadius: r2r(20), background: '#f0f9eb', textAlign: 'center' }}>
+          <Text style={{ fontSize: r2r(26), color: '#00b42a' }}>✓ {t('briefing.readDone')}</Text>
+        </View>
+      ) : null}
 
       {hasContent && adaptiveBanner ? (
         <View className={styles.adaptiveBanner}>
