@@ -150,6 +150,15 @@ const HABIT_TOAST_MS = 5000;
 /** U-01 骨架屏延迟：加载超过该时长才显示骨架（防快速命中缓存时闪烁） */
 const SKELETON_DELAY_MS = 300;
 
+/** 快捷工具行（2026-10-25）：四个工具融进晨报主页，一排直达。
+ *  标签复用 mine.grid* 键（与「我的」宫格同一份功能名录，不另起一套叫法）。 */
+const TOOL_TILES = [
+  { icon: '🧾', label: 'mine.gridLedger', url: '/pages/ledger/index' },
+  { icon: '🛒', label: 'mine.gridShopping', url: '/pages/shopping/index' },
+  { icon: '📚', label: 'mine.gridLearn', url: '/pages/learn/index' },
+  { icon: '🔍', label: 'mine.gridSearch', url: '/pages/search/index' }
+] as const;
+
 function BriefingPage() {
   const t = useT();
   const lang = useLanguageStore((s) => s.lang);
@@ -1189,6 +1198,31 @@ function BriefingPage() {
           </Text>
         </View>
       ) : null}
+
+      {/* 快捷工具行（2026-10-25，用户指令「把记账/购物清单/语言学习/全网搜索融入前面几页」）：
+          四个工具在晨报主页一排直达 —— 记账另有上方数据卡，此处给无数据日一个常驻入口；
+          标签复用 mine.grid* 键（同一份功能名录，不另起一套叫法）。 */}
+      <View style={{ display: 'flex', gap: r2r(16), padding: `0 ${r2r(32)}`, margin: `${r2r(24)} 0` }}>
+        {TOOL_TILES.map((tool) => (
+          <View
+            key={tool.url}
+            style={{
+              flex: 1,
+              background: 'var(--bg-card, #ffffff)',
+              border: '1rpx solid var(--card-border, rgba(29, 33, 41, 0.06))',
+              borderRadius: r2r(24),
+              padding: `${r2r(20)} 0`,
+              textAlign: 'center'
+            }}
+            onClick={() => Taro.navigateTo({ url: tool.url })}
+          >
+            <Text style={{ fontSize: r2r(40), display: 'block' }}>{tool.icon}</Text>
+            <Text style={{ fontSize: r2r(24), color: '#4e5969', display: 'block', marginTop: r2r(8) }}>
+              {t(tool.label)}
+            </Text>
+          </View>
+        ))}
+      </View>
 
       {hasContent && adaptiveBanner ? (
         <View className={styles.adaptiveBanner}>

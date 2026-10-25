@@ -140,6 +140,14 @@ ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.tes
   ok('M6 history 页已删（路由不注册 + 文件不存在）', !/pages\/history\/index/.test(read('src/app.config.ts')) && !fs.existsSync(path.join(ROOT, 'src/pages/history/index.tsx')));
 }
 
+/* ---------------- N. 晨报页快捷工具行（2026-10-25） ----------------
+   记账/购物/学习/搜索四工具融进晨报主页（用户指令「融入到前面几页」）；标签复用 mine.grid* 键。 */
+{
+  const brief = stripComments(read('src/pages/briefing/index.tsx'));
+  ok('N1 快捷工具行存在（TOOL_TILES 四工具）', /const TOOL_TILES = \[/.test(brief) && (brief.match(/mine\.grid(Ledger|Shopping|Learn|Search)/g) || []).length >= 4);
+  ok('N2 工具块点击页内跳转（navigateTo({ url: tool.url })）', /navigateTo\(\{ url: tool\.url \}\)/.test(brief));
+}
+
 /* ---------------- E. 搜索接全网 + 失败态独立 ---------------- */
 const search = stripComments(read('src/pages/search/index.tsx'));
 ok('E1 搜索页调用 apiNewsSearch', /apiNewsSearch\(/.test(search));

@@ -95,5 +95,13 @@ export default [
     from: "    Taro.navigateTo({ url: '/pages/sxm/index' });\n  };",
     to: "    Taro.navigateTo({ url: '/pages/shopping/index' });\n  };",
     cmd: 'node .tools/verify-interaction-fixes.mjs'
+  },
+  {
+    // N：晨报页快捷工具行被删（工具融进主 页的成果回退）
+    label: '晨报快捷工具行被删（TOOL_TILES 清空）',
+    file: 'src/pages/briefing/index.tsx',
+    from: "  { icon: '🛒', label: 'mine.gridShopping', url: '/pages/shopping/index' },",
+    to: '',
+    cmd: 'node .tools/verify-interaction-fixes.mjs'
   }
 ];
