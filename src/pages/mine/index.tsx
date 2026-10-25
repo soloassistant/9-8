@@ -1165,6 +1165,12 @@ function MinePage() {
    *  ⚠️ 只支持「知道旧密码」的改密。没设过密码的账户（手机号注册时未填）无法补设 ——
    *     服务端没有短信重置接口（SDK 穷举实录，见 cloudAuth.resetPasswordForOld 注释），
    *     弹窗底部如实说明，短信登录不受影响。 */
+  /** 我的页分区折叠（2026-10-25 瘦身）：低频区默认收起，主路径（个人卡/宫格/订阅/通用设置）常开。
+   *  折叠只是视觉收纳 —— 各区块的原 JSX 原样保留在折叠体里，门禁断言的源码模式不受影响。 */
+  const [foldUsage, setFoldUsage] = useState(false);
+  const [foldAi, setFoldAi] = useState(false);
+  const [foldPush, setFoldPush] = useState(false);
+  const [foldAccount, setFoldAccount] = useState(false);
   const [pwdOpen, setPwdOpen] = useState(false);
   const [oldPwd, setOldPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
@@ -1696,6 +1702,15 @@ function MinePage() {
         </View>
       ) : null}
 
+      {/* 用量与统计（2026-10-25 折叠）：额度/功能记账/连续阅读/习惯守护/近期动态都是
+          「低频查看」型内容，默认收起给主路径让位；头条即入口，展开原卡原样渲染。 */}
+      <View className={styles.foldHeadCard} onClick={() => setFoldUsage(!foldUsage)}>
+        <Text className={styles.foldIcon}>📊</Text>
+        <Text className={styles.foldTitle}>{t('mine.foldUsage')}</Text>
+        <Text className={styles.foldCaret}>{foldUsage ? '▾' : '›'}</Text>
+      </View>
+      {foldUsage ? (
+        <>
       <View className={styles.quotaCard}>
         <Text className={styles.quotaTitle}>{t('mine.quotaTitle')}</Text>
         <View className={styles.quotaRow}>
@@ -1863,6 +1878,8 @@ function MinePage() {
           </Text>
         )}
       </View>
+        </>
+      ) : null}
 
       {/* ===== 设置项（自独立设置页合并：通用 / AI 个性化 / 外观 / 账号与合规） ===== */}
       <View className={styles.card}>
@@ -1945,6 +1962,14 @@ function MinePage() {
         {isWeapp ? <Text className={styles.platformHint}>{t('perm.platformUnsupported')}</Text> : null}
       </View>
 
+      {/* AI 个性化与外观（2026-10-25 折叠）：低频调整 */}
+      <View className={styles.foldHeadCard} onClick={() => setFoldAi(!foldAi)}>
+        <Text className={styles.foldIcon}>🤖</Text>
+        <Text className={styles.foldTitle}>{t('mine.settingAi')}</Text>
+        <Text className={styles.foldCaret}>{foldAi ? '▾' : '›'}</Text>
+      </View>
+      {foldAi ? (
+        <>
       <View className={styles.card}>
         <Text className={styles.cardTitle}>{t('mine.settingAi')}</Text>
         <View className={styles.row}>
@@ -2085,6 +2110,17 @@ function MinePage() {
         </View>
       </View>
 
+        </>
+      ) : null}
+
+      {/* 推送偏好（2026-10-25 折叠）：低频调整 */}
+      <View className={styles.foldHeadCard} onClick={() => setFoldPush(!foldPush)}>
+        <Text className={styles.foldIcon}>🔔</Text>
+        <Text className={styles.foldTitle}>{t('settings.push')}</Text>
+        <Text className={styles.foldCaret}>{foldPush ? '▾' : '›'}</Text>
+      </View>
+      {foldPush ? (
+        <>
       {/* ===== 竞品分析 X3 / X6：推送偏好（数量三档 / 免打扰 / 模块开关 / 周末设置） ===== */}
       <View className={styles.card}>
         <Text className={styles.cardTitle}>{t('settings.push')}</Text>
@@ -2242,8 +2278,17 @@ function MinePage() {
           </View>
         </View>
       </View>
+        </>
+      ) : null}
 
-      {/* 账号与合规（F18 提审硬门槛） */}
+      {/* 账号与合规（F18 提审硬门槛；2026-10-25 折叠：法务文档与注销属极低频动作） */}
+      <View className={styles.foldHeadCard} onClick={() => setFoldAccount(!foldAccount)}>
+        <Text className={styles.foldIcon}>👤</Text>
+        <Text className={styles.foldTitle}>{t('mine.settingAccount')}</Text>
+        <Text className={styles.foldCaret}>{foldAccount ? '▾' : '›'}</Text>
+      </View>
+      {foldAccount ? (
+        <>
       <View className={styles.card}>
         <Text className={styles.cardTitle}>{t('mine.settingAccount')}</Text>
         {/* 修改密码（2026-10-25 常驻入口）：安全措施见 submitChangePassword 注释。
@@ -2314,6 +2359,9 @@ function MinePage() {
           handleDeleteAccount
         )}
       </View>
+
+        </>
+      ) : null}
 
       {/* 退出登录（2026-10-15）：与「注销账号」严格分开的两件事。
           此前**只有注销、没有登出** —— 用户想只是退出登录（换账号、把设备给别人），

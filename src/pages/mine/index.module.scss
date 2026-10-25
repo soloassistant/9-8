@@ -1434,3 +1434,37 @@
   font-size: $font-size-xs;
   color: $color-text-secondary;
 }
+
+/* ===== 分区折叠头条（2026-10-25 我的页瘦身）=====
+   只渲染头条一行（card-surface 同语言），展开体是原有卡片原样渲染 —— 不嵌套白卡。 */
+.foldHeadCard {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-top: $spacing-md;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-xl;
+  box-shadow: $shadow-card;
+  padding: $spacing-md $spacing-lg;
+
+  &:active {
+    background: $color-bg-hover;
+  }
+}
+
+.foldIcon {
+  font-size: $font-size-lg;
+}
+
+.foldTitle {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.foldCaret {
+  margin-left: auto;
+  font-size: $font-size-md;
+  color: $color-text-tertiary;
+}
