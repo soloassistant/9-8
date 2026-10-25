@@ -334,6 +334,11 @@ if (typeof burstPick === 'function') {
       const r = burstPick([{ text: '某地发生爆炸', source: 's1' }]);
       return Boolean(r) && r.level === 1 && r.alsoSources.length === 0;
     })());
+  // 国际源接入（2026-10-25）：英文标题也必须能触发突发识别，否则国际源的重大事件永远静默
+  ok('I12 英文事件词触发（国际源标题）',
+    burstPick([{ text: 'Powerful earthquake strikes region', source: 'Reuters' }]) !== null);
+  ok('I12b 英文普通标题不触发（歧义短词没进表）',
+    burstPick([{ text: 'New Fire TV stick review', source: 'Verge' }]) === null);
 }
 
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);

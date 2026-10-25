@@ -123,9 +123,28 @@ const RSS_SOURCES = [
   { name: 'Solidot', url: 'https://www.solidot.org/index.rss', tag: '科技' },
   // [audit] 科技 · Ars Technica，技术深度报道，时政占比 ≈0%（10/10 存活，2354ms，最新 0.33 天，两轮 ADOPT）
   { name: 'Ars Technica', url: 'https://feeds.arstechnica.com/arstechnica/index', tag: '科技' },
+
+  // ↓↓↓ 2026-10-25 国际热点扩源（用户需求「热点加一些国际热点」）↓↓↓
+  // 依据：.tmp-verify/feeds-vet3/（vet-feeds 生产口径，France24 两轮 ADOPT；
+  // NPR/联合国/CNBC 首轮 TIMEOUT 次轮 ADOPT，单独复跑再 ADOPT —— 记为连续两轮通过）。
+  // [audit] 国际 · France24，法广英文版，全球时事的欧洲视角（10/10 存活，3884ms，最新 0.03 天，两轮 ADOPT）
+  { name: 'France24', url: 'https://www.france24.com/en/rss', tag: '国际' },
+  // [audit] 国际 · NPR World，美国公共广播国际版，报道克制（10/10 存活，2891ms，最新 0.12 天）
+  { name: 'NPR 国际', url: 'https://feeds.npr.org/1004/rss.xml', tag: '国际' },
+  // [audit] 国际 · 联合国新闻官方中文源，全球事务权威且中立（10/10 存活，3458ms，最新 0.93 天）
+  { name: '联合国新闻', url: 'https://news.un.org/feed/subscribe/zh/news/all/rss.xml', tag: '国际' },
+  // [audit] 国际 · CNBC 全球版，国际财经与地缘经济（10/10 存活，2314ms，最新 0.06 天）
+  { name: 'CNBC 全球', url: 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114', tag: '国际' },
+  // ⚠️ 国际源会报道涉华话题，与既有英文源同级风险；订阅档 AI 精选层可对时政类降权，
+  //    免费档原始条目直出 —— 与科技类英文源同一口径，不单独设闸（要设闸等真实投诉数据）。
   // 本轮淘汰（勿回填，理由留档防止重复踩坑）：
   //   V2EX        https://www.v2ex.com/index.xml        两轮 TIMEOUT（8s）
   //   cnBeta      https://rss.cnbeta.com/rss            NET-ERR（fetch failed）
+  // 国际轮（2026-10-25）两轮 TIMEOUT（疑似线路不稳/受限，复跑仍超时再评估）：
+  //   BBC 国际     https://feeds.bbci.co.uk/news/world/rss.xml
+  //   Guardian 国际 https://www.theguardian.com/world/rss
+  //   半岛电视台    https://www.aljazeera.com/xml/rss/all.xml
+  //   德国之声中文  https://rss.dw.com/rdf/rss-chi-all
   //   快科技      https://news.mydrivers.com/rss.xml    HTTP 404
   //   虎嗅        https://www.huxiu.com/rss/0.xml       两轮 TIMEOUT（直连也超时，非镜像问题）
   //   GitHub Blog https://github.blog/feed/             轮1 TIMEOUT / 轮2 NET-ERR（本机网络不稳定，按最差判）

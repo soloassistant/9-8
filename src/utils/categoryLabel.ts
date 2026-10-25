@@ -41,6 +41,7 @@ export const CATEGORY_LABEL_KEYS: Record<string, LangKey> = {
   健康: 'cat.health',
   数码: 'cat.digital',
   影视: 'cat.film',
+  国际: 'cat.international',
   [CATEGORY_MIXED]: 'cat.hotlist',
   [CATEGORY_UNKNOWN]: 'cat.unknown'
 };

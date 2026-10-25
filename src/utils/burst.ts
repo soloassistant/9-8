@@ -52,7 +52,17 @@ export const BURST_KEYWORDS = [
   '停产',
   '熔断',
   '战争',
-  '制裁'
+  '制裁',
+  // 英文事件词（2026-10-25 国际源接入后补）：国际源标题是英文，中文词表永远命不中。
+  // 刻意只收**低歧义**长词 —— fire/crash/war 这类短词在英文标题里歧义太大
+  // （"Fire TV"、"market crash"），宁缺勿滥；与中文表一样不含 clickbait 词。
+  'earthquake',
+  'typhoon',
+  'tsunami',
+  'landslide',
+  'explosion',
+  'airstrike',
+  'sanctions'
 ];
 
 export interface BurstHit {
