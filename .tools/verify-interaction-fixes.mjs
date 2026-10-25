@@ -301,6 +301,39 @@ if (typeof burstPick === 'function') {
   ok('I5 多条命中取第一条（顺序稳定）', Boolean(first) && first.source === 's1');
   const noSource = burstPick([{ text: '突发：某地发生事故', source: undefined }]);
   ok('I6 source 缺失不抛错且回落空串', Boolean(noSource) && noSource.source === '');
+
+  // ---- 评分制（2026-10-25 升级）：时效闸 / 多源交叉 / 双词分级 ----
+  const old = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  const fresh = new Date(Date.now() - 3600 * 1000).toISOString();
+  ok('I7 时效闸：>24h 旧闻不触发（昨天的预警不是突发）',
+    burstPick([{ text: '暴雨橙色预警', source: 's1', createTime: old }]) === null);
+  ok('I7b 时效闸：24h 内正常触发；createTime 缺失保守放行',
+    burstPick([{ text: '暴雨橙色预警', source: 's1', createTime: fresh }]) !== null &&
+    burstPick([{ text: '暴雨橙色预警', source: 's1' }]) !== null);
+  const cross = burstPick([
+    { text: '某地发生地震 震感明显', source: '源A' },
+    { text: '地震后续：救援已抵达', source: '源B' }
+  ]);
+  ok('I8 多源交叉 → level 2 且带佐证来源',
+    Boolean(cross) && cross.level === 2 && cross.alsoSources.includes('源B'));
+  ok('I9 同源多条不算交叉（镜像稿防误升）',
+    (() => {
+      const r = burstPick([
+        { text: '台风登陆', source: '同一家' },
+        { text: '台风路径再更新', source: '同一家' }
+      ]);
+      return Boolean(r) && r.level === 1;
+    })());
+  ok('I10 单条双词命中 → level 2（如「地震+预警」同现）',
+    (() => {
+      const r = burstPick([{ text: '地震局发布地震预警', source: 'solo' }]);
+      return Boolean(r) && r.level === 2;
+    })());
+  ok('I11 单源单词仍是 level 1（分级不误伤基础形态）',
+    (() => {
+      const r = burstPick([{ text: '某地发生爆炸', source: 's1' }]);
+      return Boolean(r) && r.level === 1 && r.alsoSources.length === 0;
+    })());
 }
 
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);

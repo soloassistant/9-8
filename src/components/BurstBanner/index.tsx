@@ -33,13 +33,17 @@ const COPY = {
     label: '热点速报',
     note: '按公开新闻标题识别 · 请以权威发布为准',
     cta: '看相关报道',
-    close: '关闭'
+    close: '关闭',
+    // level 2（多源交叉/双词命中）措辞：说「多条来源均在报道」这一可验证事实，
+    // 仍不写「已确认/紧急通知」—— 关键词识别永远不是官方通报
+    multiSource: '多条来源均在报道'
   },
   en: {
     label: 'In the news',
     note: 'Detected from public headlines · refer to official sources',
     cta: 'See coverage',
-    close: 'Dismiss'
+    close: 'Dismiss',
+    multiSource: 'Multiple outlets reporting'
   }
 };
 
@@ -85,6 +89,9 @@ export default function BurstBanner({ items }: Props) {
       <View className={styles.main} onClick={handleOpen}>
         <Text className={styles.label}>
           ⚠ {copy.label} · {hit.source}
+          {/* level 2 佐证行（评分制 2026-10-25）：多源交叉或双词命中才显示，
+              不是每条横幅都挂 —— 分级信息才有信息量 */}
+          {hit.level === 2 ? ` · ${copy.multiSource}${hit.alsoSources.length ? `（${hit.alsoSources.join('、')}）` : ''}` : ''}
         </Text>
         <Text className={styles.text}>{hit.text}</Text>
         <Text className={styles.note}>

@@ -103,5 +103,21 @@ export default [
     from: "  { icon: '🛒', label: 'mine.gridShopping', url: '/pages/shopping/index' },",
     to: '',
     cmd: 'node .tools/verify-interaction-fixes.mjs'
+  },
+  {
+    // I 组：时效闸被删（旧闻重新顶横幅）
+    label: '突发识别时效闸被删（48h 旧闻也触发）',
+    file: 'src/utils/burst.ts',
+    from: 'if (!isFresh(item?.createTime)) continue;',
+    to: ';',
+    cmd: 'node .tools/verify-interaction-fixes.mjs'
+  },
+  {
+    // I 组：多源交叉判定被删（level 2 分级失效，退回单词判定）
+    label: '突发识别多源交叉判定被删',
+    file: 'src/utils/burst.ts',
+    from: 'if (sources.size >= 2) {',
+    to: 'if (false) {',
+    cmd: 'node .tools/verify-interaction-fixes.mjs'
   }
 ];
