@@ -41,9 +41,9 @@ const BROWSER = new Map([
 ]);
 
 // ── 承认的缺口：纯静态、可变异，但还没配。**上限锁死**，只许减不许增 ──
+// （verify-interaction-fixes 已于 2026-10-25 配齐 mutations-interaction.mjs，从缺口表移出）
 const DEBT_CAP = 14;
 const DEBT = new Map([
-  ['verify-interaction-fixes.mjs', 'I 组有运行时断言，值得配变异；49 条里 A–H 组是静态的'],
   ['verify-prelaunch-fixes.js', '上线前清单，43 条静态断言，一条变异都没有'],
   ['verify-trust-wiring.js', '22 条静态断言'],
   ['verify-todo-status.js', '19 条静态断言'],

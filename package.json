@@ -51,7 +51,7 @@
     "verify:all": "node .tools/verify-all.mjs",
     "verify:parity": "node .tools/verify-all.mjs --parity",
     "audit:identity": "node .tools/audit-identity.mjs",
-    "verify:mutation": "node .tools/mutation-verify.mjs .tools/mutations-ledger.mjs .tools/mutations-share.mjs .tools/mutations-sync.mjs .tools/mutations-crash.mjs .tools/mutations-gates.mjs .tools/mutations-pref.mjs .tools/mutations-phone.mjs .tools/mutations-cloud.mjs .tools/mutations-briefing.mjs .tools/mutations-cloudflow.mjs .tools/mutations-buttons.mjs .tools/mutations-util.mjs .tools/mutations-usage.mjs .tools/mutations-legal.mjs .tools/mutations-docs.mjs .tools/mutations-verifyall.mjs .tools/mutations-extract.mjs",
+    "verify:mutation": "node .tools/mutation-verify.mjs .tools/mutations-ledger.mjs .tools/mutations-share.mjs .tools/mutations-sync.mjs .tools/mutations-crash.mjs .tools/mutations-gates.mjs .tools/mutations-pref.mjs .tools/mutations-phone.mjs .tools/mutations-cloud.mjs .tools/mutations-briefing.mjs .tools/mutations-cloudflow.mjs .tools/mutations-buttons.mjs .tools/mutations-util.mjs .tools/mutations-usage.mjs .tools/mutations-legal.mjs .tools/mutations-docs.mjs .tools/mutations-verifyall.mjs .tools/mutations-extract.mjs .tools/mutations-interaction.mjs",
     "verify:layout": "node .tools/verify-layout.mjs",
     "verify:visual": "node .tools/verify-visual-patrol.mjs",
     "deploy:cloud": "node .tools/deploy-cloud.mjs",

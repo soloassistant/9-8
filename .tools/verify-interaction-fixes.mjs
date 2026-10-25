@@ -104,7 +104,9 @@ ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.tes
 /* ---------------- L. 视频精选 + 站内文章视图（2026-10-25） ---------------- */
 {
   ok('L1 视频精选已接线（apiVideoNews 进并行加载）', /apiVideoNews\(\)/.test(lib));
-  ok('L2 视频板块条件渲染（空数组整段隐藏）', /videos\.length > 0 \? \(/.test(lib));
+  // 两处条件（sectionBar 与 ScrollView）都必须以非空为闸 —— 只断「存在一处」时，
+  // 删掉另一处的条件照样过（2026-10-25 变异实录 NOT-CAUGHT）
+  ok('L2 视频板块两处条件渲染都以非空为闸', (lib.match(/videos\.length > 0 \? \(/g) || []).length === 2);
   ok('L3 站内正文优先 content、缺失退回 summary', /item\.content \|\| item\.summary/.test(lib));
   ok('L4 文章视图带来源标注（articleSourceNote）', /library\.articleSourceNote/.test(lib));
   ok('L5 正文来自源 feed 自带内容而非抓取（webSearch content 上限 1000）', /content: clampSummary\(summary, 1000\)/.test(read('cloudfunctions/webSearch/index.js')));
@@ -118,7 +120,7 @@ ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.tes
    高频功能（记账/购物/学习/搜索）的一等入口；浏览历史已并入热点页（IA 瘦身 13→12 页）。 */
 {
   const mineGrid = stripComments(read('src/pages/mine/index.tsx'));
-  ok('M1 功能宫格存在（featureGrid + gridLedger）', /featureGrid/.test(mineGrid) && /mine\.gridLedger/.test(mineGrid));
+  ok('M1 功能宫格存在（styles.featureGrid + gridLedger）', /className=\{styles\.featureGrid\}/.test(mineGrid) && /mine\.gridLedger/.test(mineGrid));
   ok(
     'M2 四入口路由齐备（ledger/shopping/learn/search）',
     ['/pages/ledger/index', '/pages/shopping/index', '/pages/learn/index', '/pages/search/index'].every((u) =>
