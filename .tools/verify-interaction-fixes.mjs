@@ -122,11 +122,17 @@ ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.tes
   const mineGrid = stripComments(read('src/pages/mine/index.tsx'));
   ok('M1 功能宫格存在（styles.featureGrid + gridLedger）', /className=\{styles\.featureGrid\}/.test(mineGrid) && /mine\.gridLedger/.test(mineGrid));
   ok(
-    'M2 四入口路由齐备（ledger/shopping/learn/search）',
-    ['/pages/ledger/index', '/pages/shopping/index', '/pages/learn/index', '/pages/search/index'].every((u) =>
+    'M2 五入口路由齐备（ledger/shopping/sxm/learn/search）',
+    ['/pages/ledger/index', '/pages/shopping/index', '/pages/sxm/index', '/pages/learn/index', '/pages/search/index'].every((u) =>
       mineGrid.includes(u)
     )
   );
+  // M7 断言收窄到函数体（子串匹配会被改名绕过 —— 与 M1 同坑）：两端的分支都必须在位
+  const sxmFn = /const handleGridSxm = \(\) => \{([\s\S]*?)\n  \};/.exec(mineGrid);
+  const sxmBody = sxmFn ? sxmFn[1] : '';
+  ok('M7 省心买外放逐端镜像（H5 开 /sxm/ 服务、weapp 进原生页）',
+    sxmBody.includes('openExternalPage(SXM_ENTRY_URL)') &&
+    sxmBody.includes("navigateTo({ url: '/pages/sxm/index' })"));
   ok('M3 底部旧入口已去重（ledger 路由在 mine 页只出现一次）', (mineGrid.match(/pages\/ledger\/index/g) || []).length === 1);
   ok('M4 浏览历史已融入热点页（最近浏览区 + 展开标记接力）', /recentOpen/.test(lib) && /library-open-history/.test(mineGrid));
   ok('M5 宫格样式定义（featureTile + featureIcon）', /\.featureTile\s*\{/.test(read('src/pages/mine/index.module.scss')) && /\.featureIcon\s*\{/.test(read('src/pages/mine/index.module.scss')));

@@ -25,6 +25,8 @@ import { kvClear } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { disabledAttr } from '@/utils/buttonDisabled';
+import { openExternalPage } from '@/utils/externalLink';
+import { SXM_ENTRY_URL } from '@/config/partners';
 import { fromNow, dayKey } from '@/utils/date';
 import { getActivityLogs } from '@/utils/activityLog';
 import type { ActivityLogItem } from '@/utils/activityLog';
@@ -1150,6 +1152,24 @@ function MinePage() {
     })();
   };
 
+  /** 宫格·省心买（2026-10-25 外放）：行为逐端镜像购物页 PartnerEntry ——
+   *  H5 打开同源独立服务 /sxm/（完整 PWA），失败降级复制提示；小程序进原生页。 */
+  const handleGridSxm = () => {
+    if (isH5) {
+      void openExternalPage(SXM_ENTRY_URL).then((r) => {
+        if (r !== 'opened') {
+          Taro.showToast({
+            title: r === 'copied' ? t('partner.copyHint') : t('partner.copyFail'),
+            icon: 'none',
+            duration: 3000
+          });
+        }
+      });
+      return;
+    }
+    Taro.navigateTo({ url: '/pages/sxm/index' });
+  };
+
   const handleDeleteAccount = () => {
     setDeleteOpen(true);
   };
@@ -1494,18 +1514,21 @@ function MinePage() {
       {/* ===== 功能宫格（2026-10-25）：高频功能从页面底部捞到顶部 =====
           记账/购物/学习原先埋在「其他入口」底卡（本轮已去重上移，底卡整卡移除）；
           浏览历史此前只藏在头像 actionSheet 里，全网搜索只在晨报页头部 ——
-          宫格是它们第一排的一等入口。放在个人卡与订阅卡之间：先「我能用什么」再「要不要付费」。 */}
+          宫格是它们第一排的一等入口。放在个人卡与订阅卡之间：先「我能用什么」再「要不要付费」。
+          省心买（2026-10-25 外放）：独立产品，行为逐端镜像购物页 PartnerEntry ——
+          H5 打开同源独立服务 /sxm/，小程序进原生页。 */}
       <View className={styles.featureGrid}>
         {([
           { icon: '🧾', label: t('mine.gridLedger'), url: '/pages/ledger/index' },
           { icon: '🛒', label: t('mine.gridShopping'), url: '/pages/shopping/index' },
+          { icon: '🛍️', label: t('mine.gridSxm'), url: '/pages/sxm/index', external: true },
           { icon: '📚', label: t('mine.gridLearn'), url: '/pages/learn/index' },
           { icon: '🔍', label: t('mine.gridSearch'), url: '/pages/search/index' }
-        ] as Array<{ icon: string; label: string; url: string }>).map((it) => (
+        ] as Array<{ icon: string; label: string; url: string; external?: boolean }>).map((it) => (
           <View
             key={it.url}
             className={styles.featureTile}
-            onClick={() => Taro.navigateTo({ url: it.url })}
+            onClick={() => (it.external ? handleGridSxm() : Taro.navigateTo({ url: it.url }))}
           >
             <Text className={styles.featureIcon}>{it.icon}</Text>
             <Text className={styles.featureLabel}>{it.label}</Text>

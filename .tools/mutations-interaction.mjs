@@ -79,5 +79,21 @@ export default [
     from: "          { icon: '🔍', label: t('mine.gridSearch'), url: '/pages/search/index' }\n",
     to: '',
     cmd: 'node .tools/verify-interaction-fixes.mjs'
+  },
+  {
+    // M7：H5 端不再开独立服务（服务外放退化成跳原生简化页）
+    label: '省心买 H5 分支退化成页内跳转（独立服务不再外放）',
+    file: 'src/pages/mine/index.tsx',
+    from: "    if (isH5) {\n      void openExternalPage(SXM_ENTRY_URL).then((r) => {",
+    to: "    if (false) {\n      void openExternalPage(SXM_ENTRY_URL).then((r) => {",
+    cmd: 'node .tools/verify-interaction-fixes.mjs'
+  },
+  {
+    // M7：小程序端不再进原生页（退回复制外链的旧形态）
+    label: '省心买小程序分支退回复制外链',
+    file: 'src/pages/mine/index.tsx',
+    from: "    Taro.navigateTo({ url: '/pages/sxm/index' });\n  };",
+    to: "    Taro.navigateTo({ url: '/pages/shopping/index' });\n  };",
+    cmd: 'node .tools/verify-interaction-fixes.mjs'
   }
 ];
