@@ -990,6 +990,20 @@
   color: $color-text-secondary;
 }
 
+/* 文章头（标题+来源+多源行）：底部信息区分隔（审计补 2026-10-25 —— 首次实现漏定义，
+   标题/来源/多源三行挤在一起没有呼吸感） */
+.articleHead {
+  padding-bottom: $spacing-md;
+  border-bottom: 1rpx solid $color-divider;
+  margin-bottom: $spacing-md;
+}
+
+/* 文章视图按钮文字（同上补）：主/次按钮共用，白字/深字由按钮底色决定 */
+.articleCtaText {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+}
+
 .articleImage {
   display: block;
   width: 100%;

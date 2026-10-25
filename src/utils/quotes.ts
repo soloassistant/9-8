@@ -100,10 +100,14 @@ export function getWatchlist(): string[] {
   }
 }
 
-/** 加自选（去重，上限 8 只：行情卡一屏可读性优先）。返回新列表。 */
-export function addToWatchlist(code: string): string[] {
+/** 加自选（去重，上限 8 只：行情卡一屏可读性优先）。
+ *  返回新列表；**已满 8 只时返回 null** —— 调用方必须提示（静默吞掉会让用户以为加成功了，
+ *  刷新后消失，属于「假成功」，2026-10-25 审计修）。 */
+export function addToWatchlist(code: string): string[] | null {
   const list = getWatchlist();
-  if (!list.includes(code) && list.length < 8) list.push(code);
+  if (list.includes(code)) return list;
+  if (list.length >= 8) return null;
+  list.push(code);
   try {
     Taro.setStorageSync(WATCHLIST_KEY, list);
   } catch (err) {

@@ -730,6 +730,11 @@ function BriefingPage() {
       return;
     }
     const next = addToWatchlist(code);
+    if (next === null) {
+      // 已满 8 只：如实提示而不是静默吞掉（静默 = 假成功，刷新后消失）
+      Taro.showToast({ title: t('briefing.quoteFull'), icon: 'none' });
+      return;
+    }
     setWatchCodes(next);
     setQuoteInput('');
     const qs = await fetchQuotes(next);
