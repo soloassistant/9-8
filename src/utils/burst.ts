@@ -76,7 +76,10 @@ export interface BurstHit {
 
 function keywordHits(text: string): number {
   let n = 0;
-  for (const kw of BURST_KEYWORDS) if (text.includes(kw)) n++;
+  // 英文词表全小写：标题句首大写（Earthquake Hits…）必须 toLowerCase 再比，
+  // 否则国际源大半漏报（2026-10-25 审计 #1，实测 6 个典型标题 3 个命不中）
+  const lower = text.toLowerCase();
+  for (const kw of BURST_KEYWORDS) if (lower.includes(kw)) n++;
   return n;
 }
 
@@ -117,9 +120,13 @@ export function pickBurst(items?: BurstItem[] | null): BurstHit | null {
   // 多源交叉：不同 source 各自命中（同来源多条不算交叉 —— 镜像稿常见）
   const sources = new Set(hits.map((h) => h.source || '(未知来源)'));
   if (sources.size >= 2) {
-    // 取首条作为主体，其余来源名进 alsoSources（上限 3，横幅一行放得下）
+    // 取首条作为主体，其余来源名进 alsoSources（上限 3，横幅一行放得下）。
+    // '(未知来源)' 是内部占位符不是媒体名 —— 空来源条目参与了交叉可以（数据事实），
+    // 但不能把占位符印给用户看（2026-10-25 审计 #3）
     const first = hits[0];
-    const others = [...sources].filter((s) => s !== first.source).slice(0, 3);
+    const others = [...sources]
+      .filter((s) => s !== first.source && s !== '(未知来源)')
+      .slice(0, 3);
     return { ...first, level: 2, alsoSources: others };
   }
   // 无交叉：优先单条双词命中（level 2），否则第一条

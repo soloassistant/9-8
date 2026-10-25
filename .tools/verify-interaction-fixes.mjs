@@ -353,8 +353,22 @@ if (typeof burstPick === 'function') {
   // 国际源接入（2026-10-25）：英文标题也必须能触发突发识别，否则国际源的重大事件永远静默
   ok('I12 英文事件词触发（国际源标题）',
     burstPick([{ text: 'Powerful earthquake strikes region', source: 'Reuters' }]) !== null);
+  // 审计 #1（2026-10-25）：句首大写实测漏报 —— 词表全小写，匹配必须 toLowerCase
+  ok('I12a 句首大写也触发（Earthquake/Typhoon/Explosion 首字母大写）',
+    burstPick([{ text: 'Earthquake Hits Turkey', source: 'BBC' }]) !== null &&
+    burstPick([{ text: 'Typhoon Makes Landfall', source: 'NPR' }]) !== null &&
+    burstPick([{ text: 'Explosion at refinery', source: 'Reuters' }]) !== null);
   ok('I12b 英文普通标题不触发（歧义短词没进表）',
     burstPick([{ text: 'New Fire TV stick review', source: 'Verge' }]) === null);
+  // 审计 #3：空来源参与交叉可以，但 '(未知来源)' 占位符不得印给用户
+  ok('I13 alsoSources 不含 (未知来源) 占位符',
+    (() => {
+      const r = burstPick([
+        { text: '地震 震感明显', source: '源A' },
+        { text: '地震后续', source: '' }
+      ]);
+      return Boolean(r) && r.level === 2 && !r.alsoSources.includes('(未知来源)');
+    })());
 }
 
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);

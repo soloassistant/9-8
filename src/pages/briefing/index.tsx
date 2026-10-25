@@ -1358,8 +1358,8 @@ function BriefingPage() {
               {t('briefing.quoteEmpty')}
             </Text>
           ) : (
-            quotes.map((q) => (
-              <View key={q.code} style={{ display: 'flex', alignItems: 'baseline', gap: r2r(12), marginTop: r2r(12) }}>
+            quotes.map((q, idx) => (
+              <View key={`${q.code}-${idx}`} style={{ display: 'flex', alignItems: 'baseline', gap: r2r(12), marginTop: r2r(12) }}>
                 <Text style={{ fontSize: r2r(28), fontWeight: '500', flex: 1 }}>
                   {q.name}
                   <Text style={{ fontSize: r2r(22), color: '#657080' }}> {q.code}</Text>

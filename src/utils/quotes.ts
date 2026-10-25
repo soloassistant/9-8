@@ -33,6 +33,8 @@ export interface StockQuote {
 /** 自选股存储键。已进 SYNC_KEYS（2026-10-25）：跨设备同步（手机加的茅台，平板要能看到）；
  *  键标签 sync.key.watchlist 在 language.ts，同步语义与购物清单同款（数组新者赢）。 */
 const WATCHLIST_KEY = 'watchlist';
+/** 自选上限（2026-10-25 审计 #5 抽常量：此前上限 8 在注释与判断各写一遍，改一处必漏一处） */
+export const WATCHLIST_MAX = 8;
 
 /** 用户输入 → 腾讯代码归一。规则尽量贴近国内用户习惯：
  *  · 6 开头 6 位数字 → 沪市 sh；0/2/3 开头 6 位数字 → 深市 sz（000001 平安银行 vs sh000001 上证指数，用户要指数得自己写 sh）
@@ -43,7 +45,8 @@ const WATCHLIST_KEY = 'watchlist';
 export function normalizeStockCode(input: string): string | null {
   const s = input.trim().toLowerCase().replace(/\s+/g, '');
   if (!s) return null;
-  if (/^s[hz]\d{6}$/.test(s) || /^hk\d{4,5}$/.test(s) || /^us[a-z.]{1,8}$/.test(s)) return s;
+  // us 分支禁连续点（审计 #6）：us..A 之类垃圾串不给过，宁可在下一轮提示「代码格式不对」
+  if (/^s[hz]\d{6}$/.test(s) || /^hk\d{4,5}$/.test(s) || /^us[a-z]+(\.[a-z]+){0,2}$/.test(s)) return s;
   if (/^\d{6}$/.test(s)) return s[0] === '6' ? `sh${s}` : `sz${s}`;
   if (/^\d{4,5}$/.test(s)) return `hk${s}`;
   if (/^[a-z]{1,6}$/.test(s)) return `us${s}`;
@@ -100,13 +103,13 @@ export function getWatchlist(): string[] {
   }
 }
 
-/** 加自选（去重，上限 8 只：行情卡一屏可读性优先）。
- *  返回新列表；**已满 8 只时返回 null** —— 调用方必须提示（静默吞掉会让用户以为加成功了，
+/** 加自选（去重，上限 WATCHLIST_MAX 只：行情卡一屏可读性优先）。
+ *  返回新列表；**已满时返回 null** —— 调用方必须提示（静默吞掉会让用户以为加成功了，
  *  刷新后消失，属于「假成功」，2026-10-25 审计修）。 */
 export function addToWatchlist(code: string): string[] | null {
   const list = getWatchlist();
   if (list.includes(code)) return list;
-  if (list.length >= 8) return null;
+  if (list.length >= WATCHLIST_MAX) return null;
   list.push(code);
   try {
     Taro.setStorageSync(WATCHLIST_KEY, list);

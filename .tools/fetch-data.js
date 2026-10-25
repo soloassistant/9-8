@@ -35,6 +35,12 @@ function clean(s) {
     .replace(/<!\[CDATA\[|\]\]>/g, '')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+    // 数字实体通用解码（2026-10-25 审计 #2）：与云函数 stripHtml 同修 —— 线上 hotspot.json
+    // 实测 212 处 &#8217;/&#8230;/零填充 &#039; 漏进摘要（命名实体只盖住极少数）
+    .replace(/&#(\d{1,7});/g, (m, d) => {
+      const cp = Number(d);
+      return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+    })
     .replace(/<[^>]+>/g, '')
     // 剥完标签仍可能残留**落单的尖括号**：部分源（如 InfoQ）的 description 里
     // 写着「…查看原文&lt;/a&gt;」这类不闭合标签，`<[^>]+>` 匹配不到它们，
