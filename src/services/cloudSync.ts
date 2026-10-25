@@ -59,7 +59,10 @@ const SYNC_KEYS = [
   // 否则在别的设备加一笔账，会把这一端的预算设置一起覆盖掉。
   'ledgerEntries',    // 记账条目
   'ledger-categories', // 记账分类（含用户增删改）
-  'ledgerBudget'      // 记账预算（日/月上限）
+  'ledgerBudget',      // 记账预算（日/月上限）
+  // 自选股（2026-10-25）：跨设备同步 —— 手机上加了茅台，平板打开就该看到。
+  // 字符串数组（≤8 项腾讯代码），体积可忽略； quotes.ts 的 WATCHLIST_KEY 是唯一写入方。
+  'watchlist'
 ] as const;
 
 /**

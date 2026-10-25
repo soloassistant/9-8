@@ -119,5 +119,13 @@ export default [
     from: 'if (sources.size >= 2) {',
     to: 'if (false) {',
     cmd: 'node .tools/verify-interaction-fixes.mjs'
+  },
+  {
+    // O 组：账单金额过滤被删（0 元/负数账单转存会造出脏流水）
+    label: 'extract 账单金额过滤被删',
+    file: 'cloudfunctions/extract/index.js',
+    from: ".filter((b) => b && typeof b.amount === 'number' && b.amount > 0)",
+    to: '.filter((b) => b)',
+    cmd: 'node .tools/verify-interaction-fixes.mjs'
   }
 ];

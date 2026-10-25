@@ -6,6 +6,9 @@ const SYSTEM_PROMPT = `你是私人晨报助理的提取引擎。分析用户转
 {
   "events": [{ "title": string, "startTime": "YYYY-MM-DD HH:mm", "endTime": string|null, "location": string|null, "source": string }],
   "todos": [{ "title": string, "dueDate": "YYYY-MM-DD HH:mm"|null, "source": string }],
+  "bills": [{ "title": string, "amount": number, "dueDate": "YYYY-MM-DD"|null, "source": string }],
+  "shoppingItems": [{ "title": string, "note": string|null, "source": string }],
+  "vocabularies": [{ "word": string, "meaning": string(60字内), "source": string }],
   "collection": { "title": string, "summary": string(80字内), "tags": string[], "url": string|null, "sourceType": "article"|"message"|"link" } | null,
   "note": string|null
 }
@@ -13,8 +16,12 @@ const SYSTEM_PROMPT = `你是私人晨报助理的提取引擎。分析用户转
 1. 相对时间基于"当前时间"推算绝对时间；
 2. 只有明确的会议/约会/行程才算 event，需要去做的事算 todo；
 3. 长文本（>120字）且像文章/链接内容才输出 collection；消息原文较短时 collection 为 null；
-4. 无法归类的内容放进 note；
-5. 全部字段使用简体中文。`;
+4. bills：明确的账单/扣费/还款提醒才输出（amount 是数字，单位元；没有明确金额不输出）；"需要买的东西"不算账单，进 shoppingItems；
+5. shoppingItems：想买/要买的物品清单（无金额或金额只是意向价）；
+6. vocabularies：外文生词及其释义（仅当原文里真的出现该词）；
+7. 三类都没有时对应数组输出 []；
+8. 无法归类的内容放进 note；
+9. 全部字段使用简体中文（vocabularies.word 保留原文）。`;
 
 /** 内容安全：过微信 msgSecCheck，命中则拒绝 */
 async function securityCheck(content, openid) {
@@ -112,6 +119,17 @@ exports.main = async (event) => {
   return {
     events: Array.isArray(parsed.events) ? parsed.events.slice(0, 10) : [],
     todos: Array.isArray(parsed.todos) ? parsed.todos.slice(0, 10) : [],
+    // 三类扩展（2026-10-25）：账单/购物/生词。金额过滤——没有正数金额的"账单"转存记账
+    // 会造出 0 元流水，宁可丢弃（字段缺失的老客户端拿到的数组里也不该有脏数据）
+    bills: (Array.isArray(parsed.bills) ? parsed.bills : [])
+      .filter((b) => b && typeof b.amount === 'number' && b.amount > 0)
+      .slice(0, 10),
+    shoppingItems: (Array.isArray(parsed.shoppingItems) ? parsed.shoppingItems : [])
+      .filter((s) => s && typeof s.title === 'string' && s.title)
+      .slice(0, 10),
+    vocabularies: (Array.isArray(parsed.vocabularies) ? parsed.vocabularies : [])
+      .filter((v) => v && typeof v.word === 'string' && v.word)
+      .slice(0, 10),
     collection: parsed.collection || undefined,
     note: parsed.note || undefined
   };

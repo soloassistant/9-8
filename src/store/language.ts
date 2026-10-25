@@ -992,7 +992,8 @@ const zh = {
 
   'sync.key.ledgerEntries': '记账条目',
   'sync.key.ledger-categories': '记账分类',
-  'sync.key.ledgerBudget': '记账预算'
+  'sync.key.ledgerBudget': '记账预算',
+  'sync.key.watchlist': '自选股'
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -1936,7 +1937,8 @@ const en: Record<keyof typeof zh, string> = {
   'sync.key.feature-usage': 'Usage log',
   'sync.key.ledgerEntries': 'Ledger entries',
   'sync.key.ledger-categories': 'Ledger categories',
-  'sync.key.ledgerBudget': 'Ledger budget'
+  'sync.key.ledgerBudget': 'Ledger budget',
+  'sync.key.watchlist': 'Watchlist'
 };
 
 export type LangKey = keyof typeof zh;

@@ -30,8 +30,8 @@ export interface StockQuote {
   timeText: string;
 }
 
-/** 自选股存储键。⚠️ 刻意不进 SYNC_KEYS（18 键契约动一圈门禁）—— 先设备本地，
- *  进云同步挂账（需同步改 cloudSync + sync 键标签 + verify:sync 断言）。 */
+/** 自选股存储键。已进 SYNC_KEYS（2026-10-25）：跨设备同步（手机加的茅台，平板要能看到）；
+ *  键标签 sync.key.watchlist 在 language.ts，同步语义与购物清单同款（数组新者赢）。 */
 const WATCHLIST_KEY = 'watchlist';
 
 /** 用户输入 → 腾讯代码归一。规则尽量贴近国内用户习惯：

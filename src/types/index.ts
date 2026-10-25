@@ -117,6 +117,12 @@ export interface Briefing {
 export interface ExtractResult {
   events: Array<Omit<ScheduleEvent, 'id' | 'status' | 'createTime'>>;
   todos: Array<Omit<TodoItem, 'id' | 'status' | 'createTime'>>;
+  /** 账单（2026-10-25 三类扩展）：可一键转存记账。amount 恒 >0（云函数已过滤） */
+  bills?: Array<{ title: string; amount: number; dueDate?: string | null; source?: string }>;
+  /** 想买的物品：可一键转存购物清单 */
+  shoppingItems?: Array<{ title: string; note?: string | null; source?: string }>;
+  /** 外文生词及释义：展示 + 复制（不自动入库） */
+  vocabularies?: Array<{ word: string; meaning?: string; source?: string }>;
   collection?: Omit<CollectionItem, 'id' | 'createTime'>;
   /** 无法归类时的原文备注 */
   note?: string;

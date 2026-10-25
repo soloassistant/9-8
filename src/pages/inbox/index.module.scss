@@ -37,6 +37,15 @@
   margin-bottom: $spacing-md;
 }
 
+/* 三类扩展结果块的标题（2026-10-25）：账单/物品/生词块，语义与输入标题同权重 */
+.sectionTitle {
+  display: block;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-sm;
+}
+
 .textarea {
   width: 100%;
   height: 220rpx;

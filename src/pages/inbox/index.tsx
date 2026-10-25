@@ -12,6 +12,8 @@ import { fromNow } from '@/utils/date';
 import { detectConflicts, buildPlanProposal, type ConflictInfo, type PlanProposal, type PlanProposalRaw, type PlanApplyEvent } from '@/utils/schedule';
 import PlanProposalCard from '@/components/PlanProposalCard';
 import type { Briefing, ExtractResult } from '@/types';
+import { addEntry } from '@/data/ledger';
+import shoppingApi from '@/data/shopping';
 import { useT } from '@/store/language';
 import styles from './index.module.scss';
 
@@ -59,6 +61,11 @@ function InboxPage() {
   const [saving, setSaving] = useState(false);
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
   const [note, setNote] = useState<string>('');
+  /** 三类扩展结果（2026-10-25）：账单/购物/生词 —— 独立展示块，与日程/待办草稿分开
+   *  （它们不走「确认入库」批量链路，各自一键转存到记账/购物清单，生词仅展示+复制）。 */
+  const [bills, setBills] = useState<NonNullable<ExtractResult['bills']>>([]);
+  const [shoppingHits, setShoppingHits] = useState<NonNullable<ExtractResult['shoppingItems']>>([]);
+  const [vocabHits, setVocabHits] = useState<NonNullable<ExtractResult['vocabularies']>>([]);
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
   /** 冲突升级出的排班方案（S-01~S-03）：非空时用方案卡片替代旧冲突条 */
@@ -252,6 +259,9 @@ function InboxPage() {
       }
       setDrafts(next);
       setNote(result.note || '');
+      setBills(result.bills || []);
+      setShoppingHits(result.shoppingItems || []);
+      setVocabHits(result.vocabularies || []);
       // 排班冲突检测：提取出的日程 vs 现有日程
       setConflicts(
         detectConflicts(
@@ -408,6 +418,9 @@ function InboxPage() {
       setConflicts([]);
       setConflictPlan(null);
       setNote('');
+      setBills([]);
+      setShoppingHits([]);
+      setVocabHits([]);
       setContent('');
       setImages([]);
       refreshUsage();
@@ -432,6 +445,54 @@ function InboxPage() {
     event: '日程',
     todo: '待办',
     collection: '收藏'
+  };
+
+  /* ---------------- 三类扩展：一键转存（2026-10-25）----------------
+   * 与「确认入库」分开：账单/物品的归宿是本地记账/购物清单（即时可见、走各自同步键），
+   * 生词不自动入库（没有生词库这种域），给复制。 */
+  /** 账单 → 记账（支出/订阅类/今日）。amount>0 已由云函数过滤，这里的 null 只是双保险。 */
+  const handleSaveBills = () => {
+    let saved = 0;
+    for (const b of bills) {
+      const entry = addEntry({
+        amount: b.amount,
+        kind: 'expense',
+        categoryId: 'cat_subscription',
+        note: `${b.title}${b.source ? `（${b.source}）` : ''}`.slice(0, 60),
+        date: dayjs().format('YYYY-MM-DD')
+      });
+      if (entry) saved += 1;
+    }
+    if (saved === 0) {
+      Taro.showToast({ title: '转存失败，请重试', icon: 'none' });
+      return;
+    }
+    setBills([]);
+    Taro.showToast({ title: `已记 ${saved} 笔（订阅类支出）`, icon: 'success' });
+  };
+
+  /** 物品 → 购物清单（走 shopping 数据层 add 动作，与购物页添加同一条链路） */
+  const handleSaveShopping = () => {
+    let saved = 0;
+    for (const s of shoppingHits) {
+      shoppingApi({ action: 'add', name: s.title.slice(0, 30) });
+      saved += 1;
+    }
+    if (saved === 0) {
+      Taro.showToast({ title: '转存失败，请重试', icon: 'none' });
+      return;
+    }
+    setShoppingHits([]);
+    Taro.showToast({ title: `已加入购物清单 ${saved} 件`, icon: 'success' });
+  };
+
+  /** 生词：复制（词 + 释义），一次全部 —— 不建生词库（超本轮范围），复制到背单词 App 是用户已有习惯 */
+  const handleCopyVocab = () => {
+    const text = vocabHits.map((v) => `${v.word} ${v.meaning || ''}`.trim()).join('\n');
+    Taro.setClipboardData({ data: text }).then(
+      () => Taro.showToast({ title: '生词已复制', icon: 'success' }),
+      () => Taro.showToast({ title: '复制失败', icon: 'none' })
+    );
   };
 
   return (
@@ -657,6 +718,48 @@ function InboxPage() {
            用户看不出「没解析出东西」和「提取能力不可用」的区别。 */
         <View className={styles.resultCard}>
           <Text className={styles.itemSummary}>{note}</Text>
+        </View>
+      ) : null}
+
+      {/* 三类扩展结果块（2026-10-25）：drafts 为空但有账单/物品/生词时也要展示 ——
+          转的是"账单原文"而不是日程草稿，所以独立于 drafts.length 渲染 */}
+      {bills.length > 0 ? (
+        <View className={styles.resultCard}>
+          <Text className={styles.sectionTitle}>💰 账单（{bills.length}）· 可转存记账</Text>
+          {bills.map((b, i) => (
+            <Text key={`bill-${i}`} className={styles.itemSummary}>
+              ¥{b.amount.toFixed(2)} · {b.title}{b.source ? `（${b.source}）` : ''}
+            </Text>
+          ))}
+          <Button className={styles.confirmButton} onClick={handleSaveBills}>
+            全部记为今日订阅支出
+          </Button>
+        </View>
+      ) : null}
+      {shoppingHits.length > 0 ? (
+        <View className={styles.resultCard}>
+          <Text className={styles.sectionTitle}>🛒 待购物品（{shoppingHits.length}）· 可转存购物清单</Text>
+          {shoppingHits.map((s, i) => (
+            <Text key={`shop-${i}`} className={styles.itemSummary}>
+              {s.title}{s.note ? ` — ${s.note}` : ''}
+            </Text>
+          ))}
+          <Button className={styles.confirmButton} onClick={handleSaveShopping}>
+            全部加入购物清单
+          </Button>
+        </View>
+      ) : null}
+      {vocabHits.length > 0 ? (
+        <View className={styles.resultCard}>
+          <Text className={styles.sectionTitle}>🔤 生词（{vocabHits.length}）· 复制到背单词 App</Text>
+          {vocabHits.map((v, i) => (
+            <Text key={`vocab-${i}`} className={styles.itemSummary}>
+              {v.word} {v.meaning || ''}
+            </Text>
+          ))}
+          <Button className={styles.confirmButton} onClick={handleCopyVocab}>
+            复制全部生词
+          </Button>
         </View>
       ) : null}
 

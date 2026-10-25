@@ -148,6 +148,22 @@ ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.tes
   ok('N2 工具块点击页内跳转（navigateTo({ url: tool.url })）', /navigateTo\(\{ url: tool\.url \}\)/.test(brief));
 }
 
+/* ---------------- O. 收件箱三类扩展：账单/物品/生词（2026-10-25 挂账清偿） ---------------- */
+{
+  const extractFn = read('cloudfunctions/extract/index.js');
+  const inboxSrc = stripComments(read('src/pages/inbox/index.tsx'));
+  ok('O1 extract 提示词含三类输出（bills/shoppingItems/vocabularies）',
+    /"bills":/.test(extractFn) && /"shoppingItems":/.test(extractFn) && /"vocabularies":/.test(extractFn));
+  ok('O2 云函数对账单做金额过滤（amount>0 才放行 —— 0 元账单会造出脏流水）',
+    /b\.amount === 'number' && b\.amount > 0/.test(extractFn));
+  ok('O3 inbox 有三类展示块（账单转存记账 / 物品转存购物 / 生词复制）',
+    /handleSaveBills/.test(inboxSrc) && /handleSaveShopping/.test(inboxSrc) && /handleCopyVocab/.test(inboxSrc));
+  ok('O4 账单转存走本地记账数据层（addEntry + cat_subscription）',
+    /addEntry\(\{/.test(inboxSrc) && /cat_subscription/.test(inboxSrc));
+  ok('O5 三类结果独立于日程草稿渲染（drafts 为空也显示）',
+    /bills\.length > 0 \? \(/.test(inboxSrc) && /shoppingHits\.length > 0 \? \(/.test(inboxSrc));
+}
+
 /* ---------------- E. 搜索接全网 + 失败态独立 ---------------- */
 const search = stripComments(read('src/pages/search/index.tsx'));
 ok('E1 搜索页调用 apiNewsSearch', /apiNewsSearch\(/.test(search));
