@@ -97,16 +97,31 @@ ok(
 /* ================================================================== */
 console.log('\n── A. 供应商与模型（代码 → 条文）──');
 
-const llmSrc = read('cloudfunctions/chat/llm.js');
+/**
+ * 递归列出云函数下的 .js（跳过 node_modules）。
+ *
+ * ⚠️ 2026-10-26：原实现只读 `cloudfunctions/chat/llm.js` —— 于是 extract 云函数把截图发给
+ * 智谱 glm-4v-flash 这件事，门禁**根本看不见**（漏披露一家处理者）。判据必须是「这个仓库里
+ * 所有会把内容发给第三方的默认模型」，而不是「我记得的那个文件」。
+ */
+function walkJs(dir) {
+  const out = [];
+  for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+    if (e.name === 'node_modules') continue;
+    const rel = `${dir}/${e.name}`;
+    if (e.isDirectory()) out.push(...walkJs(rel));
+    else if (e.name.endsWith('.js')) out.push(rel);
+  }
+  return out;
+}
+
+const CF_JS = walkJs('cloudfunctions');
+const MODEL_RE = /process\.env\.LLM_[A-Z_]*MODEL\s*\|\|\s*'([^']+)'/g;
 // 抽出所有 `process.env.LLM_*_MODEL || '<默认值>'` —— 这是小程序端**实际会发出去的**模型标识
-const cloudModels = [
-  ...new Set(
-    [...llmSrc.matchAll(/process\.env\.LLM_[A-Z_]*MODEL\s*\|\|\s*'([^']+)'/g)].map((m) => m[1])
-  )
-];
+const cloudModels = [...new Set(CF_JS.flatMap((f) => [...read(f).matchAll(MODEL_RE)].map((m) => m[1])))];
 ok(
-  `A1 从 llm.js 抽出小程序端默认模型 ${cloudModels.length} 个（${cloudModels.join(' / ')}）—— 至少 2 个才算抽对`,
-  cloudModels.length >= 2
+  `A1 从 ${CF_JS.length} 个云函数文件抽出默认模型 ${cloudModels.length} 个（${cloudModels.join(' / ')}）—— 至少 3 个才算抽对（文本/联网/视觉）`,
+  cloudModels.length >= 3
 );
 
 /**
@@ -116,7 +131,9 @@ ok(
  */
 const VENDOR_OF = {
   'deepseek-chat': 'DeepSeek',
-  'qwen-plus': '通义千问'
+  'qwen-plus': '通义千问',
+  // 2026-10-26 补登记：截图提取走智谱（cloudfunctions/extract/index.js 的 LLM_VISION_MODEL）
+  'glm-4v-flash': '智谱'
 };
 
 for (const m of cloudModels) {
@@ -258,7 +275,7 @@ ok(
 console.log('\n── D. 条文之间的一致性 ──');
 
 // D1 同一组供应商必须两边都提（一边写、另一边漏 = 用户读到的是两套事实）
-const AI_VENDORS = ['DeepSeek', '通义千问', 'WorkBuddy'];
+const AI_VENDORS = ['DeepSeek', '通义千问', '智谱', 'WorkBuddy'];
 const missD1 = AI_VENDORS.filter((v) => PRIVACY.includes(v) !== AI_SERVICES.includes(v));
 ok(
   `D1 《隐私政策》三 与《第三方 AI 服务说明》的供应商集合一致（不一致：${missD1.join(',') || '无'}）`,
@@ -266,10 +283,14 @@ ok(
 );
 
 // D2 模型标识集合也必须一致（改一处忘另一处，用户会看到两个不同答案）
-const idsIn = (t) => ['deepseek-chat', 'qwen-plus', 'hy4-preview'].filter((id) => t.includes(id));
+// 2026-10-26：id 集合改为从代码派生（云函数默认值 + H5 平台目录实测值），不再手写三个 id ——
+// 手写等于「只检查我记得的那几个」，新增视觉模型时两边都漏也一样绿。
+const ALL_MODEL_IDS = [...cloudModels, 'hy4-preview'];
+const idsIn = (t) => ALL_MODEL_IDS.filter((id) => t.includes(id));
 ok(
   `D2 两份 AI 文本披露的模型标识集合相同（PRIVACY=${idsIn(PRIVACY).join(',') || '空'}；AI=${idsIn(AI_SERVICES).join(',') || '空'}）`,
-  JSON.stringify(idsIn(PRIVACY)) === JSON.stringify(idsIn(AI_SERVICES)) && idsIn(PRIVACY).length >= 2
+  JSON.stringify(idsIn(PRIVACY)) === JSON.stringify(idsIn(AI_SERVICES)) &&
+    idsIn(PRIVACY).length === ALL_MODEL_IDS.length
 );
 
 // D3 版本号必须靠插值，不许手写（手写会漂，且不会随 LEGAL_VERSION 触达老用户）
