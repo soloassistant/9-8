@@ -1477,3 +1477,13 @@
   color: $color-primary-strong;
   text-decoration: underline;
 }
+
+/* 推送偏好卡片顶部如实说明（2026-10-26）：当前无推送通道，整卡偏好暂不产生行为。
+   弱化显示（三级文字、小字号），不抢标题与开关的注意力；推送上线后连同 key 一并删。 */
+.pushNote {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-xs;
+  line-height: 1.5;
+  color: $color-text-tertiary;
+}

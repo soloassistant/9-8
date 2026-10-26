@@ -610,10 +610,26 @@ function MinePage() {
         success: (res) => {
           const path = res.tempFiles?.[0]?.tempFilePath;
           if (!path) return;
-          // TODO：正式版将图片上传到云存储（Taro.cloud.uploadFile）后使用 fileID
-          setAvatar(path);
-          Taro.setStorageSync(AVATAR_KEY, path);
-          Taro.showToast({ title: '头像已更新', icon: 'success' });
+          // 2026-10-26 修「重启后头像失效却提示已更新」：tempFilePath 是**临时**文件，
+          // 微信重启/清理后失效，此处此前直接存它并提示成功 = 假成功。
+          // 改为 saveFile 转存为本地永久文件（重启后仍可显示）；云存储 uploadFile→fileID
+          // 仍是更优解，但依赖云开发环境（WX_APPID 三件套未就绪），届时替换这一处即可。
+          Taro.saveFile({ tempFilePath: path })
+            .then((r) => {
+              // Taro 的 saveFile promise 类型是 Success|Fail 联合（lib 定义较糙），此处按成功分支收窄
+              const saved = (r as { savedFilePath?: string }).savedFilePath;
+              if (!saved) throw new Error('empty savedFilePath');
+              setAvatar(saved);
+              Taro.setStorageSync(AVATAR_KEY, saved);
+              Taro.showToast({ title: t('mine.avatarSaved'), icon: 'success' });
+            })
+            .catch((err) => {
+              // 转存失败（本地缓存满等）：**不谎称已保存** —— 本次会话内显示新头像，
+              // 明确告知重启后需重设，与真实行为一致。
+              console.warn('[MinePage] save avatar failed:', err);
+              setAvatar(path);
+              Taro.showToast({ title: t('mine.avatarTempOnly'), icon: 'none' });
+            });
         },
         fail: (err) => console.info('[MinePage] chooseMedia cancelled:', err && err.errMsg)
       });
@@ -624,7 +640,7 @@ function MinePage() {
           if (!next) return;
           setAvatar(next);
           Taro.setStorageSync(AVATAR_KEY, next);
-          Taro.showToast({ title: '头像已更新', icon: 'success' });
+          Taro.showToast({ title: t('mine.avatarSaved'), icon: 'success' });
         })
         .catch(() => {
           /* 静默：showActionSheet 被用户取消时 reject，是正常操作而非错误 */
@@ -2182,6 +2198,11 @@ function MinePage() {
       {/* ===== 竞品分析 X3 / X6：推送偏好（数量三档 / 免打扰 / 模块开关 / 周末设置） ===== */}
       <View className={styles.card}>
         <Text className={styles.cardTitle}>{t('settings.push')}</Text>
+        {/* 2026-10-26 诚实性：本卡片全部偏好（数量三档/免打扰/模块开关/周末免打扰）都作用于
+            **消息推送**，而当前版本没有推送通道（订阅消息模板 id 仍是占位、模板未申请）。
+            不标注会让人以为「设置了免打扰就真不会被吵」——实际这些开关暂不产生任何行为。
+            推送落地后删掉这一行即可（连带门禁断言一起删）。 */}
+        <Text className={styles.pushNote}>{t('settings.pushNote')}</Text>
         {/* ① 推送数量三档 */}
         <View className={styles.row}>
           <Text className={styles.rowLabel}>{t('settings.pushFreq')}</Text>

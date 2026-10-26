@@ -584,5 +584,22 @@ const toNewsTimeLine = (wsSrc.match(/createTime:.*$/gm) || []).find((l) => l.inc
 ok('R7 无发布时间条目不伪造 now（createTime 显式 undefined）',
   toNewsTimeLine !== '' && /undefined/.test(toNewsTimeLine) && !/new Date\(\)/.test(toNewsTimeLine));
 
+/* ---------------- S. 假成功与「设置了没效果」（2026-10-26 诚实性收尾） ---------------- */
+
+/* S1/S2 头像：tempFilePath 是临时文件，重启即失效 —— 直接存它并提示「已更新」是假成功。
+ * 判据框到 chooseMedia 的 success 分支：必须调 saveFile 转存，且失败分支不得再谎称已保存。 */
+const avatarBlock = (() => {
+  const i = mine.indexOf('const doChangeAvatar');
+  return i < 0 ? '' : mine.slice(i, mine.indexOf('const handleAvatarTap', i) > i ? mine.indexOf('const handleAvatarTap', i) : i + 2400);
+})();
+ok('S1 小程序头像转存永久文件（saveFile），不直接存 tempFilePath',
+  avatarBlock !== '' && /Taro\.saveFile\(\s*\{\s*tempFilePath/.test(avatarBlock));
+ok('S2 转存失败不谎称已保存（提示仅本次显示）',
+  avatarBlock !== '' && /mine\.avatarTempOnly/.test(avatarBlock) && /avatarSaved/.test(avatarBlock));
+
+/* S3 推送偏好卡片：当前无推送通道，整卡偏好不产生行为 —— 必须有如实说明且键真的被消费（不是孤儿键） */
+ok('S3 推送偏好卡片有如实说明且键被消费（非孤儿键）',
+  /'settings\.pushNote':/.test(langSrc) && /t\('settings\.pushNote'\)/.test(mine));
+
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail === 0 ? 0 : 1);

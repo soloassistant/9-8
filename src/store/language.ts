@@ -25,6 +25,8 @@ const zh = {
 
   'mine.avatarEdit': '点头像',
   'mine.avatarAlt': '用户头像',
+  'mine.avatarSaved': '头像已更新',
+  'mine.avatarTempOnly': '头像仅在本次使用期间显示',
   'mine.subTitle': '订阅私人晨报助理',
   'mine.quotaTitle': '本月额度',
   'mine.quotaVoice': '🎙 语音对话',
@@ -368,6 +370,7 @@ const zh = {
   'settings.aiFilter': 'AI 精选',
   'settings.aiFilterDesc': '关闭后资讯按时间排序，不使用 AI 筛选',
   'settings.push': '推送偏好',
+  'settings.pushNote': '这些偏好在消息推送上线后生效：当前版本没有推送通道，应用内不会主动提醒你',
   'settings.pushFreq': '推送数量',
   'settings.pushFreqLow': '较少',
   'settings.pushFreqMid': '适中',
@@ -1018,6 +1021,8 @@ const en: Record<keyof typeof zh, string> = {
 
   'mine.avatarEdit': 'Tap avatar',
   'mine.avatarAlt': 'User avatar',
+  'mine.avatarSaved': 'Avatar updated',
+  'mine.avatarTempOnly': 'Avatar shown for this session only',
   'mine.subTitle': 'Subscribe to Personal Morning Assistant',
   'mine.quotaTitle': 'Monthly Quota',
   'mine.quotaVoice': '🎙 Voice Chat',
@@ -1349,6 +1354,7 @@ const en: Record<keyof typeof zh, string> = {
   'settings.aiFilter': 'AI curation',
   'settings.aiFilterDesc': 'When off, news is sorted by time without AI filtering',
   'settings.push': 'Notification preferences',
+  'settings.pushNote': 'These preferences apply once message push ships: this version has no push channel and never pings you in-app',
   'settings.pushFreq': 'Push volume',
   'settings.pushFreqLow': 'Low',
   'settings.pushFreqMid': 'Medium',
