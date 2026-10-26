@@ -32,6 +32,7 @@ const BROWSER = new Map([
   ['verify-layout.mjs', 'cdp-probe 驱动真 Chrome 量布局'],
   ['verify-layout-pages.mjs', '同上，逐页量'],
   ['verify-visual-patrol.mjs', '起 http.server + CDP 抽色/截图'],
+  ['verify-compress.mjs', '起本地静态服务 + cdp-probe 驱动真 Chrome 验 canvas 压缩（剪贴板/位图 API 变异框架驱动不了）'],
   ['verify-inbox-extract.mjs', 'CDP 进内页做提取'],
   ['verify-search-back.mjs', 'CDP 测返回栈'],
   ['verify-ledger-briefing.mjs', 'CDP 渲染后断言'],

@@ -692,9 +692,11 @@ function MinePage() {
               ? t('mine.avatarNoSession')
               : res.reason === 'too-large'
                 ? t('mine.avatarTooLarge')
-                : res.reason === 'bad-type'
-                  ? t('mine.avatarBadType')
-                  : t('mine.avatarNoStorage');
+                : res.reason === 'too-large-compressed'
+                  ? t('mine.avatarTooLargeCompressed')
+                  : res.reason === 'bad-type'
+                    ? t('mine.avatarBadType')
+                    : t('mine.avatarNoStorage');
           Taro.showToast({ title: msg, icon: 'none', duration: 3000 });
           return;
         }

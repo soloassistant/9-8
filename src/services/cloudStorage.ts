@@ -16,6 +16,7 @@
  * 绝不把失败当成功（本仓铁律：假成功比失败更糟）。
  */
 
+import { compressImage } from '@/utils/imageCompress';
 import { getCloudClient, getSession } from './cloudAuth';
 import type { CloudStorageApi } from './cloudAuth';
 
@@ -23,8 +24,12 @@ import type { CloudStorageApi } from './cloudAuth';
  *  emoji（如 🌅）与小程序端本地路径（wxfile://…）不带该前缀，读取侧据此分流。 */
 export const AVATAR_CLOUD_PREFIX = 'cloud:';
 
-/** 头像大小上限（字节）。平台侧没有给出头像级配额，这里按浏览器端体验取 2MB：
- *  微信 chooseMedia 的 compressed 图通常 100–500KB，2MB 已足够，也避免把大图塞进上传。 */
+/** **选图**上限（字节）：超过这个体积连解码都不做，直接拒绝 —— 避免把 50MB 的图塞进
+ *  createImageBitmap 把浏览器卡死（解码内存约是文件体积的数十倍）。 */
+export const AVATAR_RAW_MAX_BYTES = 8 * 1024 * 1024;
+
+/** **上传**上限（字节）：压缩后仍超过它就不传。常态远低于此（512px 约 30–150KB），
+ *  留着是兜底 —— 极端长图/高噪点图压缩后仍可能偏大。 */
 export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 
 /** 允许的图片 MIME —— 只接受浏览器能直接显示的位图，挡掉 svg（可含脚本）与其它类型 */
@@ -32,7 +37,10 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 export type AvatarUploadResult =
   | { ok: true; path: string }
-  | { ok: false; reason: 'not-h5' | 'no-session' | 'bad-type' | 'too-large' | 'no-storage' | 'failed' };
+  | {
+      ok: false;
+      reason: 'not-h5' | 'no-session' | 'bad-type' | 'too-large' | 'too-large-compressed' | 'no-storage' | 'failed';
+    };
 
 function extOf(type: string): string {
   if (type === 'image/png') return 'png';
@@ -41,11 +49,14 @@ function extOf(type: string): string {
   return 'jpg';
 }
 
-/** 上传头像。成功后返回**对象键**（不含 `cloud:` 前缀，调用方自己加）。 */
+/** 上传头像。成功后返回**对象键**（不含 `cloud:` 前缀，调用方自己加）。
+ *
+ *  体积两道闸：原始文件 > 8MB 直接拒（不解码，防卡死）；压缩后 > 2MB 再拒（极少数兜底）。
+ *  压缩在会话判定**之后**做 —— 没登录就没必要花 CPU 解码一张大图。 */
 export async function uploadAvatar(file: File): Promise<AvatarUploadResult> {
   if (process.env.TARO_ENV !== 'h5') return { ok: false, reason: 'not-h5' };
   if (!ALLOWED_TYPES.includes(file.type)) return { ok: false, reason: 'bad-type' };
-  if (file.size > AVATAR_MAX_BYTES) return { ok: false, reason: 'too-large' };
+  if (file.size > AVATAR_RAW_MAX_BYTES) return { ok: false, reason: 'too-large' };
 
   const session = await getSession();
   const uid = session?.user?.id;
@@ -55,11 +66,16 @@ export async function uploadAvatar(file: File): Promise<AvatarUploadResult> {
   const storage = client?.storage;
   if (!storage) return { ok: false, reason: 'no-storage' };
 
+  // 缩到 512px 再传（失败/不适用时原样返回，不影响上传）
+  const payload = await compressImage(file);
+  if (payload.size > AVATAR_MAX_BYTES) return { ok: false, reason: 'too-large-compressed' };
+
   // 路径由 SDK 帮助函数生成（users/<uid>/avatars/...），不接受外部传入的完整键。
   // 文件名带时间戳 —— 不做同名覆盖（旧文件由 deleteAvatar 显式删，避免 upsert 语义歧义）。
-  const path = storage.userPath(uid, `avatars/${Date.now()}.${extOf(file.type)}`);
+  // 扩展名按**实际上传的负载**取：压缩后格式沿用原格式，但以 payload.type 为准更稳。
+  const path = storage.userPath(uid, `avatars/${Date.now()}.${extOf(payload.type || file.type)}`);
   try {
-    const res = await storage.upload(path, file, { contentType: file.type, cacheControl: '86400' });
+    const res = await storage.upload(path, payload, { contentType: payload.type || file.type, cacheControl: '86400' });
     if (res.error) {
       // console.error 而非 warn：warn 会被生产构建剔除，线上零痕迹（本仓铁律）
       console.error('[cloudStorage] upload avatar failed:', res.error.code || '', res.error.message || '');

@@ -616,9 +616,13 @@ ok('T2 上传前判会话（no-session 分支），路径 uid 取会话而非外
   /if \(!uid\)\s*return\s*\{\s*ok:\s*false,\s*reason:\s*'no-session'\s*\}/.test(storageSrc) &&
   /const uid = session\?\.user\?\.id;/.test(storageSrc) &&
   /storage\.userPath\(uid,/.test(storageSrc));
-/* T3 客户端校验类型与大小（不信任浏览器给的图） */
-ok('T3 上传前校验类型与大小（AVATAR_MAX_BYTES + 白名单 MIME）',
-  /AVATAR_MAX_BYTES/.test(storageSrc) && /file\.size\s*>\s*AVATAR_MAX_BYTES/.test(storageSrc) &&
+/* T3 客户端校验类型与大小（不信任浏览器给的图）。
+ * 2026-10-26 起是**两道闸**：原始体积 > AVATAR_RAW_MAX_BYTES(8MB) 直接拒（不解码，防卡死）；
+ * 压缩后 > AVATAR_MAX_BYTES(2MB) 再拒（兜底）。只查一道会漏掉另一道被删。 */
+ok('T3 上传前校验类型与两道体积闸（原始 8MB 不解码 / 压缩后 2MB 兜底 + MIME 白名单）',
+  /AVATAR_RAW_MAX_BYTES/.test(storageSrc) && /AVATAR_MAX_BYTES/.test(storageSrc) &&
+  /file\.size\s*>\s*AVATAR_RAW_MAX_BYTES/.test(storageSrc) &&
+  /payload\.size\s*>\s*AVATAR_MAX_BYTES/.test(storageSrc) &&
   /ALLOWED_TYPES\.includes\(file\.type\)/.test(storageSrc));
 /* T4 签名 URL 取不到时**不回退成空 src**（空 src 会渲染成裂图，等于对用户说「你的头像坏了」）。
  * 判据用「所有 setAvatar(url 调用 == 过了 if(url) 闸的调用」（两处：进页面换签名 URL、上传后立刻显示），
@@ -650,6 +654,14 @@ ok('T7 取不到签名 URL 时不谎称已更新（改报「已保存、重进�
   ok('T8 自托管 SDK 真的暴露 storage 的六个方法（不靠类型声明自证）',
     sdkSrc.length > 10000 && missing.length === 0 && /storage/.test(sdkSrc));
 }
+
+/* T9 压缩真的接在上传链路上：先 compressImage，再把**压缩后的 payload** 交给 upload。
+ * 典型退化是「压了，但上传的还是原图」—— 此时体积优化完全落空且没有任何报错。
+ * 行为级证明在 verify:compress（真 Chrome，CI 不跑），这里守的是接线。 */
+ok('T9 上传用的是压缩后的负载（不是压完仍传原图）',
+  /const payload = await compressImage\(file\)/.test(storageSrc) &&
+  /storage\.upload\(path, payload,/.test(storageSrc) &&
+  /storage\.upload\(path, file,/.test(storageSrc) === false);
 
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail === 0 ? 0 : 1);
