@@ -27,6 +27,7 @@ import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { disabledAttr } from '@/utils/buttonDisabled';
 import { openExternalPage } from '@/utils/externalLink';
 import { redeemPromo } from '@/utils/promo';
+import { AVATAR_CLOUD_PREFIX, deleteAvatar, resolveAvatarUrl, uploadAvatar } from '@/services/cloudStorage';
 import { SXM_ENTRY_URL } from '@/config/partners';
 import { fromNow, dayKey } from '@/utils/date';
 import { getActivityLogs } from '@/utils/activityLog';
@@ -302,6 +303,8 @@ function MinePage() {
   const [planId, setPlanId] = useState<PayOrder['planId']>('earlybird_monthly');
   const [paying, setPaying] = useState(false);
   const [avatar, setAvatar] = useState('');
+  /** 云存储对象键（仅 H5 上传成功后有值）—— 换头像/换 emoji 时据此删旧文件，避免孤儿对象 */
+  const [avatarObjectKey, setAvatarObjectKey] = useState('');
   const [logs, setLogs] = useState<ActivityLogItem[]>([]);
   // 设置项（自独立设置页合并而来）
   const [nickname, setNickname] = useState('');
@@ -591,11 +594,25 @@ function MinePage() {
       });
   }, []);
 
-  // 恢复本地头像（微信端为本地/临时图片路径，H5 端为 emoji）
+  // 恢复头像。三种取值来源（2026-10-26 接云存储后）：
+  //   · `cloud:<对象键>` —— H5 上传到 WorkBuddy 云存储的头像（跨设备可用）：要换签名 URL 才能显示
+  //   · emoji（长度 ≤4）—— 预设头像，本机/云端都能原样显示
+  //   · 其它（小程序 saveFile 的本地路径）—— 只在微信端有效，H5 端读到一律按「无头像」处理（显示默认）
   useEffect(() => {
     try {
       const saved = Taro.getStorageSync(AVATAR_KEY) as string;
-      if (saved) setAvatar(saved);
+      if (!saved) return;
+      if (saved.startsWith(AVATAR_CLOUD_PREFIX)) {
+        const key = saved.slice(AVATAR_CLOUD_PREFIX.length);
+        setAvatarObjectKey(key);
+        void resolveAvatarUrl(key).then((url) => {
+          // 取不到签名 URL（未登录/网络/后端不可用）→ 不硬塞空 src（会显示裂图），回退默认头像
+          if (url) setAvatar(url);
+          else console.error('[MinePage] cloud avatar unresolvable, fallback to default');
+        });
+        return;
+      }
+      if (saved.length <= 4 || isWeapp) setAvatar(saved);
     } catch (err) {
       console.warn('[MinePage] restore avatar failed:', err);
     }
@@ -634,10 +651,19 @@ function MinePage() {
         fail: (err) => console.info('[MinePage] chooseMedia cancelled:', err && err.errMsg)
       });
     } else {
-      Taro.showActionSheet({ itemList: AVATAR_PRESETS })
+      // H5：第一项是「上传照片」（存 WorkBuddy 云存储，跨设备可用），其余仍是预设 emoji。
+      // 菜单项前移一位，故 emoji 的 tapIndex 要 -1。
+      Taro.showActionSheet({ itemList: [t('mine.avatarUpload'), ...AVATAR_PRESETS] })
         .then((res) => {
-          const next = AVATAR_PRESETS[res.tapIndex];
+          if (res.tapIndex === 0) {
+            pickAndUploadAvatar();
+            return;
+          }
+          const next = AVATAR_PRESETS[res.tapIndex - 1];
           if (!next) return;
+          // 换成 emoji：云上那张图不再被引用 —— 删掉，避免孤儿对象；删失败只留痕
+          if (avatarObjectKey) void deleteAvatar(avatarObjectKey);
+          setAvatarObjectKey('');
           setAvatar(next);
           Taro.setStorageSync(AVATAR_KEY, next);
           Taro.showToast({ title: t('mine.avatarSaved'), icon: 'success' });
@@ -646,6 +672,49 @@ function MinePage() {
           /* 静默：showActionSheet 被用户取消时 reject，是正常操作而非错误 */
         });
     }
+  };
+
+  /** H5 选图并上传到云存储。每个失败原因给**具体**提示，不谎称成功。
+   *  未登录时明确说「登录后才能存到云端」——存储只对已登录用户开放，这是平台约束不是 bug。 */
+  const pickAndUploadAvatar = () => {
+    if (typeof document === 'undefined') return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/jpeg,image/png,image/webp,image/gif';
+    input.onchange = () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      void (async () => {
+        const res = await uploadAvatar(file);
+        if (!res.ok) {
+          const msg =
+            res.reason === 'no-session'
+              ? t('mine.avatarNoSession')
+              : res.reason === 'too-large'
+                ? t('mine.avatarTooLarge')
+                : res.reason === 'bad-type'
+                  ? t('mine.avatarBadType')
+                  : t('mine.avatarNoStorage');
+          Taro.showToast({ title: msg, icon: 'none', duration: 3000 });
+          return;
+        }
+        // 立刻换签名 URL 显示（1 小时有效；下次进页面会重新取）
+        const url = await resolveAvatarUrl(res.path);
+        const prevKey = avatarObjectKey;
+        setAvatarObjectKey(res.path);
+        if (url) setAvatar(url);
+        Taro.setStorageSync(AVATAR_KEY, AVATAR_CLOUD_PREFIX + res.path);
+        if (prevKey && prevKey !== res.path) void deleteAvatar(prevKey);
+        // 存成功了但换不出可显示的 URL（签名服务异常）时**不谎称「已更新」**——
+        // 用户眼前根本没变化，说「已更新」就是假成功。如实说「已保存、重进本页可见」。
+        Taro.showToast({
+          title: url ? t('mine.avatarSaved') : t('mine.avatarSavedNoPreview'),
+          icon: url ? 'success' : 'none',
+          duration: url ? 1500 : 3000
+        });
+      })();
+    };
+    input.click();
   };
 
   /** 点头像：更换头像 或 查看浏览历史（v2.0 F26；2026-10-25 历史页并入热点页 ——

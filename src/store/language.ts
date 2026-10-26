@@ -27,6 +27,12 @@ const zh = {
   'mine.avatarAlt': '用户头像',
   'mine.avatarSaved': '头像已更新',
   'mine.avatarTempOnly': '头像仅在本次使用期间显示',
+  'mine.avatarUpload': '上传照片',
+  'mine.avatarNoSession': '登录后才能把头像存到云端',
+  'mine.avatarTooLarge': '图片不能超过 2MB',
+  'mine.avatarBadType': '只支持 JPG / PNG / WebP / GIF',
+  'mine.avatarNoStorage': '云端存储暂不可用，头像未更换',
+  'mine.avatarSavedNoPreview': '头像已保存，重新进入本页即可显示',
   'mine.subTitle': '订阅私人晨报助理',
   'mine.quotaTitle': '本月额度',
   'mine.quotaVoice': '🎙 语音对话',
@@ -1005,7 +1011,8 @@ const zh = {
   'sync.key.ledgerEntries': '记账条目',
   'sync.key.ledger-categories': '记账分类',
   'sync.key.ledgerBudget': '记账预算',
-  'sync.key.watchlist': '自选股'
+  'sync.key.watchlist': '自选股',
+  'sync.key.user-avatar': '头像'
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -1023,6 +1030,12 @@ const en: Record<keyof typeof zh, string> = {
   'mine.avatarAlt': 'User avatar',
   'mine.avatarSaved': 'Avatar updated',
   'mine.avatarTempOnly': 'Avatar shown for this session only',
+  'mine.avatarUpload': 'Upload photo',
+  'mine.avatarNoSession': 'Sign in to store your avatar in the cloud',
+  'mine.avatarTooLarge': 'Image must be under 2MB',
+  'mine.avatarBadType': 'Only JPG / PNG / WebP / GIF are supported',
+  'mine.avatarNoStorage': 'Cloud storage unavailable, avatar not changed',
+  'mine.avatarSavedNoPreview': 'Avatar saved. Reopen this page to see it',
   'mine.subTitle': 'Subscribe to Personal Morning Assistant',
   'mine.quotaTitle': 'Monthly Quota',
   'mine.quotaVoice': '🎙 Voice Chat',
@@ -1962,7 +1975,8 @@ const en: Record<keyof typeof zh, string> = {
   'sync.key.ledgerEntries': 'Ledger entries',
   'sync.key.ledger-categories': 'Ledger categories',
   'sync.key.ledgerBudget': 'Ledger budget',
-  'sync.key.watchlist': 'Watchlist'
+  'sync.key.watchlist': 'Watchlist',
+  'sync.key.user-avatar': 'Avatar'
 };
 
 export type LangKey = keyof typeof zh;

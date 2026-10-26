@@ -208,9 +208,12 @@ ok('偏好取自 user-settings（与「我的」页同一份）', cloud.includes
 // （briefing/index.tsx:1459 注释：实际带 image/url）不一致 —— H5 兜底态条目不可点开原文、
 // 不可分享、无缩略图，2026-10-22 的图片/点击增量与 10-24 的分享按钮在兜底态全部失效。
 // 窗口从映射锚点起算、到 })) 收口，防止 backtrack 到别处的 url 字样造成假绿。
+// 2026-10-26：判据放宽成「映射体可以是 ({...}) 也可以是 { ... return {...} }」——
+// createTime 那轮把箭头直接返回对象改成了函数体（多带 createTime），行为更强，
+// 但旧正则锁死 `({` 形态导致假红。窗口仍限 300 字符，框住的是同一次映射。
 ok(
   '兜底 intelItems 保留 url/image（原缺陷：只留 {text,source}）',
-  /intel\.intelItems = picked\.map\(\(it\) => \(\{[\s\S]{0,200}?url: it\.url[\s\S]{0,80}?image: it\.image\s*\}\)\)/.test(cloud)
+  /intel\.intelItems = picked\.map\(\(it\) => \{?[\s\S]{0,300}?url: it\.url[\s\S]{0,120}?image: it\.image/.test(cloud)
 );
 
 /* ===================== 汇总 ===================== */

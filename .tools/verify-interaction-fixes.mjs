@@ -601,5 +601,55 @@ ok('S2 转存失败不谎称已保存（提示仅本次显示）',
 ok('S3 推送偏好卡片有如实说明且键被消费（非孤儿键）',
   /'settings\.pushNote':/.test(langSrc) && /t\('settings\.pushNote'\)/.test(mine));
 
+/* ---------------- T. 头像云存储接线（WorkBuddy storage，2026-10-26） ---------------- */
+
+const storageSrc = stripComments(read('src/services/cloudStorage.ts'));
+/* T1 必须走 SDK 的 storage，不许自己拼 /.cloud/storage 的 fetch —— 后者会绕过 publishableKey
+ * 注入与会话管理（技能明令禁止），而且签名 URL 的鉴权也在 SDK 里。 */
+ok('T1 头像存储走 SDK（storage.upload + createSignedUrl），无手写 /.cloud fetch',
+  /storage\.upload\(/.test(storageSrc) && /createSignedUrl\(/.test(storageSrc) &&
+  !/fetch\(\s*[`'"]\S*\/\.cloud\//.test(storageSrc));
+/* T2 存储只对登录用户开放：路径里的 uid 必须来自会话，且未登录有专门分支。
+ * 判据必须**框到分支语句本身**：`'no-session'` 还出现在 AvatarUploadResult 的类型联合里，
+ * 只测「文件里出现过 no-session」时，把 `if (!uid) return` 改成别的 reason 也照样绿（已实证漏报一次）。 */
+ok('T2 上传前判会话（no-session 分支），路径 uid 取会话而非外部输入',
+  /if \(!uid\)\s*return\s*\{\s*ok:\s*false,\s*reason:\s*'no-session'\s*\}/.test(storageSrc) &&
+  /const uid = session\?\.user\?\.id;/.test(storageSrc) &&
+  /storage\.userPath\(uid,/.test(storageSrc));
+/* T3 客户端校验类型与大小（不信任浏览器给的图） */
+ok('T3 上传前校验类型与大小（AVATAR_MAX_BYTES + 白名单 MIME）',
+  /AVATAR_MAX_BYTES/.test(storageSrc) && /file\.size\s*>\s*AVATAR_MAX_BYTES/.test(storageSrc) &&
+  /ALLOWED_TYPES\.includes\(file\.type\)/.test(storageSrc));
+/* T4 签名 URL 取不到时**不回退成空 src**（空 src 会渲染成裂图，等于对用户说「你的头像坏了」）。
+ * 判据用「所有 setAvatar(url 调用 == 过了 if(url) 闸的调用」（两处：进页面换签名 URL、上传后立刻显示），
+ * 这样以后新增一处裸调用也会红 —— 只测「某处有 if(url)」时，另外那处裸调用照样绿。 */
+const t4Set = (mine.match(/setAvatar\(url/g) || []).length;
+const t4Guarded = (mine.match(/if \(url\) setAvatar\(url\);/g) || []).length;
+ok('T4 云端头像取不到 URL 时不硬渲染（setAvatar(url 全部过 if(url) 闸，回退默认不裂图）',
+  t4Guarded >= 2 && t4Set === t4Guarded && /cloud avatar unresolvable/.test(mine));
+/* T5 头像进同步键（跨设备）且有中英标签（标签由 verify-sync-conflict B3 兜，这里钉住键本身） */
+ok('T5 user-avatar 在 SYNC_KEYS 里且云前缀常量被消费',
+  /'user-avatar'/.test(stripComments(read('src/services/cloudSync.ts'))) &&
+  /AVATAR_CLOUD_PREFIX \+ res\.path/.test(mine) && /AVATAR_CLOUD_PREFIX\.length/.test(mine));
+/* T6 小程序端保持本地 saveFile —— 云存储只在 H5 生效，别把 weapp 分支改坏 */
+ok('T6 小程序端仍走 saveFile（云端路径不影响 weapp）',
+  /Taro\.saveFile\(\s*\{\s*tempFilePath/.test(mine) && /not-h5/.test(storageSrc));
+/* T7 上传成功但换不出签名 URL 时**不谎称「头像已更新」**——用户眼前没有任何变化，
+ * 这时报「已更新」就是假成功。必须按 url 是否真拿到分流两套文案。 */
+ok('T7 取不到签名 URL 时不谎称已更新（改报「已保存、重进可见」）',
+  /url \? t\('mine\.avatarSaved'\) : t\('mine\.avatarSavedNoPreview'\)/.test(mine) &&
+  /'mine\.avatarSavedNoPreview':/.test(langSrc));
+/* T8 依赖的 SDK 面必须在我们**实际加载的那份 SDK**里真实存在。
+ * 本仓自托管 SDK（大陆 CDN 被墙，见 src/assets/wb-sdk.js）与 npm 版可能不同版本，
+ * 只在类型里声明 `storage` 是自证 —— 真没有时整套头像云存储会静默降级成
+ * 「云端存储暂不可用」，浏览器里看不出、只有用户点上传才知道。这里直接查产物里的方法名。 */
+{
+  const sdkSrc = read('src/assets/wb-sdk.js');
+  const need = ['userPath(', 'sharedPath(', 'createSignedUrl(', 'upload(', 'remove(', 'exists('];
+  const missing = need.filter((m) => sdkSrc.indexOf(m) < 0);
+  ok('T8 自托管 SDK 真的暴露 storage 的六个方法（不靠类型声明自证）',
+    sdkSrc.length > 10000 && missing.length === 0 && /storage/.test(sdkSrc));
+}
+
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail === 0 ? 0 : 1);

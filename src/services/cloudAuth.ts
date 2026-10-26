@@ -139,6 +139,30 @@ interface CloudDatabaseApi {
   from(table: string): DbQuery<unknown>;
 }
 
+/** 存储能力（2026-10-26 接入：头像上传）。
+ *  平台模型见 cloud-service 技能的 storage/code-generation.md：
+ *   · 只有一个逻辑 Bucket `runtime`，路径必须是 `users/<自己的 uid>/...` 或 `shared/<ownerUid>/...`；
+ *   · 目录 = 对象键前缀，上传即创建，没有 mkdir；
+ *   · **没有公开 URL** —— 读要换签名 URL（1–3600s）；签名是短时凭证，不落日志不长存；
+ *   · 需要登录会话（未登录不该调）。
+ *  字段形状按文档给出并**兼容两种大小写**（signedUrl / signedURL）：SDK 版本间命名可能漂移，
+ *  取不到就如实报错，不猜别的字段。 */
+export interface CloudStorageApi {
+  userPath(uid: string, sub: string): string;
+  sharedPath(uid: string, sub: string): string;
+  upload(
+    path: string,
+    body: Blob | File | ArrayBuffer,
+    opts?: { contentType?: string; cacheControl?: string; upsert?: boolean; metadata?: Record<string, string> }
+  ): Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
+  createSignedUrl(
+    path: string,
+    ttl?: number
+  ): Promise<{ data: { signedUrl?: string; signedURL?: string } | null; error: { code?: string; message?: string } | null }>;
+  exists(path: string): Promise<{ data: boolean | null; error: { code?: string; message?: string } | null }>;
+  remove(paths: string[]): Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
+}
+
 interface CloudClient {
   auth: CloudAuthApi;
   /** 2026-10-05 实测 SDK 内部结构：WorkBuddyCloudClient 同时挂 auth / database / storage / llm。
@@ -148,7 +172,8 @@ interface CloudClient {
    *  2026-10-13 按 llm/code-generation.md 补真形状：只支持 stream:true，
    *  create() 返回**异步可迭代**的 SSE chunk 流（for await 消费）。 */
   llm?: CloudLlmApi;
-  storage?: unknown;
+  /** 文件存储（2026-10-26）：与 auth/database 同一个 client，**必须在登录之后调用** */
+  storage?: CloudStorageApi;
 }
 interface CloudGlobal {
   createWorkBuddyCloud(config: { endpoint: string; publishableKey: string }): CloudClient;

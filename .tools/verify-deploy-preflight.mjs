@@ -27,6 +27,14 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(REPO, '.tools', 'deploy-cloud.mjs');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-preflight-'));
 
+/** 期望的云函数个数**从磁盘现算**，不写死数字。
+ *  写死会在每次新增云函数时假红（redeemCode 之后就从 25 漂到 26，门禁红了一轮才发现
+ *  红的原因是「断言过期」而不是「部署脚本坏了」——这类假红会训练人忽略门禁）。
+ *  口径与 deploy-cloud.mjs 一致：cloudfunctions/ 下含 index.js 的目录。 */
+const FUNC_COUNT = fs.readdirSync(path.join(REPO, 'cloudfunctions'))
+  .filter((n) => fs.statSync(path.join(REPO, 'cloudfunctions', n)).isDirectory()
+    && fs.existsSync(path.join(REPO, 'cloudfunctions', n, 'index.js'))).length;
+
 let pass = 0;
 let fail = 0;
 const failures = [];
@@ -150,7 +158,7 @@ console.log('\n8. 全部合法（--check 不上传）');
   const r = runCheck(f);
   ok('exit 0', r.status === 0, '实际 ' + r.status + (r.signal ? ' signal=' + r.signal : ''));
   ok('打印预检通过', r.out.includes('预检通过'));
-  ok('列出 25 个待部署函数', r.out.includes('25 个函数'));
+  ok('列出 ' + FUNC_COUNT + ' 个待部署函数', r.out.includes(FUNC_COUNT + ' 个函数'), '磁盘上 ' + FUNC_COUNT + ' 个');
   ok('打印待配环境变量清单', r.out.includes('INTERNAL_CALL_TOKEN'));
   ok('未配置项被显式点名', r.out.includes('连本机都没有的'));
   ok('不把「本机有值」说成「云上已配」', r.out.includes('不代表云上已配'));
