@@ -574,5 +574,15 @@ ok('R6 调用处把 WATCHLIST_MAX 传进文案',
   /t\('briefing\.quoteFull',\s*\{\s*max:\s*WATCHLIST_MAX\s*\}\)/.test(briefSrc) &&
   /WATCHLIST_MAX/.test(briefSrc.split('\n').find((l) => l.includes("from '@/utils/quotes'")) || ''));
 
+/* R7：小程序侧 toNews 对无发布时间条目**不伪造 now**。
+ * 背景：parseRss 对无 pubDate 条目给 ts=0（内部按 ts=0 排末尾），而旧实现
+ * `it.ts ? iso : new Date().toISOString()` 把 0 当 falsy 兜底成当前时间 ——
+ * 前端 prefSelect 按 createTime 倒序会把它们当最新排到最前，突发 24h 闸也判它们新鲜。
+ * 判据必须框到 toNews 的 createTime 那一行：既要求显式 undefined，也要求不是 now 兜底。 */
+const wsSrc = stripComments(read('cloudfunctions/webSearch/index.js'));
+const toNewsTimeLine = (wsSrc.match(/createTime:.*$/gm) || []).find((l) => l.includes('it.ts')) || '';
+ok('R7 无发布时间条目不伪造 now（createTime 显式 undefined）',
+  toNewsTimeLine !== '' && /undefined/.test(toNewsTimeLine) && !/new Date\(\)/.test(toNewsTimeLine));
+
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail === 0 ? 0 : 1);

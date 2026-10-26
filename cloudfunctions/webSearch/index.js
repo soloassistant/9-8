@@ -370,7 +370,11 @@ function toNews(it) {
       Array.isArray(it.alsoFrom) && it.alsoFrom.length ? it.alsoFrom.slice(0, ALSO_FROM_MAX) : undefined,
     image: it.image || undefined,
     tags: it.tag ? [it.tag] : [],
-    createTime: it.ts ? new Date(it.ts).toISOString() : new Date().toISOString()
+    // 无发布时间（parseRss 对无 pubDate 条目给 ts=0）：**不写 createTime**，不伪造当前时间。
+    // 依据（2026-10-26）：内部排序本就把无时间条目按 ts=0 排末尾（见下方 bySource 排序注释），
+    // 这里若补 now 会出现两个后果 —— ①前端 prefSelect 按 createTime 倒序，把无时间条目当最新排到最前，
+    // 与内部意图相反；②突发识别 24h 时效闸把它们判成「刚发布」，旧闻/无时间条目顶掉真突发。
+    createTime: Number.isFinite(it.ts) && it.ts > 0 ? new Date(it.ts).toISOString() : undefined
   };
 }
 
