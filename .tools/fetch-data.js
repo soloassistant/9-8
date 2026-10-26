@@ -290,8 +290,13 @@ async function fetchHotspot() {
     }, {});
   }
 
-  // 剥离内部字段：pubDate 只用于上面的新鲜度闸门，不进入响应契约（与 static-server.js 同口径）
-  const items = trust.kept.map(({ pubDate, ...rest }) => rest);
+  // 内部字段 → 响应契约（2026-10-26）：pubDate 此前被**整体丢弃**，于是 hotspot.json 里的
+  // 条目没有 createTime，晨报 intelItems 拿不到真实发布时间，突发识别 24h 时效闸对现有数据
+  // 恒放行（100% 空转）。现在把 RSS 发布时间转成契约字段 createTime（ISO）。
+  // 无 pubDate 的条目（热榜/板块）保持原样 —— 不伪造当前时间，消费侧按「缺时间保守放行」处理。
+  const items = trust.kept.map(({ pubDate, ...rest }) =>
+    Number.isFinite(pubDate) ? { ...rest, createTime: new Date(pubDate).toISOString() } : rest
+  );
   return {
     items,
     meta: { updatedAt: new Date().toISOString(), stale: false, sources: srcStatus, dropped, boards }

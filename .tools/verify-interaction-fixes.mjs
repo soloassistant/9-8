@@ -445,5 +445,134 @@ if (typeof burstPick === 'function') {
     })());
 }
 
+/* ---------------- Q. 情报条目真实时间（2026-10-26）：让突发时效闸不再 100% 空转 ----------------
+   背景（审计 Should #4）：burst.ts 的 isFresh() 早就在，但 intelItems 从来没有 createTime，
+   24h 闸对每条都保守放行 —— 等于没有。修复要贯通三条生产侧：RSS pubDate → 热点契约
+   （fetch-data / static-server）→ 晨报 intelItems（cloud.ts / webSearch fallbackIntel）。
+   静态断言只能证明「写了字段」，所以下面的 Q4-Q6 真调 fallbackIntel 再喂 pickBurst。 */
+const fetchDataSrc = stripComments(read('.tools/fetch-data.js'));
+ok('Q1 聚合侧：RSS pubDate 转成响应契约 createTime（不再整体丢弃）',
+  /Number\.isFinite\(pubDate\)[\s\S]{0,140}createTime:\s*new Date\(pubDate\)\.toISOString\(\)/.test(fetchDataSrc));
+const staticServerSrc = stripComments(read('.tools/static-server.js'));
+ok('Q2 本地预览侧：同口径透传 createTime',
+  /Number\.isFinite\(pubDate\)[\s\S]{0,140}createTime:\s*new Date\(pubDate\)\.toISOString\(\)/.test(staticServerSrc));
+const cloudSrc = stripComments(read('src/services/cloud.ts'));
+const h5IntelMap = /intel\.intelItems = picked\.map\(\(it\) => \{([\s\S]{0,600}?)\n\s*\}\)/.exec(cloudSrc);
+ok('Q3 H5 晨报映射透传可解析的 createTime（缺失不补当前时间）',
+  Boolean(h5IntelMap) && /Date\.parse\(it\.createTime\)/.test(h5IntelMap[1]) &&
+  /\.\.\.\(createTime \? \{ createTime \} : \{\}\)/.test(h5IntelMap[1]));
+const briefTypes = stripComments(read('src/types/index.ts'));
+ok('Q3b BriefingIntel.intelItems 契约含可选 createTime',
+  /intelItems: Array<\{ text: string; source: string; createTime\?: string \}>/.test(briefTypes));
+
+/** 用 vm + Proxy 桩加载 webSearch 云函数（无 wx-server-sdk 也能跑），取 __internals */
+function loadWebSearchExports() {
+  const file = path.join(ROOT, 'cloudfunctions/webSearch/index.js');
+  const makeStub = () => {
+    const target = function stub() {};
+    const handler = {
+      get(_t, prop) {
+        if (prop === 'then') return undefined; // 避免被当成 thenable
+        if (prop === Symbol.toPrimitive) return () => 'stub';
+        return proxy;
+      },
+      apply() { return proxy; },
+      construct() { return proxy; },
+      has() { return true; }
+    };
+    const proxy = new Proxy(target, handler);
+    return proxy;
+  };
+  const sandbox = {
+    module: { exports: {} },
+    exports: null,
+    require: () => makeStub(),
+    console: { log: () => {}, warn: () => {}, error: () => {} },
+    process: { env: {} },
+    Buffer,
+    setTimeout,
+    clearTimeout,
+    URL,
+    URLSearchParams,
+    TextEncoder,
+    TextDecoder
+  };
+  sandbox.exports = sandbox.module.exports;
+  sandbox.global = sandbox;
+  sandbox.globalThis = sandbox;
+  try {
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(file, 'utf8'), sandbox, { filename: file, timeout: 5000 });
+    return sandbox.module.exports;
+  } catch (err) {
+    console.log(`  (webSearch 加载失败：${err && err.message})`);
+    return null;
+  }
+}
+
+const wsExports = loadWebSearchExports();
+const fallbackIntel = wsExports && wsExports.__internals && wsExports.__internals.fallbackIntel;
+ok('Q4 webSearch 降级出口可运行时调用（fallbackIntel 已导出）', typeof fallbackIntel === 'function');
+if (typeof fallbackIntel === 'function') {
+  const oldIso = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  const freshIso = new Date(Date.now() - 3600 * 1000).toISOString();
+  const oldRows = fallbackIntel([{ title: '某地暴雨预警', summary: '旧闻回放', source: '源A', createTime: oldIso }], 1);
+  ok('Q5 fallbackIntel 透传真实 createTime（免费档/LLM 降级档）',
+    oldRows.length === 1 && oldRows[0].createTime === oldIso);
+  const noTsRows = fallbackIntel([{ title: '无时间条目', source: '源B' }], 1);
+  ok('Q5b 源无时间 → 不产字段（不伪造当前时间）',
+    noTsRows.length === 1 && !('createTime' in noTsRows[0]));
+  const badTsRows = fallbackIntel([{ title: '坏时间条目', source: '源C', createTime: 'not-a-date' }], 1);
+  ok('Q5c 时间不可解析 → 同样不产字段（走保守放行）',
+    badTsRows.length === 1 && !('createTime' in badTsRows[0]));
+
+  const toBurst = (rows) => rows.map((r) => ({ text: r.text, source: r.source, createTime: r.createTime }));
+  ok('Q6 端到端：48h 前的 RSS 条目经 intelItems 后不触发突发（闸真的接上了）',
+    burstPick(toBurst(oldRows)) === null);
+  const freshRows = fallbackIntel([{ title: '某地暴雨预警', summary: '最新进展', source: '源A', createTime: freshIso }], 1);
+  ok('Q6b 端到端对照：1h 内的同内容条目仍触发（不是把闸焊死）',
+    burstPick(toBurst(freshRows)) !== null);
+}
+
+/* ---------------- R. 相对时间不撒谎 + 自选上限文案跟随常量（2026-10-26） ----------------
+   ① fromNow(undefined) 的 dayjs 会当成「现在」，返回「刚刚」。热点板块/热榜条目本来没有
+      发布时间，此前一律显示「刚刚发布」—— 这是给用户的假信息。新闻卡片必须缺时间不渲染。
+   ② 自选上限已抽 WATCHLIST_MAX，但满额文案仍写死「8 只」（中英各一处）—— 常量改了文案会撒谎。 */
+const libSrc = stripComments(read('src/pages/library/index.tsx'));
+ok('R1 新闻卡片：缺 createTime 不渲染相对时间（否则 fromNow(undefined)=刚刚）',
+  /\{item\.createTime \? \(\s*<Text className=\{styles\.newsTime\}>/.test(libSrc));
+ok('R2 文章头：缺 createTime 不留悬空的「来源 · 」',
+  /\{item\.createTime \? ` · \$\{item\.createTime\.slice\(0, 10\)\}` : ''\}/.test(libSrc));
+
+async function loadDateModule() {
+  const built = await esbuild.build({
+    entryPoints: [path.join(ROOT, 'src/utils/date.ts')],
+    bundle: true,
+    write: false,
+    format: 'cjs',
+    platform: 'node',
+    target: 'node18',
+    logLevel: 'silent'
+  });
+  const sandbox = { module: { exports: {} }, exports: {}, console: { log: () => {}, warn: () => {}, error: () => {} } };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(built.outputFiles[0].text, sandbox, { filename: 'src/utils/date.ts' });
+  return sandbox.module.exports;
+}
+const dateMod = await loadDateModule();
+ok('R3 前提可复现：fromNow(undefined) 确实返回「刚刚」', dateMod.fromNow(undefined) === '刚刚');
+ok('R4 前提可复现：fromNow(合法 ISO) 不会退化成「刚刚」',
+  dateMod.fromNow(new Date(Date.now() - 3 * 3600 * 1000).toISOString()) === '3 小时前');
+
+const langSrc = stripComments(read('src/store/language.ts'));
+const fullQuotes = langSrc.match(/'briefing\.quoteFull':\s*'([^']*)'/g) || [];
+ok('R5 自选满额文案中英各一处，且都用 {max} 占位符（不写死 8）',
+  fullQuotes.length === 2 && fullQuotes.every((l) => l.includes('{max}')));
+const briefSrc = stripComments(read('src/pages/briefing/index.tsx'));
+ok('R6 调用处把 WATCHLIST_MAX 传进文案',
+  /t\('briefing\.quoteFull',\s*\{\s*max:\s*WATCHLIST_MAX\s*\}\)/.test(briefSrc) &&
+  /WATCHLIST_MAX/.test(briefSrc.split('\n').find((l) => l.includes("from '@/utils/quotes'")) || ''));
+
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail === 0 ? 0 : 1);

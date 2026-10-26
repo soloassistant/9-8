@@ -366,12 +366,23 @@ export async function callFunction<T = unknown>(
           // （briefing/index.tsx:1459 注释：实际带 image/url）不一致 —— 后果是
           // H5 兜底态条目不可点开原文、不可分享、无缩略图，2026-10-22 的
           // 卡片化/分享增量在兜底态全部失效。字段可选，缺失时组件自动降级。
-          intel.intelItems = picked.map((it) => ({
-            text: it.title,
-            source: it.source,
-            url: it.url,
-            image: it.image
-          }))
+          //
+          // 2026-10-26 补 createTime：热点契约的 RSS 条目由 fetch-data.js 从 pubDate 转出，
+          // 原样透传给晨报 intelItems，突发识别的 24h 时效闸才有真实时间可用（此前恒缺 → 空转）。
+          // 只透传可解析的 ISO 串；缺失/非法不补当前时间（不伪造，消费侧保守放行）。
+          intel.intelItems = picked.map((it) => {
+            const createTime =
+              typeof it.createTime === 'string' && Number.isFinite(Date.parse(it.createTime))
+                ? it.createTime
+                : undefined
+            return {
+              text: it.title,
+              source: it.source,
+              url: it.url,
+              image: it.image,
+              ...(createTime ? { createTime } : {})
+            }
+          })
         }
         briefing.intel = intel
       } catch (err) {

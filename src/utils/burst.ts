@@ -7,8 +7,10 @@
  * 无强度分级。升级后一条横幅要过三道闸：
  *
  * 1. **时效闸（硬）**：条目 createTime 距今 > 24h 直接不参与 —— 「预警」是昨天的就不算突发。
- *    createTime 缺失/不可解析时**保守放行**（晨报 intelItems 现无该字段，宁可多亮一次
- *    也不静默漏报；数据源将来补时间即自动生效）。
+ *    createTime 缺失/不可解析时**保守放行**。2026-10-26 起数据侧真的会带时间了：
+ *    RSS 条目的 pubDate 经热点契约 → 晨报 intelItems 透传（fetch-data / webSearch fallbackIntel /
+ *    cloud.ts），免费档与降级档因此不再空转；LLM 摘要条目是 1:N 改写、没有一对一源时间，
+ *    热榜板块本身无时间 —— 这两类仍走缺失放行（诚实边界，不补造当前时间）。
  * 2. **关键词闸（硬）**：标题含「事件型」关键词（表见下）。刻意不含「震惊/重磅」类标题党词 ——
  *    否则横幅天天亮，等于没有横幅。
  * 3. **强度分级（软）**：level 1 = 单条单词命中（现有形态）；level 2 = **多源交叉**（≥2 条
@@ -22,7 +24,8 @@
 export interface BurstItem {
   text: string;
   source: string;
-  /** 条目发布时间（ISO 串）。缺失按「不过滤」处理（保守放行，见时效闸说明） */
+  /** 条目发布时间（ISO 串）。缺失按「不过滤」处理（保守放行，见时效闸说明）。
+   *  2026-10-26：RSS 链路已从 pubDate 透传真实时间；LLM 摘要/热榜条目仍可能缺失。 */
   createTime?: string;
 }
 
@@ -83,7 +86,7 @@ function keywordHits(text: string): number {
   return n;
 }
 
-/** 时效闸：>24h 的旧闻 false；缺失/解析失败 true（保守放行） */
+/** 时效闸：>24h 的旧闻 false；缺失/解析失败 true（保守放行 —— 宁可多亮一次，不静默漏报） */
 function isFresh(createTime?: string): boolean {
   if (!createTime) return true;
   const ts = Date.parse(createTime);

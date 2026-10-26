@@ -1000,7 +1000,8 @@ function LibraryPage() {
         <View className={styles.articleHead}>
           <Text className={styles.articleTitle}>{item.title}</Text>
           <Text className={styles.articleMeta}>
-            {item.source} · {(item.createTime || '').slice(0, 10)}
+            {item.source}
+            {item.createTime ? ` · ${item.createTime.slice(0, 10)}` : ''}
           </Text>
           {/* ② 多来源并列（竞品倒推 2026-10-25，Particle 模式）：同一事件的其他来源媒体名。
               数据（alsoFrom）服务端早就在传，此前只在卡片角落显示条数 —— 文章视图里
@@ -1100,7 +1101,12 @@ function LibraryPage() {
               {t('library.multiSource', { n: multiSourceCount + 1 })}
             </Text>
           ) : null}
-          <Text className={styles.newsTime}>{fromNow(item.createTime)}</Text>
+          {/* 缺发布时间就不显示（2026-10-26）：fromNow(undefined) 里 dayjs(undefined)=当前时间，
+              会返回「刚刚」—— 热榜/板块条目本就没有发布时间，此前被一致显示成「刚刚发布」，
+              属于给用户假信息。RSS 条目本轮起带 createTime，正常显示真实相对时间。 */}
+          {item.createTime ? (
+            <Text className={styles.newsTime}>{fromNow(item.createTime)}</Text>
+          ) : null}
         </View>
         <View className={styles.feedbackRow} onClick={(e) => e.stopPropagation()}>
           <Text

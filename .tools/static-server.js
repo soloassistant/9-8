@@ -704,9 +704,13 @@ async function fetchHotspot() {
     }, {});
   }
 
-  // 剥离内部字段：pubDate 只用于上面的新鲜度闸门，不进入响应契约（HotspotNews 无该字段）。
-  // 只挑 pubDate 丢、不做白名单裁剪 —— alsoFrom 属于响应契约，必须原样保留。
-  const items = trust.kept.map(({ pubDate, ...rest }) => rest);
+  // 内部字段 → 响应契约（2026-10-26，与 .tools/fetch-data.js 同口径）：pubDate 不再只是剥离，
+  // 而是转成 HotspotNews.createTime（ISO）。否则晨报 intelItems 没有真实发布时间，
+  // 突发识别 24h 时效闸恒放行。无 pubDate 的条目保持原样（不伪造成当前时间）。
+  // 只挑 pubDate 换名、不做白名单裁剪 —— alsoFrom 属于响应契约，必须原样保留。
+  const items = trust.kept.map(({ pubDate, ...rest }) =>
+    Number.isFinite(pubDate) ? { ...rest, createTime: new Date(pubDate).toISOString() } : rest
+  );
 
   const meta = {
     updatedAt: new Date().toISOString(),

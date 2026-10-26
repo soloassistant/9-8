@@ -1318,6 +1318,9 @@ async function summarize(weather, newsItems) {
   });
   const parsed = safeParse(content);
   if (!parsed || !Array.isArray(parsed.items)) throw new Error('LLM output invalid');
+  // 注意（2026-10-26）：这里**刻意不写 createTime**。LLM 把多条素材改写成 3-5 句，
+  // 一句可能综合了多条素材，和源条目不是一对一；按 source 猜一个时间贴上去，
+  // 等于给旧闻盖新鲜时间戳，比不贴更糟。缺时间的条目在突发识别里走保守放行。
   const items = parsed.items
     .filter((it) => it && it.text)
     .slice(0, 5)
@@ -1359,6 +1362,18 @@ function clampSummary(s, max) {
   return body.endsWith('…') ? body : body + '…';
 }
 
+/** 条目时间 → 契约可用的 ISO 串；缺失/不可解析返回 undefined。
+ *
+ *  2026-10-26：突发识别的 24h 时效闸此前**100% 空转** —— intelItems 只有 {text,source}，
+ *  createTime 恒缺，isFresh() 对每条都保守放行。RSS 条目的时间其实一直在（toNews 从 feed
+ *  的 pubDate 转成 createTime），是本出口把它丢了。这里原样透传，**不补当前时间**：
+ *  缺时间就让它继续走「保守放行」，伪造 now 会把旧闻洗成新鲜。 */
+function safeIsoTime(v) {
+  if (typeof v !== 'string') return undefined;
+  const ts = Date.parse(v);
+  return Number.isFinite(ts) ? new Date(ts).toISOString() : undefined;
+}
+
 /** 降级：LLM 不可用时直接用原始资讯（标注来源，不编造）。
  *  limit 默认 5（订阅档 LLM 降级路径），免费档显式传 FREE_INTEL_ITEMS_LIMIT=3。
  *
@@ -1367,8 +1382,9 @@ function clampSummary(s, max) {
  *   · 仅放行 http/https（挡住 javascript: 等 scheme，防 XSS/钓鱼）；
  *   · 长度封顶 512，防脏数据把 payload 撑爆；
  *   · 缺失/非法一律 undefined，前端据此降级为纯文本条目（不崩、不留空图）。
+ *  2026-10-26 增量：透传 `createTime`（见 safeIsoTime），让突发时效闸真正生效。
  *  LLM 订阅路径（summarize）**不跟此改动**：那里的 text 是模型改写句，与源条目
- *  不是一对一关系，硬贴源图就是错配 —— 宁可贵宾无图，不配错图。 */
+ *  不是一对一关系，硬贴源时间就是给旧闻盖新鲜章 —— 宁可不贴，走保守放行。 */
 function fallbackIntel(newsItems, limit = 5) {
   const list = Array.isArray(newsItems) ? newsItems : [];
   return list.slice(0, limit).map((n) => {
@@ -1377,12 +1393,14 @@ function fallbackIntel(newsItems, limit = 5) {
     const summary = String(it.summary || '');
     // 5b/5c：畸形/缺失字段不得把字面量 "undefined" 或 null 来源泄漏给用户
     const body = title || summary ? `${title}${summary ? '：' + summary : ''}` : '暂无内容';
+    const createTime = safeIsoTime(it.createTime);
     // 2026-10-22 真实数据复验实测免费档 3/3 恰 80 码点、无省略号、句中斩断，读者无法区分「内容本来就短」和「被硬切了」——截断须告知读者，与 clampSummary 既有语义收口一处；省略号占 1 码点，总长不变
     return {
       text: clampSummary(body, INTEL_ITEM_TEXT_MAX),
       source: it.source != null && it.source !== '' ? String(it.source) : '综合',
       image: safeMediaUrl(it.image),
-      url: safeMediaUrl(it.url)
+      url: safeMediaUrl(it.url),
+      ...(createTime ? { createTime } : {})
     };
   });
 }

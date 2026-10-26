@@ -18,7 +18,7 @@ import { formatPlayCount } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
 import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews, apiTodoSetStatus, apiGetLibrary } from '@/services/api';
 import { buildTodayBrief, resolveCategory, type TodayBrief } from '@/utils/ledgerAggregate';
-import { fetchQuotes, getWatchlist, addToWatchlist, removeFromWatchlist, normalizeStockCode, type StockQuote } from '@/utils/quotes';
+import { fetchQuotes, getWatchlist, addToWatchlist, removeFromWatchlist, normalizeStockCode, WATCHLIST_MAX, type StockQuote } from '@/utils/quotes';
 import { buildPlanProposal, DEFAULT_DURATION_MINUTES } from '@/utils/schedule';
 import type { PlanProposal, PlanApplyEvent } from '@/utils/schedule';
 import { guardHabitsOnOpen, commitHabitGuards, listRestorableRecords, undoHabitGuard, createHabit } from '@/utils/habit';
@@ -731,8 +731,8 @@ function BriefingPage() {
     }
     const next = addToWatchlist(code);
     if (next === null) {
-      // 已满 8 只：如实提示而不是静默吞掉（静默 = 假成功，刷新后消失）
-      Taro.showToast({ title: t('briefing.quoteFull'), icon: 'none' });
+      // 已满 WATCHLIST_MAX 只：如实提示而不是静默吞掉（静默 = 假成功，刷新后消失）
+      Taro.showToast({ title: t('briefing.quoteFull', { max: WATCHLIST_MAX }), icon: 'none' });
       return;
     }
     setWatchCodes(next);
