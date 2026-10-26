@@ -685,35 +685,42 @@ function MinePage() {
       const file = input.files && input.files[0];
       if (!file) return;
       void (async () => {
-        const res = await uploadAvatar(file);
-        if (!res.ok) {
-          const msg =
-            res.reason === 'no-session'
-              ? t('mine.avatarNoSession')
-              : res.reason === 'too-large'
-                ? t('mine.avatarTooLarge')
-                : res.reason === 'too-large-compressed'
-                  ? t('mine.avatarTooLargeCompressed')
-                  : res.reason === 'bad-type'
-                    ? t('mine.avatarBadType')
-                    : t('mine.avatarNoStorage');
-          Taro.showToast({ title: msg, icon: 'none', duration: 3000 });
-          return;
+        // 兜底 catch：uploadAvatar 自身已保证不抛，但这是挂在用户点击上的 async 回调 ——
+        // 一旦某天有人往里加了个会抛的调用，没有这层就会变成「点了没反应」的静默失败。
+        try {
+          const res = await uploadAvatar(file);
+          if (!res.ok) {
+            const msg =
+              res.reason === 'no-session'
+                ? t('mine.avatarNoSession')
+                : res.reason === 'too-large'
+                  ? t('mine.avatarTooLarge')
+                  : res.reason === 'too-large-compressed'
+                    ? t('mine.avatarTooLargeCompressed')
+                    : res.reason === 'bad-type'
+                      ? t('mine.avatarBadType')
+                      : t('mine.avatarNoStorage');
+            Taro.showToast({ title: msg, icon: 'none', duration: 3000 });
+            return;
+          }
+          // 立刻换签名 URL 显示（1 小时有效；下次进页面会重新取）
+          const url = await resolveAvatarUrl(res.path);
+          const prevKey = avatarObjectKey;
+          setAvatarObjectKey(res.path);
+          if (url) setAvatar(url);
+          Taro.setStorageSync(AVATAR_KEY, AVATAR_CLOUD_PREFIX + res.path);
+          if (prevKey && prevKey !== res.path) void deleteAvatar(prevKey);
+          // 存成功了但换不出可显示的 URL（签名服务异常）时**不谎称「已更新」**——
+          // 用户眼前根本没变化，说「已更新」就是假成功。如实说「已保存、重进本页可见」。
+          Taro.showToast({
+            title: url ? t('mine.avatarSaved') : t('mine.avatarSavedNoPreview'),
+            icon: url ? 'success' : 'none',
+            duration: url ? 1500 : 3000
+          });
+        } catch (err) {
+          console.error('[MinePage] avatar upload crashed:', String((err && (err as Error).message) || err));
+          Taro.showToast({ title: t('mine.avatarNoStorage'), icon: 'none', duration: 3000 });
         }
-        // 立刻换签名 URL 显示（1 小时有效；下次进页面会重新取）
-        const url = await resolveAvatarUrl(res.path);
-        const prevKey = avatarObjectKey;
-        setAvatarObjectKey(res.path);
-        if (url) setAvatar(url);
-        Taro.setStorageSync(AVATAR_KEY, AVATAR_CLOUD_PREFIX + res.path);
-        if (prevKey && prevKey !== res.path) void deleteAvatar(prevKey);
-        // 存成功了但换不出可显示的 URL（签名服务异常）时**不谎称「已更新」**——
-        // 用户眼前根本没变化，说「已更新」就是假成功。如实说「已保存、重进本页可见」。
-        Taro.showToast({
-          title: url ? t('mine.avatarSaved') : t('mine.avatarSavedNoPreview'),
-          icon: url ? 'success' : 'none',
-          duration: url ? 1500 : 3000
-        });
       })();
     };
     input.click();

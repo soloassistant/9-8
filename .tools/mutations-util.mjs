@@ -29,5 +29,21 @@ export default [
     from: 'return granted ? \'granted\' : record.deniedCount > 0 || record.agreed ? \'denied\' : \'unknown\';',
     to: 'return granted ? \'granted\' : record.deniedCount > 0 ? \'denied\' : \'unknown\';',
     cmd: 'node .tools/verify-util-logic.mjs'
+  },
+  {
+    // 2026-10-26：SDK 的 userPath() 在**发请求前**校验路径并抛 CloudStoragePathError。
+    // 原实现把它写在 try 外 → 异常冒到调用方那个没有 catch 的 async 回调 → 点上传毫无反应。
+    label: 'uploadAvatar 的 catch 改成重新抛出（userPath 的路径校验异常冒到调用方 → 点上传毫无反应）',
+    file: 'src/services/cloudStorage.ts',
+    from: "    console.error('[cloudStorage] upload avatar threw:', String((err && (err as Error).message) || err));\n    return { ok: false, reason: 'failed' };",
+    to: '    throw err;',
+    cmd: 'node .tools/verify-util-logic.mjs'
+  },
+  {
+    label: 'upload 返回 error 时谎称成功（提示「头像已更新」但文件根本没传上去）',
+    file: 'src/services/cloudStorage.ts',
+    from: "      console.error('[cloudStorage] upload avatar failed:', res.error.code || '', res.error.message || '');\n      return { ok: false, reason: 'failed' };",
+    to: '      return { ok: true, path };',
+    cmd: 'node .tools/verify-util-logic.mjs'
   }
 ];

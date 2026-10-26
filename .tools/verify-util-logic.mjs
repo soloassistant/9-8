@@ -57,7 +57,7 @@ function section(title) {
  * 编译单个 src 模块并在隔离 vm 里求值，返回其 module.exports。
  * Taro 依赖统一 alias 到 .tools/stubs/stub-taro-storage.cjs（忠实复刻 H5 存储语义）。
  */
-async function loadModule(relPath, { weapp = false } = {}) {
+async function loadModule(relPath, { weapp = false, plugins = [] } = {}) {
   const built = await esbuild.build({
     entryPoints: [path.join(ROOT, relPath)],
     bundle: true,
@@ -65,8 +65,9 @@ async function loadModule(relPath, { weapp = false } = {}) {
     format: 'cjs',
     platform: 'node',
     target: 'node18',
-    alias: { '@tarojs/taro': TARO_STUB },
+    alias: { '@tarojs/taro': TARO_STUB, '@': path.join(ROOT, 'src') },
     define: { 'process.env.TARO_ENV': JSON.stringify(weapp ? 'weapp' : 'h5') },
+    plugins,
     logLevel: 'silent'
   });
   const code = built.outputFiles[0].text;
@@ -202,6 +203,84 @@ assert('C6 九个 greet.* 键中英各一份（18 处定义）',
   ));
 assert('C7 昵称是邮箱时不展示（上市产品不会用邮箱称呼用户）',
   /displayName[\s\S]{0,120}includes\('@'\)/.test(BRIEFING));
+
+/* ================================================================== */
+section('D. cloudStorage：失败必须返回结构化结果，绝不 reject');
+
+/* 为什么这组必须是**行为级**：静态断言只能证明「代码里写了 try/catch」，
+ * 证不了「抛出来的那一刻函数真的不 reject」。而这条正是 2026-10-26 发现的真缺陷：
+ * SDK 的 userPath() 在发请求前就校验路径并抛 CloudStoragePathError，原实现把它写在 try 外，
+ * 异常一路冒到调用方那个没有 catch 的 async 回调 → 用户点了上传**什么都不发生**。
+ * 桩必须复刻「userPath 会抛」这个行为（返回 error 就测不出这个 bug）。 */
+const AUTH_STUB = path.join(ROOT, '.tools', 'stubs', 'stub-cloud-auth.cjs');
+const stubAuthPlugin = {
+  name: 'stub-cloud-auth',
+  setup(build) {
+    // external:true 让 bundle 里留下 require(...) —— 这样测试侧 __setMode 与运行时是**同一个实例**
+    // （inline 进 bundle 的话是两份模块，setMode 改不到被测代码看到的那个）。
+    build.onResolve({ filter: /(^|\/)cloudAuth$/ }, () => ({ path: AUTH_STUB, external: true }));
+  }
+};
+const { mod: cloudStorage } = await loadModule('src/services/cloudStorage.ts', { plugins: [stubAuthPlugin] });
+const authStub = require(AUTH_STUB);
+
+const pngFile = (bytes = 10) => new File([new Uint8Array(bytes)], 'a.png', { type: 'image/png' });
+/** 把「reject」也变成一个可断言的值 —— 否则 reject 会让整个 harness 崩掉，看起来像脚本坏了 */
+async function settle(promise) {
+  try {
+    return await promise;
+  } catch (e) {
+    return { threw: String((e && e.message) || e) };
+  }
+}
+
+// D1 正常链路：走了 SDK、路径由 userPath 生成在 users/<uid>/ 下
+authStub.__reset();
+authStub.__setMode('ok');
+const d1 = await settle(cloudStorage.uploadAvatar(pngFile()));
+assert('D1 正常上传返回对象键且路径在 users/<uid>/ 下（不接受外部拼的键）',
+  d1.ok === true && String(d1.path).startsWith('users/user-A/avatars/') && authStub.__calls.upload === 1);
+
+// D2 ★ 回归本体：userPath 抛 CloudStoragePathError 时不得冒泡
+authStub.__reset();
+authStub.__setMode('path-throw');
+const d2 = await settle(cloudStorage.uploadAvatar(pngFile()));
+authStub.__setMode('ok');
+assert('D2 userPath 抛 CloudStoragePathError 时不冒泡（返回 ok:false；冒泡=点了没反应）',
+  d2 && d2.threw === undefined && d2.ok === false);
+
+// D3 upload 返回 error（SDK 的正常失败形态）→ ok:false，且不谎称成功
+authStub.__reset();
+authStub.__setMode('upload-error');
+const d3 = await settle(cloudStorage.uploadAvatar(pngFile()));
+authStub.__setMode('ok');
+assert('D3 upload 返回 error 时 ok:false 且 reason=failed', d3.ok === false && d3.reason === 'failed');
+
+// D4/D5 签名 URL 取不到（返回 error / 抛）都必须给 null，调用方才能回退默认头像
+authStub.__setMode('sign-fail');
+const d4 = await settle(cloudStorage.resolveAvatarUrl('users/user-A/avatars/1.png'));
+authStub.__setMode('sign-throw');
+const d5 = await settle(cloudStorage.resolveAvatarUrl('users/user-A/avatars/1.png'));
+authStub.__setMode('ok');
+assert('D4 签名返回 error 时给 null（调用方回退默认头像，不塞空 src）', d4 === null);
+assert('D5 签名抛错时也给 null（不 reject）', d5 === null);
+
+// D6 删除旧头像失败只留痕，不能影响「换头像」这一步的成功与否
+authStub.__setMode('remove-fail');
+const d6 = await settle(cloudStorage.deleteAvatar('users/user-A/avatars/1.png'));
+authStub.__setMode('ok');
+assert('D6 删除失败返回 false 且不抛（最坏结果是孤儿文件）', d6 === false);
+
+// D7/D8 前置条件不满足给**具体** reason，而不是笼统的 failed
+// （D7 要断言「未发起上传」，所以必须先清计数 —— 第一版漏了 reset，D1/D3 的计数残留导致假红）
+authStub.__reset();
+authStub.__setMode('no-session');
+const d7 = await settle(cloudStorage.uploadAvatar(pngFile()));
+authStub.__setMode('no-storage');
+const d8 = await settle(cloudStorage.uploadAvatar(pngFile()));
+authStub.__setMode('ok');
+assert('D7 无会话时 reason=no-session 且未发起上传', d7.reason === 'no-session' && authStub.__calls.upload === 0);
+assert('D8 无 storage 时 reason=no-storage', d8.reason === 'no-storage');
 
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);

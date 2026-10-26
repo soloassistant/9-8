@@ -52,29 +52,39 @@ function extOf(type: string): string {
 /** 上传头像。成功后返回**对象键**（不含 `cloud:` 前缀，调用方自己加）。
  *
  *  体积两道闸：原始文件 > 8MB 直接拒（不解码，防卡死）；压缩后 > 2MB 再拒（极少数兜底）。
- *  压缩在会话判定**之后**做 —— 没登录就没必要花 CPU 解码一张大图。 */
+ *  压缩在会话判定**之后**做 —— 没登录就没必要花 CPU 解码一张大图。
+ *
+ *  **本函数永不抛**：整段包在 try 里，连 `getSession` / `getCloudClient` / `userPath` 都算在内。
+ *  理由见下方 try 处的注释 —— 原实现只把 upload 包进 try，路径校验一抛就冒到调用方，
+ *  用户点了上传什么都不发生（静默失败）。这是行为级用例 C2 锁住的那条。 */
 export async function uploadAvatar(file: File): Promise<AvatarUploadResult> {
   if (process.env.TARO_ENV !== 'h5') return { ok: false, reason: 'not-h5' };
   if (!ALLOWED_TYPES.includes(file.type)) return { ok: false, reason: 'bad-type' };
   if (file.size > AVATAR_RAW_MAX_BYTES) return { ok: false, reason: 'too-large' };
 
-  const session = await getSession();
-  const uid = session?.user?.id;
-  if (!uid) return { ok: false, reason: 'no-session' };
-
-  const client = await getCloudClient();
-  const storage = client?.storage;
-  if (!storage) return { ok: false, reason: 'no-storage' };
-
-  // 缩到 512px 再传（失败/不适用时原样返回，不影响上传）
-  const payload = await compressImage(file);
-  if (payload.size > AVATAR_MAX_BYTES) return { ok: false, reason: 'too-large-compressed' };
-
-  // 路径由 SDK 帮助函数生成（users/<uid>/avatars/...），不接受外部传入的完整键。
-  // 文件名带时间戳 —— 不做同名覆盖（旧文件由 deleteAvatar 显式删，避免 upsert 语义歧义）。
-  // 扩展名按**实际上传的负载**取：压缩后格式沿用原格式，但以 payload.type 为准更稳。
-  const path = storage.userPath(uid, `avatars/${Date.now()}.${extOf(payload.type || file.type)}`);
   try {
+    const session = await getSession();
+    const uid = session?.user?.id;
+    if (!uid) return { ok: false, reason: 'no-session' };
+
+    const client = await getCloudClient();
+    const storage = client?.storage;
+    if (!storage) return { ok: false, reason: 'no-storage' };
+
+    // 缩到 512px 再传（失败/不适用时原样返回，不影响上传）
+    const payload = await compressImage(file);
+    if (payload.size > AVATAR_MAX_BYTES) return { ok: false, reason: 'too-large-compressed' };
+
+    // 路径由 SDK 帮助函数生成（users/<uid>/avatars/...），不接受外部传入的完整键。
+    // 文件名带时间戳 —— 不做同名覆盖（旧文件由 deleteAvatar 显式删，避免 upsert 语义歧义）。
+    // 扩展名按**实际上传的负载**取：压缩后格式沿用原格式，但以 payload.type 为准更稳。
+    //
+    // ⚠️ userPath 必须在 try 内：SDK 在**发请求之前**就校验路径并抛 CloudStoragePathError
+    //    （storage/code-generation.md「Path validation throws … before a request is sent」）。
+    //    放在 try 外时，这个异常会一路冒到调用方那个没有 catch 的 async 回调里 ——
+    //    结果是**点了上传什么都不发生**（无提示、无日志去向），正是本仓最忌讳的静默失败。
+    const path = storage.userPath(uid, `avatars/${Date.now()}.${extOf(payload.type || file.type)}`);
+
     const res = await storage.upload(path, payload, { contentType: payload.type || file.type, cacheControl: '86400' });
     if (res.error) {
       // console.error 而非 warn：warn 会被生产构建剔除，线上零痕迹（本仓铁律）
