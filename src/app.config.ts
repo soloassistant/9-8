@@ -17,6 +17,12 @@ export default defineAppConfig({
     'pages/library/index',
     'pages/calendar/index',
     'pages/mine/index',
+    // 2026-10-26 IA 瘦身：订阅/账单/额度与偏好设置从「我的」页拆成二级页。
+    // 都不是 tabBar（navigateTo 进入，系统返回手势可回「我的」）。
+    'pages/membership/index',
+    'pages/prefs/index',
+    // 2026-10-27：全站唯一的 AI 对话入口（原晨报页底部输入条 + 全局悬浮球已移除）
+    'pages/assistant/index',
     'pages/search/index',
     // pages/history 已于 2026-10-25 并入热点页「最近浏览」区（IA 瘦身：13 → 12 页）
     'pages/shopping/index',

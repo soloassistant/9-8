@@ -132,15 +132,17 @@ for (const p of PAGES) {
 /* =====================================================================
  * B. 订阅区按 subscribed 分叉，堵住重复扣费
  * ===================================================================== */
-const mine = read('src/pages/mine/index.tsx');
-const channelIdx = at(mine, 'if (!channel) {');
-const subscribedIdx = at(mine, 'if (profile?.subscribed) {');
-const payingIdx = at(mine, 'setPaying(true);');
+// 2026-10-27：订阅交易整块搬到「会员中心」页（我的页只留身份与偏好）。
+// 断言锚点跟着代码搬家 —— 守的仍是同一条：续费前必经二次确认、取消必须阻断下单。
+const membership = read('src/pages/membership/index.tsx');
+const channelIdx = at(membership, 'if (!channel) {');
+const subscribedIdx = at(membership, 'if (profile?.subscribed) {');
+const payingIdx = at(membership, 'setPaying(true);');
 
 // B-1 二次确认存在，且文案/按钮齐全
 //     ⚠️ 必须**落在 if (profile?.subscribed) 的块内**：原来只断言这几个 key 在整份文件里出现过，
 //     弹窗被挪到别的函数/注释里也照样 PASS —— 那是「字符串存在」不是「续费前必经确认」。
-const subscribedBlock = blockAt(mine, subscribedIdx);
+const subscribedBlock = blockAt(membership, subscribedIdx);
 assert(
   'B/tsx/confirmExists',
   subscribedBlock !== '' &&
@@ -174,9 +176,12 @@ assert(
 
 // B-4 按钮文案三分支：paying / 已订阅（续费）/ 未订阅
 //     只在**按钮块内**断言，避免命中页面别处同名字符串而假绿。
-const btnStart = at(mine, '<Button className={styles.subButton}');
-const btnEnd = btnStart >= 0 ? at(mine, '</Button>', btnStart) : -1;
-const btnBlock = btnStart >= 0 && btnEnd > btnStart ? mine.slice(btnStart, btnEnd) : '';
+//     ⚠️ 按钮 JSX 现在多行书写（`<Button` 与 `className` 不在同一行），
+//        用单行字符串定位会恒返回 -1 → btnBlock 为空 → 三条 has 全假红。用正则定位。
+const btnMatch = /<Button\s+className=\{styles\.subButton\}/.exec(membership);
+const btnStart = btnMatch ? btnMatch.index : -1;
+const btnEnd = btnStart >= 0 ? at(membership, '</Button>', btnStart) : -1;
+const btnBlock = btnStart >= 0 && btnEnd > btnStart ? membership.slice(btnStart, btnEnd) : '';
 assert(
   'B/tsx/buttonText',
   has(btnBlock, "t('mine.subscribing')") &&
@@ -191,8 +196,8 @@ assert(
 // B-5 已订阅时补「订阅至 {date}」一行
 assert(
   'B/tsx/untilRow',
-  has(mine, '<Text className={styles.subscribedUntil}>') &&
-    has(mine, "t('mine.subscribedUntil', { date: (profile.expiredAt || '').slice(0, 10) })")
+  has(membership, '<Text className={styles.subscribedUntil}>') &&
+    has(membership, "t('mine.subscribedUntil', { date: (profile.expiredAt || '').slice(0, 10) })")
 );
 
 // B-6 i18n：中英各 5 个 key 必须齐全（en 的类型是 Record<keyof typeof zh, string>）

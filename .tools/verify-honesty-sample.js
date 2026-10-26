@@ -108,10 +108,12 @@ ok(
 
 /* ============ C. H5 语音：不 mock、不扣额度 ============ */
 
-const briefing = read('src/pages/briefing/index.tsx');
-const fnStart = briefing.indexOf('const handleVoiceResult');
-const fnEnd = briefing.indexOf('const handleRenewSubscribe', fnStart);
-const voiceBody = fnStart >= 0 && fnEnd > fnStart ? briefing.slice(fnStart, fnEnd) : '';
+// 2026-10-27：晨报页底部输入栏撤除后，语音能力随 AI 对话搬进 AiAssistant（整页形态）。
+// 断言锚点跟着搬家 —— 守的仍是同一条：H5 无转写能力时绝不冒充、绝不扣额度。
+const panel = read('src/components/AiAssistant/index.tsx');
+const fnStart = panel.indexOf('const handleVoiceResult');
+const fnEnd = panel.indexOf('const handleApprovePlan', fnStart);
+const voiceBody = fnStart >= 0 && fnEnd > fnStart ? panel.slice(fnStart, fnEnd) : '';
 
 ok('C1 handleVoiceResult 存在且可定位', voiceBody.length > 0);
 ok('C2 H5 守卫存在（!isWeapp 提前 return）', /if\s*\(\s*!isWeapp\s*\)\s*\{[\s\S]*?return;/.test(voiceBody));

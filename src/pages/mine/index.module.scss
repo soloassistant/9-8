@@ -83,6 +83,47 @@
   font-weight: $font-weight-medium;
 }
 
+/* 订阅状态条（2026-10-26）：替代原 526px 订阅卡。
+   只回答两个问题「我还是会员吗 / 这个月还能说几句」，点进去才是方案、锁价、支付与账单。
+   配色沿用白底 + 品牌深色文字（对比度 5.26:1），不再用深色底 —— 一行字不值得整块涂色。 */
+.subBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  padding: $spacing-md $spacing-lg;
+  margin-bottom: $spacing-md;
+}
+
+.subBarMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+  min-width: 0;
+}
+
+.subBarTitle {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.subBarMeta {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.subBarAction {
+  flex-shrink: 0;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: var(--brand-strong, #{$color-primary-strong});
+  white-space: nowrap;
+}
+
 .subCard {
   // 2026-10-24（运行时巡检实测）：原 `$color-sub-gradient`（#ff9a76→#ff7a45）上压白字，
   // 最亮档只有 **2.07:1**，卡片里 14 处文字（标题/权益说明/价格/锁价提示）全在 1.1–2.6 之间 ——

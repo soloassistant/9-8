@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Picker, Button, Image, Input, Switch, ScrollView, Textarea } from '@tarojs/components';
 import type { CommonEvent, PickerSelectorProps, PickerTimeProps } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
@@ -11,45 +11,20 @@ import { brandVars, useThemeStore, THEME_PRESETS } from '@/store/theme';
 import { useUiScaleStore, UI_SCALE_PRESETS } from '@/store/uiScale';
 import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
-import {
-  apiCreateOrder,
-  apiDeleteAccount,
-  apiApplyPlan,
-  apiSubmitFeedback,
-  type CreateOrderPayload
-} from '@/services/api';
-import { getPayChannel, getChannelAuth, invokePayment } from '@/services/pay';
-import type { PayChannel, PayOrder } from '@/types';
+import { apiDeleteAccount, apiApplyPlan, apiSubmitFeedback } from '@/services/api';
 import { signOut, resetPasswordForOld } from '@/services/cloudAuth';
 import { kvClear } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { disabledAttr } from '@/utils/buttonDisabled';
 import { openExternalPage } from '@/utils/externalLink';
-import { redeemPromo } from '@/utils/promo';
 import { AVATAR_CLOUD_PREFIX, deleteAvatar, resolveAvatarUrl, uploadAvatar } from '@/services/cloudStorage';
 import { SXM_ENTRY_URL } from '@/config/partners';
 import { fromNow, dayKey } from '@/utils/date';
 import { getActivityLogs } from '@/utils/activityLog';
 import type { ActivityLogItem } from '@/utils/activityLog';
 import { getPersonalization, setPersonalization } from '@/utils/permission';
-import { resolveCityName } from '@/utils/weather';
-import { getTtsPrefs, saveTtsPrefs, TTS_RATE_OPTIONS } from '@/utils/tts';
-import type { TtsPrefs, TtsVoiceMode } from '@/utils/tts';
-import { FEATURES } from '@/utils/featureUsage';
-import type { FeatureKey, UsageSummary } from '@/utils/featureUsage';
-import { readUsageSummary } from '@/utils/usageLog';
-import { copyKeyOf, resolveRenewal, shouldRemind } from '@/utils/renewal';
-import type { RenewalCopyKey } from '@/utils/renewal';
-import {
-  EARLYBIRD_PRICE,
-  formatPrice,
-  listInboxNotices,
-  lockPrice,
-  markNoticeRead,
-  readLockedPrice
-} from '@/utils/subscription';
-import type { LockedPriceInfo, PriceChangeNotice } from '@/utils/subscription';
+import { resolveRenewal, shouldRemind } from '@/utils/renewal';
 import { clearMemory, deleteMemory, readMemory, setMemoryEnabled, truncateSummary } from '@/utils/memory';
 import type { MemoryItem, MemoryStore } from '@/utils/memory';
 import { clearBlockRules, listBlockRules, restoreBlockRule } from '@/utils/blocklist';
@@ -57,7 +32,6 @@ import type { BlockDimension, BlockRule } from '@/utils/blocklist';
 import { readPrefs, updatePrefs, isInDnd } from '@/utils/prefs';
 import type { UserPrefs, PushFreq } from '@/utils/prefs';
 import { apiSavePrefs, apiGetPrefs } from '@/services/cloud';
-import { clearReadStreak, getReadStreak, getReadFreezeCards } from '@/utils/readStreak';
 import {
   listHabits,
   removeHabit,
@@ -68,7 +42,7 @@ import {
   markHabitNoticeRead
 } from '@/utils/habit';
 import type { Habit, HabitGuardRecord, HabitNotice } from '@/utils/habit';
-import { FEEDBACK_TEXT, FEEDBACK_TYPES, CITY_TEXT, type FeedbackType } from './feedbackText';
+import { FEEDBACK_TEXT, FEEDBACK_TYPES, type FeedbackType } from './feedbackText';
 import styles from './index.module.scss';
 
 const isWeapp = process.env.TARO_ENV === 'weapp';
@@ -78,57 +52,12 @@ const AVATAR_KEY = 'user-avatar';
 const AVATAR_PRESETS = ['🌅', '🌞', '🌱', '🐳', '🦊', '🐼'];
 
 /** 通道标签 i18n key 映射 */
-const CHANNEL_LABEL_KEY: Record<PayChannel, LangKey> = {
-  wechat: 'mine.payChannelWechat',
-  alipay: 'mine.payChannelAlipay',
-  douyin: 'mine.payChannelDouyin'
-};
-/** 通道图标 emoji 映射（跨端零依赖，避免额外资源） */
-const CHANNEL_ICON: Record<PayChannel, string> = {
-  wechat: '💬',
-  alipay: '💰',
-  douyin: '🎵'
-};
-const channelIconMap = CHANNEL_ICON;
-const channelLabelKey = CHANNEL_LABEL_KEY;
 
-/** 订单状态 → i18n key（考虑 refundStatus 优先级） */
-function getOrderStatusLabel(status: string, refundStatus: string): LangKey {
-  if (refundStatus === 'refunded') return 'mine.orderStatusRefunded';
-  if (refundStatus === 'refunding') return 'mine.orderStatusRefunding';
-  switch (status) {
-    case 'paid': return 'mine.orderStatusPaid';
-    case 'created': return 'mine.orderStatusCreated';
-    case 'closed': return 'mine.orderStatusClosed';
-    default: return 'mine.orderStatusCreated';
-  }
-}
 
-/** 订单状态 → 展示色（全页统一 CSS token 引用） */
-function getOrderStatusColor(status: string, refundStatus: string): string {
-  if (refundStatus === 'refunded') return '#999999';
-  if (refundStatus === 'refunding') return '#E85D2A';
-  if (status === 'paid') return '#16A34A';       // 绿
-  if (status === 'created') return '#F59E0B';   // 橙
-  if (status === 'closed') return '#999999';     // 灰
-  return '#666666';
-}
 
 /** 危险操作确认按钮统一色值（设计文档第六章 B） */
 const DANGER_COLOR = '#E85D2A';
 
-const PLAN_LIST: Array<{ id: PayOrder['planId']; label: string }> = [
-  { id: 'earlybird_monthly', label: '早鸟月付' },
-  { id: 'monthly', label: '月付' },
-  { id: 'yearly', label: '年付' }
-];
-
-/** 存储值保持中文，展示时按当前语言翻译 */
-const PLAN_LABEL_KEY: Record<string, LangKey> = {
-  earlybird_monthly: 'mine.planEarlyBird',
-  monthly: 'mine.planMonthly',
-  yearly: 'mine.planYearly'
-};
 
 const PREF_TAG_LABEL: Record<string, LangKey> = {
   '科技': 'mine.prefTech',
@@ -155,18 +84,6 @@ const UI_SCALE_LABEL: Record<string, LangKey> = {
   xlarge: 'mine.uiSizeXlarge'
 };
 
-/** V-05 语速三档文案（取值来自 utils/tts.ts 的 TTS_RATE_OPTIONS） */
-const TTS_RATE_LABEL: Record<'slow' | 'standard' | 'fast', LangKey> = {
-  slow: 'tts.rateSlow',
-  standard: 'tts.rateStandard',
-  fast: 'tts.rateFast'
-};
-
-/** V-07 音色策略：跟随场景 / 固定音色 */
-const TTS_VOICE_MODES: Array<{ id: TtsVoiceMode; labelKey: LangKey }> = [
-  { id: 'auto', labelKey: 'tts.voiceAuto' },
-  { id: 'fixed', labelKey: 'tts.voiceFixed' }
-];
 
 /** N-03 屏蔽维度文案（来源 / 话题标签，复用热点页同一组 key） */
 const BLOCK_DIMENSION_LABEL: Record<BlockDimension, LangKey> = {
@@ -245,14 +162,6 @@ function readRenewRemindPref(): boolean {
   }
 }
 
-function writeRenewRemindPref(on: boolean): void {
-  try {
-    Taro.setStorageSync(RENEW_REMIND_KEY, on);
-  } catch (err) {
-    console.warn('[MinePage] save renew remind pref failed:', err);
-  }
-}
-
 function readRenewRemindDay(): string {
   try {
     return String(Taro.getStorageSync(RENEW_REMIND_DAY_KEY) || '');
@@ -269,23 +178,6 @@ function writeRenewRemindDay(day: string): void {
   }
 }
 
-/** 功能记账的展示顺序与文案键（顺序与 utils/featureUsage.ts 的 FEATURES 一致） */
-const FEATURE_LABEL_KEY: Record<FeatureKey, LangKey> = {
-  chat: 'mine.fUsageChat',
-  extract: 'mine.fUsageExtract',
-  voice: 'mine.fUsageVoice',
-  search: 'mine.fUsageSearch'
-};
-
-/** 续费状态文案（键由 utils/renewal.ts 的 copyKeyOf 决定，映射放这里是为了 i18n 类型安全） */
-const RENEW_STATUS_KEY: Record<RenewalCopyKey, LangKey> = {
-  statusNone: 'mine.renewStatusNone',
-  statusActive: 'mine.renewStatusActive',
-  statusExpiring: 'mine.renewStatusExpiring',
-  statusToday: 'mine.renewStatusToday',
-  statusExpired: 'mine.renewStatusExpired'
-};
-
 function loadCustom(): CustomSettings {
   try {
     return { ...DEFAULT_CUSTOM, ...(Taro.getStorageSync(CUSTOM_SETTINGS_KEY) || {}) };
@@ -300,14 +192,10 @@ function MinePage() {
   const { id: scaleId, setScale } = useUiScaleStore();
   const t = useT();
   const { lang, setLang } = useLanguageStore();
-  const [planId, setPlanId] = useState<PayOrder['planId']>('earlybird_monthly');
-  const [paying, setPaying] = useState(false);
   const [avatar, setAvatar] = useState('');
   /** 云存储对象键（仅 H5 上传成功后有值）—— 换头像/换 emoji 时据此删旧文件，避免孤儿对象 */
   const [avatarObjectKey, setAvatarObjectKey] = useState('');
   const [logs, setLogs] = useState<ActivityLogItem[]>([]);
-  // 设置项（自独立设置页合并而来）
-  const [nickname, setNickname] = useState('');
   const [prefs, setPrefs] = useState<string[]>([]);
   const [custom, setCustom] = useState<CustomSettings>(DEFAULT_CUSTOM);
   const [docView, setDocView] = useState<'terms' | 'privacy' | 'ai' | null>(null);
@@ -320,50 +208,16 @@ function MinePage() {
   const [fbContent, setFbContent] = useState('');
   const [fbContact, setFbContact] = useState('');
   const [fbSending, setFbSending] = useState(false);
-  // === 天气城市手动设置（2026-10-24）===
-  // user-city 此前只有 GPS 逆地理编码会写：拒绝定位就永远是「北京」，天气静默显示错城市。
-  const [city, setCity] = useState(() => {
-    try {
-      return String(Taro.getStorageSync('user-city') || '');
-    } catch {
-      return '';
-    }
-  });
-  const [cityOpen, setCityOpen] = useState(false);
-  const [cityDraft, setCityDraft] = useState('');
-  const [cityChecking, setCityChecking] = useState(false);
   // v1.2 新增：C-03 个性化推荐开关 / V-05 V-07 TTS 偏好 / M-01 M-02 记忆 / N-03 屏蔽清单 / B-01 B-02 订阅
   const [personalOn, setPersonalOn] = useState(true);
-  const [ttsPrefs, setTtsPrefs] = useState<TtsPrefs>({ rate: 1.0, voiceMode: 'auto' });
   const [memory, setMemory] = useState<MemoryStore>({ enabled: true, items: [] });
   const [blocks, setBlocks] = useState<BlockRule[]>([]);
-  const [locked, setLocked] = useState<LockedPriceInfo | null>(null);
-  const [notices, setNotices] = useState<PriceChangeNotice[]>([]);
-  // v2.2（2026-10-24）：功能记账 + 续费提醒
-  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
+  // v2.2（2026-10-24）：续费提醒
+  // 额度 / 功能记账 / 连续阅读已移入「会员中心」—— 同类信息只在一个地方出现
   const [remindOn, setRemindOn] = useState(true);
-  // v2.1：晨报连续阅读（只读展示 + 清空入口）
-  const [readStreak, setReadStreak] = useState(0);
-  const [readFreezeCards, setReadFreezeCards] = useState(0);
   // v2.1：习惯守护（列表 + 自动守护开关 + 守护记录 + 站内信）
   const [habits, setHabits] = useState<Habit[]>([]);
   const [guardRecords, setGuardRecords] = useState<HabitGuardRecord[]>([]);
-  // === 订阅记录 / 退款 ===
-  interface OrderSummary {
-    orderId: string;
-    channel: PayChannel;
-    planId: string;
-    price: number;
-    months: number;
-    status: string;
-    payStatus?: string;
-    refundStatus: string;
-    createTime: string;
-    paidTime?: string | null;
-  }
-  const [orders, setOrders] = useState<OrderSummary[]>([]);
-  const [ordersLoading, setOrdersLoading] = useState(false);
-  const [refunding, setRefunding] = useState(false);
   const [habitNotices, setHabitNotices] = useState<HabitNotice[]>([]);
   // 竞品分析本轮：L2 AI 精选 / X3 推送偏好 / X6 周末轻量版 / X11 未成年人模式（mb-prefs 统一契约）
   const [appPrefs, setAppPrefs] = useState<UserPrefs>(() => readPrefs());
@@ -380,100 +234,17 @@ function MinePage() {
 
   // profile 就绪后回填设置项 + 读取本地自定义设置 / 个性化开关 / TTS 偏好 / 记忆 / 屏蔽清单 / 锁价与站内信
   useEffect(() => {
-    if (profile) {
-      setNickname(profile.nickname);
-      setPrefs(profile.preferences || []);
-    }
     setCustom(loadCustom());
     setPersonalOn(getPersonalization());
-    setTtsPrefs(getTtsPrefs());
     setMemory(readMemory());
     setBlocks(listBlockRules());
-    setLocked(readLockedPrice());
-    setNotices(listInboxNotices());
-    setReadStreak(getReadStreak());
-    setReadFreezeCards(getReadFreezeCards());
     setHabits(listHabits());
     setGuardRecords(listRestorableRecords());
     setHabitNotices(listHabitNotices());
     setAppPrefs(readPrefs());
   }, [profile]);
 
-  // ========== 订阅记录 + 退款 ==========
-  const [ordersError, setOrdersError] = useState(false);
-  const loadOrders = useCallback(async () => {
-    setOrdersLoading(true);
-    setOrdersError(false);
-    try {
-      const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
-      // H5 没有 Taro.cloud，ordersList 也只存在于小程序云函数 → 这里同样是「查询不可用」，
-      // 不能静默 return（那会让 orders 停在空数组，用户看到「暂无订阅记录」，
-      // 把「查不到」伪装成「你没订阅过」）。与下面 ok:false 分支同一条诚实性口径。
-      if (!cloud?.callFunction) {
-        setOrdersError(true);
-        return;
-      }
-      const res = await cloud.callFunction({ name: 'ordersList', data: { limit: 20 } });
-      const r = res as { result?: { ok?: boolean; orders?: OrderSummary[] } } | null;
-      if (r?.result?.ok && Array.isArray(r.result.orders)) {
-        setOrders(r.result.orders);
-      } else {
-        // 云函数明确回 ok:false = 服务端拒绝（不是网络抖动），同样算失败：
-        // 老写法在这里静默返回，orders 停在空数组 → 用户看到「暂无订阅记录」，
-        // 把「查询失败」伪装成「你没订阅过」。已付费用户会误以为自己被吞了订单。
-        setOrdersError(true);
-      }
-    } catch (e) {
-      console.warn('[MinePage] loadOrders failed:', e);
-      setOrdersError(true);
-    } finally {
-      setOrdersLoading(false);
-    }
-  }, []);
 
-  const handleRefund = useCallback(async (orderId: string, channel: PayChannel) => {
-    if (refunding) return;
-    // 抖音暂不支持自动退款 → 提示联系客服
-    if (channel === 'douyin') {
-      Taro.showModal({
-        title: t('mine.refundBtn'),
-        content: t('mine.refundDouyinNote'),
-        showCancel: false,
-        confirmText: 'OK'
-      });
-      return;
-    }
-    try {
-      const res = await Taro.showModal({
-        title: t('mine.refundBtn'),
-        content: t('mine.refundBtn') + '？',
-        confirmColor: DANGER_COLOR
-      });
-      if (!res.confirm) return;
-      setRefunding(true);
-      const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
-      if (!cloud?.callFunction) {
-        Taro.showToast({ title: t('mine.refundFailed'), icon: 'none' });
-        return;
-      }
-      const callRes = await cloud.callFunction({ name: 'refundOrder', data: { orderId } });
-      const r = callRes as { result?: { ok?: boolean; manualRefund?: boolean; error?: string } } | null;
-      if (r?.result?.ok) {
-        Taro.showToast({ title: t('mine.refundSuccess'), icon: 'success' });
-        await init(); // 刷新订阅状态（refundOrder 云函数已回滚 expiredAt）
-        await loadOrders();
-      } else if (r?.result?.manualRefund) {
-        Taro.showToast({ title: t('mine.refundDouyinNote'), icon: 'none', duration: 2500 });
-      } else {
-        Taro.showToast({ title: r?.result?.error || t('mine.refundFailed'), icon: 'none' });
-      }
-    } catch (e) {
-      console.warn('[MinePage] handleRefund error:', e);
-      Taro.showToast({ title: t('mine.refundFailed'), icon: 'none' });
-    } finally {
-      setRefunding(false);
-    }
-  }, [refunding, t, init, loadOrders]);
 
   // 每次切回「我的」页刷新近期动态（最新 3 条）+ 可能被其他页面改动过的共享状态
   useDidShow(() => {
@@ -481,18 +252,12 @@ function MinePage() {
     setMemory(readMemory());
     setBlocks(listBlockRules());
     setPersonalOn(getPersonalization());
-    setLocked(readLockedPrice());
-    setNotices(listInboxNotices());
-    setReadStreak(getReadStreak());
-    setReadFreezeCards(getReadFreezeCards());
     setHabits(listHabits());
     setGuardRecords(listRestorableRecords());
     setHabitNotices(listHabitNotices());
     setAppPrefs(readPrefs());
-    // 功能记账：每次进页面重算（别的页面可能刚发生过 AI 调用/语音）
-    setUsageSummary(readUsageSummary());
+    // 续费提醒开关在「会员中心」页改，回到本页要重读 —— 否则本页的到期提示会按旧开关走
     setRemindOn(readRenewRemindPref());
-    void loadOrders();
   });
 
   /* ---------------- 续费管理（2026-10-24） ---------------- */
@@ -527,19 +292,6 @@ function MinePage() {
     writeRenewRemindDay(today);
   }, [renewal, remindOn, t]);
 
-  /** 到期状态一句话（有效 / 还剩 N 天 / 今天到期 / 已过期 N 天） */
-  const renewalStatusText = useMemo(() => {
-    const k = copyKeyOf(renewal);
-    const n = Math.abs(renewal.daysLeft || 0);
-    return t(RENEW_STATUS_KEY[k], { n });
-  }, [renewal, t]);
-
-  const handleToggleRemind = useCallback((next: boolean) => {
-    setRemindOn(next);
-    writeRenewRemindPref(next);
-    // 重新打开时清掉"今天已提示过"：否则开关拨回来却什么都不会发生，用户会以为开关是坏的
-    if (next) writeRenewRemindDay('');
-  }, []);
 
   // 偏好变化（或重新回到本页）后重算免打扰状态，辅助说明用
   useEffect(() => {
@@ -750,130 +502,8 @@ function MinePage() {
 
   const isEmojiAvatar = (val: string) => val.length <= 4;
 
-  const voicePercent = useMemo(() => {
-    if (!usage) return 0;
-    if (usage.voiceQuota < 0) return 0;
-    return Math.min(100, Math.round((usage.voiceUsed / usage.voiceQuota) * 100));
-  }, [usage]);
-
-  const collectionPercent = useMemo(() => {
-    if (!usage) return 0;
-    if (usage.collectionQuota < 0) return 0;
-    return Math.min(100, Math.round((usage.collectionCount / usage.collectionQuota) * 100));
-  }, [usage]);
-
-  /** 当前编译目标的支付通道（三端自动识别；H5 为 null） */
-  const currentPayChannel: PayChannel | null = getPayChannel();
-
-  /** B-02：只展示未读的调价站内信 */
-  const unreadNotices = useMemo(() => notices.filter((n) => !n.read), [notices]);
 
   /** 立即订阅：自动识别三端通道 → 下单 → 拉起支付 */
-  const handleSubscribe = async () => {
-    if (paying) return;
-
-    // 1. 自动识别当前编译目标对应的支付通道
-    const channel = getPayChannel();
-    if (!channel) {
-      // H5 端无真实支付能力：提示用户到小程序端
-      Taro.showToast({ title: '请在微信/支付宝/抖音小程序中打开', icon: 'none', duration: 2500 });
-      return;
-    }
-
-    // 已订阅用户再点「立即订阅」会**重复下单扣费** —— 先做二次确认。
-    // ⚠️ 必须放在 channel 判空之后：H5 没有支付通道，不能先弹续费确认、
-    //    再告诉用户「请在小程序打开」，那是一次无意义的交互往返。
-    if (profile?.subscribed) {
-      const ok = await new Promise<boolean>((resolve) => {
-        Taro.showModal({
-          title: t('mine.renewTitle'),
-          content: t('mine.renewBody', { date: (profile.expiredAt || '').slice(0, 10) }),
-          cancelText: t('cancel'),
-          confirmText: t('mine.renewConfirm'),
-          success: (r) => resolve(!!r.confirm),
-          fail: () => resolve(false)
-        });
-      });
-      if (!ok) return;
-    }
-    setPaying(true);
-
-    try {
-      // 2. 通道特定鉴权（alay→buyerId, douyin→openid, wechat→无）
-      const auth = await getChannelAuth(channel);
-      const payload: CreateOrderPayload = { planId, channel };
-      if (channel === 'alipay') payload.buyerId = auth?.buyerId || '';
-      if (channel === 'douyin') payload.openid = auth?.openid || '';
-
-      // 3. 调云函数下单（小程序端走真云函数，H5 端在 services/cloud.ts 自动降级到 src/data/createOrder.ts mock）
-      const result = await apiCreateOrder(payload);
-      if (!result.ok) throw new Error('createOrder 返回 ok=false');
-      console.info('[MinePage] order created:', result.orderId, 'channel:', channel, 'plan:', result.planId);
-
-      // 4. 拉起小程序原生支付
-      try {
-        const payRes = await invokePayment(channel, result.payment);
-        if (payRes.success) {
-          // 5. 锁价（B-01：首次成功订阅自动早鸟锁价；已锁时内部跳过）
-          // ⚠️ 必须在支付成功分支内：原先锁价写在下单后、支付前，用户取消支付 /
-          //    支付失败同样会写入 active 锁价，getEffectivePrice 此后一直返回这个
-          //    未成交价，UI 常驻「锁价 ¥6.9」——把没成交的单子当成成交价展示。
-          setLocked(lockPrice(result.planId, result.price));
-          Taro.showToast({ title: '支付成功', icon: 'success' });
-          // 对账兜底：先 init 拉 profile；如果 pay-callback 还没到（支付宝/抖音 HTTP 稍慢），
-          // profile 还是未订阅 → 立刻调 queryOrder 云函数查通道真相（会完成对账），再 init 刷新 UI
-          const paidOrderId = result.orderId;
-          // 定时器存 ref：用户支付后立刻切走页面时，卸载清理会 clearTimeout，
-          // 避免回调在卸载后 setState + 重复查单（2026-10-24 审计）。
-          payReconcileTimerRef.current = setTimeout(async () => {
-            try {
-              await init();
-              // init 之后如果 profile 还是未订阅，补一次主动查单
-              const freshProfile = useUserStore.getState().profile;
-              if (!freshProfile?.subscribed || !freshProfile?.expiredAt) {
-                // 小程序端 Taro.cloud 可用，queryOrder 只认 orderId（云函数间调用无 openid 校验）
-                const cloud = (Taro as unknown as { cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> } }).cloud;
-                if (cloud?.callFunction) {
-                  const q = await cloud.callFunction({ name: 'queryOrder', data: { orderId: paidOrderId } });
-                  // queryOrder 返回 { ok, paid, reconciled, channelStatus }
-                  const qRes = q as { ok?: boolean; paid?: boolean; reconciled?: boolean; channelStatus?: string } | null;
-                  if (qRes?.paid) {
-                    console.info('[MinePage] ✅ queryOrder 主动对账完成，刷新 profile');
-                    await init();
-                  } else {
-                    console.warn('[MinePage] queryOrder 返回未付 channelStatus=', qRes?.channelStatus);
-                  }
-                }
-              }
-            } catch (e) {
-              console.warn('[MinePage] 支付后对账兜底异常:', e);
-            }
-          }, 1800);
-        }
-      } catch (payErr) {
-        const msg = String(payErr?.message || payErr || '');
-        // 用户主动取消（微信：cancel；支付宝/douyin：canceled、用户取消）不算失败
-        if (/cancel|取消/i.test(msg)) {
-          console.info('[MinePage] user cancelled payment');
-          Taro.showToast({ title: '已取消', icon: 'none' });
-        } else {
-          console.error('[MinePage] invokePayment failed:', payErr);
-          Taro.showToast({ title: '支付未完成，请重试', icon: 'none' });
-        }
-      }
-    } catch (err) {
-      console.error('[MinePage] createOrder failed:', err);
-      Taro.showToast({ title: '下单失败，请稍后再试', icon: 'none' });
-    } finally {
-      setPaying(false);
-    }
-  };
-
-  /** B-02：标记调价站内信已读 */
-  const handleReadNotice = (id: string) => {
-    markNoticeRead(id);
-    setNotices(listInboxNotices());
-  };
 
   // ===== 设置项处理（自独立设置页合并而来） =====
   const memorySummary = useMemo(() => t('mine.memoryCount', { n: memory.items.length }), [memory, t]);
@@ -899,24 +529,6 @@ function MinePage() {
     }
   };
 
-  const handleBlurNickname = () => {
-    const name = nickname.trim();
-    if (!profile) return;
-    if (name === profile.nickname) return;
-    // 清空昵称不能静默 return —— 用户会以为「已保存为空」，实际什么也没发生。
-    // 说清原因并把输入框回填成原值，不留一个看起来像已保存的状态。
-    if (!name) {
-      Taro.showToast({ title: t('mine.nicknameEmpty'), icon: 'none' });
-      setNickname(profile.nickname);
-      return;
-    }
-    saveSettings({ nickname: name });
-  };
-
-  // Picker mode='time' 的 onChange 事件：value 即 'HH:mm'（Taro 官方事件类型）
-  const handleChangeTime = (e: CommonEvent<PickerTimeProps.ChangeEventDetail>) => {
-    saveSettings({ briefingTime: e.detail.value });
-  };
 
   const handleTogglePref = (tag: string) => {
     if (prefs.includes(tag)) {
@@ -950,14 +562,6 @@ function MinePage() {
     }
   };
 
-  /* ---------------- V-05 / V-07 TTS 设置项 ---------------- */
-  const handlePickRate = (rate: number) => {
-    setTtsPrefs(saveTtsPrefs({ rate }));
-  };
-
-  const handlePickVoiceMode = (voiceMode: TtsVoiceMode) => {
-    setTtsPrefs(saveTtsPrefs({ voiceMode }));
-  };
 
   /* ---------------- M-01 / M-02 记忆管理三入口 ---------------- */
   const handleToggleMemory = (on: boolean) => {
@@ -993,24 +597,6 @@ function MinePage() {
         if (!res.confirm) return;
         clearMemory();
         setMemory(readMemory());
-      }
-    });
-  };
-
-  /* ---------------- v2.1 晨报连续阅读：清空入口（二次确认，复用 memory 清空的同构写法） ---------------- */
-  const handleClearReadStreak = () => {
-    Taro.showModal({
-      title: t('readStreak.clearTitle'),
-      content: t('readStreak.clearBody', { n: readStreak }),
-      cancelText: t('cancel'),
-      confirmText: t('readStreak.clearConfirm'),
-      confirmColor: DANGER_COLOR,
-      success: (res) => {
-        if (!res.confirm) return;
-        clearReadStreak();
-        setReadStreak(getReadStreak());
-        setReadFreezeCards(getReadFreezeCards());
-        Taro.showToast({ title: t('readStreak.cleared'), icon: 'none' });
       }
     });
   };
@@ -1282,30 +868,6 @@ function MinePage() {
    *     弹窗底部如实说明，短信登录不受影响。 */
   /** 我的页分区折叠（2026-10-25 瘦身）：低频区默认收起，主路径（个人卡/宫格/订阅/通用设置）常开。
    *  折叠只是视觉收纳 —— 各区块的原 JSX 原样保留在折叠体里，门禁断言的源码模式不受影响。 */
-  /** 促销码兑换（2026-10-25）：H5 端 PRO 开通路径（无支付通道）。成功后 init() 刷新
-   *  档案（订阅卡/角标联动）与额度（语音/收藏转 -1）。 */
-  const [promoOpen, setPromoOpen] = useState(false);
-  const [promoInput, setPromoInput] = useState('');
-  const [promoBusy, setPromoBusy] = useState(false);
-  const [promoErr, setPromoErr] = useState('');
-
-  const handleRedeemPromo = async () => {
-    if (promoBusy) return;
-    setPromoErr('');
-    setPromoBusy(true);
-    const res = redeemPromo(promoInput);
-    if (!res.ok) {
-      setPromoBusy(false);
-      setPromoErr(t(res.reason === 'format' ? 'mine.promoBadFormat' : res.reason === 'expired' ? 'mine.promoExpired' : 'mine.promoUnknown'));
-      return;
-    }
-    // 成功：关弹窗、清输入、全量刷新档案与额度（init 会重建 profile —— 促销订阅态随之生效）
-    setPromoBusy(false);
-    setPromoOpen(false);
-    setPromoInput('');
-    Taro.showToast({ title: t('mine.promoDone', { date: res.expiredAt || '' }), icon: 'none', duration: 3000 });
-    await init();
-  };
   const [foldUsage, setFoldUsage] = useState(false);
   const [foldAi, setFoldAi] = useState(false);
   const [foldPush, setFoldPush] = useState(false);
@@ -1522,53 +1084,27 @@ function MinePage() {
     });
   };
 
-  const cityCopy = CITY_TEXT[lang];
-  /** 未设置时如实标注「默认」—— 别让用户以为定位成功过 */
-  const cityLabel = city || cityCopy.defaultTag;
-
-  const openCityEditor = () => {
-    setCityDraft(city);
-    setCityOpen(true);
+  /**
+   * 打开二级页。用 navigateTo（不是 switchTab）—— membership / prefs 都不是 tabBar 页，
+   * 这样系统返回手势能回到「我的」，用户不会觉得"点进去就回不来了"。
+   */
+  const handleOpenMembership = () => {
+    Taro.navigateTo({ url: '/pages/membership/index' }).catch((err) => {
+      console.error('[MinePage] open membership failed:', err);
+    });
   };
 
-  /**
-   * 保存天气城市。
-   *
-   * 关键点：存的是 **Open-Meteo 回传的规范地名**，不是用户原文。
-   * 先校验再落库 —— 「已保存」必须意味着「下游 geocode 一定能解析出这个城市」，
-   * 否则用户会得到一条看起来成功、实际天气还是错的消息。
-   */
-  const handleSaveCity = async () => {
-    if (cityChecking) return;
-    const name = cityDraft.trim();
-    if (!name) {
-      Taro.showToast({ title: cityCopy.empty, icon: 'none' });
-      return;
-    }
-    setCityChecking(true);
-    let canonical: string | null = null;
-    try {
-      canonical = await resolveCityName(name);
-    } catch (err) {
-      console.error('[MinePage] resolveCity failed:', err);
-      canonical = null;
-    }
-    setCityChecking(false);
-    if (!canonical) {
-      Taro.showToast({ title: cityCopy.notFound, icon: 'none', duration: 2400 });
-      return;
-    }
-    try {
-      Taro.setStorageSync('user-city', canonical);
-    } catch (err) {
-      // 写盘失败不能报成功：提示重试，并保持弹层打开（草稿还在）
-      console.error('[MinePage] save city failed:', err);
-      Taro.showToast({ title: cityCopy.saveFailed, icon: 'none' });
-      return;
-    }
-    setCity(canonical);
-    setCityOpen(false);
-    Taro.showToast({ title: `${cityCopy.savedPrefix}：${canonical}`, icon: 'none', duration: 2200 });
+  const handleOpenPrefs = () => {
+    Taro.navigateTo({ url: '/pages/prefs/index' }).catch((err) => {
+      console.error('[MinePage] open prefs failed:', err);
+    });
+  };
+
+  /** AI 助手（2026-10-27）：全站唯一 AI 入口。原晨报页底部输入条 + 全局悬浮球已移除。 */
+  const handleOpenAssistant = () => {
+    Taro.navigateTo({ url: '/pages/assistant/index' }).catch((err) => {
+      console.error('[MinePage] open assistant failed:', err);
+    });
   };
 
   const renderRow = (label: string, valueNode: React.ReactNode, onClick?: () => void) => (
@@ -1655,299 +1191,39 @@ function MinePage() {
         ))}
       </View>
 
-      {/* ===== 订阅区（B-01 锁价文案 / B-02 涨价通知 / 三通道支付） ===== */}
-      <View className={styles.subCard}>
-        <Text className={styles.subTitle}>{t('mine.subTitle')}</Text>
-        <Text className={styles.subDesc}>{t('mine.subDesc')}</Text>
-        {profile?.subscribed ? (
-          <Text className={styles.subscribedUntil}>
-            {t('mine.subscribedUntil', { date: (profile.expiredAt || '').slice(0, 10) })}
+      {/* ===== 订阅状态条（2026-10-26）=====
+          原 526px 订阅卡（方案 / 锁价 / 支付 / 续费管理）、139px 订阅记录、调价站内信，
+          已整体移入「会员中心」页（pages/membership）。
+          这里只留一行事实：我现在是什么档、这个月还能说几句话 —— 谈钱的事进去再谈。
+          为什么状态条必须留在首屏：「我的」页第一个要回答的问题就是「我还是会员吗」，
+          把这句话也藏进二级页，等于让人每次确认身份都要多点一次。 */}
+      <View className={styles.subBar} onClick={handleOpenMembership}>
+        <View className={styles.subBarMain}>
+          <Text className={styles.subBarTitle}>
+            {profile?.subscribed
+              ? t('mine.subStatusActive', { date: (profile.expiredAt || '').slice(0, 10) })
+              : t('mine.subStatusNone')}
           </Text>
-        ) : null}
-
-        {/* ①-b 续费管理（2026-10-24）：到期倒计时 + 到期后会怎样 + 提醒开关。
-            **必须始终渲染**，分两条理由：
-              ① 产品上：没订阅的人更需要知道「不会自动扣费」，藏起来等于让人猜；
-              ② 工程上：H5 的 `subscribed` 恒为 false（`localProfile.buildProfileFromSession`
-                 没有订阅态来源，见那里的说明），若按「有订阅才显示」收起，这块在
-                 **唯一能跑的形态里就是不可达代码**，永远测不到、也永远看不到。
-            none 态**只给状态徽标 + 不自动扣费**：不给到期日、不给倒计时、不给提醒开关
-            （`daysLeft` 是 null，编一个日期出来就是假信息）。 */}
-        <View className={styles.renewBlock}>
-          <View className={styles.renewHead}>
-            <Text className={styles.renewTitle}>{t('mine.renewMgmtTitle')}</Text>
-            <View className={renewal.status === 'active' ? styles.renewTagIdle : styles.renewTag}>
-              <Text className={renewal.status === 'active' ? styles.renewTagTextIdle : styles.renewTagText}>
-                {renewalStatusText}
-              </Text>
-            </View>
-          </View>
-          {renewal.status === 'none' ? (
-            <Text className={styles.renewUntil}>{t('mine.renewNoneHint')}</Text>
-          ) : (
-            <Text className={styles.renewUntil}>{t('mine.renewUntil', { date: renewal.expiredAt })}</Text>
-          )}
-          {renewal.status === 'active' || renewal.status === 'none' ? null : (
-            <Text className={styles.renewWarn}>
-              {renewal.status === 'expired' ? t('mine.renewWarnExpired') : t('mine.renewWarnExpiring')}
-            </Text>
-          )}
-          {renewal.status === 'none' ? null : (
-            <View className={styles.renewSwitchRow}>
-              <Text className={styles.renewSwitchLabel}>{t('mine.renewRemind')}</Text>
-              <Switch
-                className={styles.renewSwitch}
-                checked={remindOn}
-                color='#ffd24a'
-                onChange={(e) => handleToggleRemind(!!e.detail.value)}
-              />
-            </View>
-          )}
-          {/* 明确写出"不自动续费"：否则用户会默认以为到期自动扣款，反而不敢开提醒 */}
-          <Text className={styles.renewNote}>{t('mine.renewNoAuto')}</Text>
-          {/* 促销码兑换（2026-10-25，用户需求「兑换码兑换 pro」）：H5 无支付通道时的开通路径。
-              促销码=活动期可多人用（区别于小程序端一码一用的兑换码），兑换成功立即刷新档案与额度。
-              **仅 H5 显示**：weapp 的兑换走 redeemCode 云函数（一码一用，服务端 users 表发权益），
-              该云函数待部署三件套就绪前 weapp 没有任何兑换入口 —— 比放一个写本地凭证的
-              「假订阅」入口诚实（weapp 订阅态以服务端为准，本地凭证不改变云函数额度）。 */}
-          {isH5 ? (
-            <Text className={styles.promoEntry} onClick={() => setPromoOpen(true)}>
-              {t('mine.promoEntry')} ›
-            </Text>
-          ) : null}
+          <Text className={styles.subBarMeta}>
+            {usage && usage.voiceQuota > 0
+              ? t('mine.quotaShort', { used: usage.voiceUsed, quota: usage.voiceQuota })
+              : t('mine.quotaUnlimited')}
+          </Text>
         </View>
-
-        {/* ① 方案卡片横排（替换原 Picker） */}
-        <View className={styles.planList}>
-          {PLAN_LIST.map((p) => {
-            const active = p.id === planId;
-            const isEarlyBird = p.id === 'earlybird_monthly';
-            const priceYuan = EARLYBIRD_PRICE[p.id] / 100;
-            return (
-              <View
-                key={p.id}
-                className={classnames(
-                  styles.planCard,
-                  active && styles.planCardActive,
-                  isEarlyBird && styles.planCardEarlyBird
-                )}
-                onClick={() => setPlanId(p.id)}
-              >
-                {isEarlyBird ? <Text className={styles.planBadge}>{t('mine.planEarlyBirdTag')}</Text> : null}
-                <Text className={styles.planLabel}>{t(PLAN_LABEL_KEY[p.id])}</Text>
-                <Text className={styles.planPrice}>
-                  ¥{priceYuan}
-                  <Text className={styles.planUnit}>
-                    {p.id === 'yearly' ? t('mine.planPerYear') : t('mine.planPerMonth')}
-                  </Text>
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-
-        {/* ② 锁价文案常驻（B-01：价格下方、支付按钮上方） */}
-        <View className={styles.lockBlock}>
-          <View className={styles.lockHead}>
-            <Text className={styles.lockTitle}>{t('mine.lockTitle')}</Text>
-            {locked && locked.active ? <Text className={styles.lockPrice}>{formatPrice(locked.price)}</Text> : null}
-          </View>
-          <Text className={styles.lockBody}>{t('mine.lockBody')}</Text>
-          <Text className={styles.lockLose}>{t('mine.lockLose')}</Text>
-        </View>
-
-        {/* ③ 支付按钮 + 通道提示 */}
-        <View className={styles.subButtonRow}>
-          <View className={styles.subButtonGroup}>
-            <Button className={styles.subButton} onClick={handleSubscribe} loading={paying} disabled={disabledAttr(paying)}>
-              {paying
-                ? t('mine.subscribing')
-                : profile?.subscribed
-                  ? t('mine.renew')
-                  : t('mine.subscribe')}
-            </Button>
-            {currentPayChannel ? (
-              <View className={styles.channelTag}>
-                <Text className={styles.channelIcon}>{channelIconMap[currentPayChannel]}</Text>
-                <Text className={styles.channelText}>{t(channelLabelKey[currentPayChannel])}</Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
+        <Text className={styles.subBarAction}>{t('mine.manageSub')} ›</Text>
       </View>
 
-      {/* ===== 订阅记录 ===== */}
-      <View className={styles.card}>
-        <Text className={styles.cardTitle}>{t('mine.ordersTitle')}</Text>
-        {ordersLoading && orders.length === 0 ? (
-          <Text className={styles.orderLoading}>…</Text>
-        ) : ordersError && orders.length === 0 ? (
-          /* 查询失败与「真的没有记录」必须分开：老写法把两者都渲染成 ordersEmpty，
-             已付费用户查不到订单时会看到「暂无订阅记录」——这是把故障伪装成空态。
-             20 款 App 调研的共同结论：错误态三要素 = 发生了什么 + 为什么 + 怎么办。 */
-          <View className={styles.orderErrorBox}>
-            <Text className={styles.orderErrorText}>{t('mine.ordersError')}</Text>
-            <Text className={styles.orderRetry} onClick={() => void loadOrders()}>
-              {t('common.retry')}
-            </Text>
-          </View>
-        ) : orders.length === 0 ? (
-          <Text className={styles.orderEmpty}>{t('mine.ordersEmpty')}</Text>
-        ) : (
-          <ScrollView scrollY className={styles.orderList}>
-            {orders.map((o) => {
-              // channel 是云函数返回的不可信输入：空串时 o.channel[0] 为 undefined，
-              // .toUpperCase() 直接抛错整页崩（2026-10-24 审计）。空值/未知值
-              // 都回落到原始串展示，绝不让一条脏数据带崩整个订阅记录列表。
-              const ch = String(o.channel || '');
-              const channelLabel = ch
-                ? t(`mine.orderChannel${ch[0].toUpperCase()}${ch.slice(1)}` as LangKey)
-                : o.channel || '—';
-              const statusLabel = getOrderStatusLabel(o.status, o.refundStatus);
-              const statusColor = getOrderStatusColor(o.status, o.refundStatus);
-              const canRefund = o.status === 'paid' && o.refundStatus !== 'refunded' && o.refundStatus !== 'refunding';
-              const date = o.createTime ? new Date(o.createTime).toISOString().slice(0, 10) : '';
-              return (
-                <View className={styles.orderItem} key={o.orderId}>
-                  <View className={styles.orderHead}>
-                    <Text className={styles.orderChannelTag}>
-                      {channelIconMap[o.channel]} {channelLabel}
-                    </Text>
-                    <Text className={styles.orderStatus} style={{ color: statusColor }}>{statusLabel}</Text>
-                  </View>
-                  <View className={styles.orderBody}>
-                    <Text className={styles.orderPlan}>{PLAN_LABEL_KEY[o.planId as PayOrder['planId']] ? t(PLAN_LABEL_KEY[o.planId as PayOrder['planId']]) : o.planId}</Text>
-                    <Text className={styles.orderPrice}>¥{o.price} · {t('mine.orderMonths', { n: o.months })}</Text>
-                  </View>
-                  <View className={styles.orderFoot}>
-                    <Text className={styles.orderDate}>{date}</Text>
-                    {canRefund ? (
-                      <Text
-                        className={styles.orderRefundBtn}
-                        onClick={() => handleRefund(o.orderId, o.channel)}
-                      >
-                        {t('mine.refundBtn')}
-                      </Text>
-                    ) : null}
-                  </View>
-                </View>
-              );
-            })}
-          </ScrollView>
-        )}
-      </View>
-
-      {/* B-02：调价站内信（本轮不发生实际调价，仅在有通知时渲染） */}
-      {unreadNotices.length > 0 ? (
-        <View className={styles.card}>
-          {unreadNotices.map((notice) => (
-            <View className={styles.noticeItem} key={notice.id}>
-              <Text className={styles.noticeTitle}>{t(notice.titleKey)}</Text>
-              <Text className={styles.noticeBody}>{t(notice.bodyKey, notice.params)}</Text>
-              <View className={styles.noticeActions}>
-                <Text className={styles.linkText} onClick={() => handleReadNotice(notice.id)}>
-                  {t('mine.docRead')}
-                </Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
-      {/* 用量与统计（2026-10-25 折叠）：额度/功能记账/连续阅读/习惯守护/近期动态都是
-          「低频查看」型内容，默认收起给主路径让位；头条即入口，展开原卡原样渲染。 */}
+      {/* 习惯守护与近期动态（2026-10-25 折叠 / 2026-10-26 改名）：
+          额度、功能记账、连续阅读已移入「会员中心」—— 同类信息只在一个地方出现，
+          这里只留「我的」页独有的：习惯列表与活动日志。
+          默认收起：低频查看，展开才占高度。 */}
       <View className={styles.foldHeadCard} onClick={() => setFoldUsage(!foldUsage)}>
         <Text className={styles.foldIcon}>📊</Text>
-        <Text className={styles.foldTitle}>{t('mine.foldUsage')}</Text>
+        <Text className={styles.foldTitle}>{t('mine.foldHabit')}</Text>
         <Text className={styles.foldCaret}>{foldUsage ? '▾' : '›'}</Text>
       </View>
       {foldUsage ? (
         <>
-      <View className={styles.quotaCard}>
-        <Text className={styles.quotaTitle}>{t('mine.quotaTitle')}</Text>
-        <View className={styles.quotaRow}>
-          <View className={styles.quotaHead}>
-            <Text className={styles.quotaLabel}>{t('mine.quotaVoice')}</Text>
-            <Text className={styles.quotaValue}>
-              {usage ? (usage.voiceQuota < 0 ? t('mine.unlimited') : `${usage.voiceUsed}/${usage.voiceQuota}${lang === 'zh' ? ' 条' : ''}`) : '…'}
-            </Text>
-          </View>
-          <View className={styles.bar}>
-            <View
-              className={voicePercent >= 90 ? styles.barFillWarning : styles.barFill}
-              style={{ width: `${voicePercent}%` }}
-            />
-          </View>
-        </View>
-        <View className={styles.quotaRow}>
-          <View className={styles.quotaHead}>
-            <Text className={styles.quotaLabel}>{t('mine.quotaFav')}</Text>
-            <Text className={styles.quotaValue}>
-              {usage
-                ? usage.collectionQuota < 0
-                  ? t('mine.unlimited')
-                  : `${usage.collectionCount}/${usage.collectionQuota}${lang === 'zh' ? ' 条' : ''}`
-                : '…'}
-            </Text>
-          </View>
-          <View className={styles.bar}>
-            <View
-              className={collectionPercent >= 90 ? styles.barFillWarning : styles.barFill}
-              style={{ width: `${collectionPercent}%` }}
-            />
-          </View>
-        </View>
-        {/* 功能记账（2026-10-24）：额度条只说明"还剩多少"，这里说明"用在哪"。
-            数据来自 utils/usageLog.ts（按天聚合、只记真实调用）。 */}
-        <View className={styles.usageBlock}>
-          <View className={styles.usageHead}>
-            <Text className={styles.usageTitle}>{t('mine.usageTitle')}</Text>
-            <Text className={styles.usageRange}>{t('mine.usageWeek')}</Text>
-          </View>
-          {usageSummary === null ? (
-            <Text className={styles.usageEmpty}>…</Text>
-          ) : usageSummary.weekTotal === 0 ? (
-            <Text className={styles.usageEmpty}>{t('mine.usageEmpty')}</Text>
-          ) : (
-            <View className={styles.usageList}>
-              {FEATURES.map((f) => (
-                <View className={styles.usageItem} key={f}>
-                  <Text className={styles.usageName}>{t(FEATURE_LABEL_KEY[f])}</Text>
-                  <Text className={styles.usageNum}>
-                    {usageSummary.week[f]}
-                    <Text className={styles.usageToday}>
-                      {` · ${t('mine.usageToday')} ${usageSummary.today[f]}`}
-                    </Text>
-                  </Text>
-                </View>
-              ))}
-            </View>
-          )}
-          <Text className={styles.usageNote}>{t('mine.usageNote')}</Text>
-        </View>
-      </View>
-
-      {/* v2.1：晨报连续阅读（只读展示 + 清空入口；主 streak 已改挂晨报） */}
-      <View className={styles.card}>
-        <Text className={styles.cardTitle}>{t('mine.readStreakTitle')}</Text>
-        {renderRow(
-          t('readStreak.hint'),
-          <>
-            <Text className={styles.valueText}>{t('mine.readStreakValue', { n: readStreak })}</Text>
-            {readFreezeCards > 0 ? (
-              <Text className={styles.valueHint}>{t('readStreak.cardLabel', { n: readFreezeCards })}</Text>
-            ) : null}
-          </>
-        )}
-        {readStreak > 0 || readFreezeCards > 0 ? (
-          <View className={styles.memoryActions}>
-            <Text className={styles.dangerText} onClick={handleClearReadStreak}>
-              {t('readStreak.clearTitle')}
-            </Text>
-          </View>
-        ) : null}
-      </View>
-
       {/* v2.1 习惯守护：习惯列表 + 自动守护开关（默认关闭）+ 撤销窗口内一键还原 */}
       <View className={styles.card}>
         <Text className={styles.cardTitle}>{t('mine.habitSection')}</Text>
@@ -2033,85 +1309,31 @@ function MinePage() {
         </>
       ) : null}
 
-      {/* ===== 设置项（自独立设置页合并：通用 / AI 个性化 / 外观 / 账号与合规） ===== */}
-      <View className={styles.card}>
-        <Text className={styles.cardTitle}>{t('mine.settingGeneral')}</Text>
-        {renderRow(
-          t('mine.nickname'),
-          <Input
-            className={styles.input}
-            value={nickname}
-            maxlength={12}
-            placeholder={t('mine.nicknamePlaceholder')}
-            onInput={(e) => setNickname(e.detail.value)}
-            onBlur={handleBlurNickname}
-          />
-        )}
-        <Picker mode='time' value={profile?.briefingTime || '07:30'} onChange={handleChangeTime}>
-          {renderRow(
-            t('mine.briefingTime'),
-            <>
-              <Text className={styles.valueText}>{profile?.briefingTime || '07:30'}</Text>
-              <Text className={styles.arrow}>›</Text>
-            </>
-          )}
-        </Picker>
-        {renderRow(
-          t('mine.briefingRemind'),
-          <Switch
-            checked={custom.morningReminderEnabled}
-            color={theme.color}
-            onChange={(e) => persistCustom({ morningReminderEnabled: e.detail.value })}
-          />
-        )}
-        {/* 天气城市（2026-10-24）：手动兜底，见 CITY_TEXT 注释 —— 拒绝定位不再等于「永远是北京」。
-            文案复用既有的 sync.key.user-city（'所在城市' / 'City'），不新增 i18n 键。 */}
-        {renderRow(
-          t('sync.key.user-city'),
-          <>
-            <Text className={styles.valueText}>{cityLabel}</Text>
+      {/* ===== AI 助手（2026-10-27）=====
+          全站唯一的 AI 入口。之前有两处：晨报页底部常驻输入条、全局悬浮球。
+          用户要求收敛成一个并放进设置层，页面上不再有悬浮物遮挡正文。 */}
+      <View className={styles.card} onClick={handleOpenAssistant}>
+        <View className={styles.row}>
+          <Text className={styles.rowLabel}>{t('mine.assistantTitle')}</Text>
+          <View className={styles.rowValue}>
+            <Text className={styles.valueHint}>{t('mine.assistantDesc')}</Text>
             <Text className={styles.arrow}>›</Text>
-          </>,
-          openCityEditor
-        )}
-        {/* V-05 语速三档（取值来自 utils/tts.ts 的 TTS_RATE_OPTIONS） */}
-        <View className={styles.row}>
-          <Text className={styles.rowLabel}>{t('tts.rateLabel')}</Text>
-          <View className={styles.scaleList}>
-            {TTS_RATE_OPTIONS.map((opt) => (
-              <View
-                key={opt.id}
-                className={classnames(styles.scaleChip, ttsPrefs.rate === opt.rate && styles.scaleChipActive)}
-                onClick={() => handlePickRate(opt.rate)}
-              >
-                <Text className={classnames(styles.scaleText, ttsPrefs.rate === opt.rate && styles.scaleTextActive)}>
-                  {t(TTS_RATE_LABEL[opt.id])}
-                </Text>
-              </View>
-            ))}
           </View>
         </View>
-        {/* V-07 音色策略：跟随场景 / 固定音色 */}
+      </View>
+
+      {/* ===== 偏好设置入口（2026-10-26）=====
+          原 366px 通用设置卡（称呼 / 推送时间 / 提醒 / 城市 / 语速 / 音色，共 6 行）
+          已整体移入 pages/prefs。这里只留一行门 —— 但门必须显眼，
+          因为「改推送时间」是真实高频动作，不能让它变成需要探索的功能。 */}
+      <View className={styles.card} onClick={handleOpenPrefs}>
         <View className={styles.row}>
-          <Text className={styles.rowLabel}>{t('tts.voiceLabel')}</Text>
-          <View className={styles.scaleList}>
-            {TTS_VOICE_MODES.map((mode) => (
-              <View
-                key={mode.id}
-                className={classnames(styles.scaleChip, ttsPrefs.voiceMode === mode.id && styles.scaleChipActive)}
-                onClick={() => handlePickVoiceMode(mode.id)}
-              >
-                <Text
-                  className={classnames(styles.scaleText, ttsPrefs.voiceMode === mode.id && styles.scaleTextActive)}
-                >
-                  {t(mode.labelKey)}
-                </Text>
-              </View>
-            ))}
+          <Text className={styles.rowLabel}>{t('mine.prefsTitle')}</Text>
+          <View className={styles.rowValue}>
+            <Text className={styles.valueHint}>{t('mine.prefsDesc')}</Text>
+            <Text className={styles.arrow}>›</Text>
           </View>
         </View>
-        {/* 微信端同声传译插件无 rate/pitch 参数（PRD Q2 已知限制），显式标注 */}
-        {isWeapp ? <Text className={styles.platformHint}>{t('perm.platformUnsupported')}</Text> : null}
       </View>
 
       {/* AI 个性化与外观（2026-10-25 折叠）：低频调整 */}
@@ -2700,69 +1922,6 @@ function MinePage() {
                 onClick={() => void submitChangePassword()}
               >
                 {t('mine.pwdSubmit')}
-              </Button>
-            </View>
-          </View>
-        </View>
-      ) : null}
-
-      {/* 促销码兑换弹层（与城市/反馈共用半屏语言与控件样式） */}
-      {promoOpen ? (
-        <View className={styles.docMask} onClick={() => setPromoOpen(false)}>
-          <View className={classnames(styles.docPanel, styles.fbPanel)} onClick={(e) => e.stopPropagation()}>
-            <Text className={styles.docTitle}>{t('mine.promoTitle')}</Text>
-            <Text className={styles.fbIntro}>{t('mine.promoHint')}</Text>
-            <Input
-              className={styles.fbInput}
-              type='text'
-              value={promoInput}
-              maxlength={14}
-              placeholder={t('mine.promoPlaceholder')}
-              onInput={(e) => {
-                setPromoInput(String(e.detail.value || '').toUpperCase());
-                setPromoErr('');
-              }}
-            />
-            {promoErr ? <Text className={styles.fbError}>{promoErr}</Text> : null}
-            <View className={styles.fbActions}>
-              <Button className={styles.fbCancel} onClick={() => setPromoOpen(false)}>
-                {t('cancel')}
-              </Button>
-              <Button
-                className={styles.fbSubmit}
-                disabled={disabledAttr(promoBusy)}
-                onClick={() => void handleRedeemPromo()}
-              >
-                {t('mine.promoSubmit')}
-              </Button>
-            </View>
-          </View>
-        </View>
-      ) : null}
-
-      {/* 天气城市编辑弹层（与反馈共用半屏语言与控件样式，不引入第三套观感） */}
-      {cityOpen ? (
-        <View className={styles.docMask} onClick={() => setCityOpen(false)}>
-          <View className={classnames(styles.docPanel, styles.fbPanel)} onClick={(e) => e.stopPropagation()}>
-            <Text className={styles.docTitle}>{t('sync.key.user-city')}</Text>
-            <Text className={styles.fbIntro}>{cityCopy.hint}</Text>
-            <Input
-              className={styles.fbInput}
-              value={cityDraft}
-              maxlength={20}
-              placeholder={cityCopy.placeholder}
-              onInput={(e) => setCityDraft(e.detail.value)}
-            />
-            <View className={styles.fbActions}>
-              <Button className={styles.fbCancel} onClick={() => setCityOpen(false)}>
-                {t('cancel')}
-              </Button>
-              <Button
-                className={styles.fbSubmit}
-                disabled={disabledAttr(cityChecking)}
-                onClick={() => void handleSaveCity()}
-              >
-                {cityChecking ? cityCopy.saving : cityCopy.save}
               </Button>
             </View>
           </View>

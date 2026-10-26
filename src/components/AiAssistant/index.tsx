@@ -12,9 +12,15 @@ import { buildPlanProposal, type PlanProposal, type PlanProposalRaw, type PlanAp
 import { readMemory, writeMemory, undoMemory, memoryToast, MEMORY_UNDO_WINDOW_MS, type MemoryItem } from '@/utils/memory';
 import type { ScheduleEvent } from '@/types';
 import PlanProposalCard from '@/components/PlanProposalCard';
+import VoiceButton from '@/components/VoiceButton';
+import type { VoiceResult } from '@/components/VoiceButton';
+import getUsage from '@/data/getUsage';
+import { bumpVoiceUsage } from '@/utils/usage';
+import { recordUsage } from '@/utils/usageLog';
 import styles from './index.module.scss';
 
 const isH5 = process.env.TARO_ENV === 'h5';
+const isWeapp = process.env.TARO_ENV === 'weapp';
 /** AI 助理对话本地持久化 key（上限 60 条，由 saveChatLog 截断） */
 const AI_LOG_KEY = 'aiAssistantLog';
 
@@ -57,8 +63,16 @@ interface AiAssistantProps {
   context?: string;
   /** 页面主动传入的动态建议（如搜索无结果时），优先于默认建议 */
   activeHint?: string;
-  /** 额外抬升距离（rpx），用于避让晨报页常驻输入栏 */
+  /** 额外抬升距离（rpx）。**仅悬浮球模式使用**，整页模式下无效 */
   offset?: number;
+  /**
+   * 整页模式（2026-10-27）：渲染成 pages/assistant 的整页对话，而不是悬浮球 + 浮层面板。
+   *
+   * 为什么加这个：用户要求「AI 生成放设置里面，页面上剩下的入口全删掉」——
+   * 全站只保留一个 AI 入口。整页模式复用同一份对话实现（消息、语音、排班提案、
+   * 记忆溯源、合规常驻提示都在），不另写一套，避免两个对话入口各自长 bug。
+   */
+  embedded?: boolean;
 }
 
 interface AssistantMsg {
@@ -82,10 +96,13 @@ interface MemoryToastState {
   ids: string[];
 }
 
-function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps) {
+function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }: AiAssistantProps) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [hintVisible, setHintVisible] = useState(false);
+  /** 整页模式默认就是「打开」的：没有悬浮球可点，进来即对话 */
+  const [open, setOpen] = useState(embedded);
+  /** 主动建议气泡已于 2026-10-26 移除（IA 瘦身）：它和底部输入条、悬浮球是同一件事的
+   *  第三个入口，且常驻占位约 38px。建议文案没有丢 —— 打开面板后的欢迎语仍会带上
+   *  （见下方 greeting 分支），只是不再有「不操作也会自己浮出来」的那一层。 */
   /** 滚动收起：下滑时隐藏悬浮球，避免它压住正文（20 款 App 通例，FAB 不与内容争地盘）。
    *  声明放在所有 effect 之前：useEffect 的依赖数组会引用它，后声明会触发
    *  TS2448/2454 与 no-use-before-define。 */
@@ -107,40 +124,7 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
   useEffect(() => {
     saveChatLog(AI_LOG_KEY, messages);
   }, [messages]);
-  /** 自动弹出的主动建议每会话只弹一次，避免骚扰 */
-  const hintShownRef = useRef(false);
-
   const suggestion = activeHint || (CONTEXT_HINT_KEYS[context] ? t(CONTEXT_HINT_KEYS[context]) : '');
-
-  /** 主动建议气泡：动态建议即时显示；默认建议延迟一次；面板打开时隐藏 */
-  useEffect(() => {
-    if (open) {
-      setHintVisible(false);
-      return;
-    }
-    // 悬浮球被滚动收起时，气泡跟着藏 —— 否则会出现「球走了、气泡还在原地飘」的割裂态
-    if (fabHidden) {
-      setHintVisible(false);
-      return;
-    }
-    if (!suggestion) return;
-    if (activeHint) {
-      setHintVisible(true);
-      return;
-    }
-    if (!hintShownRef.current) {
-      hintShownRef.current = true;
-      const timer = setTimeout(() => setHintVisible(true), 1200);
-      return () => clearTimeout(timer);
-    }
-  }, [open, activeHint, suggestion, fabHidden]);
-
-  /** 气泡 8s 自动收起 */
-  useEffect(() => {
-    if (!hintVisible) return;
-    const timer = setTimeout(() => setHintVisible(false), 8000);
-    return () => clearTimeout(timer);
-  }, [hintVisible]);
 
   /** P1-E 记忆溯源附加字段（仅在携带排班提案的回复上带） */
   interface MemoryTrace {
@@ -319,6 +303,50 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
     void sendMessage(text);
   }, [input, sending, sendMessage]);
 
+  /** 本月语音免费额度校验（免费档 20 条 / 订阅 -1 不限）。超限引导去会员中心，不静默失败。 */
+  const checkVoiceQuota = (): boolean => {
+    const usage = getUsage();
+    if (usage.voiceQuota >= 0 && usage.voiceUsed >= usage.voiceQuota) {
+      Taro.showModal({
+        title: t('briefing.voiceLimitTitle'),
+        content: t('briefing.voiceLimitContent'),
+        confirmText: t('briefing.goSubscribe'),
+        success: (res) => {
+          if (res.confirm) Taro.navigateTo({ url: '/pages/membership/index' });
+        }
+      });
+      return false;
+    }
+    return true;
+  };
+
+  /**
+   * 语音输入（2026-10-27 从晨报页底部输入栏迁来 —— 输入栏已撤，但「语音 20→不限次」
+   * 是订阅说明里明码标价的权益，能力不能跟着 UI 一起消失）。
+   *
+   * 诚实性 & 额度：H5 没有语音转写能力，绝不能拿预置文案冒充用户说的话，更不能扣额度。
+   * 因此 !isWeapp 必须**先于**任何记账动作 return。
+   */
+  const handleVoiceResult = (result: VoiceResult) => {
+    if (!isWeapp) {
+      Taro.showToast({ title: t('briefing.voiceWeappOnly'), icon: 'none' });
+      return;
+    }
+    if (!result.confirmed) return;
+    if (!checkVoiceQuota()) return;
+    // 用量真记账：语音确认发送即计 1 次
+    bumpVoiceUsage();
+    // 功能记账（按天聚合，与上面的月度额度计数是两套口径：一个管配额，一个给用户看"用在哪"）
+    recordUsage('voice');
+    if (result.transcript) {
+      // 有转写文本：微信端同声传译插件识别成功，直接进对话链路
+      void sendMessage(result.transcript);
+      return;
+    }
+    // 无转写的微信端结果 = 同声传译插件未配置的降级路径（纯录音）
+    Taro.showToast({ title: t('briefing.voiceNoPlugin'), icon: 'none', duration: 2000 });
+  };
+
   /** 批准方案：透传 apiApplyPlan 落库（S-01），成功后 toast 并从消息中移除卡片 */
   const handleApprovePlan = useCallback(
     async (events: PlanApplyEvent[], src: PlanProposal, msgId: string) => {
@@ -363,7 +391,6 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
     // 拖动结束后浏览器会补发一次合成 click，250ms 内的点击视为拖动余波，忽略
     if (Date.now() - lastDragEndRef.current < 250) return;
     setOpen(true);
-    setHintVisible(false);
     if (messages.length === 0) {
       const greeting = suggestion ? t('ai.greetingWithSuggestion', { hint: suggestion }) : t('ai.greeting');
       push('assistant', greeting);
@@ -406,8 +433,6 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
         height: rect?.height ?? 54,
         moved: false
       };
-      // 拖动时收起建议气泡：气泡比球宽，会影响 wrapper 按坐标定位的准确性
-      setHintVisible(false);
     },
     [fabPos]
   );
@@ -496,16 +521,6 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
   }, [beginDrag, updateDrag, finishDrag]);
 
   /** 点击主动建议气泡：唤起面板并直接发送 */
-  const handleHintTap = () => {
-    setHintVisible(false);
-    setOpen(true);
-    if (suggestion) sendMessage(suggestion);
-  };
-
-  const handleHintClose = (e: { stopPropagation: () => void }) => {
-    e.stopPropagation();
-    setHintVisible(false);
-  };
 
   /**
    * 滚动收起悬浮球（H5）。
@@ -576,27 +591,26 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
     : { ref: fabRef, onTouchStart: handleFabTouchStart, onTouchMove: handleFabTouchMove, onTouchEnd: finishDrag };
 
   return (
-    <View className={styles.wrapper} style={wrapperStyle}>
-      {hintVisible && suggestion ? (
-        <View className={styles.hintBubble} onClick={handleHintTap}>
-          <Text className={styles.hintText}>💡 {suggestion}</Text>
-          <View className={styles.hintClose} onClick={handleHintClose}>
-            ✕
-          </View>
+    <View
+      className={embedded ? styles.pageRoot : styles.wrapper}
+      style={embedded ? undefined : wrapperStyle}
+    >
+      {/* 整页模式没有悬浮球：入口就是设置里那一行「AI 助手」 */}
+      {embedded ? null : (
+        <View id='ai-fab' className={styles.fab} onClick={handleFabTap} {...fabDragProps}>
+          <Text className={styles.fabIcon}>🤖</Text>
         </View>
-      ) : null}
-
-      <View id='ai-fab' className={styles.fab} onClick={handleFabTap} {...fabDragProps}>
-        <Text className={styles.fabIcon}>🤖</Text>
-      </View>
+      )}
 
       {open ? (
-        <View className={styles.panel}>
+        <View className={embedded ? styles.panelPage : styles.panel}>
           <View className={styles.panelHeader}>
             <Text className={styles.panelTitle}>{t('ai.title')}</Text>
-            <View className={styles.panelClose} onClick={() => setOpen(false)}>
-              ✕
-            </View>
+            {embedded ? null : (
+              <View className={styles.panelClose} onClick={() => setOpen(false)}>
+                ✕
+              </View>
+            )}
           </View>
 
           {/* P0-2/C1 合规常驻提示：深度合成-AI问答 类目「人工必查项」要求 AI 对话页
@@ -680,6 +694,7 @@ function AiAssistant({ context = '', activeHint, offset = 0 }: AiAssistantProps)
           ) : null}
 
           <View className={styles.inputRow}>
+            <VoiceButton disabled={sending} compact onResult={handleVoiceResult} />
             <Input
               className={styles.input}
               value={input}

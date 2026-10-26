@@ -232,10 +232,12 @@ if (typeof promoMod._sha256HexForTest === 'function') {
   // P8：兑换入口仅 H5 渲染。weapp 的兑换走 redeemCode 云函数（服务端 users 表发权益），
   // 云函数未部署前 weapp 没有入口 —— 不能放一个写本地凭证的入口：weapp 订阅态以服务端为准，
   // 本地凭证不改变云函数 getUsage 额度，会呈现「UI 说订阅了、权益没给」的假订阅。
-  const promoEntryIdx = mine.indexOf('mine.promoEntry');
+  // 2026-10-27：促销码入口随交易区搬到「会员中心」页，断言锚点跟着搬家。
+  const membership = stripComments(read('src/pages/membership/index.tsx'));
+  const promoEntryIdx = membership.indexOf('mine.promoEntry');
   ok('P8 促销码入口仅 H5 渲染（weapp 无本地凭证假订阅）',
-    promoEntryIdx > 0 && mine.lastIndexOf('isH5 ? (', promoEntryIdx) > 0 &&
-    mine.lastIndexOf('isH5 ? (', promoEntryIdx) < promoEntryIdx);
+    promoEntryIdx > 0 && membership.lastIndexOf('isH5 ? (', promoEntryIdx) > 0 &&
+    membership.lastIndexOf('isH5 ? (', promoEntryIdx) < promoEntryIdx);
 }
 
 /* ---------------- E. 搜索接全网 + 失败态独立 ---------------- */
@@ -301,7 +303,10 @@ const weather = stripComments(read('src/utils/weather.ts'));
 const resolveFn = /export async function resolveCityName[\s\S]*?\n\}/.exec(weather);
 const resolveBody = resolveFn ? resolveFn[0] : '';
 ok('G1 resolveCityName 存在且走 geocoding', resolveBody.length > 0 && /geocoding-api\.open-meteo\.com/.test(resolveBody));
-const saveCityFn = /const handleSaveCity = async \(\) => \{([\s\S]*?)\n  \};/.exec(mine);
+// 2026-10-27：城市设置随通用设置搬到「偏好设置」页，G2~G6 的锚点跟着搬家。
+// 判据本身一字未改 —— 仍是「先校验后落库、查不到不落库、存规范地名」。
+const prefs = stripComments(read('src/pages/prefs/index.tsx'));
+const saveCityFn = /const handleSaveCity = async \(\) => \{([\s\S]*?)\n  \};/.exec(prefs);
 const saveCityBody = saveCityFn ? saveCityFn[1] : '';
 ok('G2 handleSaveCity 函数体可定位', saveCityBody.length > 0);
 // 顺序断言：必须先校验、后落库。写反了就是「已保存但天气还是错」
@@ -315,7 +320,7 @@ ok('G4 查不到城市时不落库（if (!canonical) 分支在落库之前）', 
   return iResolve > -1 && guard > iResolve && guard < iStore;
 })());
 ok('G5 存的是规范地名而不是用户原文', /setStorageSync\('user-city', canonical\)/.test(saveCityBody));
-ok('G6 未设置时如实标注默认城市', /city \|\| cityCopy\.defaultTag/.test(mine));
+ok('G6 未设置时如实标注默认城市', /city \|\| cityCopy\.defaultTag/.test(prefs));
 
 /* ---------------- H. 突发新闻横幅：可看、可关、不冒充推送 ---------------- */
 // 用户问「如果突发新闻是否有弹窗」。做的是**应用内横幅**：推送通道外部阻塞（模板 ID 空串），

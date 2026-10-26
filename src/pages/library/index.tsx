@@ -930,10 +930,13 @@ function LibraryPage() {
     Taro.showToast({ title: t('library.personalOffToast'), icon: 'none', duration: 2000 });
   };
 
-  /** PRO 角标 / 空态 CTA 点击：跳 mine 订阅页（switchTab 因为 mine 是 TabBar） */
+  /** PRO 角标 / 空态 CTA 点击：直达「会员中心」（2026-10-26 从「我的」页拆出） */
   const handleGoSubscribe = () => {
-    Taro.switchTab({ url: '/pages/mine/index' }).catch(() => {
-      Taro.navigateTo({ url: '/pages/mine/index' });
+    Taro.navigateTo({ url: '/pages/membership/index' }).catch((err) => {
+      console.error('[LibraryPage] 跳转会员中心失败，回退「我的」:', err);
+      Taro.switchTab({ url: '/pages/mine/index' }).catch(() => {
+        /* 两条通道都失败才是真故障，上面已留痕 */
+      });
     });
   };
 

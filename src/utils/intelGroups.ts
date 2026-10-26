@@ -300,8 +300,12 @@ export function groupIntelLocally(items: unknown): IntelGroup[] {
   for (const title of orderedTitles) {
     const list = (buckets.get(title) || []).slice(0, INTEL_GROUP_ITEMS_MAX);
     if (list.length === 0) continue;
-    // 本地导语：纯文本摘要拼接（不含 [n]，渲染安全），说明本组含几条资讯
-    const lead = clampText(`${title}：共 ${list.length} 条相关资讯`, INTEL_LEAD_MAX);
+    // 本地导语：纯文本摘要拼接（不含 [n]，渲染安全），说明本组含几条资讯。
+    // ⚠️ 单条不生成导语（2026-10-26）：导语的作用是「串联多条 + 承载内联引用」，
+    //    只有一条时它变成「科技前沿：共 1 条相关资讯」—— 与上方组标题重复，
+    //    且「共 1 条」不提供任何新信息。实测晨报页 3 个分组各 1 条，三句这样的
+    //    话共占约 130px，是首屏看起来「啰嗦」的主要来源之一。
+    const lead = list.length > 1 ? clampText(`${title}：共 ${list.length} 条相关资讯`, INTEL_LEAD_MAX) : '';
     groups.push({ title, lead, items: list });
     if (groups.length >= INTEL_GROUP_MAX) break;
   }

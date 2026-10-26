@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, Input, Button, Image } from '@tarojs/components';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, Button, Image } from '@tarojs/components';
 import Taro, { usePullDownRefresh, useDidShow, useDidHide, useShareAppMessage } from '@tarojs/taro';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
-import VoiceButton, { VoiceResult } from '@/components/VoiceButton';
 import EmptyState from '@/components/EmptyState';
 import PermissionDialog from '@/components/PermissionDialog';
 import IntelGroupCard, { IntelItemRow } from '@/components/IntelGroupCard';
@@ -12,11 +11,10 @@ import PlanProposalCard from '@/components/PlanProposalCard';
 import { BriefingSkeleton } from '@/components/Skeleton';
 import BurstBanner from '@/components/BurstBanner';
 import { resolveIntelGroups } from '@/utils/intelGroups';
-import { disabledAttr } from '@/utils/buttonDisabled';
 import type { IntelSourceRef } from '@/utils/intelGroups';
 import { formatPlayCount } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
-import { apiGetBriefing, apiChat, apiChatStream, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews, apiTodoSetStatus, apiGetLibrary } from '@/services/api';
+import { apiGetBriefing, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews, apiTodoSetStatus, apiGetLibrary } from '@/services/api';
 import { buildTodayBrief, resolveCategory, type TodayBrief } from '@/utils/ledgerAggregate';
 import { fetchQuotes, getWatchlist, addToWatchlist, removeFromWatchlist, normalizeStockCode, WATCHLIST_MAX, type StockQuote } from '@/utils/quotes';
 import { buildPlanProposal, DEFAULT_DURATION_MINUTES } from '@/utils/schedule';
@@ -36,11 +34,8 @@ import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { formatEventTime } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
-import { bumpVoiceUsage } from '@/utils/usage';
-import { recordUsage } from '@/utils/usageLog';
 import { computeAdaptive } from '@/utils/adaptive';
 import { sceneByHour, splitTtsChunks, startSpeak, stopSpeak } from '@/utils/tts';
-import { loadChatLog, saveChatLog } from '@/utils/chatLog';
 import {
   beginReadSession,
   markSectionSeen,
@@ -55,7 +50,7 @@ import {
 } from '@/utils/readStreak';
 import type { ReadSectionKind, ReadSession } from '@/utils/readStreak';
 import { canPromptSubscribe, promptSubscribe, isSubscriptionStale } from '@/utils/subscribe';
-import type { Briefing, ChatMessage, CollectionItem, LedgerBudget, LedgerCategory, LedgerEntry, ScheduleEvent, TodoItem } from '@/types';
+import type { Briefing, CollectionItem, LedgerBudget, LedgerCategory, LedgerEntry, ScheduleEvent, TodoItem } from '@/types';
 import { useT, useLanguageStore } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { readPrefs } from '@/utils/prefs';
@@ -82,17 +77,8 @@ const isH5 = process.env.TARO_ENV === 'h5';
 const DESIGN_PX_PER_REM = 750 / 20;
 const r2r = (n: number): string => `${(n / DESIGN_PX_PER_REM).toFixed(5)}rem`;
 
-/** 快捷指令（优化输入：点击填充输入框，减少手打成本） */
-const QUICK_COMMANDS: Array<{ icon: string; labelKey: LangKey; text: string }> = [
-  { icon: '📅', labelKey: 'briefing.quickSchedule', text: '帮我安排 ' },
-  { icon: '✍️', labelKey: 'briefing.quickNote', text: '记一下：' },
-  { icon: '✅', labelKey: 'briefing.quickDone', text: '完成了「」' },
-  { icon: '🔥', labelKey: 'briefing.quickHot', text: '今天有什么热点' }
-];
 /** 订阅消息模板 ID：从 src/config/subscribe.ts 集中读取（未配置为空串时 promptSubscribe noop） */
 
-/** AI 对话本地持久化 key（上限 60 条） */
-const BRIEFING_CHAT_LOG_KEY = 'briefingChatLog';
 /** F-04 晨报当日缓存 key：{ date: 'YYYY-MM-DD', data: Briefing }，同日二次进入秒开 */
 const BRIEFING_CACHE_KEY = 'briefingDailyCache';
 /** X8 连读徽章 storage key：{ last: 'YYYY-MM-DD', count: n }，进页即记当天 */
@@ -184,8 +170,6 @@ function BriefingPage() {
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [quoteInput, setQuoteInput] = useState('');
   const [quoteBusy, setQuoteBusy] = useState(false);
-  const [quoteAnalysis, setQuoteAnalysis] = useState<string | null>(null);
-  const [quoteAnalyzing, setQuoteAnalyzing] = useState(false);
   /** 每日回顾（flomo 模式）：≥30 天前的随机一条旧收藏；null = 不渲染 */
   const [memoryFlash, setMemoryFlash] = useState<CollectionItem | null>(null);
   /** 「今日已读完」判据（Kagi 定版模式）：今日浏览过热点（browseHistory 由热点页写入）。
@@ -207,17 +191,9 @@ function BriefingPage() {
    *  直接打ledgerBrief 永远打出 null，排查时会误判成「没算出来」。 */
   const ledgerBriefRef = useRef<TodayBrief | null>(null);
   const [ledgerCats, setLedgerCats] = useState<LedgerCategory[]>([]);
-  // AI 对话本地持久化：重进恢复上下文（上限 60 条，超限截旧）
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    const restored = loadChatLog<ChatMessage>(BRIEFING_CHAT_LOG_KEY);
-    return restored;
-  });
-  const [inputText, setInputText] = useState('');
-  const [sending, setSending] = useState(false);
-  const [deepMode, setDeepMode] = useState(false);
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const { profile, usage, init, refreshUsage } = useUserStore();
+  const { profile, init, refreshUsage } = useUserStore();
   // U-01 骨架屏：首屏加载 >300ms 才显示（briefing 到位后熄灭，下拉刷新有旧内容不闪骨架）
   const [showSkeleton, setShowSkeleton] = useState(false);
   const skeletonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -229,8 +205,6 @@ function BriefingPage() {
    * 判据只在「请求失败且手上没有任何旧数据」时成立；有缓存就先展示缓存。
    */
   const [loadError, setLoadError] = useState(false);
-  // 消息 id 计数器以恢复的历史长度为起点，避免与持久化消息 id 冲突
-  const msgIdRef = useRef(messages.length);
 
   /* ---------------- X8 连读徽章 + X6 周末轻量版用户偏好（进页读取一次） ---------------- */
   const [briefStreak] = useState(() => bumpBriefStreak());
@@ -260,10 +234,6 @@ function BriefingPage() {
   // briefing 引用：useDidShow 时可能尚未拿到最新 briefing，用 ref 兜住「返回页面」场景
   const briefingRef = useRef<Briefing | null>(null);
 
-  // 对话变化落 storage（截断由 saveChatLog 兜底）
-  useEffect(() => {
-    saveChatLog(BRIEFING_CHAT_LOG_KEY, messages);
-  }, [messages]);
 
   // 转发分享（F30）：带品牌分享封面
   // 标题 AI 显式标识须门控（合规硬门槛）：仅订阅档 AI 启用且未降级才挂「AI 整理｜」前缀，
@@ -639,71 +609,6 @@ function BriefingPage() {
     Taro.stopPullDownRefresh();
   });
 
-  const pushMessage = (
-    role: ChatMessage['role'],
-    content: string,
-    type: ChatMessage['type'] = 'text',
-    deep = false,
-    image?: string
-  ): string => {
-    msgIdRef.current += 1;
-    const id = `msg-${msgIdRef.current}`;
-    setMessages((prev) => [
-      ...prev,
-      { id, role, type, deep, content, image, createTime: dayjs().toISOString() }
-    ]);
-    return id;
-  };
-
-  /** 更新一条消息内容（F-03 流式打字机追加用） */
-  const appendMessage = (id: string, chunk: string) => {
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + chunk } : m)));
-  };
-  /** 用最终结果覆盖流式内容（F-03：done 行校正） */
-  const setMessageContent = (id: string, content: string) => {
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content } : m)));
-  };
-  const removeMessage = (id: string) => {
-    setMessages((prev) => prev.filter((m) => m.id !== id));
-  };
-
-  /** 全屏预览 AI 附图（F25）；预览失败静默（图片仍在气泡内可见） */
-  const previewImage = (src: string) => {
-    Taro.previewImage({ urls: [src] }).catch((err) => console.warn('[BriefingPage] previewImage failed:', err));
-  };
-
-  const askAssistant = async (message: string, type: 'text' | 'voice') => {
-    if (!message.trim() || sending) return;
-    setSending(true);
-    pushMessage('user', message, type);
-    try {
-      let res: { reply: string; action: string; image?: string } | null = null;
-      if (!isWeapp) {
-        // F-03 H5 流式：先挂空气泡，delta 打字机追加；失败移除空气泡降级整段
-        const streamId = pushMessage('assistant', '', 'text', deepMode);
-        res = await apiChatStream(message, deepMode, (chunk) => appendMessage(streamId, chunk), undefined, {
-          onThinking: () => setMessageContent(streamId, t('ai.thinking')),
-          onClear: () => setMessageContent(streamId, ''),
-        });
-        if (res) {
-          setMessageContent(streamId, res.reply);
-        } else {
-          removeMessage(streamId);
-        }
-      }
-      if (!res) {
-        res = await apiChat(message, type, deepMode);
-        pushMessage('assistant', res.reply, 'text', deepMode, res.image);
-      }
-      logActivity(deepMode ? '🧠' : '💬', deepMode ? `深度思考：${message.slice(0, 14)}` : `AI 对话：${message.slice(0, 14)}`);
-    } catch (err) {
-      console.error('[BriefingPage] chat failed:', err);
-      pushMessage('assistant', t('ai.fallbackReply'));
-    } finally {
-      setSending(false);
-    }
-  };
-
   const handleGoSearch = () => {
     Taro.navigateTo({ url: '/pages/search/index' });
   };
@@ -747,29 +652,6 @@ function BriefingPage() {
     setQuotes((prev) => prev.filter((q) => q.code !== code));
   };
 
-  /** AI 解读：把整表行情（名称/价格/涨跌幅/高低）喂给既有 chat 通道。
-   *  不做投资建议措辞 —— 提示词里明确「中性描述,不构成投资建议」（合规口径）。 */
-  const handleAnalyzeQuotes = async () => {
-    if (quoteAnalyzing || quotes.length === 0) return;
-    setQuoteAnalyzing(true);
-    setQuoteAnalysis(null);
-    try {
-      const table = quotes
-        .map((q) => `${q.name}(${q.code}) 现价${q.price} 涨跌${q.changePct >= 0 ? '+' : ''}${q.changePct}% 最高${q.high} 最低${q.low}`)
-        .join('\n');
-      const res = await apiChat(
-        `以下是用户自选股今日行情：\n${table}\n\n请用3-5句话中性描述今日整体表现与个股差异（哪些强哪些弱、波动幅度），并在结尾加一句"以上为行情描述，不构成投资建议"。不要预测涨跌。`,
-        'text'
-      );
-      setQuoteAnalysis(res.reply || '');
-    } catch (err) {
-      console.error('[BriefingPage] quote analysis failed:', err);
-      Taro.showToast({ title: t('common.loadFailed'), icon: 'none' });
-    } finally {
-      setQuoteAnalyzing(false);
-    }
-  };
-
   /** 待办勾选完成：走确定性写库接口，不经过 LLM 对话通道。 */
   const handleToggleTodo = async (todoId: string, title: string) => {
     const next = new Set(doneIds);
@@ -790,59 +672,15 @@ function BriefingPage() {
     if (finishing) logActivity('✅', `完成待办：${title.slice(0, 14)}`);
   };
 
-  const handleSendText = () => {
-    const text = inputText.trim();
-    // 先守卫再清空：发送中再次回车/点发送时，旧写法会清掉输入却发不出去
-    if (!text || sending) return;
-    setInputText('');
-    askAssistant(text, 'text');
-  };
-
-  const checkVoiceQuota = (): boolean => {
-    if (!usage) return true;
-    if (usage.voiceQuota >= 0 && usage.voiceUsed >= usage.voiceQuota) {
-      Taro.showModal({
-        title: t('briefing.voiceLimitTitle'),
-        content: t('briefing.voiceLimitContent'),
-        confirmText: t('briefing.goSubscribe'),
-        success: (res) => {
-          if (res.confirm) Taro.switchTab({ url: '/pages/mine/index' });
-        }
-      });
-      return false;
-    }
-    return true;
-  };
-
-  /** PRO 角标点击：直接跳 mine 订阅页（switchTab 因为 mine 是 TabBar） */
+  /** PRO 角标 / 免费档 CTA 点击：直达「会员中心」（2026-10-26 从「我的」页拆出） */
   const handleGoSubscribe = () => {
-    Taro.switchTab({ url: '/pages/mine/index' }).catch(() => {
-      // 理论上 switchTab 对 TabBar 页面不会失败；兜底 navigateTo 防止编译目标缺 TabBar
-      Taro.navigateTo({ url: '/pages/mine/index' });
+    Taro.navigateTo({ url: '/pages/membership/index' }).catch((err) => {
+      // 理论上不会失败；兜底回「我的」页（订阅状态条仍在首屏，用户还能点进去）
+      console.error('[BriefingPage] 跳转会员中心失败，回退「我的」:', err);
+      Taro.switchTab({ url: '/pages/mine/index' }).catch(() => {
+        /* 两条通道都失败才是真故障，上面已留痕 */
+      });
     });
-  };
-
-  const handleVoiceResult = (result: VoiceResult) => {
-    // 诚实性 & 额度：H5 没有语音转写能力，绝不能拿预置文案冒充用户说的话，更不能扣额度。
-    // 必须放在 checkVoiceQuota / bumpVoiceUsage 之前 —— 提前 return 才不会记账。
-    if (!isWeapp) {
-      Taro.showToast({ title: t('briefing.voiceWeappOnly'), icon: 'none' });
-      return;
-    }
-    if (!result.confirmed) return;
-    if (!checkVoiceQuota()) return;
-    // 用量真记账：语音确认发送即计 1 次，并刷新免费额度展示
-    bumpVoiceUsage();
-    // 功能记账（按天聚合，与上面的月度额度计数是两套口径：一个管配额，一个给用户看"用在哪"）
-    recordUsage('voice');
-    void refreshUsage();
-    if (result.transcript) {
-      // 有转写文本：微信端同声传译插件识别成功，直接进对话链路
-      askAssistant(result.transcript, 'voice');
-      return;
-    }
-    // 无转写的微信端结果 = 同声传译插件未配置的降级路径（纯录音）
-    Taro.showToast({ title: t('briefing.voiceNoPlugin'), icon: 'none', duration: 2000 });
   };
 
   /** 订阅临期提醒条点击：force=true 手动触发（与页面常驻订阅按钮同一通道）。
@@ -1179,7 +1017,6 @@ function BriefingPage() {
     setIsSpeaking(true);
   };
 
-  const lastMsgId = messages.length > 0 ? messages[messages.length - 1].id : '';
 
   /** 阈值展示用秒数（由毫秒常量换算，避免页面出现魔法数字） */
   const readMinSeconds = Math.round(READ_MIN_MS / 1000);
@@ -1697,19 +1534,6 @@ function BriefingPage() {
               </Text>
             </View>
           ) : null}
-          {quotes.length > 0 ? (
-            <Text
-              style={{ fontSize: r2r(26), color: '#c7371a', display: 'block', marginTop: r2r(16) }}
-              onClick={() => void handleAnalyzeQuotes()}
-            >
-              {quoteAnalyzing ? t('common.loading') : t('briefing.quoteAnalyze')} ›
-            </Text>
-          ) : null}
-          {quoteAnalysis ? (
-            <Text style={{ fontSize: r2r(26), color: '#4e5969', display: 'block', marginTop: r2r(12), lineHeight: 1.6 }}>
-              🤖 {quoteAnalysis}
-            </Text>
-          ) : null}
           {quotes.length > 0 && quotes[0].timeText ? (
             <Text style={{ fontSize: r2r(22), color: '#657080', display: 'block', marginTop: r2r(8) }}>
               {t('briefing.quoteAsOf', { time: quotes[0].timeText })} · {t('briefing.quoteSource')}
@@ -1828,43 +1652,6 @@ function BriefingPage() {
         </Button>
       </View>
 
-      <View className={styles.usageHint}>
-        {usage && usage.voiceQuota > 0
-          ? t('briefing.voiceQuota', { used: usage.voiceUsed, total: usage.voiceQuota })
-          : t('briefing.subscribedVoice')}
-      </View>
-
-      {messages.length > 0 ? (
-        <React.Fragment>
-          <ScrollView scrollY scrollIntoView={lastMsgId} className={styles.messages}>
-            {messages.map((msg) => (
-              <View key={msg.id} id={msg.id} className={classnames(styles.messageRow, msg.role === 'user' && styles.user)}>
-                <View className={classnames(styles.bubble, msg.role === 'user' ? styles.user : styles.assistant)}>
-                  {msg.type === 'voice' ? <Text className={styles.voiceTag}>🎙 </Text> : null}
-                  {msg.deep ? <Text className={styles.deepTag}>🧠 深思 </Text> : null}
-                  <Text>{msg.content}</Text>
-                  {/* AI 发图（F25）：点击全屏预览 */}
-                  {msg.image ? (
-                    <Image
-                      src={msg.image}
-                      mode='aspectFill'
-                      lazyLoad
-                      className={styles.msgImage}
-                      onClick={() => previewImage(msg.image as string)}
-                    />
-                  ) : null}
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-          <Text className={styles.aiGeneratedTag}>{t('briefing.aiTag')}</Text>
-        </React.Fragment>
-      ) : (
-        <View className={styles.chatEmpty}>
-          <Text className={styles.chatHint}>{t('briefing.chatHint')}</Text>
-        </View>
-      )}
-
       {/* X7 收尾冷知识：trivia 缺失（旧缓存/降级）不渲染 */}
       {briefing?.trivia ? (
         <View className={styles.triviaCard}>
@@ -1880,46 +1667,6 @@ function BriefingPage() {
         <Text className={styles.disclaimerText}>
           {t(intelResolved.aiEnabled && !intelResolved.degraded ? 'common.disclaimerAI' : 'common.disclaimer')}
         </Text>
-      </View>
-
-      <View className={classnames(styles.inputBar, isH5 && styles.h5Fix, isH5 && 'h5Fixed')}>
-        {inputText === '' ? (
-          <View className={styles.quickRow}>
-            {QUICK_COMMANDS.map((cmd) => (
-              <View key={cmd.labelKey} className={styles.quickChip} onClick={() => setInputText(cmd.text)}>
-                <Text className={styles.quickChipIcon}>{cmd.icon}</Text>
-                <Text className={styles.quickChipLabel}>{t(cmd.labelKey)}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
-        <View className={styles.inputRow}>
-          <Button
-            className={classnames(styles.modeButton, deepMode && styles.modeActive)}
-            onClick={() => setDeepMode((v) => !v)}
-            aria-label={t('briefing.deepToggle')}
-          >
-            🧠
-          </Button>
-          <Input
-            className={styles.textInput}
-            value={inputText}
-            placeholder={deepMode ? t('briefing.deepPlaceholder') : t('briefing.inputPlaceholder')}
-            onInput={(e) => setInputText(e.detail.value)}
-            confirmType='send'
-            disabled={sending}
-            onConfirm={handleSendText}
-          />
-          {inputText ? (
-            <View className={styles.clearButton} onClick={() => setInputText('')}>
-              ✕
-            </View>
-          ) : null}
-          <VoiceButton compact disabled={sending} onResult={handleVoiceResult} />
-          <Button className={styles.sendButton} onClick={handleSendText} disabled={disabledAttr(sending)}>
-            {t('ai.send')}
-          </Button>
-        </View>
       </View>
 
       {/* v2.1 习惯自动挪动 toast：5 秒内可撤销（同 memory 撤销模式） */}

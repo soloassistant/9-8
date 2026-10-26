@@ -74,48 +74,8 @@
   }
 }
 
-.hintBubble {
-  pointer-events: auto;
-  /* 绝对定位到浮层盒子**上方**：这样浮层盒子收缩后只等于悬浮球，
-     气泡不会把盒子撑宽（否则 fixed 盒子又变成气泡宽度，度量重新失真）。
-     right:16rpx 复刻原「气泡右缘比球右缘再内缩 16rpx」的视觉。 */
-  position: absolute;
-  right: 16rpx;
-  bottom: calc(100% + 16rpx);
-  /* ⚠️ 2026-10-24 修（视觉巡检截图实测）：这里**必须给显式 width**，只给 max-width 不够。
-     本气泡是绝对定位子项，其 shrink-to-fit 可用宽度取决于包含块 —— 而 `.wrapper` 为了
-     度量诚实已收缩成 `width: max-content`（= 悬浮球宽 ≈54px）。于是「只设 max-width」
-     时可用宽度 ≈ 球宽 - 16rpx，中文被挤成**一列单字**、气泡拉成贯穿半屏的竖条
-     （截图 `.tools/.patrol-shots/pages_briefing_index.png` 右侧）。
-     给 width 后 right 锚点仍然生效（向左展开），气泡回到两行短句的正常形态。 */
-  width: min(560rpx, calc(100vw - 48rpx));
-  max-width: calc(100vw - 48rpx);
-  background: $color-bg-card;
-  border: 1rpx solid rgba(255, 122, 69, 0.3);
-  border-radius: $radius-lg;
-  padding: $spacing-md $spacing-lg;
-  box-shadow: $shadow-card;
-  animation: ai-fade-in 0.25s ease-out;
-}
-
-.hintText {
-  font-size: $font-size-sm;
-  color: $color-text-primary;
-  line-height: $line-height-normal;
-}
-
-.hintClose {
-  position: absolute;
-  top: 4rpx;
-  right: 8rpx;
-  width: 36rpx;
-  height: 36rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: $color-text-tertiary;
-  font-size: $font-size-xs;
-}
+/* 引导气泡样式（.hintBubble / .hintText / .hintClose）已于 2026-10-26 随组件内该层
+   一起移除：它是「同一件事的第三个入口」，且常驻占位约 38px。 */
 
 @keyframes ai-fade-in {
   from {
@@ -126,6 +86,24 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* 整页模式（pages/assistant，2026-10-27）：
+   同一份对话面板，去掉浮层定位、圆角、阴影与上滑动画 —— 它现在是一个页面，不是弹层。 */
+.pageRoot {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: $color-bg-page;
+}
+
+.panelPage {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: $color-bg-page;
+  overflow: hidden;
 }
 
 .panel {

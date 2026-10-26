@@ -237,7 +237,9 @@ const resetCf = () => {
   ok('C2 calendar：待办勾选路径无 apiChat', calFn.length > 0 && !calFn.includes('apiChat'));
 
   const brief = read('src/pages/briefing/index.tsx');
-  const briefFn = bodyOf(brief, 'const handleToggleTodo', 'const handleSendText');
+  // 2026-10-27：结束锚原为 const handleSendText（底部输入栏已撤，函数同步删除）。
+  // 改成紧随其后的 handleGoSubscribe —— 语义不变：只框住「勾选待办」这一段。
+  const briefFn = bodyOf(brief, 'const handleToggleTodo', 'const handleGoSubscribe');
   const briefAwait = briefFn.indexOf('await apiTodoSetStatus');
   const briefSet = briefFn.indexOf('setDoneIds(next)');
   ok('C3 briefing：await apiTodoSetStatus 早于 setDoneIds', briefAwait >= 0 && briefSet >= 0 && briefAwait < briefSet);

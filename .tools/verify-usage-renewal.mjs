@@ -315,7 +315,9 @@ section('C. 记账接线（源码断言，框到具体分支）');
 }
 
 {
-  const bp = read('src/pages/briefing/index.tsx');
+  // 2026-10-27：语音记账随 AI 对话搬进 AiAssistant（晨报页底部输入栏已撤）。
+  // 判据不变：记账必须发生在 H5 守卫之后，且与月度额度计数同源。
+  const bp = read('src/components/AiAssistant/index.tsx');
   const guard = bp.indexOf('if (!isWeapp) {');
   const voiceRec = bp.indexOf("recordUsage('voice')");
   const bump = bp.indexOf('bumpVoiceUsage();');
@@ -328,10 +330,12 @@ section('C. 记账接线（源码断言，框到具体分支）');
 /* ================================================================== */
 /* D. UI 契约：真的渲染了 / 文案中英齐全 / 颜色算得出来                    */
 /* ================================================================== */
-section('D. 我的页 UI 与配色');
+section('D. 会员中心 UI 与配色');
 
 {
-  const mine = read('src/pages/mine/index.tsx');
+  // 2026-10-27：额度卡与续费管理随交易区搬到「会员中心」页（我的页只留身份与偏好）。
+  // 判据一字未改，只换锚点文件。
+  const mine = read('src/pages/membership/index.tsx');
   assert('D1 额度卡渲染「功能记账」标题与四项明细',
     mine.includes("t('mine.usageTitle')") && mine.includes('FEATURES.map(') &&
       mine.includes('FEATURE_LABEL_KEY[f]'));

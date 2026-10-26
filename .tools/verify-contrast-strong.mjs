@@ -301,9 +301,10 @@ try {
   ok('J 组读取失败: ' + e.message, false);
 }
 
-// ============ I. mine 订单失败态不再伪装成空态 ============
+// ============ I. 订单失败态不再伪装成空态 ============
 try {
-  const src = read('src/pages/mine/index.tsx');
+  // 2026-10-27：订阅记录随交易区搬到「会员中心」页，断言锚点跟着搬家。
+  const src = read('src/pages/membership/index.tsx');
   // I1 收窄到两条失败路径分别置位。原判据 /setOrdersError\(true\)/ 是符号级——
   // 2026-10-24 变异验证实测漏报：把 ok:false 分支的置位改掉、只留 catch 分支，
   // 门禁仍全绿。服务端明确拒绝（ok:false）与网络异常（catch）是两条独立失败路径，

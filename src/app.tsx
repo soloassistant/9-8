@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
-import AiAssistant from '@/components/AiAssistant';
 import Splash from '@/components/Splash';
 import ConsentGate from '@/components/ConsentGate';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
@@ -90,24 +89,8 @@ function syncTabBar(lang: 'zh' | 'en') {
   });
 }
 
-/** 路由 → AI Context（用于主动建议提示语） */
-function routeToContext(route: string): string {
-  if (!route) return '';
-  if (route.includes('briefing')) return 'briefing';
-  if (route.includes('inbox')) return 'inbox';
-  if (route.includes('Library') || route.includes('library')) return 'hotspot';
-  if (route.includes('calendar')) return 'calendar';
-  if (route.includes('mine')) return 'mine';
-  if (route.includes('search')) return 'search';
-  if (route.includes('settings')) return 'settings';
-  if (route.includes('shopping')) return 'shopping';
-  if (route.includes('history')) return 'history';
-  return '';
-}
-
 function App(props: PropsWithChildren) {
-  const [context, setContext] = useState('');
-  // 当前路由：用于把**应用外壳**（AI 悬浮球、开屏动画）挡在登录页之外。
+  // 当前路由：用于把**应用外壳**（开屏动画）挡在登录页之外。
   // 实测依据（2026-10-05 浏览器核对）：登录页上确实渲染了 🤖 悬浮球与「点击进入」开屏，
   // 未登录用户会看到一个能用但点了没用的浮层 —— 属于状态泄漏。
   // H5 首帧就同步读 hash，避免先渲染再卸载造成闪动。
@@ -190,13 +173,12 @@ function App(props: PropsWithChildren) {
     }
   }, []);
 
-  // 对应 onShow：感知当前路由，让 AI 在不同界面给出不同主动建议
+  // 对应 onShow：感知当前路由（登录门禁与开屏外壳都按它判断）
   useDidShow(() => {
     const pages = Taro.getCurrentPages();
     const current = pages[pages.length - 1];
     const nextRoute = current ? current.route || '' : '';
     setRoute(nextRoute);
-    setContext(routeToContext(nextRoute));
     // 门禁：未登录且不在登录页 → 送回登录页。放在 useDidShow 是因为它覆盖
     // 「切 tab / 深链 / 冷启动」所有进入路径。
     // 注意实现方式是**重定向**，而不是在 App 里不渲染 children —— 后者会打断
@@ -225,11 +207,10 @@ function App(props: PropsWithChildren) {
       {/* 应用外壳一律不进登录页：未登录时它既无用又泄漏"应用已就绪"的错觉 */}
       {isLoginPage ? null : (
         <React.Fragment>
-          {/* 合规同意层（H5 首启）未通过前，不挂载 AI 悬浮球 —— 全屏遮罩已阻断 TabBar 与面板交互 */}
-          {consentAgreed ? (
-            <AiAssistant context={context} offset={context === 'briefing' ? 240 : 40} />
-          ) : null}
-          {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页与 AI 面板 */}
+          {/* 2026-10-27：全局 AI 悬浮球已移除。全站唯一的 AI 入口是「我的 → AI 助手」
+              （pages/assistant）。理由：它和晨报页底部输入条是同一件事的两个入口，
+              两套实现各自维护；收敛成一个页面后，页面上不再有悬浮物遮挡正文。 */}
+          {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页 */}
           {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
           {/* 开屏动画：每次冷启动展示，点击可跳过 */}
           <Splash />

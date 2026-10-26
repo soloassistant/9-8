@@ -32,6 +32,7 @@
     "verify:prelaunch": "node .tools/verify-prelaunch-fixes.js",
     "verify:share": "node .tools/verify-share-ai-label.mjs",
     "verify:honesty": "node .tools/verify-honesty-sample.js",
+    "verify:ai-surface": "node .tools/verify-ai-surface.js",
     "verify:todo": "node .tools/verify-todo-status.js",
     "verify:crash": "node .tools/verify-crash-report.js",
     "verify:pref-select": "node .tools/verify-pref-select.js",

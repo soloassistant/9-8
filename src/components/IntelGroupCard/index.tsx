@@ -41,23 +41,30 @@ export default function IntelGroupCard({ group, citeHint, onCiteClick }: IntelGr
         <Text className={styles.title}>{group.title}</Text>
       </View>
 
-      {/* AI 导语：分段渲染，引用段为嵌套 <Text>（点击定位来源） */}
-      <Text className={styles.lead}>
-        {segments.map((seg, i) =>
-          seg.type === 'cite' ? (
-            <Text
-              key={`cite-${i}`}
-              className={styles.cite}
-              aria-label={`${citeHint} ${seg.text}`}
-              onClick={() => handleCite(seg)}
-            >
-              {seg.text}
-            </Text>
-          ) : (
-            <Text key={`text-${i}`}>{seg.text}</Text>
-          )
-        )}
-      </Text>
+      {/* AI 导语：分段渲染，引用段为嵌套 <Text>（点击定位来源）。
+          单条组不渲染导语（2026-10-26 IA 瘦身）——两处防线：
+            · 数据层 groupIntelLocally 对单条已不再产出导语；
+            · 渲染层再判一次条数，是因为云端分组路径（LLM 产出）仍可能给单条配一句
+              「本组共 1 条」式导语，而它同样与标题重复、对单条无意义。
+          导语真正的价值在多条时：串联 + 内联引用 [n]。 */}
+      {group.items.length > 1 && group.lead ? (
+        <Text className={styles.lead}>
+          {segments.map((seg, i) =>
+            seg.type === 'cite' ? (
+              <Text
+                key={`cite-${i}`}
+                className={styles.cite}
+                aria-label={`${citeHint} ${seg.text}`}
+                onClick={() => handleCite(seg)}
+              >
+                {seg.text}
+              </Text>
+            ) : (
+              <Text key={`text-${i}`}>{seg.text}</Text>
+            )
+          )}
+        </Text>
+      ) : null}
 
       <View className={styles.items}>
         {group.items.map((item, i) => (
