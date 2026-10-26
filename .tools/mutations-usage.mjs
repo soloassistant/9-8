@@ -103,7 +103,7 @@ export default [
     // 行为后果：删掉"不自动续费"这句，用户会默认以为到期自动扣款 —— 恰好相反的事实。
     // 哪条变红：D2 续费块有状态徽标 + 到期日 + 提醒开关 + 不自动续费说明。
     label: '删掉「不做自动续费」的说明（暗示会自动扣款）',
-    file: 'src/pages/mine/index.tsx',
+    file: 'src/pages/membership/index.tsx',
     from: "          <Text className={styles.renewNote}>{t('mine.renewNoAuto')}</Text>",
     to: '          {null}',
     cmd: 'node .tools/verify-usage-renewal.mjs'
@@ -132,7 +132,7 @@ export default [
     // 行为后果：未订阅也给「到期前提醒我」开关，拨了没有任何东西会到期 —— 死开关。
     // 哪条变红：D2 未订阅时不渲染提醒开关。
     label: '未订阅也渲染提醒开关（拨了没有东西会到期）',
-    file: 'src/pages/mine/index.tsx',
+    file: 'src/pages/membership/index.tsx',
     from: "          {renewal.status === 'none' ? null : (",
     to: '          {false ? null : (',
     cmd: 'node .tools/verify-usage-renewal.mjs'
@@ -142,7 +142,7 @@ export default [
     // 无法看到也无法测量（这正是本轮发现的第一版问题）。
     // 哪条变红：D2 续费块无条件渲染。
     label: '续费块收回「有订阅才显示」（H5 上变成不可达代码）',
-    file: 'src/pages/mine/index.tsx',
+    file: 'src/pages/membership/index.tsx',
     from: '        <View className={styles.renewBlock}>',
     to: "        {renewal.status !== 'none' ? (<View className={styles.renewBlock}>",
     cmd: 'node .tools/verify-usage-renewal.mjs'

@@ -7,7 +7,7 @@
 export default [
   {
     label: '订阅按钮退回 disabled={paying}（Taro 会渲染 disabled="false" → 白底白字）',
-    file: 'src/pages/mine/index.tsx',
+    file: 'src/pages/membership/index.tsx',
     from: 'disabled={disabledAttr(paying)}',
     to: 'disabled={paying}',
     cmd: 'node .tools/verify-button-disabled.mjs'

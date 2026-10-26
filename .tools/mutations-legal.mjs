@@ -23,8 +23,8 @@ export default [
     // 哪条变红：D1/D2（两份文本的供应商/模型集合不一致）。
     label: '只在《隐私政策》里删掉通义千问披露（改一处忘另一处）',
     file: 'src/data/legal.ts',
-    from: '1. 第三方 AI 服务：本服务的晨报摘要、内容整理、购物比价、AI 对话等功能会调用第三方大模型服务，按端区分 —— 微信小程序端为 DeepSeek（deepseek-chat）；小程序端的购物比价与联网资讯类查询另使用通义千问（qwen-plus，阿里云百炼 DashScope）进行联网检索；网页端',
-    to: '1. 第三方 AI 服务：本服务的晨报摘要、内容整理、购物比价、AI 对话等功能会调用第三方大模型服务，按端区分 —— 微信小程序端为 DeepSeek（deepseek-chat）；网页端',
+    from: '小程序端的购物比价与联网资讯类查询另使用通义千问（qwen-plus，阿里云百炼 DashScope）进行联网检索；',
+    to: '',
     cmd: 'node .tools/verify-legal.mjs'
   },
   {

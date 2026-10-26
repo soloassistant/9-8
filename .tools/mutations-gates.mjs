@@ -20,7 +20,7 @@ export default [
     // 为什么不是冗余防线：B/tsx/confirmOrder 只比三个 indexOf 的先后，阻断语句没了它照样 PASS，
     //   所以这条变异专门证明「阻断」本身有判别力。
     label: '续费确认取消后不再阻断（会重复下单扣费）',
-    file: 'src/pages/mine/index.tsx',
+    file: 'src/pages/membership/index.tsx',
     from: '      if (!ok) return;',
     to: '      // 变异：取消后不再阻断，继续往下扣费',
     cmd: 'node .tools/verify-batch1.js'
@@ -120,7 +120,7 @@ export default [
     // 为什么是主防线：handleVoiceResult 内没有第二处 isWeapp 判断，
     //   守卫的提前 return 是唯一拦住记账的路径。
     label: 'H5 语音守卫被短路（无能力仍扣额度）',
-    file: 'src/pages/briefing/index.tsx',
+    file: 'src/components/AiAssistant/index.tsx',
     from:
       "    if (!isWeapp) {\n      Taro.showToast({ title: t('briefing.voiceWeappOnly'), icon: 'none' });\n      return;\n    }",
     to:
@@ -212,8 +212,8 @@ export default [
     // 哪条变红：J19 .dangerText 白底 ≥4.5。
     label: '删除类文案改回 #E5484D（白底 3.91）',
     file: 'src/pages/mine/index.module.scss',
-    from: '  color: #cc2e34;',
-    to: '  color: #E5484D;',
+    from: '所以压深不换色系。\n  color: #cc2e34;',
+    to: '所以压深不换色系。\n  color: #E5484D;',
     cmd: 'node .tools/verify-contrast-strong.mjs'
   },
   {
