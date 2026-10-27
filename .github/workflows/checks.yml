@@ -195,6 +195,14 @@ jobs:
         # 语音按钮只出现在真实 ASR 场景。配套 7 条变异用例证明它能抓到回潮。
         run: npm run verify:ai-surface
 
+      - name: 键盘快捷键门禁（真值表 + 表自洽 + 接线）
+        # 快捷键的缺陷不报错、不崩溃，只是「按了没反应」或「按了干别的事」：
+        # 输入法组字时按 g 被当成跳转、Mac 上 Ctrl+Enter 也触发、绑到浏览器的 ⌘W。
+        # 断言分三层：纯函数真值表（Node 里直接喂事件对象）、HOTKEYS 表自洽
+        # （跳转目标必须是 app.config 里真实存在的 tabBar 页）、接线框到函数体。
+        # 配套 17 条变异用例证明它有判别力。
+        run: npm run verify:hotkeys
+
       - name: 待办状态确定性写入回归
         # 守的是「勾选待办必须真的落库」：H5 的 writePlan 会吞异常（静默失败），
         # weapp 曾走 apiChat 让 LLM 解析「完成了『xxx』」决定改哪一条 → 假完成 / 标错条目。

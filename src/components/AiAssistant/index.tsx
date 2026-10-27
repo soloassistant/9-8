@@ -17,6 +17,7 @@ import type { VoiceResult } from '@/components/VoiceButton';
 import getUsage from '@/data/getUsage';
 import { bumpVoiceUsage } from '@/utils/usage';
 import { recordUsage } from '@/utils/usageLog';
+import { useSubmitHotkey } from '@/hooks/useHotkeys';
 import styles from './index.module.scss';
 
 const isH5 = process.env.TARO_ENV === 'h5';
@@ -302,6 +303,13 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
     setInput('');
     void sendMessage(text);
   }, [input, sending, sendMessage]);
+
+  /**
+   * ⌘/Ctrl + Enter 发送（2026-10-27，桌面端）。
+   * 与聊天客户端的通用约定一致；只在焦点位于输入框时生效（见 useSubmitHotkey）。
+   * `!open` 时不该发 —— 面板收起后挂着的监听仍然存在，必须显式关掉。
+   */
+  useSubmitHotkey(handleSend, open);
 
   /** 本月语音免费额度校验（免费档 20 条 / 订阅 -1 不限）。超限引导去会员中心，不静默失败。 */
   const checkVoiceQuota = (): boolean => {

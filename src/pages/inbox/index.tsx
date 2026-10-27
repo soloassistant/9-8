@@ -15,6 +15,7 @@ import type { Briefing, ExtractResult } from '@/types';
 import { addEntry } from '@/data/ledger';
 import shoppingApi from '@/data/shopping';
 import { useT } from '@/store/language';
+import { useSubmitHotkey } from '@/hooks/useHotkeys';
 import styles from './index.module.scss';
 
 const isWeapp = process.env.TARO_ENV === 'weapp';
@@ -73,7 +74,7 @@ function InboxPage() {
   const [images, setImages] = useState<string[]>([]);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [mode, setMode] = useState<'extract' | 'work'>('extract');
-  const [workAction, setWorkAction] = useState('summary');
+  const [workAction, setWorkAction] = useState<WorkAction>('summary');
   const [workBusy, setWorkBusy] = useState(false);
   const [workResult, setWorkResult] = useState('');
   const { refreshUsage } = useUserStore();
@@ -494,6 +495,17 @@ function InboxPage() {
       () => Taro.showToast({ title: '复制失败', icon: 'none' })
     );
   };
+
+  /**
+   * ⌘/Ctrl + Enter = 「跑当前模式的主动作」（2026-10-27，桌面端）。
+   * 提取模式 → AI 提取；工作助手模式 → 当前选中的动作（默认「总结」）。
+   * 两种模式各绑一个键会变成记口诀，这里选的是「表单回车 = 提交当前表单」的直觉。
+   * 忙碌时由 handleExtract / handleWorkRun 自己守卫，这里不重复判。
+   */
+  useSubmitHotkey(() => {
+    if (mode === 'extract') void handleExtract();
+    else void handleWorkRun(workAction);
+  });
 
   return (
     <View className={styles.page} style={brandVars(theme)}>

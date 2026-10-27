@@ -1,0 +1,129 @@
+@use '@/styles/variables.scss' as *;
+
+/* 键盘快捷键面板（桌面端 H5）
+   层级：高于 TabBar(700) 与正文，低于开屏(9999) 与合规同意层(2000) —— 用 dialog 档。
+   尺寸全部 rpx（h5 pxtransform baseFontSize:37.5，写 px 会小一半）。 */
+.mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: var(--z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-lg;
+}
+
+.panel {
+  width: 100%;
+  max-width: 620rpx;
+  max-height: 78vh;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-popup;
+  padding: $spacing-lg;
+  display: flex;
+  flex-direction: column;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-md;
+}
+
+.title {
+  font-size: $font-size-lg;
+  font-weight: 600;
+  color: $color-text-primary;
+}
+
+/* 关闭按钮：纯文字，热区靠 padding 撑到 44rpx 以上 */
+.close {
+  font-size: $font-size-md;
+  color: $color-text-tertiary;
+  padding: $spacing-xs $spacing-sm;
+  line-height: 1;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  max-height: 58vh;
+}
+
+.group {
+  margin-bottom: $spacing-md;
+}
+
+.groupTitle {
+  display: block;
+  font-size: $font-size-xs;
+  font-weight: 600;
+  color: $color-text-tertiary;
+  letter-spacing: 1rpx;
+  margin-bottom: $spacing-xs;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-sm 0;
+  border-bottom: 1rpx solid $color-divider;
+}
+
+.label {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  flex: 1;
+  min-width: 0;
+}
+
+.keys {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: $spacing-sm;
+}
+
+.caps {
+  display: flex;
+  align-items: center;
+}
+
+/* 序列手势的「然后」——两个键帽之间要能一眼看出是先后关系而不是组合键 */
+.then {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  margin: 0 $spacing-xs;
+}
+
+/* 键帽：等宽 + 描边，与正文区分开 */
+.kbd {
+  display: inline-block;
+  min-width: 40rpx;
+  padding: 2rpx 10rpx;
+  margin-left: 6rpx;
+  border: 1rpx solid $color-border;
+  border-bottom-width: 3rpx;
+  border-radius: $radius-xs;
+  background: $color-bg-page;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: $font-size-xs;
+  color: $color-text-primary;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.hint {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  text-align: center;
+}

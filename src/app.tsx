@@ -1,8 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import Splash from '@/components/Splash';
 import ConsentGate from '@/components/ConsentGate';
+import HotkeyHelp from '@/components/HotkeyHelp';
+import { HELP_EVENT, focusSearchBox, useGlobalHotkeys } from '@/hooks/useHotkeys';
+import { hotkeyRoute } from '@/utils/hotkeys';
+import type { HotkeyId } from '@/utils/hotkeys';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
 import { needsAuthGate, getSession } from '@/services/cloudAuth';
 import { hasAgreedConsent } from '@/data/legal';
@@ -106,6 +110,53 @@ function App(props: PropsWithChildren) {
   const [consentAgreed, setConsentAgreed] = useState(() =>
     process.env.TARO_ENV === 'h5' ? hasAgreedConsent() : true
   );
+
+  /* ===== 桌面端键盘快捷键（2026-10-27）=====
+     只有 H5 + 有物理指针设备时才生效（useGlobalHotkeys 内部判 `(pointer: fine)`）。
+
+     三个门禁叠在一起，避免「用户还在登录页 / 同意页 / 开屏上就响应按键」：
+       · 登录页 —— 没有可跳转的目标；
+       · 未同意合规 —— 遮罩之下一切交互本就该被阻断；
+       · 开屏未消失 —— 不透明全屏层，面板会在它下面打开，用户看到的是「按了没反应」。
+     小程序端不挂（没有物理键盘，挂上去只是白打代码）。 */
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [shellReady, setShellReady] = useState(process.env.TARO_ENV !== 'h5');
+
+  const handleHelpKey = useCallback(() => setHelpOpen(true), []);
+  const handleSearchKey = useCallback(() => {
+    // 当前页有搜索框就聚焦它（在搜索页再按 / 不该又开一页），否则去搜索页
+    if (focusSearchBox()) return;
+    Taro.navigateTo({ url: '/pages/search/index' }).catch((err) => {
+      console.error('[App] hotkey search navigate failed:', err);
+    });
+  }, []);
+  const handleNavigateKey = useCallback((id: HotkeyId) => {
+    // 路由来自 HOTKEYS 表（tools 门禁会断言每个跳转键的目标页真实存在），
+    // 不在 App 里再抄一份 switch —— 两处各写一遍，改路径时必漏。
+    const url = hotkeyRoute(id);
+    if (!url) return;
+    Taro.switchTab({ url }).catch((err) => {
+      console.error('[App] hotkey switchTab failed:', err);
+    });
+  }, []);
+  const handleSplashGone = useCallback(() => setShellReady(true), []);
+
+  useGlobalHotkeys({
+    onHelp: handleHelpKey,
+    onSearch: handleSearchKey,
+    onNavigate: handleNavigateKey,
+    enabled: !isLoginPage && consentAgreed && shellReady
+  });
+
+  // 「我的 → 键盘快捷键」入口：二级页没法直接改 App 的 state，走事件请求打开
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5') return;
+    // Taro 的 eventCenter.on 返回 void，解绑只能靠 off（见 useHotkeys 里的同款注释）
+    Taro.eventCenter.on(HELP_EVENT, handleHelpKey);
+    return () => {
+      Taro.eventCenter.off(HELP_EVENT, handleHelpKey);
+    };
+  }, [handleHelpKey]);
 
   /**
    * H5 路由跟随 —— **必须自己订阅导航，不能依赖 useDidShow**。
@@ -212,8 +263,10 @@ function App(props: PropsWithChildren) {
               两套实现各自维护；收敛成一个页面后，页面上不再有悬浮物遮挡正文。 */}
           {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页 */}
           {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
+          {/* 键盘快捷键面板：`?` 或「我的 → 键盘快捷键」打开（H5 桌面端） */}
+          <HotkeyHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
           {/* 开屏动画：每次冷启动展示，点击可跳过 */}
-          <Splash />
+          <Splash onGone={handleSplashGone} />
         </React.Fragment>
       )}
     </>

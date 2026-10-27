@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Image, Text } from '@tarojs/components';
 import styles from './index.module.scss';
 
@@ -14,9 +14,20 @@ const isH5 = process.env.TARO_ENV === 'h5';
 /**
  * 开屏封面（双端通用）：品牌色全屏 Splash，logo 缩放淡入 + 标题上滑。
  * 不自动关闭——等用户点击封面任意处才淡出进入应用（450ms 过渡后卸载）。
+ *
+ * `onGone`：真正卸载后回调。App 用它把全局快捷键**挡在开屏之后** ——
+ * 开屏是不透明全屏层，按 `?` 时如果面板在它下面打开，用户看到的是「按了没反应」。
  */
-function Splash() {
+interface SplashProps {
+  onGone?: () => void;
+}
+
+function Splash({ onGone }: SplashProps) {
   const [phase, setPhase] = useState<'in' | 'out' | 'gone'>('in');
+
+  useEffect(() => {
+    if (phase === 'gone') onGone?.();
+  }, [phase, onGone]);
 
   if (phase === 'gone') return null;
 
