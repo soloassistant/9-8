@@ -365,12 +365,12 @@ function MembershipPage() {
           Taro.showToast({ title: '已取消', icon: 'none' });
         } else {
           console.error('[MembershipPage] invokePayment failed:', payErr);
-          Taro.showToast({ title: '支付未完成，请重试', icon: 'none' });
+          Taro.showToast({ title: '这次没付成，可以再试一次', icon: 'none' });
         }
       }
     } catch (err) {
       console.error('[MembershipPage] createOrder failed:', err);
-      Taro.showToast({ title: '下单失败，请稍后再试', icon: 'none' });
+      Taro.showToast({ title: '没能下单，网络或服务暂时不通，稍后再试', icon: 'none' });
     } finally {
       setPaying(false);
     }

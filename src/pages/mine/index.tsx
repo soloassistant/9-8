@@ -970,7 +970,7 @@ function MinePage() {
         .then(finishDelete)
         .catch((err) => {
           console.error('[MinePage] deleteAccount failed:', err);
-          Taro.showToast({ title: '注销失败，请稍后再试', icon: 'none' });
+          Taro.showToast({ title: '账号没注销成功，数据还在。检查网络后再试一次', icon: 'none', duration: 3000 });
         });
     }
   };
@@ -980,7 +980,7 @@ function MinePage() {
     const copy = (data: string, okText: string) => {
       Taro.setClipboardData({ data })
         .then(() => Taro.showToast({ title: okText, icon: 'none', duration: 2400 }))
-        .catch(() => Taro.showToast({ title: '复制失败，请手动记录', icon: 'none' }));
+        .catch(() => Taro.showToast({ title: '没能复制，麻烦手动记一下', icon: 'none' }));
     };
 
     const showServiceInfo = () => {
@@ -1808,7 +1808,7 @@ function MinePage() {
                 {t('cancel')}
               </Button>
               <Button className={styles.docClose} onClick={handlePinSubmit}>
-                确定
+                保存密码
               </Button>
             </View>
           </View>

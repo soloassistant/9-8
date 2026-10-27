@@ -281,11 +281,11 @@ function InboxPage() {
         // 2026-10-24：区分「没解析出东西」与「提取能力不可用」。
         // 降级路径（src/data/extract.ts）现在**不编造结果**，只在 note 里如实说明原因；
         // 详细原因随下方空态卡渲染，toast 只做瞬时反馈（太长会被截断）。
-        Taro.showToast({ title: result.note ? '未解析出内容' : '没有提取到日程或待办', icon: 'none' });
+        Taro.showToast({ title: result.note ? '这次没解析出内容' : '没找到日程或待办，带上时间试试', icon: 'none' });
       }
     } catch (err) {
       console.error('[InboxPage] extract failed:', err);
-      Taro.showToast({ title: '提取失败，请稍后再试', icon: 'none' });
+      Taro.showToast({ title: '没能解析，检查网络后再点一次', icon: 'none' });
     } finally {
       setExtracting(false);
     }
@@ -302,10 +302,10 @@ function InboxPage() {
     setWorkBusy(true);
     try {
       const res = await apiChat(text, 'text', false, { action });
-      setWorkResult(res.reply || '没有生成结果，请重试。');
+      setWorkResult(res.reply || '这次没生成结果，再点一次试试。');
     } catch (err) {
       console.error('[InboxPage] work assistant failed:', err);
-      Taro.showToast({ title: '分析失败，请稍后再试', icon: 'none' });
+      Taro.showToast({ title: '没能分析，网络或服务暂时不可用', icon: 'none' });
     } finally {
       setWorkBusy(false);
     }
@@ -381,7 +381,7 @@ function InboxPage() {
   const handleConfirm = async () => {
     const checked = drafts.filter((d) => d.checked);
     if (checked.length === 0) {
-      Taro.showToast({ title: '请至少勾选一条', icon: 'none' });
+      Taro.showToast({ title: '先勾一条要写进去的', icon: 'none' });
       return;
     }
     if (saving) return;
@@ -433,9 +433,9 @@ function InboxPage() {
       // 两者都含 quota。此前一律 toast「入库失败，请重试」，用户不知道是 50 条收藏满了。
       const msg = String((err as Error)?.message || err || '');
       if (/quota/i.test(msg)) {
-        Taro.showToast({ title: '收藏空间已满（50 条），升级订阅后可继续入库', icon: 'none', duration: 3000 });
+        Taro.showToast({ title: '收藏空间已满（50 条），订阅后可继续写进去', icon: 'none', duration: 3000 });
       } else {
-        Taro.showToast({ title: '入库失败，请重试', icon: 'none' });
+        Taro.showToast({ title: '没能写进去，多是网络断了，再点一次', icon: 'none' });
       }
     } finally {
       setSaving(false);
@@ -465,7 +465,7 @@ function InboxPage() {
       if (entry) saved += 1;
     }
     if (saved === 0) {
-      Taro.showToast({ title: '转存失败，请重试', icon: 'none' });
+      Taro.showToast({ title: '这几笔没能记进账本，再点一次', icon: 'none' });
       return;
     }
     setBills([]);
@@ -480,7 +480,7 @@ function InboxPage() {
       saved += 1;
     }
     if (saved === 0) {
-      Taro.showToast({ title: '转存失败，请重试', icon: 'none' });
+      Taro.showToast({ title: '没能加进购物清单，再点一次', icon: 'none' });
       return;
     }
     setShoppingHits([]);
@@ -516,8 +516,8 @@ function InboxPage() {
               且 weapp 版没写清关键动作（微信里**长按消息 → 复制**）。
               补 3 个真实使用场景，把前置知识成本降下来。 */}
           {isH5
-            ? '群里的会议安排、快递通知、孩子的作业——在微信里复制，粘贴到这里，它们就变成你的日程和待办。也可直接 Ctrl+V 粘贴截屏图片。'
-            : '群里的会议安排、快递通知、孩子的作业——长按微信消息复制，粘贴到这里，它们就变成你的日程和待办；也可把截屏图从相册添加进来。'}
+            ? '群里的会议、快递通知、孩子的作业——在微信里复制，贴到这里，我拆成日程和待办。也可以直接 Ctrl+V 贴截图。'
+            : '群里的会议、快递通知、孩子的作业——长按微信消息复制，贴到这里，我拆成日程和待办；也可以从相册加截图。'}
         </Text>
       </View>
 
@@ -551,8 +551,8 @@ function InboxPage() {
           maxlength={2000}
           placeholder={
             mode === 'extract'
-              ? '例：明天上午 10 点在 3 号会议室开产品评审会，会前把演示文稿更新一下'
-              : '粘贴报告 / 会议记录 / 邮件 / 方案，AI 帮你总结、提炼要点、给建议'
+              ? '例：明天上午 10 点，3 号会议室，产品评审会；会前更新演示文稿'
+              : '粘贴报告、会议记录或邮件，我帮你总结要点、提建议'
           }
           onInput={(e) => setContent(e.detail.value)}
         />
@@ -589,7 +589,7 @@ function InboxPage() {
                 className={classnames(styles.extractButton, extracting && styles.disabled)}
                 onClick={handleExtract}
               >
-                {extracting ? 'AI 提取中…' : 'AI 提取'}
+                {extracting ? '正在解析…' : '开始解析'}
               </Button>
               {images.length === 0 ? (
                 <Button className={styles.addButton} onClick={handleAddImage}>

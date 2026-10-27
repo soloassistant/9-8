@@ -3,22 +3,22 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>私人晨报助理 — 今天的事，晨报先知道</title>
+    <title>私人晨报助理 — 今天的事，出门前看一眼</title>
     <meta
       name="description"
-      content="每天早上把天气、日程、待办和你关注的信息收成一份；剩下的交给 AI 助手接着做。"
+      content="通勤路上或到工位前的五分钟，一页读完天气、日程、待办和你关注的信息；想改日程、查账本，直接跟它说。"
     />
     <meta name="theme-color" content="#fff3ec" />
     <link rel="stylesheet" href="./site.css" />
     <!--
-      ⚠️ 这份文案只写**代码里真的有的能力**。三条自查线（verify:site 会断言）：
-        1. 不许出现「唯一 / 仅 / 全部 / 一键 / 无需」这类绝对句；
-        2. 不许宣称网页端能做看图提取 —— 模型通道只收文本（LlmMessage.content 是 string）；
-        3. 不许宣称网页端有语音转写 —— 转写只在小程序端（AiAssistant 里 !isWeapp 直接 return）。
-      ⚠️ 「进入应用」必须写应用**绝对域名**，不能用 ../：官网已独立发布（自己的子域），
-         在官网的根路径下 ../ 解析到的是官网自己 —— 用户点「进入应用」等于原地刷新。
-         这个域名与 src/services/cloudAuth.ts 的 CLOUD_ENDPOINT 是同一个，verify:site 会两端比对；
-         改域名必须两边一起改（只改一边 = 官网把访客送到一个不存在的站）。
+      页面文案只写应用里真的有的能力。三条自查（verify:site 会断言）：
+        1. 不写绝对口气的词（那种拍胸脯的承诺），标题、正文、注释都一样；
+        2. 不宣称网页端能看图提取 —— 网页端的模型通道只收文本；
+        3. 不宣称网页端有语音转写 —— 转写只在小程序端。
+      「进入应用」写应用的绝对域名，不用 ../：官网单独发布在自己的子域，
+      根路径下 ../ 会解析回官网自己，点了等于原地刷新。
+      这个域名与 src/services/cloudAuth.ts 的 CLOUD_ENDPOINT 同源，verify:site 会两端比对。
+      改域名必须两边一起改，否则官网把访客送到一个不存在的站。
     -->
   </head>
   <body>
@@ -55,17 +55,17 @@
       <section class="hero">
         <div class="wrap">
           <div>
-            <span class="eyebrow">☀ 每个早上，一份就够</span>
-            <h1>今天的事，<br /><span class="accent">晨报先知道</span></h1>
+            <span class="eyebrow">早上 · 通勤 · 到工位前的五分钟</span>
+            <h1>今天的事，<br /><span class="accent">出门前看一眼</span></h1>
             <p class="lead">
-              天气、日程、待办，加上你关注的那几个信息源，收在一屏里读完。
-              读完如果还要动手 —— 排时间、记一笔、找之前存过的内容 —— 交给 AI 助手接着做。
+              地铁上，或者到工位前五分钟，打开就是一页。<br />天气、日程、待办都在上面，
+              想动手就说。
             </p>
             <div class="hero-actions">
               <a class="btn btn-primary btn-lg" href="https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host/">进入应用</a>
               <a class="btn btn-ghost btn-lg" href="#what">看它能做什么</a>
             </div>
-            <p class="hero-note">免费档可用；登录后数据跨设备同步，换台电脑打开还是同一份。</p>
+            <p class="hero-note">免费档能用。登录后换台电脑打开，还是同一份。</p>
           </div>
 
           <div class="phone" aria-hidden="true">
@@ -98,40 +98,40 @@
       <section id="what">
         <div class="wrap">
           <div class="section-head">
-            <span class="kicker">核心</span>
-            <h2>三件事，每天都会用到</h2>
-            <p>不追求功能列表的长度。这三件做扎实，早上的十分钟就省下来了。</p>
+            <span class="kicker">每天用的</span>
+            <h2>三件事，早上都会碰到</h2>
+            <p>不用记功能名字。一页读完，粘一段话，说一句就能改。</p>
           </div>
 
           <div class="cards">
             <article class="card">
               <span class="card-icon">🌅</span>
-              <h3>一份读完的晨报</h3>
+              <h3>一页读完</h3>
               <p>
-                天气、今日日程、待办，加上你选的信息源，按「今天要不要动手」排好顺序。
-                数据拉不到的时候会明确标出是示例，不会拿编的内容把版面填满。
+                天气、今天的日程、待办，加上你订的几个信息源。
+                哪条拉不到，它会标出这是示例，不会拿内容把版面填满。
               </p>
-              <span class="meta">信息源来自真实 RSS，失败时降级并标注</span>
+              <span class="meta">信息源是真实 RSS；失败就标出来，不装作正常。</span>
             </article>
 
             <article class="card">
               <span class="card-icon">📥</span>
-              <h3>粘贴一段话，变成日程</h3>
+              <h3>粘一段话，变成日程</h3>
               <p>
-                会议通知、聊天记录、邮件正文，粘进收件箱，AI 拆成日程和待办。
-                <b>拆完先给你逐条确认</b>，你改完再入库 —— 不会直接写进你的日历。
+                会议通知、聊天记录，粘进收件箱，它拆成日程和待办。
+                拆完先一条条给你看，你确认了才写进日历。
               </p>
-              <span class="meta">支持文字粘贴；网页端不做看图提取</span>
+              <span class="meta">只处理文字。网页端不做看图提取。</span>
             </article>
 
             <article class="card">
               <span class="card-icon">💬</span>
-              <h3>说人话就能改</h3>
+              <h3>嘴上怎么说，就怎么改</h3>
               <p>
-                「把下午两个会挪到一起」「上周记的那笔咖啡多少钱」「帮我找之前存的那篇文章」——
-                改日程、查账本、翻本地内容，一句话就够。不确定的会说不确定。
+                「把下午两个会挪到一起」「上周那杯咖啡多少钱」「之前存的那篇文章」——
+                改日程、查账本、翻内容，一句话的事。拿不准的时候，它会说不确定。
               </p>
-              <span class="meta">对话走真实模型通道，不是预置话术</span>
+              <span class="meta">对话走真实的模型通道，不是写死的回复。</span>
             </article>
           </div>
         </div>
@@ -140,8 +140,8 @@
       <section>
         <div class="wrap">
           <div class="section-head">
-            <span class="kicker">还有</span>
-            <h2>需要时才想起的那些</h2>
+            <span class="kicker">偶尔用</span>
+            <h2>用得少，但别到时候找不到</h2>
           </div>
 
           <div class="minor">
@@ -149,28 +149,28 @@
               <span>🔥</span>
               <div>
                 <strong>热点</strong>
-                <span>多个热榜源聚合，标出「最近浏览」，不重复推你已经看过的。</span>
+                <span>几个热榜放在一起，看过的会标出来，不重复推。</span>
               </div>
             </div>
             <div class="minor-item">
               <span>📅</span>
               <div>
                 <strong>日历</strong>
-                <span>日视图与周视图，新建日程前先查冲突，撞时间会告诉你撞了哪个。</span>
+                <span>日视图和周视图。新建日程前先查冲突，撞上了会告诉你是哪一个。</span>
               </div>
             </div>
             <div class="minor-item">
               <span>🎧</span>
               <div>
                 <strong>口语跟读</strong>
-                <span>跟读一句，看自己的发音差在哪。英语、日语、韩语各有一套练习。</span>
+                <span>听一句示范，按住跟读。英语会算相似度，日语、韩语自己听、自己打分。</span>
               </div>
             </div>
             <div class="minor-item">
               <span>🧾</span>
               <div>
                 <strong>账本</strong>
-                <span>随手记一笔，按月汇总，能导出。数据存在你自己账号下。</span>
+                <span>随手记一笔，按月汇总，能导出 CSV 或 JSON。数据在你自己的账号里。</span>
               </div>
             </div>
           </div>
@@ -180,39 +180,36 @@
       <section id="honest" class="honest">
         <div class="wrap">
           <div class="section-head">
-            <span class="kicker">边界</span>
+            <span class="kicker">说清楚</span>
             <h2>我们不做什么</h2>
-            <p>
-              一个 AI 产品最该说清楚的不是它能做什么，而是它做不到什么时怎么表现。
-              下面四条是写进代码里的，不是宣传语。
-            </p>
+            <p>这三条写在代码里，不是宣传语。做不到的时候，它会直接说做不到。</p>
           </div>
 
           <ul class="honest-list">
             <li>
-              <b>不编数据。</b>信息源拉取失败、模型不可用时，界面会明确标出这是示例数据，
+              <b>不编数据。</b>信息源拉不到、模型不可用，页面会标出这是示例，
               不会拿内容把版面填满，让你以为一切正常。
             </li>
             <li>
-              <b>不假装看懂图片。</b>网页端的模型通道只收文本，所以不做截图提取。
-              需要读图时会直接说明不支持，而不是给你一段像模像样的错误结果。
+              <b>不做看图提取。</b>网页端的模型只收文字。你发截图过去，它会说不支持，
+              不会编一段像模像样的结果。
             </li>
             <li>
-              <b>语音只在小程序端。</b>网页端没有转写能力，也就不会消耗你的语音额度 ——
-              按钮不出现，比出现后点了没反应更诚实。
-            </li>
-            <li>
-              <b>额度是真的。</b>免费档每月 20 条语音，订阅后不限次；用掉多少、
-              还剩多少，页面上直接看得到。
+              <b>语音只在小程序端。</b>网页端没有转写，按钮就不出现 ——
+              比点了没反应强。
             </li>
           </ul>
+
+          <p class="honest-note">
+            额度也说清楚：免费档每月 20 条语音，订阅后不限次；用掉多少、还剩多少，页面上看得到。
+          </p>
         </div>
       </section>
 
       <section class="cta">
         <div class="wrap">
           <h2>明天早上，试着只读一页</h2>
-          <p>不用配置。登录后它先按默认设置给你攒一份，觉得不对再改 —— 推送时间、城市、关注什么，都在偏好设置里。</p>
+          <p>不用配置。登录后先按默认给你攒一份，推送时间、城市、关注什么，不合适再改。</p>
           <a class="btn btn-primary btn-lg" href="https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host/">进入应用</a>
         </div>
       </section>

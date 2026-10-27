@@ -145,8 +145,10 @@ function ShoppingPage() {
 
   const removeItem = (id: string) => {
     Taro.showModal({
-      title: '删除',
-      content: '确定删除这件商品吗？',
+      title: '删掉这件商品？',
+      content: '删掉后就找不回来了，只能重新加一次。',
+      confirmText: '删掉',
+      cancelText: '留着',
       confirmColor: '#ee5a29',
       success: async (res) => {
         if (res.confirm) {
@@ -302,7 +304,7 @@ function ShoppingPage() {
           loadFailed ? (
             // 加载失败 ≠ 空清单：文案必须说清是「没读到」而不是「没有」，否则用户
             // 会以为自己清单被清空了（2026-10-24 审计，铁律「不静默失败」）
-            <EmptyState icon='⚠️' title='清单加载失败' hint='下拉刷新重试；若持续失败请稍后再来' />
+            <EmptyState icon='⚠️' title='清单没加载出来' hint='下拉刷新看看；一直不行的话，多半是服务在重启，过几分钟再来' />
           ) : (
             <EmptyState icon='🛒' title='购物清单还是空的' hint='在上方输入想买的东西，我帮你记着并跟进比价' />
           )
