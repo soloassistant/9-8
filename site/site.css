@@ -132,6 +132,17 @@ a:hover {
   text-decoration: none;
 }
 
+/* ⚠️ 选择器特异性必须写到这里：`.nav-links a`(0,1,1) 会压过 `.btn-primary`(0,1,0)，
+   把白字染成 --text-secondary —— 深灰压深红，导航上的「进入应用」几乎看不见。
+   这个 bug 在静态检查里查不出来，是截图才发现的。 */
+.nav-links a.btn-primary {
+  color: #fff;
+}
+
+.nav-links a.btn-primary:hover {
+  color: #fff;
+}
+
 /* ============================ 按钮 ============================ */
 .btn {
   display: inline-flex;
@@ -558,7 +569,10 @@ footer .sep {
   }
 
   .phone {
-    order: -1;
+    /* 单列时让它排在**文案之后**：原来 order:-1 把模拟手机顶到最前，
+       手机上整屏 700px 全是装饰，真正的标题被压到折叠线以下。 */
+    justify-self: start;
+    width: 240px;
   }
 
   section {
@@ -585,6 +599,11 @@ footer .sep {
 
   .hero-actions .btn {
     width: 100%;
+  }
+
+  /* 手机屏幕的宽度放不下这块装饰，而且首屏该给标题 —— 直接不画 */
+  .phone {
+    display: none;
   }
 }
 
