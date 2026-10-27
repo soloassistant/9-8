@@ -422,6 +422,19 @@ section('D. 会员中心 UI 与配色');
     note.includes('$color-text-tertiary') && !note.includes('$color-text-disabled'));
   const usageName = blocksOf(scss, 'usageName')[0] || '';
   assert('D4 功能名用 secondary（白底 ≈7.5:1）', usageName.includes('$color-text-secondary'));
+
+  /* 促销码入口：压在 .renewBlock（深底 = 品牌色再蒙 rgba(0,0,0,.18)）上的链接。
+     2026-10-27 实测：它原来用 $color-primary-strong(#c7371a)，深红压深红几乎看不见 ——
+     「促销码兑换」这个付费用户唯一的 H5 开通路径等于不可用。
+     这里不硬算一个精确比值（背景是渐变 + 半透明叠层，比值没有唯一解），
+     而是判**方向**：深底之上的链接必须是亮色（相对亮度 > 0.5）。
+     方向判错时（改回深红 #c7371a，亮度 0.14）必然变红。 */
+  const promo = blocksOf(scss, 'promoEntry')[0] || '';
+  const promoAlpha = /rgba\(255,\s*255,\s*255,\s*([\d.]+)\)/.exec(promo);
+  const promoLight = promoAlpha
+    ? ratio(over({ ...white, a: Number(promoAlpha[1]) }, brandStrong), brandStrong)
+    : 0;
+  assert(`D4 促销码入口在深底上必须用亮色（实测 ${round2(promoLight)}:1 ≥ 4.5）`, promoLight >= 4.5);
 }
 
 /* ================================================================== */

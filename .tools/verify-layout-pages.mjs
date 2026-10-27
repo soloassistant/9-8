@@ -334,7 +334,7 @@ function runProbe(port, page, vp, png, initFile) {
         const parsed = JSON.parse(out);
         if (parsed.error) return reject(new Error(parsed.error));
         if (!parsed.value) return reject(new Error('探针无结果: ' + out.slice(0, 300) + err.slice(0, 300)));
-        resolve({ ...parsed.value, splash: parsed.splash, splashAfter: parsed.splashAfter });
+        resolve({ ...parsed.value, splash: parsed.splash, splashAfter: parsed.splashAfter, consent: parsed.consent, consentAfter: parsed.consentAfter });
       } catch (e) {
         reject(new Error(`解析失败: ${out.slice(0, 300)} ${err.slice(0, 200)}`));
       }
@@ -475,6 +475,10 @@ async function main() {
         ['无横向溢出', (v.scrollW || 0) <= vp.w + 1, `scrollW=${v.scrollW} 期望 <=${vp.w}`],
         ['页面已绘制', !st.whiteScreen, `近白=${(st.nearWhite * 100).toFixed(1)}% 颜色数=${st.distinctColors}`],
         ['开屏已关闭（否则像素判据测的是遮罩）', v.splash === 'no-splash' || v.splashAfter === 'gone', `splash=${v.splash} 之后=${v.splashAfter}`],
+        // 2026-10-27：合规同意层是**第二个**全屏遮罩，此前从未被点掉 ——
+        // 8 个页面的截图全是「服务协议与隐私政策」弹窗，断言却全绿。
+        ['合规同意层已关闭（否则像素判据测的是弹窗）',
+          v.consent === 'no-gate' || v.consentAfter === 'gone', `consent=${v.consent} 之后=${v.consentAfter}`],
         ['测试态生效', v.stubKept === true, `stub=${v.stubKept}`],
         ['路由正确', (v.hash || '').indexOf(page.route.replace(/^#/, '')) >= 0, `hash=${v.hash}`],
         ['只挂载 1 个页面', v.pageCount === 1, `pageCount=${v.pageCount}`]

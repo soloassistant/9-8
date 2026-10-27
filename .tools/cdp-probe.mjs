@@ -228,6 +228,23 @@ try {
       returnByValue: true,
     });
     result.splashAfter = still.result?.value;
+
+    /* 合规同意层（H5 首启整屏遮罩）：**和开屏是同一个坑**。
+       不点掉它，截图与像素统计测到的是「服务协议与隐私政策」弹窗，
+       而几何量测照样正常 —— 2026-10-27 实测：8 个页面的截图**全是那张弹窗**，
+       断言却一路全绿（"页面已绘制 近白=44.2%" 测的其实是弹窗的白底）。
+       按类名点不同意层才准确：文案会随法务版本变，类名不会。 */
+    const consent = await cdp.send('Runtime.evaluate', {
+      expression: `(()=>{const b=document.querySelector('[class*="consentAgree"]');if(!b)return 'no-gate';b.click();return 'clicked'})()`,
+      returnByValue: true,
+    });
+    result.consent = consent.result?.value;
+    await sleep(500);
+    const consentGone = await cdp.send('Runtime.evaluate', {
+      expression: `(()=>{const m=document.querySelector('[class*="consentMask"]');return m?getComputedStyle(m).display:'gone'})()`,
+      returnByValue: true,
+    });
+    result.consentAfter = consentGone.result?.value;
   }
 
   result.browser = ver.Browser;

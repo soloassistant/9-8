@@ -1510,12 +1510,16 @@
   color: $color-text-tertiary;
 }
 
-/* 促销码入口行（续费管理块底部，2026-10-25）：次级动作样式（链接色，不与主按钮争权重） */
+/* 促销码入口行（续费管理块底部，2026-10-25）：次级动作样式（不与主按钮争权重）
+   ⚠️ 2026-10-27 修：这行压在 .renewBlock（深底，rgba(0,0,0,.18) 蒙在品牌色上）里，
+   原来用 $color-primary-strong(#c7371a) —— 深红字压深红底，实测几乎看不见，
+   等于「促销码兑换入口」对用户不可用。改成与同块 .renewNote 一致的 92% 白：
+   深底上 5.9:1（该色值已由 D4 计算验证）。 */
 .promoEntry {
   display: block;
   margin-top: $spacing-sm;
   font-size: $font-size-sm;
-  color: $color-primary-strong;
+  color: rgba(255, 255, 255, 0.92);
   text-decoration: underline;
 }
 
