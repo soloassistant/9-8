@@ -397,6 +397,17 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
     }
   };
 
+  /**
+   * 整页模式必须自己补欢迎语（2026-10-27）。
+   * 旧逻辑只在点悬浮球（handleFabTap）时 push 一次 greeting —— 整页模式没有悬浮球可点，
+   * 于是「我的 → AI 助手」进去是一片空白，看起来像没加载出来。
+   */
+  useEffect(() => {
+    if (!embedded || !open || messages.length > 0) return;
+    const greeting = suggestion ? t('ai.greetingWithSuggestion', { hint: suggestion }) : t('ai.greeting');
+    push('assistant', greeting);
+  }, [embedded, open, messages.length, push, suggestion, t]);
+
   /** 悬浮球拖动位置（px，视口坐标）；null = 默认右下角。拖动状态存在 ref 中避免拖动中额外重渲染 */
   const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null);
   const fabRef = useRef<HTMLDivElement | null>(null);

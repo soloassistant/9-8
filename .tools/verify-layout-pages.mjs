@@ -55,15 +55,21 @@ const SOURCE_TOKENS = ['量子位', '少数派', 'IT之家', '爱范儿', '钛�
  *  所以一律用 [class*="..."] 子串选择，不要写死完整类名。 */
 const CASES = [
   {
+    // 2026-10-27：底部 AI 输入条（含快捷指令 chip 行）已撤销，原 D1 判据
+    // （quickRow 存在 / 有渐隐遮罩 / 内容比容器宽）失去了被测对象 —— 那些断言不是"通过了"，
+    // 是"再也测不到"了。改成测**撤掉之后**真正要守的两件事：
+    //   ① 页面没有横向溢出（右缘被裁切是同一类缺陷的通用形态，不依赖某一行还在）；
+    //   ② 底部那条输入栏确实不在产物里（防止「删了源码、产物还留着」）。
     id: 'briefing',
     route: '#/pages/briefing/index',
-    note: 'D1 快捷指令右缘裁切',
+    note: 'D1 无横向溢出 + 底部输入栏确已移除',
     probeExtra: `
-      const qr=document.querySelector('[class*="quickRow"]');
-      const cs=qr?getComputedStyle(qr):null;
-      const chips=qr?[...qr.children].map(e=>{const b=e.getBoundingClientRect();return {t:(e.innerText||'').trim(),right:Math.round(b.right)}}):[];
-      return {qrExists:!!qr,qrMask:cs?cs.maskImage||cs.webkitMaskImage||'none':null,
-        qrPadRight:cs?parseFloat(cs.paddingRight)||0:0,qrScrollW:qr?qr.scrollWidth:0,qrClientW:qr?qr.clientWidth:0,chips};`
+      const doc=document.documentElement;
+      const pg=document.querySelector('[class*="index-module__page___"]');
+      return {overflowX: Math.round(doc.scrollWidth - window.innerWidth),
+        hasInputBar: !!document.querySelector('[class*="inputBar"]'),
+        h: pg?Math.round(pg.getBoundingClientRect().height):0,
+        pgExists:!!pg, pgPadBottom: pg?parseFloat(getComputedStyle(pg).paddingBottom)||0:0};`
   },
   {
     id: 'inbox',
@@ -92,6 +98,8 @@ const CASES = [
       const pg=document.querySelector('[class*="index-module__page___"]');
       const txt=(document.body.innerText||'');
       return {pgExists:!!pg,pgPadBottom:pg?parseFloat(getComputedStyle(pg).paddingBottom)||0:0,
+        h: pg?Math.round(pg.getBoundingClientRect().height):0,
+        vh: window.innerHeight,
         hasDevText:txt.indexOf('开发环境')>=0,hasPaySoon:txt.indexOf('支付功能即将开放')>=0};`
   },
   {
@@ -114,6 +122,44 @@ const CASES = [
         pgExists:!!pg,pgPadBottom:pg?parseFloat(getComputedStyle(pg).paddingBottom)||0:0,
         newsCards:cards.length,firstTitle:titles[0]||'',
         hasHalfHtml:document.body.innerHTML.indexOf('点击查看原文>')>=0};`
+  },
+  /* 2026-10-27 新增的三个二级页。它们此前**从未**进过布局回归 ——
+     而「新页面第一次上线」恰恰是最该量的时刻（我的页那一轮就是这么发现 1780px/2.1 屏的）。 */
+  {
+    id: 'membership',
+    route: '#/pages/membership/index',
+    note: '交易与计量页：订阅卡 + 订阅记录 + 额度记账 + 连续阅读',
+    probeExtra: `
+      const pg=document.querySelector('[class*="index-module__page___"]');
+      const txt=(document.body.innerText||'');
+      return {pgExists:!!pg, pgPadBottom: pg?parseFloat(getComputedStyle(pg).paddingBottom)||0:0,
+        h: pg?Math.round(pg.getBoundingClientRect().height):0,
+        hasBlank: txt.trim().length < 40};`
+  },
+  {
+    id: 'prefs',
+    route: '#/pages/prefs/index',
+    note: '偏好设置页：称呼/推送/提醒/城市/语速/音色',
+    probeExtra: `
+      const pg=document.querySelector('[class*="index-module__page___"]');
+      const txt=(document.body.innerText||'');
+      return {pgExists:!!pg, pgPadBottom: pg?parseFloat(getComputedStyle(pg).paddingBottom)||0:0,
+        h: pg?Math.round(pg.getBoundingClientRect().height):0,
+        hasBlank: txt.trim().length < 40};`
+  },
+  {
+    id: 'assistant',
+    route: '#/pages/assistant/index',
+    note: '全站唯一 AI 对话页（整页模式）：进来必须已有欢迎语，不是空白',
+    probeExtra: `
+      const pg=document.querySelector('[class*="index-module__page___"]');
+      const txt=(document.body.innerText||'');
+      const fab=document.getElementById('ai-fab');
+      // ⚠️ 类名是 msgBubble（CSS Modules 产物里大小写保留），用 bubble 会命中 0 个 —— 
+      //    第一次跑就是这么误判成「没有欢迎语」的（txtLen 却是 6354，自相矛盾才暴露）。
+      return {pgExists:!!pg, hasFab: !!fab,
+        msgCount: document.querySelectorAll('[class*="msgBubble"]').length,
+        txtLen: txt.trim().length};`
   }
 ];
 
@@ -304,10 +350,14 @@ function pageChecks(page, v) {
   const push = (name, ok, detail) => C.push([name, !!ok, detail]);
 
   if (page.id === 'briefing') {
-    push('D1 快捷指令容器存在', v.qrExists, `qrExists=${v.qrExists}`);
-    push('D1 有右侧渐隐遮罩', !!v.qrMask && v.qrMask !== 'none', `mask=${v.qrMask}`);
-    push('D1 右侧留白 ≥ 8px', (v.qrPadRight || 0) >= 8, `paddingRight=${v.qrPadRight}px`);
-    push('D1 内容确实比容器宽（可滚动才有意义）', (v.qrScrollW || 0) > (v.qrClientW || 0) + 1, `scrollW=${v.qrScrollW} clientW=${v.qrClientW}`);
+    push('D1 页面无横向溢出（右缘不被裁切）', (v.overflowX || 0) <= 1, `scrollWidth-innerWidth=${v.overflowX}px`);
+    push('D1 底部输入栏不在产物里（页面上没有第二条对话入口）', v.hasInputBar === false, `hasInputBar=${v.hasInputBar}`);
+    push('D8 页面根节点存在', v.pgExists, `pgExists=${v.pgExists}`);
+    // 输入条撤掉后底部留白必须回落：原来为固定输入条预留 360rpx≈180px，
+    // 留着就是滑到底一大片死白。tabBar 档 120rpx≈60px + 呼吸位，取 50px 作分界。
+    push('D8 底部留白回落到 tabBar 档（不再为已删的输入条留 180px 死白）',
+      (v.pgPadBottom || 0) >= 50 && (v.pgPadBottom || 0) <= 120,
+      `paddingBottom=${v.pgPadBottom}px｜页面总高=${v.h}px（内容页，不设上限）`);
   }
 
   if (page.id === 'inbox') {
@@ -328,6 +378,31 @@ function pageChecks(page, v) {
     push('D8 页面根节点存在', v.pgExists, `pgExists=${v.pgExists}`);
     push('D8 底部安全区 ≥ 50px', (v.pgPadBottom || 0) >= 50, `paddingBottom=${v.pgPadBottom}px`);
     push('生产产物里不出现「开发环境」字样', v.hasDevText === false, `hasDevText=${v.hasDevText}`);
+    // 2026-10-27：我的页从 1780px（2.1 屏）压到 991px（1.22 屏 @375）——靠把交易与偏好拆到
+    // pages/membership 与 pages/prefs。这条断言锁住瘦身成果：谁再往我的页堆卡片就红。
+    // ⚠️ 上限取 1.8 屏而不是 1.5：本项目全站尺寸走 rem，html 基准是 min(100vw,500px)/20，
+    //    所以 640 视口下所有字号/间距按 500/375 放大 33%，同样的内容自然从 1.22 屏变成 1.65 屏。
+    //    拿一个固定倍数卡两档会变成「卡视口」而不是「卡内容」。
+    // ⚠️ 量的是页面根节点的 getBoundingClientRect().height，不是 documentElement.scrollHeight
+    //    —— 后者在 Taro H5 里恒等于视口高（内层容器才是滚动体），第一次写就因此空过了这条断言。
+    push('我的页总高 ≤ 1.8 屏（IA 瘦身成果不许回潮）',
+      v.h > 0 && v.vh > 0 && v.h <= v.vh * 1.8, `h=${v.h}px / 上限=${Math.round((v.vh || 0) * 1.8)}px`);
+  }
+
+  if (page.id === 'membership' || page.id === 'prefs') {
+    push('页面根节点存在', v.pgExists, `pgExists=${v.pgExists}`);
+    push('页面不是空白（有真实内容渲染）', v.hasBlank === false, `txtLen<40? hasBlank=${v.hasBlank}`);
+    push('D8 底部安全区 ≥ 50px', (v.pgPadBottom || 0) >= 50,
+      `paddingBottom=${v.pgPadBottom}px｜页面总高=${v.h}px`);
+  }
+
+  if (page.id === 'assistant') {
+    push('页面根节点存在', v.pgExists, `pgExists=${v.pgExists}`);
+    // 整页模式没有悬浮球可点：如果还渲染出 ai-fab，说明 embedded 分支没生效
+    push('整页模式不渲染悬浮球', v.hasFab === false, `hasFab=${v.hasFab}`);
+    // 欢迎语必须自己补上（旧逻辑只在点悬浮球时 push），否则进来是一片空白
+    push('进来已有欢迎语（不是空白对话页）', (v.msgCount || 0) >= 1 && (v.txtLen || 0) >= 20,
+      `msgCount=${v.msgCount} txtLen=${v.txtLen}｜页面总高=${v.h}px`);
   }
 
   if (page.id === 'library') {

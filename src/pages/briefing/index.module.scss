@@ -3,7 +3,9 @@
 .page {
   min-height: 100vh;
   background: linear-gradient(180deg, var(--brand-soft, #{$color-bg-header}) 0%, $color-bg-page 480rpx);
-  padding-bottom: 360rpx;
+  /* 2026-10-27：底部常驻输入条撤销后，原来为它预留的 360rpx（≈180px）就变成了页面底部
+     一大片死白 —— 用户滑到底以为「下面还有内容」。回落到 tabBar 档 + 一段呼吸位。 */
+  padding-bottom: calc(#{$page-pad-bottom-tab} + #{$spacing-lg});
 }
 
 .header {
@@ -618,227 +620,30 @@
   color: $color-text-tertiary; // 5.02:1（原硬编码 #999 仅 2.85:1）
 }
 
-.aiGeneratedTag {
-  text-align: center;
-  font-size: $font-size-sm;
-  color: $color-text-tertiary; // 5.02:1（原硬编码 #999 仅 2.85:1）
-  padding: 8rpx 0 4rpx;
-}
 
-.chatEmpty {
-  display: flex;
-  justify-content: center;
-  padding: $spacing-xl 0;
-}
 
-.chatHint {
-  font-size: $font-size-sm;
-  color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
-}
 
-.messages {
-  max-height: 560rpx;
-  margin: 0 $page-padding;
-}
 
-.messageRow {
-  display: flex;
-  margin-bottom: $spacing-md;
 
-  &.user {
-    justify-content: flex-end;
-  }
-}
 
-.bubble {
-  max-width: 520rpx;
-  padding: $spacing-md $spacing-lg;
-  border-radius: $radius-lg;
-  font-size: $font-size-md;
-  line-height: $line-height-normal;
-  word-break: break-all;
 
-  &.assistant {
-    background: $color-bg-card;
-    color: $color-text-primary;
-    box-shadow: $shadow-card;
-    border-top-left-radius: $radius-xs;
-  }
 
-  &.user {
-    background: var(--brand, #{$color-primary});
-    color: $color-text-white;
-    border-top-right-radius: $radius-xs;
-  }
-}
-
-.deepTag {
-  display: inline-block;
-  font-size: $font-size-xs;
-  opacity: 0.85;
-  margin-right: $spacing-xs;
-}
-
-.voiceTag {
-  display: inline-block;
-  font-size: $font-size-xs;
-  opacity: 0.8;
-  margin-right: $spacing-xs;
-}
-
-.inputBar {
-  position: fixed;
-  left: $spacing-md;
-  right: $spacing-md;
-  bottom: 16rpx; // 略抬离底部，不贴手势条/TabBar
-  z-index: var(--z-tabbar);
-  padding: $spacing-sm $spacing-md;
-  background: $color-bg-card;
-  border-radius: $radius-lg; // 浮岛造型
-  box-shadow: $shadow-float;
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-xs;
-}
 
 /* H5 预览端：避让底部 TabBar（实测固定 50px）并再上移一点。
    ⚠️ 这里**必须**用大写 `PX` 逃过 Taro pxtransform：在 Taro H5 里小写 px 会被当作**设计 px（750 基准）**
    编译成 rem —— `66px` → `1.76rem`，在 375 视口只有 33px，于是"避让 50px TabBar"实际只避让了 33px，
    输入栏底部 17px 被 TabBar 压住（2026-10-09 线上实测 375 / 390 / 1280 三档分别重叠 17 / 15.7 / 6 px）。
    大小写不敏感是 CSS 规范行为，大写只是给构建器看的。 */
-.h5Fix {
-  bottom: calc(66PX + env(safe-area-inset-bottom));
-}
 
-.quickRow {
-  display: flex;
-  align-items: center;
-  gap: $spacing-sm;
-  overflow-x: auto;
-  white-space: nowrap;
-  padding-bottom: $spacing-xs;
-  scrollbar-width: none;
 
-  &::-webkit-scrollbar {
-    display: none;
-  }
 
-  /* 滚动条被藏起来后，第 4 个 chip（「今日热点」）在容器右缘被截断，
-     看起来像「按钮坏了」而不是「还能往右滑」（2026-10-12 登录态实测 640px 视口）。
-     加一道右侧渐隐做可滚动暗示；末尾留白，保证 chip 不贴着渐变被吃掉。 */
-  padding-right: $spacing-lg;
-  mask-image: linear-gradient(to right, #000 88%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent 100%);
-}
 
-.quickChip {
-  @include button-reset;
-  display: inline-flex;
-  align-items: center;
-  gap: 6rpx;
-  flex-shrink: 0;
-  height: 56rpx;
-  padding: 0 $spacing-md;
-  border-radius: $radius-round;
-  background: var(--brand-soft, #{$color-voice-bg});
-  color: $color-text-secondary;
-  font-size: $font-size-xs;
-  transition: all $transition-fast;
 
-  &:active {
-    transform: scale(0.96);
-    opacity: 0.85;
-  }
-}
 
-.quickChipIcon {
-  font-size: 26rpx;
-}
 
-.quickChipLabel {
-  font-weight: $font-weight-medium;
-}
 
-.clearButton {
-  @include button-reset;
-  width: 48rpx;
-  height: 48rpx;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: $radius-round;
-  background: $color-bg-page;
-  @include text-tertiary-sm;
-  transition: all $transition-fast;
 
-  &:active {
-    background: $color-divider;
-  }
-}
 
-.inputRow {
-  display: flex;
-  align-items: center;
-  gap: $spacing-sm;
-}
-
-.textInput {
-  flex: 1;
-  height: $button-height-md;
-  background: $color-bg-page;
-  border-radius: $radius-button;
-  padding: 0 $spacing-lg;
-  font-size: $font-size-md;
-  transition: box-shadow $transition-fast;
-
-  &:focus-within {
-    box-shadow: 0 0 0 2rpx $color-secondary-light;
-  }
-}
-
-.sendButton {
-  @include button-reset;
-  width: 124rpx; // 显式定宽：taro-button-core 默认 width:100% 会把 flex:1 的输入框挤成 0 宽
-  flex-shrink: 0;
-  height: $button-height-md;
-  border-radius: $radius-round;
-  background: var(--brand-strong, $color-secondary-strong); // 白字 4.95:1（原 --brand 白字仅 2.59:1）
-  color: $color-text-white;
-  font-size: $font-size-sm;
-  font-weight: $font-weight-medium;
-  line-height: $button-height-md;
-  transition: all $transition-fast;
-
-  &:active {
-    opacity: 0.9;
-    transform: scale(0.98);
-  }
-}
-
-.modeButton {
-  @include button-reset;
-  width: 72rpx; // 显式定宽：taro-button-core 默认 width:100%
-  height: $button-height-md;
-  min-width: 72rpx;
-  flex-shrink: 0;
-  border-radius: $radius-button;
-  background: $color-bg-page;
-  color: $color-text-secondary;
-  font-size: 32rpx;
-  white-space: nowrap;
-  transition: all $transition-fast;
-
-  &:active {
-    transform: scale(0.98);
-  }
-}
-
-.modeActive {
-  background: var(--brand-soft, #{$color-voice-bg});
-  color: var(--brand-deep, #{$color-primary-dark});
-  box-shadow: 0 0 0 2rpx var(--brand, #{$color-primary}) inset;
-}
 
 .subscribeTip {
   margin: $spacing-md $page-padding 0;
@@ -891,21 +696,8 @@
   }
 }
 
-.usageHint {
-  margin: $spacing-md $page-padding 0;
-  text-align: center;
-  font-size: $font-size-xs;
-  color: $color-text-tertiary;
-}
 
 /* AI 发图（F25）：气泡内配图，点击全屏预览 */
-.msgImage {
-  display: block;
-  width: 320rpx;
-  height: 220rpx;
-  margin-top: $spacing-xs;
-  border-radius: $radius-md;
-}
 
 
 /* v2.1 高风险习惯调整方案：容器与提示 */

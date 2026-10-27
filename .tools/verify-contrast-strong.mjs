@@ -137,11 +137,15 @@ try {
 const STRONG_POINTS = [
   ['src/pages/briefing/index.module.scss', 'locateBtn', '$color-primary-strong'],
   ['src/pages/briefing/index.module.scss', 'intelNoteCta', '$color-primary-strong'],
-  ['src/pages/briefing/index.module.scss', 'sendButton', '--brand-strong'],
   ['src/pages/briefing/index.module.scss', 'intelNoteText', 'color-text-tertiary'],
   ['src/pages/briefing/index.module.scss', 'intelLeadTag', 'color-text-tertiary'],
-  ['src/pages/briefing/index.module.scss', 'aiGeneratedTag', 'color-text-tertiary'],
-  ['src/pages/briefing/index.module.scss', 'chatHint', 'color-text-tertiary'],
+  // 2026-10-27：底部 AI 输入条撤除后，sendButton / aiGeneratedTag / chatHint 三个类随之删除。
+  // 它们守的东西没消失，只是换了载体（pages/assistant 复用的同名组件）：
+  //   · 「AI 生成内容」合规标识必须可见 —— msgLabel 接替 aiGeneratedTag；
+  //   · 次级说明文字必须够深 —— memoryFootnoteText（记忆溯源，用户要点开看依据）接替 chatHint。
+  // ⚠️ 不拿 .input 顶替：它本来就没有 color 规则，断言「含 color-text」只会是编的。
+  ['src/components/AiAssistant/index.module.scss', 'msgLabel', 'color-text-tertiary'],
+  ['src/components/AiAssistant/index.module.scss', 'memoryFootnoteText', 'color-text-tertiary'],
   ['src/pages/library/index.module.scss', 'aiEditBtn', '--brand-strong'],
   ['src/pages/library/index.module.scss', 'aiGoBtn', '--brand-strong'],
   ['src/pages/library/index.module.scss', 'aiSaveBtn', '--brand-strong'],
