@@ -146,6 +146,17 @@ const TOOL_TILES = [
   { icon: '🔍', label: 'mine.gridSearch', url: '/pages/search/index' }
 ] as const;
 
+/** 桌面端左侧栏导航（2026-10-27 参考稿改版）：五个 tabBar 页的真实路由。
+ *  全部是 tabBar 页 → 跳转必须 switchTab（navigateTo 对 tabBar 页会直接抛错）；
+ *  第一项是当前页，点击不动作。 */
+const SIDE_NAV = [
+  { icon: '☀️', label: 'briefing.navToday', url: '/pages/briefing/index' },
+  { icon: '📥', label: 'briefing.navInbox', url: '/pages/inbox/index' },
+  { icon: '🔥', label: 'briefing.navHot', url: '/pages/library/index' },
+  { icon: '📅', label: 'briefing.navCalendar', url: '/pages/calendar/index' },
+  { icon: '🙂', label: 'briefing.navMine', url: '/pages/mine/index' }
+] as const;
+
 function BriefingPage() {
   const t = useT();
   const lang = useLanguageStore((s) => s.lang);
@@ -429,6 +440,26 @@ function BriefingPage() {
     setLocDeniedBar(isDeniedDegraded('location'));
   };
 
+  /* ---------------- 桌面三栏：≥1024px 时放开面板限宽（app.scss body.briefing-desktop） ---------------- */
+  // 仅 H5 生效（weapp 无 document/matchMedia）。tab 页切走只触发 didHide 不卸载，
+  // 所以 show/hide 也要挂一下，避免别的 tab 页被撑宽。
+  const desktopMqRef = useRef<MediaQueryList | null>(null);
+  useEffect(() => {
+    if (!isH5 || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    desktopMqRef.current = mq;
+    const apply = () => {
+      if (mq.matches) document.body.classList.add('briefing-desktop');
+      else document.body.classList.remove('briefing-desktop');
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => {
+      mq.removeEventListener('change', apply);
+      document.body.classList.remove('briefing-desktop');
+    };
+  }, []);
+
   useEffect(() => {
     init();
     loadBriefing();
@@ -480,6 +511,8 @@ function BriefingPage() {
    */
   useDidShow(() => {
     stopSpeak();
+    // 桌面三栏：从别的 tab 回到晨报页时恢复面板限宽豁免（卸载不发生，必须在 show 里补挂）
+    if (isH5 && desktopMqRef.current?.matches) document.body.classList.add('briefing-desktop');
     // 记账呈报：每次进入前台都重读（而不是只读一次）——
     // 用户可能在别的页面（购物页/我的页）之外直接加了一笔，也可能跨了零点。
     void (async () => {
@@ -532,6 +565,8 @@ function BriefingPage() {
   // 离开页面/切后台：停播 + 暂停计时并结算（满足阈值则打卡、同日幂等）
   useDidHide(() => {
     stopSpeak();
+    // 桌面三栏：切到别的 tab 页时立即收回面板限宽豁免（tab 页不卸载，光靠 cleanup 不够）
+    if (isH5) document.body.classList.remove('briefing-desktop');
     setIsSpeaking(false);
     stopReadTimer();
     if (readSessionRef.current) {
@@ -774,6 +809,8 @@ function BriefingPage() {
   const pendingTodayTodos = (briefing?.todos || []).filter(
     (td) => td.status !== 'done' && !!td.dueDate && dayjs(td.dueDate).isSame(dayjs(), 'day')
   ).length;
+  /** 已完成待办（真实数据：服务端 status 回填 + 本地勾选，与 doneIds 同一口径） */
+  const doneTodayCount = (briefing?.todos || []).filter((td) => doneIds.has(td.id)).length;
   /**
    * 头部称呼：只在昵称「像人名」时才展示。
    * H5 会话链路里 nickname 可能回落到**邮箱**（视觉巡检截图实测：
@@ -1023,6 +1060,53 @@ function BriefingPage() {
 
   return (
     <View className={styles.page} style={brandVars(theme)}>
+      {/* 桌面端左侧栏（≥1024px 才显示，移动端 display:none）：真实 tabBar 路由，全部走
+          switchTab（navigateTo 对 tabBar 页会直接抛错）；底部为登录用户信息 ——
+          profile 只有昵称与订阅档位，没有手机号字段，不编。 */}
+      <View className={styles.desktopNav}>
+        <View className={styles.sideBrand}>
+          <View className={styles.sideLogo}>
+            <Text className={styles.sideLogoText}>晨</Text>
+          </View>
+          <View className={styles.sideBrandText}>
+            <Text className={styles.sideBrandTitle}>{t('app.title')}</Text>
+            <Text className={styles.sideBrandSub}>{t('share.title')}</Text>
+          </View>
+        </View>
+        <View className={styles.sideNavList}>
+          {SIDE_NAV.map((nav, i) => (
+            <View
+              key={nav.url}
+              className={classnames(styles.sideNavItem, i === 0 && styles.sideNavItemActive)}
+              onClick={() => {
+                // 第一项就是当前页（晨报），点了不动作
+                if (i === 0) return;
+                Taro.switchTab({ url: nav.url }).catch((err) => {
+                  console.error('[BriefingPage] 侧栏 switchTab 失败:', err);
+                });
+              }}
+            >
+              <Text className={styles.sideNavIcon}>{nav.icon}</Text>
+              <Text className={styles.sideNavLabel}>{t(nav.label)}</Text>
+            </View>
+          ))}
+        </View>
+        {profile ? (
+          <View className={styles.sideUser}>
+            <View className={styles.sideUserAvatar}>
+              <Text className={styles.sideUserAvatarText}>{(displayName || '晨').slice(0, 1)}</Text>
+            </View>
+            <View className={styles.sideUserMeta}>
+              <Text className={styles.sideUserName}>{displayName || t('briefing.freePlan')}</Text>
+              <Text className={styles.sideUserPlan}>
+                {profile.subscribed ? t('mine.badgeSubscribed') : t('briefing.freePlan')}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+      </View>
+
+      <View className={styles.mainCol}>
       {/* 突发/重大新闻横幅（2026-10-24）：复用已拿到的情报条目做关键词识别，零额外请求。
           诚实边界见 components/BurstBanner 头注释 —— 不是推送、不是官方通报，且可当天关闭。 */}
       <BurstBanner items={briefing?.intel?.intelItems} />
@@ -1053,6 +1137,11 @@ function BriefingPage() {
                 {lang === 'en' ? dayjs().format('MMM D') : dayjs().format('M月D日')}{' '}
                 {(lang === 'en' ? WEEKDAYS_EN : WEEKDAYS_ZH)[dayjs().day()]}
               </Text>
+              {/* 参考稿副行「今天 12 条」：真实条数 = 今日日程 + 今日待办；没有就不显示，
+                  「读完大概 N 分钟」无真实阅读时长数据源，不做。 */}
+              {hasContent && todaySchedule.length > 0 ? (
+                <Text className={styles.date}>· {t('briefing.todayCountLine', { n: todaySchedule.length })}</Text>
+              ) : null}
               {profile?.subscribed ? (
                 <Text className={styles.badge}>{t('mine.badgeSubscribed')}</Text>
               ) : (
@@ -1184,6 +1273,45 @@ function BriefingPage() {
         </View>
       ) : (
         <View className={styles.contentFade}>
+          {/* 深色概览卡（参考稿「今日概览」）：四个数字全部来自真实数据 —— 日程数、
+              待办数、已完成待办、情报条数；睡眠/专注/省钱无数据源，一律不造假。
+              右上角胶囊：真有「已读完」状态（今日有效阅读打卡）才显示已读完，否则只显示条数。 */}
+          <View className={styles.overviewCard}>
+            <View className={styles.overviewHead}>
+              <Text className={styles.overviewTitle}>{t('briefing.sectionOverview')}</Text>
+              {todayRead ? (
+                <Text className={styles.overviewPillDone}>✓ {t('briefing.readDoneShort')}</Text>
+              ) : todaySchedule.length + intelCount > 0 ? (
+                <Text className={styles.overviewPill}>
+                  {t('briefing.todayCountLine', { n: todaySchedule.length + intelCount })}
+                </Text>
+              ) : null}
+            </View>
+            <View className={styles.overviewStats}>
+              <View className={styles.overviewStat}>
+                <Text className={styles.overviewNum}>{todaySchedule.length}</Text>
+                <Text className={styles.overviewLabel}>{t('briefing.sectionToday')}</Text>
+              </View>
+              <View className={styles.overviewStat}>
+                <Text className={styles.overviewNum}>{pendingTodayTodos}</Text>
+                <Text className={styles.overviewLabel}>{t('briefing.sectionTodo')}</Text>
+              </View>
+              <View className={styles.overviewStat}>
+                <Text className={styles.overviewNum}>{doneTodayCount}</Text>
+                <Text className={styles.overviewLabel}>{t('briefing.statDone')}</Text>
+              </View>
+              <View className={styles.overviewStat}>
+                <Text className={styles.overviewNum}>{intelCount}</Text>
+                <Text className={styles.overviewLabel}>{t('briefing.sectionIntel')}</Text>
+              </View>
+            </View>
+            {/* 底行替代参考稿的睡眠行：连续阅读天数是 readStreak 的真实数据，没有就不渲染 */}
+            {readStreak > 0 ? (
+              <View className={styles.overviewFoot}>
+                <Text className={styles.overviewFootText}>🔥 {t('briefing.streak', { n: readStreak })}</Text>
+              </View>
+            ) : null}
+          </View>
           {todaySchedule.length > 0 ? (
             <View className={styles.section}>
               <View className={styles.sectionHeader}>
@@ -1234,7 +1362,11 @@ function BriefingPage() {
                 return (
                   <View
                     key={item.id}
-                    className={styles.eventItem}
+                    className={classnames(
+                      styles.eventItem,
+                      // 参考稿「当前/下一个」橙色竖条：只标真实算出的 nextEventToday
+                      item.kind === 'event' && nextEventToday && item.id === nextEventToday.id && styles.eventItemNext
+                    )}
                     onClick={item.kind === 'todo' ? () => handleToggleTodo(item.id, item.title) : undefined}
                   >
                     <View className={styles.timeBlock}>
@@ -1468,8 +1600,8 @@ function BriefingPage() {
             style={{
               flex: 1,
               background: 'var(--bg-card, #ffffff)',
-              border: '1rpx solid var(--card-border, rgba(29, 33, 41, 0.06))',
-              borderRadius: r2r(24),
+              border: 'none',
+              borderRadius: r2r(32),
               padding: `${r2r(20)} 0`,
               textAlign: 'center'
             }}
@@ -1683,6 +1815,34 @@ function BriefingPage() {
 
       {/* C-02 位置权限说明弹窗：仅用户点击定位时触发，App 启动不弹 */}
       <PermissionDialog visible={showLocDialog} name='location' onAgree={handleLocAgree} onCancel={handleLocCancel} />
+      </View>
+
+      {/* 桌面端右栏（≥1024px 才显示，移动端 display:none）：天气卡（真实 briefing.intel.weather）
+          + 快捷入口（只放真实存在的页面）。参考稿右栏下方的「本周专注」无专注计时数据源，
+          留白不造假卡。 */}
+      <View className={styles.rightRail}>
+        {briefing?.intel?.weather ? (
+          <View className={styles.railCard}>
+            <Text className={styles.railCardTitle}>{t('settings.moduleWeather')}</Text>
+            <Text className={styles.railWeatherText}>{briefing.intel.weather.text}</Text>
+          </View>
+        ) : null}
+        <View className={styles.railCard}>
+          <Text className={styles.railCardTitle}>{t('briefing.helpers')}</Text>
+          <View className={styles.railHelperList}>
+            {TOOL_TILES.map((tool) => (
+              <View
+                key={tool.url}
+                className={styles.railHelperItem}
+                onClick={() => Taro.navigateTo({ url: tool.url })}
+              >
+                <Text className={styles.railHelperIcon}>{tool.icon}</Text>
+                <Text className={styles.railHelperLabel}>{t(tool.label)}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
     </View>
   );
 }

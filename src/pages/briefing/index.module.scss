@@ -2,7 +2,8 @@
 
 .page {
   min-height: 100vh;
-  background: linear-gradient(180deg, var(--brand-soft, #{$color-bg-header}) 0%, $color-bg-page 480rpx);
+  // 2026-10-27 参考稿改版：参考稿是平铺暖纸底（无顶部渐变），撤掉晨光渐变回归纯纸面
+  background: $color-bg-page;
   /* 2026-10-27：底部常驻输入条撤销后，原来为它预留的 360rpx（≈180px）就变成了页面底部
      一大片死白 —— 用户滑到底以为「下面还有内容」。回落到 tabBar 档 + 一段呼吸位。 */
   padding-bottom: calc(#{$page-pad-bottom-tab} + #{$spacing-lg});
@@ -78,7 +79,8 @@
 }
 
 .greeting {
-  font-size: $font-size-xxl;
+  // 参考稿标题 26px/600（2026-10-27）：52rpx @375 视口恰为 26px
+  font-size: 52rpx;
   font-weight: $font-weight-semibold;
   color: $color-text-primary;
   margin-bottom: $spacing-xs;
@@ -88,6 +90,7 @@
   display: flex;
   align-items: center;
   gap: $spacing-sm;
+  flex-wrap: wrap;
 }
 
 .date {
@@ -262,6 +265,10 @@
 .section {
   margin: 0 $page-padding $spacing-md;
   @include card-surface;
+  // 参考稿卡片语言：白底、16px 圆角、无边框、无阴影（2026-10-27）
+  border: none;
+  box-shadow: none;
+  border-radius: $radius-xl;
 }
 
 .sectionHeader {
@@ -388,14 +395,22 @@
   display: flex;
   align-items: flex-start;
   gap: $spacing-md;
-  padding: $spacing-md;
-  background: $color-event-bg;
-  border-radius: $radius-md;
+  padding: $spacing-md $spacing-sm;
+  // 参考稿日程行：不再整块浅橙底，改为「时间灰字 + 当前/下一条橙色竖条」（2026-10-27）
+  background: transparent;
+  border-left: 6rpx solid transparent;
+  border-radius: $radius-sm;
   margin-bottom: $spacing-sm;
 
   &:last-child {
     margin-bottom: 0;
   }
+}
+
+/* 「当前/下一个」橙色竖条：只标真实算出的 nextEventToday（见 index.tsx） */
+.eventItemNext {
+  border-left-color: var(--brand, $color-primary);
+  background: var(--brand-soft, #{$color-bg-header});
 }
 
 .timeBlock {
@@ -406,9 +421,10 @@
 }
 
 .time {
+  // 参考稿：时间灰字（2026-10-27）
   font-size: $font-size-md;
-  font-weight: $font-weight-semibold;
-  color: $color-primary-dark;
+  font-weight: $font-weight-medium;
+  color: $color-text-muted;
   // 大字号/英文环境下 "HH:mm" 不折行成「14:」/「30」两行
   white-space: nowrap;
 }
@@ -848,4 +864,311 @@
   margin-top: $spacing-xs;
   font-size: $font-size-xs;
   color: $color-text-tertiary;
+}
+
+/* ============================================================
+   2026-10-27 参考稿改版新增
+   ============================================================ */
+
+/* ---------- 深色概览卡（「今日概览」）：#2D2926 底 + 白字 + 橙色数字 ----------
+   四个数字全部来自真实数据（日程/待办/已完成/情报），见 index.tsx。 */
+.overviewCard {
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-lg;
+  background: $color-ink-dark;
+  border-radius: $radius-xl;
+}
+
+.overviewHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-lg;
+}
+
+.overviewTitle {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-on-dark;
+}
+
+/* 浅色胶囊：有真实「已读完」状态时显示（白底深字），否则显示条数（白色薄雾底） */
+.overviewPillDone {
+  padding: 4rpx 16rpx;
+  font-size: $font-size-xs;
+  color: $color-ink-dark;
+  background: $color-on-dark;
+  border-radius: $radius-round;
+  flex-shrink: 0;
+}
+
+.overviewPill {
+  padding: 4rpx 16rpx;
+  font-size: $font-size-xs;
+  color: $color-on-dark-muted;
+  background: $color-on-dark-wash;
+  border-radius: $radius-round;
+  flex-shrink: 0;
+}
+
+.overviewStats {
+  display: flex;
+  align-items: flex-start;
+}
+
+.overviewStat {
+  flex: 1;
+  min-width: 0;
+}
+
+.overviewNum {
+  display: block;
+  font-size: 56rpx;
+  line-height: 1.1;
+  font-weight: $font-weight-bold;
+  // 橙色数字压 #2D2926 深底 ≈5.3:1，达标
+  color: var(--brand, $color-primary);
+}
+
+.overviewLabel {
+  display: block;
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  color: $color-on-dark-muted;
+}
+
+/* 底行：连续阅读天数（readStreak 真实数据；无睡眠数据源，不做参考稿的睡眠行） */
+.overviewFoot {
+  margin-top: $spacing-lg;
+  padding-top: $spacing-md;
+  border-top: 1rpx solid $color-on-dark-line;
+}
+
+.overviewFootText {
+  font-size: $font-size-xs;
+  color: $color-on-dark-muted;
+}
+
+/* ---------- 桌面三栏（≥1024px）：左导航 / 中央主栏 / 右栏 ----------
+   移动端两翼 display:none，主栏就是原有单列；面板限宽豁免由 app.scss 的
+   body.briefing-desktop（≥1024px）配合，见 index.tsx 的 matchMedia effect。 */
+.desktopNav {
+  display: none;
+}
+
+.rightRail {
+  display: none;
+}
+
+.mainCol {
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .page {
+    display: flex;
+    align-items: flex-start;
+    gap: 64rpx;
+    max-width: 1280PX; // 大写 PX 逃过 pxtransform（小写 1280px 曾被换算成 853px 等效 rem）
+    margin: 0 auto;
+    padding: 64rpx 48rpx calc(#{$page-pad-bottom-tab} + #{$spacing-lg});
+    box-sizing: border-box;
+  }
+
+  .mainCol {
+    flex: 1;
+  }
+
+  .desktopNav {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    width: 300rpx; // ≈200px，参考稿左栏宽
+    position: sticky;
+    top: 0;
+    min-height: 72vh;
+    padding: $spacing-sm 0;
+  }
+
+  .rightRail {
+    display: block;
+    flex-shrink: 0;
+    width: 390rpx; // ≈260px，参考稿右栏宽
+    position: sticky;
+    top: 0;
+  }
+
+  // 根字号在 ≥500px 视口封顶为 25px（rpx 会同比放大 1.33 倍），
+  // 问候标题按参考稿回落到 26px 档（40rpx×0.667≈26.7px）
+  .greeting {
+    font-size: $font-size-xxl;
+  }
+}
+
+/* ---------- 左侧栏 ---------- */
+.sideBrand {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-sm $spacing-md $spacing-lg;
+}
+
+.sideLogo {
+  @include flex-center;
+  width: 72rpx;
+  height: 72rpx;
+  flex-shrink: 0;
+  border-radius: $radius-md;
+  // 强调渐变（深橙）：白字压其上 ≥4.5:1；大场面品牌橙 #ff7a45 上白字只有 2.59
+  background: $gradient-emphasis;
+}
+
+.sideLogoText {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-bold;
+  color: $color-text-white;
+}
+
+.sideBrandText {
+  min-width: 0;
+}
+
+.sideBrandTitle {
+  display: block;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.sideBrandSub {
+  display: block;
+  margin-top: 2rpx;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  @include text-ellipsis;
+}
+
+.sideNavList {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.sideNavItem {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-md;
+  border-radius: $radius-md;
+}
+
+.sideNavItemActive {
+  background: var(--brand-soft, #{$color-bg-header});
+
+  .sideNavLabel {
+    color: $color-primary-strong;
+    font-weight: $font-weight-semibold;
+  }
+}
+
+.sideNavIcon {
+  font-size: $font-size-lg;
+  flex-shrink: 0;
+}
+
+.sideNavLabel {
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+}
+
+.sideUser {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-lg $spacing-md $spacing-sm;
+  border-top: 1rpx solid $color-divider;
+}
+
+.sideUserAvatar {
+  @include flex-center;
+  width: 64rpx;
+  height: 64rpx;
+  flex-shrink: 0;
+  border-radius: $radius-round;
+  background: $color-bg-hover;
+}
+
+.sideUserAvatarText {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-secondary;
+}
+
+.sideUserMeta {
+  min-width: 0;
+}
+
+.sideUserName {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  @include text-ellipsis;
+}
+
+.sideUserPlan {
+  display: block;
+  margin-top: 2rpx;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+/* ---------- 右栏 ---------- */
+.railCard {
+  margin-bottom: $spacing-md;
+  padding: $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-xl;
+}
+
+.railCardTitle {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.railWeatherText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+}
+
+.railHelperList {
+  display: flex;
+  flex-direction: column;
+}
+
+.railHelperItem {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-md 0;
+  border-bottom: 1rpx solid $color-divider;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.railHelperIcon {
+  font-size: $font-size-lg;
+  flex-shrink: 0;
+}
+
+.railHelperLabel {
+  font-size: $font-size-md;
+  color: $color-text-secondary;
 }
