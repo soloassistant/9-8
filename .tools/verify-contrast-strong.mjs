@@ -356,6 +356,8 @@ try {
     /if \(!session\) return \{ ok: false, reason: 'no-session' \}/.test(svc));
   ok('I9 金额按分→元换算且 NaN 有兜底（否则界面出现「¥NaN」）',
     /Number\.isFinite\(cents\)/.test(svc) && /\/ 100/.test(svc));
+  ok('I10 拉取有超时（请求悬住时不能永远停在「…」）',
+    /LIST_TIMEOUT_MS/.test(svc) && /abortSignal\(controller\.signal\)/.test(svc));
 } catch (e) {
   ok('I 组读取失败: ' + e.message, false);
 }

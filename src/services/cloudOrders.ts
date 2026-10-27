@@ -47,6 +47,12 @@ export type OrdersFetch =
 const ORDER_COLUMNS = 'order_id, channel, plan_id, amount_cents, months, status, refund_status, created_at, paid_at';
 
 /**
+ * 拉取超时。没有超时的话，请求悬住时界面就永远停在「…」——和那个假重试按钮是同一类
+ * 坏体验（用户看不出是在加载还是已经死了）。8s 与 cloudSync 的拉取超时保持一致。
+ */
+const LIST_TIMEOUT_MS = 8000;
+
+/**
  * 行 → 视图模型。price 存的是**分**，且历史数据可能缺字段：
  * `Number(undefined)/100` 是 NaN，序列化到界面就成了「¥NaN」——必须兜底。
  */
@@ -77,20 +83,31 @@ export async function ordersListOwn(limit = 20): Promise<OrdersFetch> {
     return { ok: false, reason: 'db-error' };
   }
 
-  const res = await db
-    .from('orders')
-    .select(ORDER_COLUMNS)
-    .order('created_at', { ascending: false })
-    .limit(Math.max(1, Math.min(limit, 50)));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LIST_TIMEOUT_MS);
+  try {
+    const res = await db
+      .from('orders')
+      .select(ORDER_COLUMNS)
+      .order('created_at', { ascending: false })
+      .limit(Math.max(1, Math.min(limit, 50)))
+      .abortSignal(controller.signal);
 
-  if (res.error) {
-    // console.error 而非 warn：后者会被生产构建剔除，线上零痕迹（本仓铁律）
-    console.error('[cloudOrders] ordersListOwn failed:', res.error.code || '', res.error.message || '');
+    if (res.error) {
+      // console.error 而非 warn：后者会被生产构建剔除，线上零痕迹（本仓铁律）
+      console.error('[cloudOrders] ordersListOwn failed:', res.error.code || '', res.error.message || '');
+      return { ok: false, reason: 'db-error' };
+    }
+
+    const rows = Array.isArray(res.data) ? (res.data as Array<Record<string, unknown>>) : [];
+    return { ok: true, orders: rows.map(toCloudOrder) };
+  } catch (err) {
+    // 中止（超时）或网络异常：一律算可重试的故障
+    console.error('[cloudOrders] ordersListOwn aborted/failed:', err instanceof Error ? err.message : String(err));
     return { ok: false, reason: 'db-error' };
+  } finally {
+    clearTimeout(timer);
   }
-
-  const rows = Array.isArray(res.data) ? (res.data as Array<Record<string, unknown>>) : [];
-  return { ok: true, orders: rows.map(toCloudOrder) };
 }
 
 /** 落一条订单所需的字段（`owner_id` 不在其中，由数据库填） */

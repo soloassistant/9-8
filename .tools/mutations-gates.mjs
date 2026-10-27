@@ -295,6 +295,15 @@ export default [
     cmd: 'node .tools/verify-contrast-strong.mjs'
   },
   {
+    // 行为后果：请求悬住时没有任何中止，界面永远停在「…」——用户分不清在加载还是死了。
+    // 哪条变红：I10。
+    label: '去掉订单拉取超时（请求悬住就永远转圈）',
+    file: 'src/services/cloudOrders.ts',
+    from: '.abortSignal(controller.signal)',
+    to: '.abortSignal(new AbortController().signal)',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
     // 行为后果：网页端也渲染「退款」按钮，点下去只会弹「退款失败」（没有退款通道）。
     // 哪条变红：I6。
     label: '退款按钮不再受通道约束（网页端出现点了必失败的退款）',
