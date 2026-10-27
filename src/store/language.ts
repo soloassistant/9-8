@@ -256,6 +256,9 @@ const zh = {
   // 查询失败态：与 ordersEmpty 分开。老写法把「ordersList 调用失败」也渲染成
   // 「暂无支付记录」——已付费用户会以为订单被吞了。错误态要说清「发生了什么 + 怎么办」。
   'mine.ordersError': '订阅记录加载失败，可能是网络波动',
+  // H5 没有 Taro.cloud、ordersList 是微信云函数 ⇒ 这条通道在网页端不存在。
+  // 不给「重试」（永远成功不了），也不写「暂无记录」（那是把断路伪装成空态）。
+  'mine.ordersWeappOnly': '订阅记录只在小程序端可查。网页端没有订单查询通道。',
   'common.retry': '重试',
   'mine.orderStatusPaid': '已支付',
   'mine.orderStatusCreated': '待支付',
@@ -1299,6 +1302,7 @@ const en: Record<keyof typeof zh, string> = {
   'mine.ordersTitle': 'Order History',
   'mine.ordersEmpty': 'No payment records yet',
   'mine.ordersError': "Couldn't load your order history — the network may be flaky",
+  'mine.ordersWeappOnly': 'Order history is only available in the mini program. The web app has no order-query channel.',
   'common.retry': 'Retry',
   'mine.orderStatusPaid': 'Paid',
   'mine.orderStatusCreated': 'Pending',

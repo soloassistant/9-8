@@ -323,6 +323,26 @@ try {
   const lang = read('src/store/language.ts');
   ok('I3 中英文都有 ordersError 与 common.retry 键',
     (lang.match(/'mine\.ordersError':/g) || []).length === 2 && (lang.match(/'common\.retry':/g) || []).length === 2);
+
+  /* 2026-10-27：H5 没有 Taro.cloud、ordersList 是微信云函数 ⇒ 这条通道在网页端
+     根本不存在。旧写法把它当普通失败（setOrdersError(true)），于是页面上出现一个
+     **重试按钮，点多少次都不会成功** —— 比空态更糟，因为它暗示「再试一次就行」。
+     判据必须框到 loadOrders 的函数体：全文搜 setOrdersError 会命中两条合法的失败路径。 */
+  const loadAt = src.indexOf('const loadOrders');
+  const loadRaw = loadAt >= 0 ? src.slice(loadAt, src.indexOf('}, []);', loadAt)) : '';
+  // ⚠️ 必须剥注释：函数体里的说明文字照抄了 `setOrdersError(true)` 这个符号本身
+  // （在解释「旧写法为什么错」），不剥就会把注释里的字样算成一次真实调用 ——
+  // 第一次写这条断言就是这么误红的（3 次里 1 次在注释里）。
+  const loadBlock = loadRaw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const guardAt = loadBlock.indexOf('if (!cloud?.callFunction) return;');
+  const errSetters = [...loadBlock.matchAll(/setOrdersError\(true\)/g)].map((m) => m.index);
+  ok('I4a 无查询通道时直接 return（不查询、不置失败态）', guardAt >= 0, `guardAt=${guardAt}`);
+  ok('I4b 置 ordersError 的只有 ok:false 与 catch 两条路径，且都在无通道判断之后',
+    errSetters.length === 2 && guardAt >= 0 && Math.min(...errSetters) > guardAt,
+    `setters=${errSetters.length} @${errSetters.join(',')} guard@${guardAt}`);
+  ok('I5 无通道分支渲染「只在小程序端可查」静态说明（不能回落到「暂无支付记录」）',
+    /\{!ordersSupported \?[\s\S]{0,300}?mine\.ordersWeappOnly/.test(src));
+  ok('I6 中英文都有 ordersWeappOnly 文案键', (lang.match(/'mine\.ordersWeappOnly':/g) || []).length === 2);
 } catch (e) {
   ok('I 组读取失败: ' + e.message, false);
 }

@@ -1327,6 +1327,17 @@
   font-size: $font-size-sm;
 }
 
+/* 无查询通道（H5）：静态说明，不给按钮 —— 视觉上比错误态更轻（没有主按钮），
+   但要能读清，不能像灰掉的占位符。 */
+.orderUnavailable {
+  display: block;
+  padding: $spacing-lg $spacing-sm;
+  text-align: center;
+  color: $color-text-secondary; // 白底 7.0:1，正文级可读性
+  font-size: $font-size-sm;
+  line-height: 1.6;
+}
+
 /* 订阅记录查询失败态：与「暂无记录」视觉上区分（错误态有主按钮，空态没有），
    文案说清原因 + 给重试入口。已付费用户查不到订单时不能再看到「暂无支付记录」。 */
 .orderErrorBox {

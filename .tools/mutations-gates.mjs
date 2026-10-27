@@ -263,5 +263,24 @@ export default [
     from: '  // 同上：内容文案，禁用灰 #c9cdd4 压 #f7f8fa 只有 1.50:1。\n  color: $color-text-tertiary;',
     to: '  color: $color-text-disabled;',
     cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    // 行为后果：H5 没有 Taro.cloud，这条通道压根不存在；把它当普通失败处理，
+    // 页面上就出现一个点多少次都不会成功的「重试」——比空态更误导。
+    // 哪条变红：I4a。
+    label: 'H5 无查询通道时又置 ordersError（重试按钮复活）',
+    file: 'src/pages/membership/index.tsx',
+    from: 'if (!cloud?.callFunction) return;',
+    to: 'if (!cloud?.callFunction) { setOrdersError(true); return; }',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    // 行为后果：无通道分支没了 ⇒ 回落到「暂无支付记录」，把断路伪装成空态。
+    // 哪条变红：I5。
+    label: '删掉 H5 的「只在小程序端可查」说明（回落成「暂无支付记录」）',
+    file: 'src/pages/membership/index.tsx',
+    from: '{!ordersSupported ? (',
+    to: '{false ? (',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
   }
 ];

@@ -60,6 +60,20 @@ interface OrderSummary {
 /** 危险操作确认按钮统一色值（设计文档第六章 B） */
 const DANGER_COLOR = '#E85D2A';
 
+/**
+ * 订单查询通道是否可用。
+ *
+ * `ordersList` 是微信云函数（cloudfunctions/ordersList），只有小程序端的 `Taro.cloud`
+ * 能调；H5 侧根本没有这个对象。所以这条链路在 H5 上**不是「网络不好」，是压根不存在**——
+ * 之前它被当成普通失败处理，页面上出现一个「重试」按钮，用户点多少次都不会成功。
+ *
+ * 判据收成一个函数而不是散在 JSX 里：门禁要能框住「不可用时不许渲染重试按钮」这一条。
+ */
+function hasOrderQueryChannel(): boolean {
+  const cloud = (Taro as unknown as { cloud?: { callFunction?: unknown } }).cloud;
+  return typeof cloud?.callFunction === 'function';
+}
+
 /* ---------------- 续费提醒偏好（本机偏好，刻意不进 cloudSync） ---------------- */
 const RENEW_REMIND_KEY = 'mb_renew_remind';
 const RENEW_REMIND_DAY_KEY = 'mb_renew_remind_day';
@@ -187,22 +201,21 @@ function MembershipPage() {
   );
 
   /* ---------------- 订阅记录 ---------------- */
+  // 没有查询通道时不发请求、也不置失败态：这里不是错误，是「这个端没有这条链路」。
+  const ordersSupported = hasOrderQueryChannel();
+
   const loadOrders = useCallback(async () => {
+    const cloud = (
+      Taro as unknown as {
+        cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> };
+      }
+    ).cloud;
+    // 无查询通道（H5）：不查、不置失败态、不给重试 —— 这不是网络问题，是这个端没有这条链路。
+    // 旧写法在这里 setOrdersError(true)，渲染出一个永远点不成功的「重试」按钮。
+    if (!cloud?.callFunction) return;
     setOrdersLoading(true);
     setOrdersError(false);
     try {
-      const cloud = (
-        Taro as unknown as {
-          cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> };
-        }
-      ).cloud;
-      // H5 没有 Taro.cloud，ordersList 也只存在于小程序云函数 → 这里同样是「查询不可用」，
-      // 不能静默 return（那会让 orders 停在空数组，用户看到「暂无订阅记录」，
-      // 把「查不到」伪装成「你没订阅过」）。
-      if (!cloud?.callFunction) {
-        setOrdersError(true);
-        return;
-      }
       const res = await cloud.callFunction({ name: 'ordersList', data: { limit: 20 } });
       const r = res as { result?: { ok?: boolean; orders?: OrderSummary[] } } | null;
       if (r?.result?.ok && Array.isArray(r.result.orders)) {
@@ -629,7 +642,11 @@ function MembershipPage() {
       {/* ===== 订阅记录 ===== */}
       <View className={styles.card}>
         <Text className={styles.cardTitle}>{t('mine.ordersTitle')}</Text>
-        {ordersLoading && orders.length === 0 ? (
+        {!ordersSupported ? (
+          /* H5：没有订单查询通道。这里既不能说「暂无记录」（把断路伪装成空态），
+             也不能给「重试」（永远成功不了，是假按钮）—— 只陈述这条链路的边界。 */
+          <Text className={styles.orderUnavailable}>{t('mine.ordersWeappOnly')}</Text>
+        ) : ordersLoading && orders.length === 0 ? (
           <Text className={styles.orderLoading}>…</Text>
         ) : ordersError && orders.length === 0 ? (
           /* 查询失败与「真的没有记录」必须分开：老写法把两者都渲染成 ordersEmpty，
