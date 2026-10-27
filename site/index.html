@@ -15,6 +15,10 @@
         1. 不许出现「唯一 / 仅 / 全部 / 一键 / 无需」这类绝对句；
         2. 不许宣称网页端能做看图提取 —— 模型通道只收文本（LlmMessage.content 是 string）；
         3. 不许宣称网页端有语音转写 —— 转写只在小程序端（AiAssistant 里 !isWeapp 直接 return）。
+      ⚠️ 「进入应用」必须写应用**绝对域名**，不能用 ../：官网已独立发布（自己的子域），
+         在官网的根路径下 ../ 解析到的是官网自己 —— 用户点「进入应用」等于原地刷新。
+         这个域名与 src/services/cloudAuth.ts 的 CLOUD_ENDPOINT 是同一个，verify:site 会两端比对；
+         改域名必须两边一起改（只改一边 = 官网把访客送到一个不存在的站）。
     -->
   </head>
   <body>
@@ -42,7 +46,7 @@
         <nav class="nav-links">
           <a href="#what">能做什么</a>
           <a href="#honest">我们不做什么</a>
-          <a class="btn btn-primary" href="../">进入应用</a>
+          <a class="btn btn-primary" href="https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host/">进入应用</a>
         </nav>
       </div>
     </header>
@@ -58,7 +62,7 @@
               读完如果还要动手 —— 排时间、记一笔、找之前存过的内容 —— 交给 AI 助手接着做。
             </p>
             <div class="hero-actions">
-              <a class="btn btn-primary btn-lg" href="../">进入应用</a>
+              <a class="btn btn-primary btn-lg" href="https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host/">进入应用</a>
               <a class="btn btn-ghost btn-lg" href="#what">看它能做什么</a>
             </div>
             <p class="hero-note">免费档可用；登录后数据跨设备同步，换台电脑打开还是同一份。</p>
@@ -209,7 +213,7 @@
         <div class="wrap">
           <h2>明天早上，试着只读一页</h2>
           <p>不用配置。登录后它先按默认设置给你攒一份，觉得不对再改 —— 推送时间、城市、关注什么，都在偏好设置里。</p>
-          <a class="btn btn-primary btn-lg" href="../">进入应用</a>
+          <a class="btn btn-primary btn-lg" href="https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host/">进入应用</a>
         </div>
       </section>
     </main>
@@ -217,7 +221,7 @@
     <footer>
       <div class="wrap">
         <span>私人晨报助理</span>
-        <a href="../">进入应用</a>
+        <a href="https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host/">进入应用</a>
         <span class="sep">服务条款与隐私政策在应用内「我的」页可查</span>
       </div>
     </footer>

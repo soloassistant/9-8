@@ -57,14 +57,34 @@ const html = stripHtmlComments(stripComments(read('site/index.html')));
 const css = stripComments(read('site/site.css'));
 
 assert('A3 页面引用了自己的样式表', html.includes('href="./site.css"'));
-assert(
-  'A4 没有任何外部资源引用（离线打开、无 CDN 依赖）',
-  !/(?:src|href)\s*=\s*["']https?:\/\//i.test(html) && !/url\(\s*["']?https?:\/\//i.test(css)
-);
+/* ⚠️ 官网已**独立发布**（自己的子域），页面里必然有一个外部链接：「进入应用」指回应用域名。
+   要禁的是外部**资源加载**（会让离线打开和大陆网络都出问题），不是外链导航。 */
+const externalResource =
+  /(?:^|\s)src\s*=\s*["']https?:\/\//i.test(html) ||
+  /<link[^>]+href\s*=\s*["']https?:\/\//i.test(html) ||
+  /url\(\s*["']?https?:\/\//i.test(css);
+assert('A4 没有任何外部资源加载（离线可看、无 CDN 依赖；外链导航不算）', !externalResource);
 assert('A5 没有内联 <script>（静态页，不跑 JS）', !/<script/i.test(html));
+
+/* 应用正式域名只认 cloudAuth.ts 里的 CLOUD_ENDPOINT —— 落地页不许自己再写一份。
+   两处各写一个域名，改一处忘一处 = 官网把访客送到一个不存在的站。 */
+const appUrl = (() => {
+  const m = /const CLOUD_ENDPOINT = '([^']+)'/.exec(read('src/services/cloudAuth.ts'));
+  return m ? m[1].replace(/\/+$/, '') : null;
+})();
+const anchors = [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map((m) => m[1]);
+const externalAnchors = anchors.filter((h) => /^https?:\/\//i.test(h));
+const toApp = externalAnchors.filter((h) => h === `${appUrl}/`);
+
+assert('A6 能从 cloudAuth.ts 取到应用域名（不在这里另写一份）', !!appUrl, `appUrl=${appUrl}`);
 assert(
-  'A6 「进入应用」指向应用根路径（../），不是写死域名',
-  (html.match(/href="\.\.\/"/g) || []).length >= 2
+  `A6b 「进入应用」全部指向 CLOUD_ENDPOINT（外链 ${externalAnchors.length} 个，其中 ${toApp.length} 个正确）`,
+  !!appUrl && toApp.length >= 2 && externalAnchors.length === toApp.length,
+  `appUrl=${appUrl} 其它外链=${externalAnchors.filter((h) => h !== `${appUrl}/`).join(',') || '无'}`
+);
+assert(
+  'A6c 没有残留 href="../"（独立域名下 ../ 解析到官网自己，点了等于原地刷新）',
+  !/href="\s*\.\.\/?\s*"/.test(html)
 );
 assert('A7 有视口声明（手机上不是缩小的桌面页）', /name="viewport"[^>]*width=device-width/.test(html));
 assert('A8 有 description（分享出去不是空白摘要）', /name="description"\s+content="[^"]{20,}"/.test(html));

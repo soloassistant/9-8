@@ -7,6 +7,15 @@
  * 每一条把「已经做对的事」改回「常见的偷懒写法」，`node .tools/verify-site.mjs`
  * 必须由 PASS 变 FAIL。改不红 = 门禁是假绿的。
  */
+import fs from 'node:fs';
+
+/** 应用域名从 cloudAuth.ts 读 —— 变异这里再写死一份，域名换了这条会静默失效（假绿） */
+const APP = (() => {
+  const src = fs.readFileSync(new URL('../src/services/cloudAuth.ts', import.meta.url), 'utf8');
+  const m = /const CLOUD_ENDPOINT = '([^']+)'/.exec(src);
+  return m ? m[1].replace(/\/+$/, '') : 'https://example.invalid';
+})();
+
 export default [
   {
     label: '落地页的 brand 色值自己改了一个（半年后与应用变成两个产品）',
@@ -55,6 +64,20 @@ export default [
     file: '.tools/copy-assets.js',
     from: "const SITE_FILES = ['index.html', 'site.css'];",
     to: "const SITE_FILES = ['index.html'];",
+    cmd: 'node .tools/verify-site.mjs'
+  },
+  {
+    label: '「进入应用」改回相对路径 ../（官网独立域名下它指向官网自己，点了等于原地刷新）',
+    file: 'site/index.html',
+    from: `<a class="btn btn-primary" href="${APP}/">进入应用</a>`,
+    to: '<a class="btn btn-primary" href="../">进入应用</a>',
+    cmd: 'node .tools/verify-site.mjs'
+  },
+  {
+    label: '应用域名换过、落地页还写旧域名（改一处忘一处，访客被送到不存在的站）',
+    file: 'site/index.html',
+    from: `<a href="${APP}/">进入应用</a>`,
+    to: '<a href="https://old-endpoint.app.workbuddy.host/">进入应用</a>',
     cmd: 'node .tools/verify-site.mjs'
   }
 ];

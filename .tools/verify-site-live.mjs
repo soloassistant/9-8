@@ -22,6 +22,13 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 const PROBE = path.join(ROOT, '.tools', 'cdp-probe.mjs');
 
+/** 应用正式域名：与 verify-site 同源（cloudAuth.ts 的 CLOUD_ENDPOINT），不在这里再写一份 */
+const APP_URL = (() => {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'services', 'cloudAuth.ts'), 'utf8');
+  const m = /const CLOUD_ENDPOINT = '([^']+)'/.exec(src);
+  return m ? m[1].replace(/\/+$/, '') : null;
+})();
+
 const CHROME_CANDIDATES = [
   process.env.CHROME_BIN,
   'C:\\Users\\geral\\.agent-browser\\browsers\\chrome-154.0.8037.92\\chrome.exe',
@@ -169,7 +176,11 @@ try {
     `color=${d.navBtnColor} bg=${navBg}`
   );
   assert('L4 按钮背景是渐变（不是被覆盖成纯色）', /gradient/.test(d.navBtnBg || ''), d.navBtnBg);
-  assert('L5 链接指向应用根（../）', d.navBtnHref === '../', `href=${d.navBtnHref}`);
+  assert(
+    'L5 导航「进入应用」指向应用域名（官网独立发布后 ../ 会指向官网自己）',
+    !!APP_URL && d.navBtnHref === `${APP_URL}/`,
+    `href=${d.navBtnHref} 期望=${APP_URL}/`
+  );
   assert('L6 桌面端 hero 是两列（模拟手机可见）', d.phoneVisible === true);
   assert('L7 无横向溢出', d.overflowX <= 0, `overflowX=${d.overflowX}`);
 
