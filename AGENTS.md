@@ -444,7 +444,7 @@ SPA fallback 把 `index.html` 当 JS 返回，报 `Unexpected token '<'`）。
 ### 8.1 诚实性：示例数据与平台能力
 
 - **用户可见的示例/演示数据必须条目级标注，不能只在页级提示**：页级用 `DemoDataHint` + `markDegraded`，条目级用显式徽章（要有底色/边框，不能是一行小灰字）。实例：`src/pages/learnCommunity/index.tsx` 的 `seedPosts()` 三条内置动态带「示例」徽章，且用户发帖后依然保留。
-- **H5 端不具备的能力不得用 mock 伪装成功**：要么真实实现，要么明确提示「仅小程序可用」，且**不得因此消耗用户额度**。实例：`src/pages/briefing/index.tsx` 的 `handleVoiceResult` 在非微信端直接 toast + return，`bumpVoiceUsage()` 不会执行（改动前用 `MOCK_TRANSCRIPTS` 冒充识别结果并扣额度）。
+- **H5 端不具备的能力不得用 mock 伪装成功**：要么真实实现，要么明确提示「仅小程序可用」，且**不得因此消耗用户额度**。实例：`src/components/AiAssistant/index.tsx` 的 `handleVoiceResult` 在非微信端直接 toast + return，`bumpVoiceUsage()` 不会执行（改动前用 `MOCK_TRANSCRIPTS` 冒充识别结果并扣额度）。语音入口随 AI 对话一并从晨报页底部输入条迁到「我的 → AI 助手」，守卫本身未变。
 
 ## 9. 待确认（我无法代为决定）
 
