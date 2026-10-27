@@ -121,8 +121,8 @@ export default [
     cmd: 'node .tools/verify-hotkeys.mjs'
   },
   {
-    label: '「我的 → 键盘快捷键」入口去掉 hasKeyboard 门禁（手机上列一串按不了的键）',
-    file: 'src/pages/mine/index.tsx',
+    label: '「偏好设置 → 键盘快捷键」入口去掉 hasKeyboard 门禁（手机上列一串按不了的键）',
+    file: 'src/pages/prefs/index.tsx',
     from: '      {hasKeyboard() ? (',
     to: '      {true ? (',
     cmd: 'node .tools/verify-hotkeys.mjs'

@@ -8,6 +8,7 @@ import { brandVars, useThemeStore } from '@/store/theme';
 import { useT, useLanguageStore } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { disabledAttr } from '@/utils/buttonDisabled';
+import { hasKeyboard, requestHotkeyHelp } from '@/hooks/useHotkeys';
 import { resolveCityName } from '@/utils/weather';
 import { getTtsPrefs, saveTtsPrefs, TTS_RATE_OPTIONS } from '@/utils/tts';
 import type { TtsPrefs, TtsVoiceMode } from '@/utils/tts';
@@ -179,6 +180,9 @@ function PrefsPage() {
     Taro.showToast({ title: `${cityCopy.savedPrefix}：${canonical}`, icon: 'none', duration: 2200 });
   };
 
+  /** 键盘快捷键面板由 App 持有（全局单例），本页只发一个打开请求 */
+  const handleOpenHotkeys = () => requestHotkeyHelp();
+
   const renderRow = (label: string, valueNode: React.ReactNode, onClick?: () => void) => (
     <View className={styles.row} onClick={onClick}>
       <Text className={styles.rowLabel}>{label}</Text>
@@ -294,6 +298,24 @@ function PrefsPage() {
               </Button>
             </View>
           </View>
+        </View>
+      ) : null}
+      {/* ===== 键盘快捷键（2026-10-27，仅桌面浏览器）=====
+          快捷键是「看不见的功能」：没有可查的入口，等于只服务于写它的人。
+          点开与按 `?` 打开的是同一个面板（面板本体挂在 App，是全局单例，这里只发请求）。
+          ⚠️ 放这里而不是「我的」页：我的页三个入口已经把高度顶到 1.8 屏上限的 99%
+          （640 视口 1427/1440px），再塞一张卡等于给下一个人埋雷；
+          而且「键位表」本来就属于设置项，不属于身份信息。 */}
+      {hasKeyboard() ? (
+        <View className={styles.card}>
+          {renderRow(
+            t('hotkeys.title'),
+            <>
+              <Text className={styles.valueHint}>{t('hotkeys.entryDesc')}</Text>
+              <Text className={styles.arrow}>›</Text>
+            </>,
+            handleOpenHotkeys
+          )}
         </View>
       ) : null}
     </View>

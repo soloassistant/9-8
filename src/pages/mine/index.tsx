@@ -17,7 +17,6 @@ import { kvClear } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { disabledAttr } from '@/utils/buttonDisabled';
-import { hasKeyboard, requestHotkeyHelp } from '@/hooks/useHotkeys';
 import { openExternalPage } from '@/utils/externalLink';
 import { AVATAR_CLOUD_PREFIX, deleteAvatar, resolveAvatarUrl, uploadAvatar } from '@/services/cloudStorage';
 import { SXM_ENTRY_URL } from '@/config/partners';
@@ -1108,12 +1107,6 @@ function MinePage() {
     });
   };
 
-  /**
-   * 键盘快捷键面板（2026-10-27）。面板本体挂在 App（全局单例），这里只发一个请求事件。
-   * 只在真有物理键盘的桌面浏览器上显示 —— 手机上列一串按不了的键帽是噪音。
-   */
-  const handleOpenHotkeys = () => requestHotkeyHelp();
-
   const renderRow = (label: string, valueNode: React.ReactNode, onClick?: () => void) => (
     <View className={styles.row} onClick={onClick}>
       <Text className={styles.rowLabel}>{label}</Text>
@@ -1328,21 +1321,6 @@ function MinePage() {
           </View>
         </View>
       </View>
-
-      {/* ===== 键盘快捷键（2026-10-27，仅桌面浏览器）=====
-          快捷键是「看不见的功能」：没有可查的入口，等于只服务于写它的人。
-          点开与按 `?` 打开的是同一个面板。 */}
-      {hasKeyboard() ? (
-        <View className={styles.card} onClick={handleOpenHotkeys}>
-          <View className={styles.row}>
-            <Text className={styles.rowLabel}>{t('hotkeys.title')}</Text>
-            <View className={styles.rowValue}>
-              <Text className={styles.valueHint}>{t('hotkeys.entryDesc')}</Text>
-              <Text className={styles.arrow}>›</Text>
-            </View>
-          </View>
-        </View>
-      ) : null}
 
       {/* ===== 偏好设置入口（2026-10-26）=====
           原 366px 通用设置卡（称呼 / 推送时间 / 提醒 / 城市 / 语速 / 音色，共 6 行）

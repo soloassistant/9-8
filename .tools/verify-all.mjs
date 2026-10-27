@@ -58,7 +58,8 @@ export function isBad(code, fails) {
 const BROWSER = new Map([
   ['verify:layout', 'cdp-probe 驱动真 Chrome 量布局'],
   ['verify:visual', 'cdp-probe 驱动真 Chrome 跑视觉巡检'],
-  ['verify:compress', 'cdp-probe 驱动真 Chrome 验头像压缩（canvas 位图，jsdom 测不了）']
+  ['verify:compress', 'cdp-probe 驱动真 Chrome 验头像压缩（canvas 位图，jsdom 测不了）'],
+  ['verify:hotkeys-live', 'cdp-probe 驱动真 Chrome 在 dist 上按一遍快捷键（合成 keydown + 真实事件路径）']
 ]);
 // 会临时改写源码，必须排在所有只读门禁之后（否则后面的门禁验的是被变异过的代码）。
 const MUTATING = new Map([['verify:mutation', '临时改写源码跑变异测试']]);
@@ -105,6 +106,7 @@ const CI_EXEMPT = new Map([
   ['verify:layout', '需真 Chrome，CI 不跑浏览器门禁'],
   ['verify:visual', '同上'],
   ['verify:compress', '同上（真 Chrome 验 canvas 压缩）'],
+  ['verify:hotkeys-live', '同上（真 Chrome 在 dist 上按快捷键）'],
   ['verify:boards', '需外网（9 个热榜源），CI 明确不跑']
 ]);
 

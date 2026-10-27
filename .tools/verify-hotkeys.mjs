@@ -314,14 +314,19 @@ assert('E20 收件箱接上了 ⌘Enter（提取模式→AI 提取，工作模�
   /useSubmitHotkey\(\(\) => \{/.test(inboxSrc)
   && /if \(mode === 'extract'\) void handleExtract\(\);/.test(inboxSrc));
 
+const prefsSrc = read('src/pages/prefs/index.tsx');
+assert('E21 「偏好设置 → 键盘快捷键」入口受 hasKeyboard() 门禁（手机上不列按不了的键）',
+  prefsSrc.includes('{hasKeyboard() ? (') && prefsSrc.includes('requestHotkeyHelp()'));
+/* 我的页在 640 视口下已经 1427px / 上限 1440px —— 只剩 13px。
+   入口放那里会让下一条正当的改动直接撞上限（假红），所以它属于偏好设置页。 */
 const mineSrc = read('src/pages/mine/index.tsx');
-assert('E21 「我的 → 键盘快捷键」入口受 hasKeyboard() 门禁（手机上不列按不了的键）',
-  mineSrc.includes('{hasKeyboard() ? (') && mineSrc.includes('requestHotkeyHelp()'));
+assert('E22 我的页不再塞这个入口（三个入口已顶到高度上限的 99%，再塞一张卡是埋雷）',
+  !mineSrc.includes('requestHotkeyHelp'));
 
 const helpSrc = read('src/components/HotkeyHelp/index.tsx');
-assert('E22 帮助面板的键位来自 HOTKEYS 表，不是手抄一份',
+assert('E23 帮助面板的键位来自 HOTKEYS 表，不是手抄一份',
   helpSrc.includes('HOTKEYS.filter') && !/['"]g b['"]/.test(helpSrc));
-assert('E23 面板可被 Esc 关闭（走层栈，不自己再写一套监听）',
+assert('E24 面板可被 Esc 关闭（走层栈，不自己再写一套监听）',
   /useEscapeKey\(onClose, open\)/.test(helpSrc));
 
 /* ================================================================== */

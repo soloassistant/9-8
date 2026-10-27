@@ -34,6 +34,7 @@
     "verify:honesty": "node .tools/verify-honesty-sample.js",
     "verify:ai-surface": "node .tools/verify-ai-surface.js",
     "verify:hotkeys": "node .tools/verify-hotkeys.mjs",
+    "verify:hotkeys-live": "node .tools/verify-hotkeys-live.mjs",
     "verify:todo": "node .tools/verify-todo-status.js",
     "verify:crash": "node .tools/verify-crash-report.js",
     "verify:pref-select": "node .tools/verify-pref-select.js",
