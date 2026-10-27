@@ -7,6 +7,7 @@ import { brandVars, useThemeStore } from '@/store/theme';
 import { useT, useLanguageStore } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiCreateOrder, type CreateOrderPayload } from '@/services/api';
+import { ordersListOwn, type CloudOrder } from '@/services/cloudOrders';
 import { getPayChannel, getChannelAuth, invokePayment } from '@/services/pay';
 import type { PayChannel, PayOrder } from '@/types';
 import { disabledAttr } from '@/utils/buttonDisabled';
@@ -44,35 +45,9 @@ import styles from '../mine/index.module.scss';
  *    锁价必须在 `payRes.success` 分支内、对账兜底定时器必须在卸载时清理，
  *    这两条都是踩过坑的约束（见下方各处注释），拆页时不许"顺手简化"。
  */
-interface OrderSummary {
-  orderId: string;
-  channel: PayChannel;
-  planId: string;
-  price: number;
-  months: number;
-  status: string;
-  payStatus?: string;
-  refundStatus: string;
-  createTime: string;
-  paidTime?: string | null;
-}
 
 /** 危险操作确认按钮统一色值（设计文档第六章 B） */
 const DANGER_COLOR = '#E85D2A';
-
-/**
- * 订单查询通道是否可用。
- *
- * `ordersList` 是微信云函数（cloudfunctions/ordersList），只有小程序端的 `Taro.cloud`
- * 能调；H5 侧根本没有这个对象。所以这条链路在 H5 上**不是「网络不好」，是压根不存在**——
- * 之前它被当成普通失败处理，页面上出现一个「重试」按钮，用户点多少次都不会成功。
- *
- * 判据收成一个函数而不是散在 JSX 里：门禁要能框住「不可用时不许渲染重试按钮」这一条。
- */
-function hasOrderQueryChannel(): boolean {
-  const cloud = (Taro as unknown as { cloud?: { callFunction?: unknown } }).cloud;
-  return typeof cloud?.callFunction === 'function';
-}
 
 /* ---------------- 续费提醒偏好（本机偏好，刻意不进 cloudSync） ---------------- */
 const RENEW_REMIND_KEY = 'mb_renew_remind';
@@ -129,11 +104,13 @@ const RENEW_STATUS_KEY: Record<RenewalCopyKey, LangKey> = {
   statusExpired: 'mine.renewStatusExpired'
 };
 
-const CHANNEL_ICON: Record<PayChannel, string> = {
+/** 通道图标：键是库里存的通道名。未知通道用通用图标兜底，不猜也不崩。 */
+const CHANNEL_ICON: Record<string, string> = {
   wechat: '💬',
   alipay: '💰',
   douyin: '🎵'
 };
+const CHANNEL_ICON_FALLBACK = '🧾';
 
 function getOrderStatusLabel(status: string, refundStatus: string): LangKey {
   if (refundStatus === 'refunded') return 'mine.orderStatusRefunded';
@@ -179,9 +156,11 @@ function MembershipPage() {
   const [locked, setLocked] = useState<LockedPriceInfo | null>(null);
   const [notices, setNotices] = useState<PriceChangeNotice[]>([]);
   const [remindOn, setRemindOn] = useState(true);
-  const [orders, setOrders] = useState<OrderSummary[]>([]);
+  const [orders, setOrders] = useState<CloudOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState(false);
+  /** 未登录：既不是「没有订单」也不是「加载失败」，第三种状态 */
+  const [ordersNoAuth, setOrdersNoAuth] = useState(false);
   const [refunding, setRefunding] = useState(false);
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
   const [readStreak, setReadStreak] = useState(0);
@@ -200,36 +179,33 @@ function MembershipPage() {
     []
   );
 
-  /* ---------------- 订阅记录 ---------------- */
-  // 没有查询通道时不发请求、也不置失败态：这里不是错误，是「这个端没有这条链路」。
-  const ordersSupported = hasOrderQueryChannel();
+  /* ---------------- 订阅记录（WorkBuddy 云数据库 orders 表） ---------------- */
+  // 退款要服务端调支付通道的退款接口（云函数 refundOrder）。网页端没有这条通道，
+  // 所以不渲染退款按钮 —— 和「订阅记录」同一条原则：做不到的入口一个都不给。
+  const refundAvailable = (() => {
+    const cloud = (Taro as unknown as { cloud?: { callFunction?: unknown } }).cloud;
+    return typeof cloud?.callFunction === 'function';
+  })();
 
   const loadOrders = useCallback(async () => {
-    const cloud = (
-      Taro as unknown as {
-        cloud?: { callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown> };
-      }
-    ).cloud;
-    // 无查询通道（H5）：不查、不置失败态、不给重试 —— 这不是网络问题，是这个端没有这条链路。
-    // 旧写法在这里 setOrdersError(true)，渲染出一个永远点不成功的「重试」按钮。
-    if (!cloud?.callFunction) return;
     setOrdersLoading(true);
     setOrdersError(false);
-    try {
-      const res = await cloud.callFunction({ name: 'ordersList', data: { limit: 20 } });
-      const r = res as { result?: { ok?: boolean; orders?: OrderSummary[] } } | null;
-      if (r?.result?.ok && Array.isArray(r.result.orders)) {
-        setOrders(r.result.orders);
-      } else {
-        // 云函数明确回 ok:false = 服务端拒绝（不是网络抖动），同样算失败
-        setOrdersError(true);
-      }
-    } catch (e) {
-      console.warn('[MembershipPage] loadOrders failed:', e);
-      setOrdersError(true);
-    } finally {
-      setOrdersLoading(false);
+    setOrdersNoAuth(false);
+    const res = await ordersListOwn(20);
+    setOrdersLoading(false);
+    if (res.ok) {
+      setOrders(res.orders);
+      return;
     }
+    // 三态而不是两态：没登录不该给「重试」（重试也不会变成已登录），
+    // 后端故障才值得重试。旧实现在 H5 把「这条链路根本不存在」也算成失败，
+    // 于是那个「重试」按钮点多少次都不会成功。
+    if (res.reason === 'no-session') {
+      setOrders([]);
+      setOrdersNoAuth(true);
+      return;
+    }
+    setOrdersError(true);
   }, []);
 
   // 每次进页面重算本地数据（别的页面可能刚发生过 AI 调用/语音）+ 重新拉账单
@@ -304,8 +280,9 @@ function MembershipPage() {
 
     const channel = getPayChannel();
     if (!channel) {
-      // H5 端无真实支付能力：提示用户到小程序端
-      Taro.showToast({ title: '请在微信/支付宝/抖音小程序中打开', icon: 'none', duration: 2500 });
+      // 网页端没有在线支付通道（getPayChannel 恒 null）。不再把人往小程序赶 ——
+      // 小程序这条线不做了，指过去等于让用户去一个不存在的地方。
+      Taro.showToast({ title: t('mine.payH5Unavailable'), icon: 'none', duration: 3000 });
       return;
     }
 
@@ -400,7 +377,7 @@ function MembershipPage() {
   };
 
   const handleRefund = useCallback(
-    async (orderId: string, channel: PayChannel) => {
+    async (orderId: string, channel: string) => {
       if (refunding) return;
       // 抖音暂不支持自动退款 → 提示联系客服
       if (channel === 'douyin') {
@@ -642,12 +619,12 @@ function MembershipPage() {
       {/* ===== 订阅记录 ===== */}
       <View className={styles.card}>
         <Text className={styles.cardTitle}>{t('mine.ordersTitle')}</Text>
-        {!ordersSupported ? (
-          /* H5：没有订单查询通道。这里既不能说「暂无记录」（把断路伪装成空态），
-             也不能给「重试」（永远成功不了，是假按钮）—— 只陈述这条链路的边界。 */
-          <Text className={styles.orderUnavailable}>{t('mine.ordersWeappOnly')}</Text>
-        ) : ordersLoading && orders.length === 0 ? (
+        {ordersLoading && orders.length === 0 ? (
           <Text className={styles.orderLoading}>…</Text>
+        ) : ordersNoAuth ? (
+          /* 未登录：既不是「没有订单」也不是「加载失败」。不给重试（重试不会让人
+             变成已登录），也不说「暂无记录」（那是在替用户断言他没买过）。 */
+          <Text className={styles.orderUnavailable}>{t('mine.ordersNeedLogin')}</Text>
         ) : ordersError && orders.length === 0 ? (
           /* 查询失败与「真的没有记录」必须分开：老写法把两者都渲染成 ordersEmpty，
              已付费用户查不到订单时会看到「暂无订阅记录」——这是把故障伪装成空态。
@@ -663,22 +640,26 @@ function MembershipPage() {
         ) : (
           <ScrollView scrollY className={styles.orderList}>
             {orders.map((o) => {
-              // channel 是云函数返回的不可信输入：空串时 o.channel[0] 为 undefined，
+              // channel 来自云端行、是不可信输入：空串时 ch[0] 为 undefined，
               // .toUpperCase() 直接抛错整页崩。空值/未知值都回落到原始串展示。
               const ch = String(o.channel || '');
               const channelLabel = ch
                 ? t(`mine.orderChannel${ch[0].toUpperCase()}${ch.slice(1)}` as LangKey)
                 : o.channel || '—';
+              const channelIcon = CHANNEL_ICON[ch] || CHANNEL_ICON_FALLBACK;
               const statusLabel = getOrderStatusLabel(o.status, o.refundStatus);
               const statusColor = getOrderStatusColor(o.status, o.refundStatus);
               const canRefund =
-                o.status === 'paid' && o.refundStatus !== 'refunded' && o.refundStatus !== 'refunding';
+                refundAvailable &&
+                o.status === 'paid' &&
+                o.refundStatus !== 'refunded' &&
+                o.refundStatus !== 'refunding';
               const date = o.createTime ? new Date(o.createTime).toISOString().slice(0, 10) : '';
               return (
                 <View className={styles.orderItem} key={o.orderId}>
                   <View className={styles.orderHead}>
                     <Text className={styles.orderChannelTag}>
-                      {CHANNEL_ICON[o.channel]} {channelLabel}
+                      {channelIcon} {channelLabel}
                     </Text>
                     <Text className={styles.orderStatus} style={{ color: statusColor }}>
                       {statusLabel}

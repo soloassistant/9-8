@@ -305,44 +305,57 @@ try {
   ok('J 组读取失败: ' + e.message, false);
 }
 
-// ============ I. 订单失败态不再伪装成空态 ============
+// ============ I. 订阅记录：三态分明 + 云端通道（2026-10-27 改走 WorkBuddy 云） ============
 try {
-  // 2026-10-27：订阅记录随交易区搬到「会员中心」页，断言锚点跟着搬家。
   const src = read('src/pages/membership/index.tsx');
-  // I1 收窄到两条失败路径分别置位。原判据 /setOrdersError\(true\)/ 是符号级——
-  // 2026-10-24 变异验证实测漏报：把 ok:false 分支的置位改掉、只留 catch 分支，
-  // 门禁仍全绿。服务端明确拒绝（ok:false）与网络异常（catch）是两条独立失败路径，
-  // 少任何一条，「已付费用户查不到订单」都会重新伪装成「暂无支付记录」。
-  // [^{}]* 保证不跨出 else 块边界——用 [\s\S]{0,300}? 会 backtrack 到 catch 里的
-  // 置位，等于没查（第一版就这么漏的）。
-  ok('I1a ok:false 拒绝分支置 ordersError（服务端明确失败 ≠ 空态）',
-    /Array\.isArray\(r\.result\.orders\)[\s\S]{0,300}?else\s*\{[^{}]*setOrdersError\(true\)/.test(src));
-  ok('I1b catch 异常分支置 ordersError（网络抖动 ≠ 空态）',
-    /loadOrders failed[\s\S]{0,120}?setOrdersError\(true\)/.test(src));
-  ok('I2 渲染分支区分 ordersError 与 orders.length===0', /ordersError && orders\.length === 0/.test(src));
   const lang = read('src/store/language.ts');
-  ok('I3 中英文都有 ordersError 与 common.retry 键',
-    (lang.match(/'mine\.ordersError':/g) || []).length === 2 && (lang.match(/'common\.retry':/g) || []).length === 2);
+  const svc = read('src/services/cloudOrders.ts');
 
-  /* 2026-10-27：H5 没有 Taro.cloud、ordersList 是微信云函数 ⇒ 这条通道在网页端
-     根本不存在。旧写法把它当普通失败（setOrdersError(true)），于是页面上出现一个
-     **重试按钮，点多少次都不会成功** —— 比空态更糟，因为它暗示「再试一次就行」。
-     判据必须框到 loadOrders 的函数体：全文搜 setOrdersError 会命中两条合法的失败路径。 */
+  ok('I2 渲染分支区分 ordersError 与 orders.length===0', /ordersError && orders\.length === 0/.test(src));
+  ok('I3 中英文都有 ordersError / common.retry / ordersNeedLogin 键',
+    (lang.match(/'mine\.ordersError':/g) || []).length === 2 &&
+    (lang.match(/'common\.retry':/g) || []).length === 2 &&
+    (lang.match(/'mine\.ordersNeedLogin':/g) || []).length === 2);
+
+  /* 订单从微信云函数改成 WorkBuddy 云数据库 `orders` 表。判据要框住「谁在查」：
+     光判「文件里出现 ordersListOwn」（import 也算）是假绿，必须收窄到 loadOrders 的函数体。
+     ⚠️ 必须剥注释：函数体里的说明文字照抄了 `setOrdersError(true)` 这个符号本身，
+     不剥会把注释里的字样算成一次真实调用（第一次写这条断言就是这么误红的）。 */
   const loadAt = src.indexOf('const loadOrders');
   const loadRaw = loadAt >= 0 ? src.slice(loadAt, src.indexOf('}, []);', loadAt)) : '';
-  // ⚠️ 必须剥注释：函数体里的说明文字照抄了 `setOrdersError(true)` 这个符号本身
-  // （在解释「旧写法为什么错」），不剥就会把注释里的字样算成一次真实调用 ——
-  // 第一次写这条断言就是这么误红的（3 次里 1 次在注释里）。
   const loadBlock = loadRaw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  const guardAt = loadBlock.indexOf('if (!cloud?.callFunction) return;');
-  const errSetters = [...loadBlock.matchAll(/setOrdersError\(true\)/g)].map((m) => m.index);
-  ok('I4a 无查询通道时直接 return（不查询、不置失败态）', guardAt >= 0, `guardAt=${guardAt}`);
-  ok('I4b 置 ordersError 的只有 ok:false 与 catch 两条路径，且都在无通道判断之后',
-    errSetters.length === 2 && guardAt >= 0 && Math.min(...errSetters) > guardAt,
-    `setters=${errSetters.length} @${errSetters.join(',')} guard@${guardAt}`);
-  ok('I5 无通道分支渲染「只在小程序端可查」静态说明（不能回落到「暂无支付记录」）',
-    /\{!ordersSupported \?[\s\S]{0,300}?mine\.ordersWeappOnly/.test(src));
-  ok('I6 中英文都有 ordersWeappOnly 文案键', (lang.match(/'mine\.ordersWeappOnly':/g) || []).length === 2);
+  ok('I1 loadOrders 函数体可定位', loadBlock.length > 0);
+  ok('I4 订阅记录从云数据库读（ordersListOwn），不再调微信云函数 ordersList',
+    /ordersListOwn\(/.test(loadBlock) && !/ordersList['"]/.test(loadBlock));
+
+  /* 三态：ok / no-session / db-error。「没登录」不是故障，不能给重试按钮。 */
+  const noAuthAt = loadBlock.indexOf("res.reason === 'no-session'");
+  const errAt = loadBlock.indexOf('setOrdersError(true)');
+  ok('I4a 未登录走独立分支（no-session），不当成加载失败',
+    noAuthAt >= 0 && /no-session[\s\S]{0,220}?setOrdersNoAuth\(true\)/.test(loadBlock));
+  ok('I4b 置 ordersError 的只有 db-error 一条路径，且在未登录判断之后',
+    errAt > noAuthAt, `noAuth@${noAuthAt} err@${errAt}`);
+
+  const renderAt = src.indexOf('{/* ===== 订阅记录 ===== */}');
+  const renderBlock = renderAt >= 0 ? src.slice(renderAt, src.indexOf('{/* B-02', renderAt)) : '';
+  ok('I5 未登录态优先于失败态渲染，并用独立文案（不回落「暂无支付记录」）',
+    /ordersNoAuth \?[\s\S]{0,320}?mine\.ordersNeedLogin/.test(renderBlock));
+  ok('I5b 未登录分支里没有「重试」（重试不会让人变成已登录）',
+    !/ordersNoAuth[\s\S]{0,320}?orderRetry/.test(renderBlock));
+
+  /* 做不到的入口一个都不给：退款要服务端调支付通道退款接口，网页端没有这条通道。 */
+  ok('I6 退款按钮受 refundAvailable 约束（网页端不渲染退款）',
+    /const canRefund =\s*refundAvailable/.test(src));
+
+  /* 服务层契约：owner_id 由数据库填，客户端既不写也不读。 */
+  const cols = /const ORDER_COLUMNS = '([^']*)'/.exec(svc);
+  ok('I7a 查询列里没有 owner_id（客户端不该拿到 owner 字段）',
+    Boolean(cols) && cols[1].length > 20 && !cols[1].includes('owner_id'));
+  ok('I7b 写入载荷里没有 owner_id（由 DEFAULT auth.uid() 服务端填充）', !/owner_id\s*:/.test(svc));
+  ok('I8 未登录直接返回 no-session（不把未登录算成后端故障）',
+    /if \(!session\) return \{ ok: false, reason: 'no-session' \}/.test(svc));
+  ok('I9 金额按分→元换算且 NaN 有兜底（否则界面出现「¥NaN」）',
+    /Number\.isFinite\(cents\)/.test(svc) && /\/ 100/.test(svc));
 } catch (e) {
   ok('I 组读取失败: ' + e.message, false);
 }

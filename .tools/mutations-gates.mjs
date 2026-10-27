@@ -265,22 +265,42 @@ export default [
     cmd: 'node .tools/verify-contrast-strong.mjs'
   },
   {
-    // 行为后果：H5 没有 Taro.cloud，这条通道压根不存在；把它当普通失败处理，
-    // 页面上就出现一个点多少次都不会成功的「重试」——比空态更误导。
+    // 行为后果：未登录被当成「加载失败」，于是未登录访客看到「重试」按钮 ——
+    // 而重试不会让人变成已登录，这就是一个永远不成功的假按钮。
     // 哪条变红：I4a。
-    label: 'H5 无查询通道时又置 ordersError（重试按钮复活）',
+    label: '未登录也当加载失败（重试按钮出现在未登录态）',
     file: 'src/pages/membership/index.tsx',
-    from: 'if (!cloud?.callFunction) return;',
-    to: 'if (!cloud?.callFunction) { setOrdersError(true); return; }',
+    from: 'setOrdersNoAuth(true);',
+    to: 'setOrdersError(true);',
     cmd: 'node .tools/verify-contrast-strong.mjs'
   },
   {
-    // 行为后果：无通道分支没了 ⇒ 回落到「暂无支付记录」，把断路伪装成空态。
-    // 哪条变红：I5。
-    label: '删掉 H5 的「只在小程序端可查」说明（回落成「暂无支付记录」）',
+    // 行为后果：订阅记录退回微信云函数查询 —— H5 没有 Taro.cloud，这条路在网页端
+    // 永远不通，页面又变回「加载失败 + 重试」的死循环。
+    // 哪条变红：I4。
+    label: '订阅记录退回微信云函数查询（H5 上永远失败）',
     file: 'src/pages/membership/index.tsx',
-    from: '{!ordersSupported ? (',
-    to: '{false ? (',
+    from: 'const res = await ordersListOwn(20);',
+    to: 'const res = { ok: true as const, orders: [] };',
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    // 行为后果：客户端自己传 owner_id —— 轻则被 RLS 拒绝，重则（策略写错时）
+    // 把订单写到别人名下。owner 必须只由 DEFAULT auth.uid() 决定。
+    // 哪条变红：I7b。
+    label: '写入订单时客户端自己传 owner_id',
+    file: 'src/services/cloudOrders.ts',
+    from: 'const row: Record<string, unknown> = {',
+    to: "const row: Record<string, unknown> = { owner_id: '',",
+    cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    // 行为后果：网页端也渲染「退款」按钮，点下去只会弹「退款失败」（没有退款通道）。
+    // 哪条变红：I6。
+    label: '退款按钮不再受通道约束（网页端出现点了必失败的退款）',
+    file: 'src/pages/membership/index.tsx',
+    from: 'refundAvailable &&',
+    to: 'true &&',
     cmd: 'node .tools/verify-contrast-strong.mjs'
   }
 ];
