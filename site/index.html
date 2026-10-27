@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>私人晨报助理 — 今天的事，晨报先知道</title>
+    <meta
+      name="description"
+      content="每天早上把天气、日程、待办和你关注的信息收成一份；剩下的交给 AI 助手接着做。"
+    />
+    <meta name="theme-color" content="#fff3ec" />
+    <link rel="stylesheet" href="./site.css" />
+    <!--
+      ⚠️ 这份文案只写**代码里真的有的能力**。三条自查线（verify:site 会断言）：
+        1. 不许出现「唯一 / 仅 / 全部 / 一键 / 无需」这类绝对句；
+        2. 不许宣称网页端能做看图提取 —— 模型通道只收文本（LlmMessage.content 是 string）；
+        3. 不许宣称网页端有语音转写 —— 转写只在小程序端（AiAssistant 里 !isWeapp 直接 return）。
+    -->
+  </head>
+  <body>
+    <header class="nav">
+      <div class="wrap">
+        <span class="logo">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <defs>
+              <linearGradient id="sun" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#ff9a76" />
+                <stop offset="1" stop-color="#c7371a" />
+              </linearGradient>
+            </defs>
+            <circle cx="16" cy="18" r="7" fill="url(#sun)" />
+            <path d="M4 26h24" stroke="#c7371a" stroke-width="2.4" stroke-linecap="round" />
+            <path
+              d="M16 4v3M6.5 8.5l2 2M25.5 8.5l-2 2"
+              stroke="#ff7a45"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+          私人晨报助理
+        </span>
+        <nav class="nav-links">
+          <a href="#what">能做什么</a>
+          <a href="#honest">我们不做什么</a>
+          <a class="btn btn-primary" href="../">进入应用</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="wrap">
+          <div>
+            <span class="eyebrow">☀ 每个早上，一份就够</span>
+            <h1>今天的事，<br /><span class="accent">晨报先知道</span></h1>
+            <p class="lead">
+              天气、日程、待办，加上你关注的那几个信息源，收在一屏里读完。
+              读完如果还要动手 —— 排时间、记一笔、找之前存过的内容 —— 交给 AI 助手接着做。
+            </p>
+            <div class="hero-actions">
+              <a class="btn btn-primary btn-lg" href="../">进入应用</a>
+              <a class="btn btn-ghost btn-lg" href="#what">看它能做什么</a>
+            </div>
+            <p class="hero-note">免费档可用；登录后数据跨设备同步，换台电脑打开还是同一份。</p>
+          </div>
+
+          <div class="phone" aria-hidden="true">
+            <div class="phone-screen">
+              <div class="phone-date">10月27日 星期二 · 晴</div>
+              <div class="phone-title">早上好</div>
+
+              <div class="phone-card phone-weather">
+                <span>杭州 · 多云转晴</span>
+                <b>21°</b>
+              </div>
+
+              <div class="phone-card">
+                <div class="phone-row"><i></i><span>09:30 产品评审（3 号会议室）</span></div>
+                <div class="phone-row"><i></i><span>14:00 和设计师对一下改版</span></div>
+                <div class="phone-row"><i></i><span>记得把周报发出去</span></div>
+              </div>
+
+              <div class="phone-card">
+                <div class="phone-row"><i></i><span>你关注的信息源有 6 条更新</span></div>
+                <div class="phone-row"><i></i><span>其中 2 条和你手上的项目有关</span></div>
+              </div>
+
+              <div class="phone-ai">💬 把下午那两个会挪到一起</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="what">
+        <div class="wrap">
+          <div class="section-head">
+            <span class="kicker">核心</span>
+            <h2>三件事，每天都会用到</h2>
+            <p>不追求功能列表的长度。这三件做扎实，早上的十分钟就省下来了。</p>
+          </div>
+
+          <div class="cards">
+            <article class="card">
+              <span class="card-icon">🌅</span>
+              <h3>一份读完的晨报</h3>
+              <p>
+                天气、今日日程、待办，加上你选的信息源，按「今天要不要动手」排好顺序。
+                数据拉不到的时候会明确标出是示例，不会拿编的内容把版面填满。
+              </p>
+              <span class="meta">信息源来自真实 RSS，失败时降级并标注</span>
+            </article>
+
+            <article class="card">
+              <span class="card-icon">📥</span>
+              <h3>粘贴一段话，变成日程</h3>
+              <p>
+                会议通知、聊天记录、邮件正文，粘进收件箱，AI 拆成日程和待办。
+                <b>拆完先给你逐条确认</b>，你改完再入库 —— 不会直接写进你的日历。
+              </p>
+              <span class="meta">支持文字粘贴；网页端不做看图提取</span>
+            </article>
+
+            <article class="card">
+              <span class="card-icon">💬</span>
+              <h3>说人话就能改</h3>
+              <p>
+                「把下午两个会挪到一起」「上周记的那笔咖啡多少钱」「帮我找之前存的那篇文章」——
+                改日程、查账本、翻本地内容，一句话就够。不确定的会说不确定。
+              </p>
+              <span class="meta">对话走真实模型通道，不是预置话术</span>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <div class="section-head">
+            <span class="kicker">还有</span>
+            <h2>需要时才想起的那些</h2>
+          </div>
+
+          <div class="minor">
+            <div class="minor-item">
+              <span>🔥</span>
+              <div>
+                <strong>热点</strong>
+                <span>多个热榜源聚合，标出「最近浏览」，不重复推你已经看过的。</span>
+              </div>
+            </div>
+            <div class="minor-item">
+              <span>📅</span>
+              <div>
+                <strong>日历</strong>
+                <span>日视图与周视图，新建日程前先查冲突，撞时间会告诉你撞了哪个。</span>
+              </div>
+            </div>
+            <div class="minor-item">
+              <span>🎧</span>
+              <div>
+                <strong>口语跟读</strong>
+                <span>跟读一句，看自己的发音差在哪。英语、日语、韩语各有一套练习。</span>
+              </div>
+            </div>
+            <div class="minor-item">
+              <span>🧾</span>
+              <div>
+                <strong>账本</strong>
+                <span>随手记一笔，按月汇总，能导出。数据存在你自己账号下。</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="honest" class="honest">
+        <div class="wrap">
+          <div class="section-head">
+            <span class="kicker">边界</span>
+            <h2>我们不做什么</h2>
+            <p>
+              一个 AI 产品最该说清楚的不是它能做什么，而是它做不到什么时怎么表现。
+              下面四条是写进代码里的，不是宣传语。
+            </p>
+          </div>
+
+          <ul class="honest-list">
+            <li>
+              <b>不编数据。</b>信息源拉取失败、模型不可用时，界面会明确标出这是示例数据，
+              不会拿内容把版面填满，让你以为一切正常。
+            </li>
+            <li>
+              <b>不假装看懂图片。</b>网页端的模型通道只收文本，所以不做截图提取。
+              需要读图时会直接说明不支持，而不是给你一段像模像样的错误结果。
+            </li>
+            <li>
+              <b>语音只在小程序端。</b>网页端没有转写能力，也就不会消耗你的语音额度 ——
+              按钮不出现，比出现后点了没反应更诚实。
+            </li>
+            <li>
+              <b>额度是真的。</b>免费档每月 20 条语音，订阅后不限次；用掉多少、
+              还剩多少，页面上直接看得到。
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="cta">
+        <div class="wrap">
+          <h2>明天早上，试着只读一页</h2>
+          <p>不用配置。登录后它先按默认设置给你攒一份，觉得不对再改 —— 推送时间、城市、关注什么，都在偏好设置里。</p>
+          <a class="btn btn-primary btn-lg" href="../">进入应用</a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span>私人晨报助理</span>
+        <a href="../">进入应用</a>
+        <span class="sep">服务条款与隐私政策在应用内「我的」页可查</span>
+      </div>
+    </footer>
+  </body>
+</html>

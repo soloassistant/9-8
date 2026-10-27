@@ -67,7 +67,8 @@
   background: var(--brand-strong, $color-primary-strong); // 无内联时的兜底，同样 5.26
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 4rpx 16rpx rgba(99, 102, 241, 0.3);
+  // 阴影跟强调色走（原来还是紫的，底色已换成 accent，阴影留在原地会发紫）
+  box-shadow: 0 4rpx 16rpx $color-emphasis-shadow;
 }
 
 .langDot {
@@ -82,12 +83,12 @@
   align-items: center;
   margin: $spacing-sm $page-padding 0;
   padding: $spacing-lg 0;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.06) 50%, rgba(236, 72, 153, 0.04) 100%);
+  background: $color-accent-wash;
   border-radius: $radius-lg;
   box-shadow:
     0 2rpx 12rpx rgba(0, 0, 0, 0.04),
-    0 8rpx 24rpx rgba(99, 102, 241, 0.08);
-  border: 1rpx solid rgba(99, 102, 241, 0.1);
+    0 8rpx 24rpx rgba(255, 122, 69, 0.1);
+  border: 1rpx solid $color-accent-border;
 }
 
 .statItem {

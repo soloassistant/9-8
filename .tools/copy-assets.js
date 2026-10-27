@@ -114,6 +114,51 @@ function copySxm() {
 }
 copySxm();
 
+// ---------------------------------------------------------------------------
+// 官网落地页：site/ → dist/site/（2026-10-27）
+// ---------------------------------------------------------------------------
+// 独立静态页，不进 Taro bundle：落地页要能被单独分享、能被搜索引擎直接读到，
+// 而且不该因为改了一句文案就让应用包体积 +N KB。
+// 白名单同样是显式的 —— dist/ 是公开发布目录，多一个文件就多一份上线风险。
+const SITE_SRC = path.resolve(root, 'site');
+const SITE_OUT = path.join(dist, 'site');
+const SITE_FILES = ['index.html', 'site.css'];
+
+function copySite() {
+  if (!fs.existsSync(SITE_SRC)) {
+    // 不 FATAL：本地开发/别人的分支未必有 site/。但必须让人看见，否则发布后 /site/ 是 404。
+    console.log('[copy-assets] 跳过官网落地页：' + SITE_SRC + ' 不存在');
+    return;
+  }
+  fs.mkdirSync(SITE_OUT, { recursive: true });
+  const missing = [];
+  let n = 0;
+  let bytes = 0;
+  for (const f of SITE_FILES) {
+    const from = path.join(SITE_SRC, f);
+    if (!fs.existsSync(from)) {
+      missing.push(f);
+      continue;
+    }
+    fs.copyFileSync(from, path.join(SITE_OUT, f));
+    n++;
+    bytes += fs.statSync(from).size;
+  }
+  if (missing.length) {
+    // 这里必须 FATAL：index.html 在但 site.css 缺了，落地页会变成**没有样式的裸 HTML**，
+    // 比 404 更糟 —— 用户会以为这是产品的真实长相。
+    console.error(`[copy-assets] FATAL: site/ 缺白名单文件：${missing.join(', ')}`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`[copy-assets] site -> ${SITE_OUT}: ${n} files, ${bytes} B`);
+  const stray = fs.readdirSync(SITE_SRC).filter((f) => !SITE_FILES.includes(f));
+  if (stray.length) {
+    console.log(`[copy-assets] site 未纳入白名单（不会上线，符合预期）: ${stray.join(', ')}`);
+  }
+}
+copySite();
+
 /**
  * 兜底数据缺失时补一份 —— best-effort，任何失败都只告警。
  * 只在"文件不存在"时才发起请求，所以正常重复构建不会每次都打网络。

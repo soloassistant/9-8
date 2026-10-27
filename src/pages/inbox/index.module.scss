@@ -471,16 +471,16 @@
   width: 100%;
   height: $button-height-md;
   border-radius: $radius-button;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  background: $gradient-emphasis;
   color: $color-text-white;
   font-size: $font-size-md;
   font-weight: $font-weight-semibold;
-  box-shadow: 0 4rpx 16rpx rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4rpx 16rpx $color-emphasis-shadow;
   transition: all $transition-fast;
 
   &:active {
     transform: scale(0.96);
-    box-shadow: 0 2rpx 8rpx rgba(99, 102, 241, 0.2);
+    box-shadow: 0 2rpx 8rpx $color-emphasis-shadow-soft;
   }
 }
 

@@ -14,9 +14,9 @@
   justify-content: center;
   padding: 0 $page-padding;
   background:
-    radial-gradient(ellipse at 10% 0%, rgba(99, 102, 241, 0.12) 0%, transparent 50%),
-    radial-gradient(ellipse at 90% 100%, rgba(236, 72, 153, 0.1) 0%, transparent 50%),
-    linear-gradient(160deg, #fafbff 0%, #f5f7fb 50%, #eef1f7 100%);
+    radial-gradient(ellipse at 10% 0%, rgba(255, 122, 69, 0.16) 0%, transparent 50%),
+    radial-gradient(ellipse at 90% 100%, rgba(247, 186, 30, 0.12) 0%, transparent 50%),
+    linear-gradient(160deg, #fffaf6 0%, #fff3ec 50%, #f8f6f3 100%);
   overflow-y: auto;
 }
 
@@ -45,7 +45,9 @@
   align-items: center;
   gap: $spacing-xs;
   font-size: $font-size-sm;
-  color: $color-primary;
+  // 24rpx(12px) 半粗的正文小字，不是大字，必须按 4.5:1 判定。
+  // $color-primary(#ff7a45) 压白卡片只有 2.59:1 —— 首屏品牌行读不清，改 strong(5.26)。
+  color: $color-primary-strong;
   font-weight: $font-weight-semibold;
   letter-spacing: 1rpx;
 }
@@ -53,7 +55,7 @@
 .brandLogo {
   font-size: 44rpx;
   line-height: 1;
-  filter: drop-shadow(0 2rpx 4rpx rgba(99, 102, 241, 0.25));
+  filter: drop-shadow(0 2rpx 4rpx rgba(255, 122, 69, 0.28));
 }
 
 .title {
@@ -136,7 +138,8 @@
 
   &:focus {
     border-color: $color-primary;
-    box-shadow: 0 0 0 4rpx rgba(99, 102, 241, 0.1);
+    // 焦点环跟品牌色走：原来是靛蓝（99,102,241），与卡片里的橙色标签不同源
+    box-shadow: 0 0 0 4rpx rgba(255, 122, 69, 0.18);
   }
 }
 
@@ -324,22 +327,25 @@
 }
 
 // ========== 渐变提交按钮 ==========
+// 2026-10-27：原紫→粉渐变（#6366f1 / #8b5cf6 / #ec4899）白字对比度 4.47 / 4.23 / 3.53，
+// 三个色标全部低于 WCAG AA 4.5；而且登录页是第一屏，配色与应用内「晨光橙」不同源。
+// 换成 $gradient-emphasis（5.26 / 6.92），一次改掉「不同源」和「不达标」两件事。
 .submit {
   margin-top: $spacing-xl;
   height: $button-height-lg;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  background: $gradient-emphasis;
   border-radius: $radius-button;
   box-shadow:
-    0 8rpx 24rpx rgba(99, 102, 241, 0.35),
-    0 4rpx 8rpx rgba(99, 102, 241, 0.2);
+    0 8rpx 24rpx $color-emphasis-shadow,
+    0 4rpx 8rpx $color-emphasis-shadow-soft;
   transition: transform $transition-fast, box-shadow $transition-fast, opacity $transition-fast;
 
   &:active {
     transform: scale(0.97);
-    box-shadow: 0 2rpx 8rpx rgba(99, 102, 241, 0.2);
+    box-shadow: 0 2rpx 8rpx $color-emphasis-shadow-soft;
   }
 }
 

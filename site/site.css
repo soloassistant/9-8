@@ -1,0 +1,596 @@
+/* ============================================================================
+   私人晨报助理 · 官网落地页样式
+   ----------------------------------------------------------------------------
+   ⚠️ 色值**不是**在这里定的。它们是 src/styles/theme.scss 的网页版副本，
+      由 `npm run verify:site` 逐条比对；改主题色必须两边一起改，否则门禁红。
+      （这条规则的存在理由：落地页和应用各写一套色值，半年后必然漂移成两个产品。）
+
+   圆角与阴影按 web 尺度换算：应用里是 rpx（750 设计稿），1rpx = 0.5px @375 视口，
+   所以 $radius-xl(32rpx) = 16px。这里直接写换算后的 px 值。
+   ========================================================================== */
+
+:root {
+  /* 品牌 */
+  --brand: #ff7a45;
+  --brand-strong: #c7371a;
+  --brand-deep: #a82c13;
+  --secondary: #5b8def;
+  --gold: #f7ba1e;
+
+  /* 背景 / 文字 */
+  --bg-page: #f8f6f3;
+  --bg-card: #ffffff;
+  --bg-header: #fff3ec;
+  --bg-hover: #f1efec;
+  --text-primary: #1d2129;
+  --text-secondary: #4e5969;
+  --text-tertiary: #657080;
+  --border: #e5e6eb;
+  --divider: #f2f3f5;
+
+  /* 强调（承载白字的实心渐变，两端 5.26 / 6.92） */
+  --gradient-emphasis: linear-gradient(135deg, #c7371a 0%, #a82c13 100%);
+  --emphasis-shadow: rgba(199, 55, 26, 0.32);
+  --accent-wash: linear-gradient(135deg, rgba(255, 122, 69, 0.1) 0%, rgba(247, 186, 30, 0.08) 100%);
+
+  /* 形状 */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 24px;
+  --shadow-card: 0 1px 2px rgba(29, 33, 41, 0.04), 0 4px 16px rgba(29, 33, 41, 0.06);
+  --shadow-float: 0 4px 12px rgba(29, 33, 41, 0.08), 0 12px 32px rgba(29, 33, 41, 0.1);
+
+  --page-max: 1080px;
+  --gutter: 24px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB',
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--brand-strong);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.wrap {
+  width: 100%;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+/* ============================ 顶部导航 ============================ */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: saturate(180%) blur(12px);
+  background: rgba(248, 246, 243, 0.82);
+  border-bottom: 1px solid var(--divider);
+}
+
+.nav .wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 64px;
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--text-primary);
+}
+
+.logo svg {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.nav-links {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.nav-links a {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.nav-links a:hover {
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+/* ============================ 按钮 ============================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 22px;
+  border-radius: var(--radius-pill);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--gradient-emphasis);
+  color: #fff;
+  box-shadow: 0 4px 14px var(--emphasis-shadow);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px var(--emphasis-shadow);
+  text-decoration: none;
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-ghost {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-hover);
+  text-decoration: none;
+}
+
+.btn-lg {
+  height: 52px;
+  padding: 0 30px;
+  font-size: 16px;
+}
+
+/* ============================ Hero ============================ */
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: 72px 0 64px;
+  background:
+    radial-gradient(ellipse 60% 50% at 8% 0%, rgba(255, 122, 69, 0.16) 0%, transparent 100%),
+    radial-gradient(ellipse 50% 45% at 95% 10%, rgba(247, 186, 30, 0.12) 0%, transparent 100%),
+    linear-gradient(180deg, var(--bg-header) 0%, var(--bg-page) 78%);
+}
+
+.hero .wrap {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 48px;
+  align-items: center;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 122, 69, 0.18);
+  color: var(--brand-strong);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+h1 {
+  margin: 18px 0 0;
+  font-size: 46px;
+  line-height: 1.22;
+  letter-spacing: -0.5px;
+  font-weight: 700;
+}
+
+h1 .accent {
+  background: var(--gradient-emphasis);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.lead {
+  margin: 18px 0 0;
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--text-secondary);
+  max-width: 30em;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+.hero-note {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* 手机预览：纯 CSS 画的「晨报页」，不依赖截图 */
+.phone {
+  justify-self: center;
+  width: 264px;
+  padding: 12px;
+  border-radius: 32px;
+  background: #fff;
+  box-shadow: var(--shadow-float), 0 0 0 1px var(--border);
+}
+
+.phone-screen {
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--bg-header) 0%, var(--bg-page) 180px);
+  padding: 16px 14px 20px;
+  min-height: 380px;
+}
+
+.phone-date {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.6px;
+}
+
+.phone-title {
+  margin: 4px 0 14px;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.phone-card {
+  background: var(--bg-card);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.phone-weather {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.phone-weather b {
+  font-size: 22px;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.phone-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  padding: 6px 0;
+}
+
+.phone-row i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand);
+  flex-shrink: 0;
+}
+
+.phone-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-ai {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-wash);
+  border: 1px solid rgba(255, 122, 69, 0.14);
+  font-size: 12.5px;
+  color: var(--brand-strong);
+  font-weight: 500;
+}
+
+/* ============================ 区块通用 ============================ */
+section {
+  padding: 64px 0;
+}
+
+.section-head {
+  max-width: 34em;
+  margin-bottom: 36px;
+}
+
+.kicker {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--brand-strong);
+}
+
+h2 {
+  margin: 10px 0 0;
+  font-size: 30px;
+  line-height: 1.3;
+  letter-spacing: -0.3px;
+  font-weight: 700;
+}
+
+.section-head p {
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: 16px;
+}
+
+/* ============================ 三张主卡 ============================ */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: 26px 24px;
+}
+
+.card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--accent-wash);
+  border: 1px solid rgba(255, 122, 69, 0.14);
+  font-size: 21px;
+}
+
+.card h3 {
+  margin: 16px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.card p {
+  margin: 8px 0 0;
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.card .meta {
+  display: block;
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+}
+
+/* ============================ 次要能力 ============================ */
+.minor {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.minor-item {
+  display: flex;
+  gap: 12px;
+  padding: 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-lg);
+}
+
+.minor-item strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.minor-item span {
+  display: block;
+  margin-top: 4px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+
+/* ============================ 诚实边界 ============================ */
+.honest {
+  background: var(--bg-card);
+  border-top: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
+}
+
+.honest-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px 32px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.honest-list li {
+  position: relative;
+  padding-left: 26px;
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: var(--text-secondary);
+}
+
+.honest-list li::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 9px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--brand);
+}
+
+.honest-list b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ============================ 结尾 CTA ============================ */
+.cta {
+  text-align: center;
+  padding: 76px 0;
+  background:
+    radial-gradient(ellipse 55% 60% at 50% 0%, rgba(255, 122, 69, 0.14) 0%, transparent 100%),
+    var(--bg-page);
+}
+
+.cta h2 {
+  margin-top: 0;
+}
+
+.cta p {
+  margin: 12px auto 0;
+  max-width: 30em;
+  color: var(--text-secondary);
+}
+
+.cta .btn {
+  margin-top: 26px;
+}
+
+/* ============================ 页脚 ============================ */
+footer {
+  padding: 34px 0 44px;
+  border-top: 1px solid var(--divider);
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+footer .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  align-items: center;
+}
+
+footer .sep {
+  margin-left: auto;
+}
+
+/* ============================ 响应式 ============================ */
+@media (max-width: 900px) {
+  .hero {
+    padding: 52px 0 44px;
+  }
+
+  .hero .wrap {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+
+  h1 {
+    font-size: 34px;
+  }
+
+  h2 {
+    font-size: 24px;
+  }
+
+  .cards {
+    grid-template-columns: 1fr;
+  }
+
+  .minor,
+  .honest-list {
+    grid-template-columns: 1fr;
+  }
+
+  .phone {
+    order: -1;
+  }
+
+  section {
+    padding: 48px 0;
+  }
+}
+
+@media (max-width: 520px) {
+  :root {
+    --gutter: 18px;
+  }
+
+  h1 {
+    font-size: 29px;
+  }
+
+  .lead {
+    font-size: 16px;
+  }
+
+  .nav-links a:not(.btn) {
+    display: none;
+  }
+
+  .hero-actions .btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

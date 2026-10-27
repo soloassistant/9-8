@@ -91,7 +91,7 @@
 }
 
 .selected {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.08) 100%);
+  background: $color-accent-wash;
   border-radius: $radius-md;
 
   .cellDay {
@@ -113,7 +113,7 @@
     // 日期是 14.6px 半粗（不足 18.66px），不能按大字 3:1 放宽。
     background: var(--brand-strong, $color-primary-strong);
     border-radius: $radius-button;
-    box-shadow: 0 4rpx 12rpx rgba(99, 102, 241, 0.3);
+    box-shadow: 0 4rpx 12rpx $color-emphasis-shadow;
   }
 }
 
