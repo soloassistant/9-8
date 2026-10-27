@@ -2,6 +2,38 @@ import { defineConfig, type UserConfigExport } from '@tarojs/cli';
 import TsconfigPathsPlugin from 'tsconfig-paths-webpack-plugin';
 import devConfig from './dev';
 import prodConfig from './prod';
+
+/**
+ * 版权声明头插件：在压缩（terser）**之后**、RealContentHashPlugin（重算 contenthash）
+ * **之前**给入口 chunk 追加版权头。
+ * 【为什么不用内置 BannerPlugin】它的 processAssets stage 是 ADDITIONAL（早于压缩），
+ * 注释会被 terser 连同其他普通注释一起剥掉 —— 2026-10-27 实测产物头部没有它。
+ * 中文注释进产物是刻意为之 —— 它是权利声明，不是信息泄露。
+ */
+class CopyrightBannerPlugin {
+  apply(compiler: { webpack: any; hooks: any }): void {
+    const webpack = compiler.webpack;
+    const BANNER = '/*! 私人晨报助理 · © 2026 · 未经许可不得复制或二次分发 */\n';
+    compiler.hooks.compilation.tap('CopyrightBannerPlugin', (compilation: any) => {
+      compilation.hooks.processAssets.tap(
+        {
+          name: 'CopyrightBannerPlugin',
+          // OPTIMIZE_HASH(2500) 的前一档：所有压缩/minify 都已完成，而 contenthash 还没定稿
+          stage: webpack.Compilation.PROCESS_ASSETS_STAGE_OPTIMIZE_HASH - 1,
+        },
+        () => {
+          for (const chunk of compilation.chunks) {
+            if (!chunk.canBeInitial()) continue; // 只加在入口 chunk（等价 BannerPlugin.entryOnly）
+            for (const file of chunk.files) {
+              if (!file.endsWith('.js')) continue;
+              compilation.updateAsset(file, (source: any) => new webpack.sources.ConcatSource(BANNER, source));
+            }
+          }
+        }
+      );
+    });
+  }
+}
 // https://taro-docs.jd.com/docs/next/config#defineconfig-辅助函数
 export default defineConfig<'webpack5'>(async (merge) => {
   // 产物目录按平台分开：H5 → dist，其它端 → dist-<platform>（如 dist-weapp）。
@@ -127,6 +159,14 @@ export default defineConfig<'webpack5'>(async (merge) => {
         // 所有 JS chunk 合并为单文件：消除「旧 html 引用已删除的懒加载 chunk → 白屏」问题
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         chain.plugin('limit-chunk-count').use(require('webpack').optimize.LimitChunkCountPlugin, [{ maxChunks: 1 }]);
+        // 生产构建显式关 sourcemap：映射表会把原始变量名/目录结构还原给浏览器，
+        // 是防逆向的基线要求（此前只是"默认没生成"，现在改为配置层确保，防止
+        // 将来 Taro 升级或依赖变动后悄悄改回）。开发模式保留 sourcemap 供排障。
+        if (process.env.NODE_ENV !== 'development') {
+          chain.devtool(false);
+        }
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        chain.plugin('copyright-banner').use(CopyrightBannerPlugin);
       },
     },
     rn: {
