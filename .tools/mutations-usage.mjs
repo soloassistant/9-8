@@ -118,6 +118,16 @@ export default [
     cmd: 'node .tools/verify-usage-renewal.mjs'
   },
 
+  {
+    // 行为后果：促销码入口退回深红字压深红底 —— H5 用户唯一的开通路径等于看不见。
+    // 哪条变红：D4 促销码入口在深底上必须用亮色。
+    label: '促销码入口退回深红字（深底上 1.06:1，看不见）',
+    file: 'src/pages/mine/index.module.scss',
+    from: '  color: rgba(255, 255, 255, 0.92);\n  text-decoration: underline;',
+    to: '  color: $color-primary-strong;\n  text-decoration: underline;',
+    cmd: 'node .tools/verify-usage-renewal.mjs'
+  },
+
   /* ---------------- 续费块的「可达性」与 none 态诚实性 ---------------- */
   {
     // 行为后果：没订阅的人看到「订阅有效」（甚至「有效 n 天」）—— 纯编事实。
