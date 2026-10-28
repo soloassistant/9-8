@@ -10,9 +10,13 @@
   bottom: 0;
   z-index: var(--z-consent);
   display: flex;
-  align-items: center;
+  // ⚠️ 不能写 align-items: center：flex 居中 + overflow 时，超出部分溢到**上边界之外**，
+  // 滚动条只覆盖「末端」方向 ⇒ 卡片顶部永久滚不到。实测 1280x900 卡片高 966，顶端 -33px 被吃掉；
+  // 视口再矮（≤560px）时登录方式那行 tab 直接落在 y<0，用户表现为「点了没反应」。
+  // 正解：容器不居中，改用卡片自身 margin:auto —— 空间够时照样居中，不够时顶边可滚。
+  align-items: flex-start;
   justify-content: center;
-  padding: 0 $page-padding;
+  padding: $spacing-md $page-padding;
   background:
     radial-gradient(ellipse at 10% 0%, rgba(255, 122, 69, 0.16) 0%, transparent 50%),
     radial-gradient(ellipse at 90% 100%, rgba(247, 186, 30, 0.12) 0%, transparent 50%),
@@ -30,6 +34,9 @@
 .card {
   width: 100%;
   max-width: $max-content-width;
+  // 配合 .screen 的 align-items: flex-start：靠自身 auto 外边距居中，
+  // 内容比视口高时自动降级为「从卡片顶端开始可滚」。
+  margin: auto 0;
   background: rgba(255, 255, 255, 0.92);
   border-radius: 28rpx;
   padding: $spacing-xl $spacing-lg $spacing-xl;

@@ -247,6 +247,27 @@ async function safeAuth<T>(
 /** 是否需要在进入前拦截（仅 H5/发布版；微信小程序侧由微信身份直接登录，不走这里） */
 export const needsAuthGate = H5;
 
+/* ---------------- 门禁重定向标记（消除重复的 token 请求） ---------------- */
+/** app.tsx 的门禁刚把「未登录」用户 reLaunch 到登录页时会打这个标记。
+ *  登录页 onLoad 里本来还要再查一次会话；冷启动未登录时两次检查都会打到
+ *  POST /.cloud/auth/v1/token（2026-10-28 浏览器实测重复两次）。
+ *  门禁那次检查已经证明「后端可达 + 无会话」，登录页直接采信即可 ——
+ *  用一次性标记而不是给 getSession 加缓存，避免把真实登录后的新会话读成旧值。 */
+let gateRedirectAt = 0;
+const GATE_REDIRECT_TTL_MS = 5000;
+
+export function markGateRedirect(): void {
+  gateRedirectAt = Date.now();
+}
+
+/** 取用一次即失效；超过 TTL 视为陈旧（用户可能在登录页停留很久后手动刷新）。 */
+export function consumeGateRedirect(): boolean {
+  if (!gateRedirectAt) return false;
+  const fresh = Date.now() - gateRedirectAt <= GATE_REDIRECT_TTL_MS;
+  gateRedirectAt = 0;
+  return fresh;
+}
+
 /** SDK/云服务是否真的可用。
  *  为什么要单独暴露：取不到会话有两种完全不同的原因 ——「未登录」和「后端根本连不上」。
  *  若把后者也当成前者，用户会看到一个能填、点了却永远失败的登录表单（等于静默失败）。

@@ -1178,7 +1178,9 @@ function MinePage() {
           { icon: '🛒', label: t('mine.gridShopping'), url: '/pages/shopping/index' },
           { icon: '🛍️', label: t('mine.gridSxm'), url: '/pages/sxm/index', external: true },
           { icon: '📚', label: t('mine.gridLearn'), url: '/pages/learn/index' },
-          { icon: '🔍', label: t('mine.gridSearch'), url: '/pages/search/index' }
+          { icon: '🔍', label: t('mine.gridSearch'), url: '/pages/search/index' },
+          { icon: '🏃', label: t('mine.gridSport'), url: '/pages/sport/index' },
+          { icon: '🔔', label: t('mine.gridNotify'), url: '/pages/notify/index' }
         ] as Array<{ icon: string; label: string; url: string; external?: boolean }>).map((it) => (
           <View
             key={it.url}

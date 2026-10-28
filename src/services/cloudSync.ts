@@ -64,7 +64,11 @@ const SYNC_KEYS = [
   'ledgerBudget',      // 记账预算（日/月上限）
   // 自选股（2026-10-25）：跨设备同步 —— 手机上加了茅台，平板打开就该看到。
   // 字符串数组（≤8 项腾讯代码），体积可忽略； quotes.ts 的 WATCHLIST_KEY 是唯一写入方。
-  'watchlist'
+  'watchlist',
+  // 运动（2026-10-28）：跑步记录 + 周目标。与记账同款拆两个 key ——
+  // 记录写入频繁、周目标几乎不改，分开才不会互相覆盖。
+  'sportRuns',
+  'sport-goal-km'
 ] as const;
 
 /**
@@ -100,6 +104,7 @@ const REMOVE_PLACEHOLDER: Record<string, unknown> = {
   collectionStore: [],
   briefingChatLog: [],
   aiAssistantLog: [],
+  sportRuns: [],
   // 对象类
   'user-settings': {},
   // 功能记账是 `{ 'YYYY-MM-DD': { chat: n } }` 的对象，占位必须是空对象；
@@ -110,7 +115,8 @@ const REMOVE_PLACEHOLDER: Record<string, unknown> = {
   'usage-voice': '',
   'brand-theme': '',
   'app-lang': '',
-  'ui-scale': ''
+  'ui-scale': '',
+  'sport-goal-km': ''
 };
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null;

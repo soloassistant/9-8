@@ -207,11 +207,14 @@ html {
   }
   // 面板：宽度不可低于内容宽（20rem），只允许被极窄视口钳制（见顶部教训）
   // 同时给一圈极淡纸边：同色底 + 无边界时，大屏看不出应用到哪结束（像浮在桌上）
+  // 内容列宽按设计稿 p49 的断点表来（手机 <600 单列 / 600-1199 双栏 / ≥1200 三栏）：
+  // 这一档（600-747）左栏收成 64px 图标栏，内容列给到 720 上限 —— 原来是写死的 20rem(500)，
+  // 在平板宽度上等于把手机版式放大，两侧留出大片空白（p49 明确要求「iPad 双栏、8 列」）。
   .taro-tabbar__panel {
     box-shadow: 0 0 0 1PX rgba(221, 211, 199, 0.55), 0 10PX 40PX rgba(45, 41, 38, 0.05);
     flex: 0 0 auto;
     margin: 0 auto !important;
-    width: min(20rem, calc(100vw - 64PX)) !important;
+    width: min(calc(100vw - 64PX - 32PX), 720PX) !important;
   }
   // 滚动条收细：系统默认条紧贴 500px 内容列右缘，既占宽度又抢视线
   // （滚动容器实测是 .taro_page；weapp 无 -webkit-scrollbar，天然无副作用）
@@ -258,10 +261,28 @@ html {
   }
 }
 
-// 全量栏带（748~1023px）：fixed 元素随 232 栏右移半宽
-@media (min-width: 748px) and (max-width: 1023px) {
+// 全量栏带（748~1199px）：左栏 232 常驻（p49「iPad 左侧 232 常驻」），
+// 内容列放到 720 —— 双栏的下限宽度，再窄就摆不下"列表 + 详情"。
+@media (min-width: 748px) and (max-width: 1199px) {
   .h5Fixed {
     left: calc(50% + 116PX) !important;
+  }
+  .taro-tabbar__panel {
+    width: min(calc(100vw - 232PX - 48PX), 720PX) !important;
+  }
+}
+
+// 桌面带（≥1200px）：左栏加宽到 240、内容最宽 1200（p49「12 列 · 内容最宽 1200」）
+@media (min-width: 1200px) {
+  .taro-tabbar__tabbar {
+    width: 240PX !important;
+    max-width: 240PX !important;
+  }
+  .h5Fixed {
+    left: calc(50% + 120PX) !important;
+  }
+  .taro-tabbar__panel {
+    width: min(calc(100vw - 240PX - 64PX), 1200PX) !important;
   }
 }
 
@@ -302,6 +323,24 @@ html {
     max-width: 100% !important;
     box-shadow: none;
   }
+}
+
+// ============================================================
+// 登录页：不挂主 TabBar（2026-10-28）
+// ------------------------------------------------------------
+// Taro 的 TabBar 由路由层渲染，React 里 `isLoginPage ? null : ...` 管不到它；
+// app.tsx 在 body 上打 .is-login-page，这里关掉。桌面端（≥600px）TabBar 已改成
+// 左侧竖栏，同样一并隐藏，登录页保持整屏独立。
+// ============================================================
+body.is-login-page .taro-tabbar__tabbar {
+  display: none !important;
+}
+
+body.is-login-page .taro-tabbar__panel {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  box-shadow: none;
 }
 
 // ============================================================

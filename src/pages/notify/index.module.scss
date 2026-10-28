@@ -1,0 +1,159 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  padding: $spacing-md $page-padding $spacing-xl;
+  background: $color-bg-page;
+  box-sizing: border-box;
+  color: $color-text-primary;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-lg;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4rpx;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.backIcon {
+  font-size: 34rpx;
+  line-height: 1;
+  color: $color-text-tertiary;
+}
+
+.backText {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: 40rpx;
+  font-weight: $font-weight-semibold;
+}
+
+/* 右上角这句是承诺：notifyLog 真的按 30 天过滤（KEEP_DAYS 同一个常量） */
+.keep {
+  flex: 0 0 auto;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.group {
+  margin-bottom: $spacing-lg;
+}
+
+.groupLabel {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-text-secondary;
+}
+
+.card {
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-lg;
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+  padding: $spacing-md;
+  border-bottom: 1rpx solid $color-card-border;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.badge {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: $radius-round;
+  background: $color-bg-hover;
+}
+
+.badge_briefing {
+  background: $color-voice-bg;
+}
+
+.badge_extract {
+  background: rgba(0, 180, 42, 0.12);
+}
+
+.badge_reminder {
+  background: rgba(22, 93, 255, 0.1);
+}
+
+.badgeText {
+  font-size: $font-size-sm;
+  line-height: 1;
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.rowTitle {
+  display: block;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.rowDesc {
+  display: block;
+  margin-top: 6rpx;
+  font-size: $font-size-xs;
+  line-height: 1.5;
+  color: $color-text-tertiary;
+}
+
+.rowTime {
+  flex: 0 0 auto;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.emptyBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 120rpx 0;
+}
+
+.emptyIcon {
+  font-size: 64rpx;
+  line-height: 1;
+  opacity: 0.5;
+}
+
+.emptyTitle {
+  margin-top: $spacing-md;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.emptyDesc {
+  margin-top: 8rpx;
+  font-size: $font-size-sm;
+  text-align: center;
+  color: $color-text-tertiary;
+}

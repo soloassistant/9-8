@@ -1,0 +1,257 @@
+@use '@/styles/variables.scss' as *;
+
+// ============================================================
+// 首次启动引导（设计稿 p19 / p20）
+// 全屏暖纸层，层级与隐私弹层同档（都在外壳之上、开屏之下）。
+// 尺寸用 rpx，与全站一致。
+// ============================================================
+
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-consent);
+  display: flex;
+  justify-content: center;
+  background: linear-gradient(170deg, #fff7f0 0%, #fdf4ea 55%, #f8f4ee 100%);
+  overflow-y: auto;
+}
+
+.panel {
+  width: 100%;
+  max-width: $max-content-width;
+  margin: auto 0;
+  padding: $spacing-lg $page-padding $spacing-xl;
+  box-sizing: border-box;
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48rpx;
+}
+
+.topAction {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+  cursor: pointer;
+}
+
+.title {
+  display: block;
+  margin-top: $spacing-lg;
+  font-size: 52rpx;
+  font-weight: $font-weight-semibold;
+  line-height: 1.28;
+  color: $color-text-primary;
+}
+
+.titleCenter {
+  display: block;
+  margin-top: $spacing-md;
+  font-size: 44rpx;
+  font-weight: $font-weight-semibold;
+  text-align: center;
+  color: $color-text-primary;
+}
+
+.lead {
+  display: block;
+  margin-top: 12rpx;
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+}
+
+.leadCenter {
+  display: block;
+  margin-top: 12rpx;
+  font-size: $font-size-md;
+  text-align: center;
+  color: $color-text-secondary;
+}
+
+.cards {
+  margin-top: $spacing-lg;
+}
+
+.card {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-md;
+  margin-bottom: $spacing-sm;
+  padding: $spacing-md;
+  background: #fff;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-lg;
+}
+
+.num {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: $radius-round;
+  background: $color-voice-bg;
+}
+
+.numText {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-primary-strong;
+}
+
+.cardBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.cardTitle {
+  display: block;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.cardDesc {
+  display: block;
+  margin-top: 6rpx;
+  font-size: $font-size-sm;
+  line-height: 1.55;
+  color: $color-text-secondary;
+}
+
+.foot {
+  display: block;
+  margin-top: $spacing-md;
+  font-size: $font-size-xs;
+  text-align: center;
+  color: $color-text-tertiary;
+}
+
+.bell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 128rpx;
+  height: 128rpx;
+  margin: $spacing-lg auto 0;
+  border-radius: $radius-round;
+  background: $color-voice-bg;
+}
+
+.bellIcon {
+  font-size: 56rpx;
+  line-height: 1;
+}
+
+.settingCard {
+  margin-top: $spacing-lg;
+  padding: 0 $spacing-md;
+  background: #fff;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-lg;
+}
+
+.settingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: $spacing-md 0;
+}
+
+.settingMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.settingTitle {
+  display: block;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.settingDesc {
+  display: block;
+  margin-top: 6rpx;
+  font-size: $font-size-xs;
+  line-height: 1.5;
+  color: $color-text-tertiary;
+}
+
+.settingDivider {
+  height: 1rpx;
+  background: $color-card-border;
+}
+
+.permHint {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-xs;
+  line-height: 1.5;
+  color: $color-error;
+}
+
+.privacyLine {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-xs;
+  line-height: 1.5;
+  color: $color-text-tertiary;
+}
+
+.dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  margin: $spacing-xl 0 $spacing-md;
+}
+
+.dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: $radius-round;
+  background: #e6dccf;
+}
+
+.dotActive {
+  width: 44rpx;
+  height: 12rpx;
+  border-radius: $radius-round;
+  background: $color-primary;
+}
+
+.primaryBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 96rpx;
+  border-radius: $radius-button;
+  background: $color-primary;
+  box-shadow: 0 10rpx 26rpx rgba(255, 122, 69, 0.3);
+  cursor: pointer;
+
+  // 白字压在 #ff7a45 上只有 2.8:1，按下态转深色（$color-primary-strong 白字 5.26:1）——
+  // 按下这一瞬间正是用户确认"点到了"的时刻，不能只靠明度变化。
+  &:active {
+    background: $color-primary-strong;
+  }
+}
+
+.primaryBtnText {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: #fff;
+}
+
+.laterBtn {
+  display: block;
+  margin-top: $spacing-md;
+  font-size: $font-size-sm;
+  text-align: center;
+  color: $color-text-tertiary;
+  cursor: pointer;
+}

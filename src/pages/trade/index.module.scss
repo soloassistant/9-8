@@ -58,6 +58,36 @@
     white-space: nowrap;
   }
 
+  // 返回晨报：终端页在 ≥1024px 会隐藏外壳导航，这是唯一的离场入口，必须显眼可点
+  .backBtn {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 5PX;
+    height: 26PX;
+    padding: 0 10PX;
+    border: 1PX solid var(--t-line);
+    border-radius: 4PX;
+    color: var(--t-text-dim);
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease;
+
+    &:hover {
+      color: var(--t-text);
+      border-color: var(--t-gold);
+    }
+  }
+
+  .backIcon {
+    font-size: 13PX;
+    line-height: 1;
+  }
+
+  .backLabel {
+    font-size: 12PX;
+    letter-spacing: 0.5PX;
+  }
+
   .demoBadge {
     flex: 0 0 auto;
     padding: 3PX 8PX;

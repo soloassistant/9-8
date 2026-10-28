@@ -1061,6 +1061,13 @@
   gap: $spacing-md;
   padding: $spacing-md;
   border-radius: $radius-md;
+  // 桌面端鼠标用户靠悬停判断「这行能点」；没有 pointer 时整条侧栏看着像静态文本
+  cursor: pointer;
+  transition: background-color 120ms ease;
+
+  &:hover {
+    background: rgba(255, 122, 69, 0.06);
+  }
 }
 
 .sideNavItemActive {

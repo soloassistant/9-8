@@ -6,6 +6,7 @@ import {
   needsAuthGate,
   isCloudReady,
   getSession,
+  consumeGateRedirect,
   signInWithPassword,
   sendLoginCode,
   verifyLoginCode,
@@ -213,6 +214,12 @@ export default function LoginPage() {
   useEffect(() => {
     if (!needsAuthGate) {
       goToApp();
+      return;
+    }
+    // 门禁刚确认过「后端可达 + 无会话」并把人送到这里 —— 直接显示表单，
+    // 不再重复查会话（否则冷启动会连发两次 POST /.cloud/auth/v1/token）。
+    if (consumeGateRedirect()) {
+      setPhase('form');
       return;
     }
     let alive = true;

@@ -51,6 +51,7 @@ import {
 import type { ReadSectionKind, ReadSession } from '@/utils/readStreak';
 import { canPromptSubscribe, promptSubscribe, isSubscriptionStale } from '@/utils/subscribe';
 import type { Briefing, CollectionItem, LedgerBudget, LedgerCategory, LedgerEntry, ScheduleEvent, TodoItem } from '@/types';
+import { pushNotify } from '@/data/notifyLog';
 import { useT, useLanguageStore } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { readPrefs } from '@/utils/prefs';
@@ -461,6 +462,24 @@ function BriefingPage() {
       document.body.classList.remove('briefing-desktop');
     };
   }, []);
+
+  // 站内通知：晨报真正拿到数据才记一条（一天一条，dedupeKey 带日期）。
+  // 放在独立 effect 里而不是塞进 loadBriefing：loadBriefing 是 useCallback，
+  // 把 t 拖进依赖会让它每次切语言都重建（连带重新拉晨报）。
+  useEffect(() => {
+    if (!briefing) return;
+    const d = new Date();
+    const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const n = (briefing.events || []).length;
+    pushNotify({
+      kind: 'briefing',
+      title: t('notify.briefingTitle'),
+      desc: n > 0 ? t('notify.briefingDesc', { n }) : t('notify.briefingDescEmpty'),
+      dedupeKey: `briefing:${dayKey}`
+    });
+    // t 故意不进依赖：它每次渲染都可能换引用，进依赖会让这个 effect 反复跑。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [briefing]);
 
   useEffect(() => {
     init();

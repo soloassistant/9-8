@@ -18,7 +18,7 @@
  * 小写 px 会被 pxtransform 按 375 设计稿换算）——页面级例外，见该文件头部注释。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useDidHide, useDidShow } from '@tarojs/taro';
+import Taro, { useDidHide, useDidShow } from '@tarojs/taro';
 import { Input, Text, View } from '@tarojs/components';
 import classnames from 'classnames';
 import { useT } from '@/store/language';
@@ -859,6 +859,22 @@ function TradePage() {
     >
       {/* ===== 顶部行情条（只读分析版：无账户、无杠杆、无下单） ===== */}
       <View className={styles.topbar}>
+        {/* 返回入口：≥1024px 时外壳 TabBar 被 .trade-terminal 隐藏（终端占满窗口），
+            这个页面自己就成了唯一的离场通道。没有它，用户在桌面端只能靠浏览器后退。 */}
+        <View
+          className={styles.backBtn}
+          onClick={() => {
+            Taro.navigateBack().catch(() => {
+              // 直接从外链/刷新进入时没有上一页：回晨报（tabBar 页只能 switchTab）
+              Taro.switchTab({ url: '/pages/briefing/index' }).catch((err) => {
+                console.error('[TradePage] 返回晨报失败:', err);
+              });
+            });
+          }}
+        >
+          <Text className={styles.backIcon}>←</Text>
+          <Text className={styles.backLabel}>{t('trade.back')}</Text>
+        </View>
         <View className={styles.demoBadge}>
           {realFeed ? t('trade.feedRealBadge') : t('trade.demoBadge')}
         </View>

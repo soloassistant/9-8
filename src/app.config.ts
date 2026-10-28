@@ -34,7 +34,12 @@ export default defineAppConfig({
     'pages/learnCommunity/index',
     // 2026-10-28：专业交易终端（黄金/外汇，模拟行情）。仅 H5 渲染终端 UI，
     // weapp 渲染「仅网页版可用」占位；非 tabBar 页（navigateTo 进入）。
-    'pages/trade/index'
+    'pages/trade/index',
+    // 2026-10-28：运动（跑步记录，设计稿 p43–p46）。四屏（首页/记录中/单次/记录）
+    // 用单页内的视图切换实现，不拆路由 —— 它们是"同一条记录的四个视角"。
+    'pages/sport/index',
+    // 2026-10-28：通知中心（设计稿 p17），只展示真实发生过的事件
+    'pages/notify/index'
   ],
   // 定位权限（weapp 生效，H5 忽略）：晨报天气城市自动定位
   // ⚠️ 文案必须与 location.ts 的真实行为一致（2026-10-12 合规修正）：

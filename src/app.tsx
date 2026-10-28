@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import Splash from '@/components/Splash';
+import Onboarding, { hasOnboarded } from '@/components/Onboarding';
 import ConsentGate from '@/components/ConsentGate';
 import HotkeyHelp from '@/components/HotkeyHelp';
 import { HELP_EVENT, focusSearchBox, useGlobalHotkeys } from '@/hooks/useHotkeys';
 import { hotkeyRoute } from '@/utils/hotkeys';
 import type { HotkeyId } from '@/utils/hotkeys';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
-import { needsAuthGate, getSession } from '@/services/cloudAuth';
+import { needsAuthGate, getSession, markGateRedirect } from '@/services/cloudAuth';
 import { hasAgreedConsent } from '@/data/legal';
 import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/language';
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
@@ -121,6 +122,9 @@ function App(props: PropsWithChildren) {
      小程序端不挂（没有物理键盘，挂上去只是白打代码）。 */
   const [helpOpen, setHelpOpen] = useState(false);
   const [shellReady, setShellReady] = useState(process.env.TARO_ENV !== 'h5');
+  // 首次启动引导（设计稿 p19/p20）：只在 H5 且有真实账号体系时才有意义，
+  // 看过一次就落库，不再骚扰（微信端直接视为已看过）。
+  const [onboarded, setOnboarded] = useState(() => process.env.TARO_ENV !== 'h5' || hasOnboarded());
 
   const handleHelpKey = useCallback(() => setHelpOpen(true), []);
   const handleSearchKey = useCallback(() => {
@@ -211,6 +215,15 @@ function App(props: PropsWithChildren) {
     return () => clearTimeout(timer);
   }, [lang]);
 
+  // 登录页是独立的全屏版式：Taro 的 TabBar 由路由层渲染，不在 React 树里，
+  // 所以只能在 body 上打类、由 app.scss 关掉（否则登录页底部挂着主 TabBar，
+  // 未登录用户可以直接点进 tab 页，也会看到「应用已就绪」的错觉）。
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5') return;
+    document.body.classList.toggle('is-login-page', isLoginPage);
+    return () => document.body.classList.remove('is-login-page');
+  }, [isLoginPage]);
+
   useEffect(() => {
     // 云开发初始化：仅微信小程序平台启用（H5/其他平台走 mock 数据）
     if (process.env.TARO_ENV === 'weapp') {
@@ -242,6 +255,9 @@ function App(props: PropsWithChildren) {
           // CSS 规则 `:not(.taro_tabbar_page)` 又不会隐藏 tabBar 页 → 真实访客跳登录后
           // 视觉上仍看着晨报页、完全登不了录（2026-10-20 CDP 实测）。reLaunch 会同步
           // 卸载 tabBar 缓存的页面实例，清掉双 stationed 导致的层层叠。
+          // 记一笔「刚刚被门禁送来登录页」：登录页据此跳过自己那次会话检查。
+          // 否则冷启动未登录会连着发两次 POST /.cloud/auth/v1/token（2026-10-28 实测）。
+          markGateRedirect();
           Taro.reLaunch({ url: '/pages/login/index' }).catch((err) => {
             // 门禁重定向失败 = 未登录用户仍停留在受保护页，属真故障，必须留痕
             // （用 console.error：console.warn 会被生产构建剔除）
@@ -263,6 +279,11 @@ function App(props: PropsWithChildren) {
               两套实现各自维护；收敛成一个页面后，页面上不再有悬浮物遮挡正文。 */}
           {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页 */}
           {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
+          {/* 首启引导：必须等隐私同意之后再挂（两个全屏层叠在一起，用户会点不到下面那层），
+              也必须等开屏退场（shellReady），否则引导藏在开屏下面等于没出现。 */}
+          {consentAgreed && shellReady && !onboarded ? (
+            <Onboarding onDone={() => setOnboarded(true)} />
+          ) : null}
           {/* 键盘快捷键面板：`?` 或「我的 → 键盘快捷键」打开（H5 桌面端） */}
           <HotkeyHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
           {/* 开屏动画：每次冷启动展示，点击可跳过 */}

@@ -1,0 +1,435 @@
+@use '@/styles/variables.scss' as *;
+
+// ============================================================
+// pages/sport —— 运动（设计稿 p43/p44/p45/p46）
+// 视觉语言与晨报页一致：暖纸底 + 白卡 + 发丝描边；数据块用深色卡（设计稿里
+// 「5.02 公里 / 当前配速 / 时间」就是一块深色，读数字时最省眼）。
+// 尺寸一律 rpx（h5 pxtransform 基准 37.5，写 px 会被换算成 rem）。
+// ============================================================
+
+.page {
+  min-height: 100vh;
+  padding: $spacing-lg $page-padding $spacing-xl;
+  background: $color-bg-page;
+  box-sizing: border-box;
+  color: $color-text-primary;
+}
+
+.backRow,
+.backRowInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 4rpx 0;
+  cursor: pointer;
+}
+
+.backRowInline {
+  padding: 0;
+}
+
+.backIcon {
+  font-size: 34rpx;
+  line-height: 1;
+  color: $color-text-tertiary;
+}
+
+.backText {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.title {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: 56rpx;
+  font-weight: $font-weight-semibold;
+  line-height: 1.2;
+  color: $color-text-primary;
+}
+
+.subtitle {
+  display: block;
+  margin-top: 8rpx;
+  margin-bottom: $spacing-md;
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+}
+
+/* ---------------- 卡片 ---------------- */
+.card {
+  margin-bottom: $spacing-md;
+  padding: $spacing-md;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-lg;
+  box-sizing: border-box;
+}
+
+.cardRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+}
+
+.cardMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.cardLabel {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.cardHint {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.cardAccent {
+  font-size: $font-size-sm;
+  color: $color-primary-strong;
+  font-weight: $font-weight-medium;
+}
+
+.cardFoot {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.bigValue {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 40rpx;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.emptyHint {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+/* 完成度圆环：设计稿是「恢复良好 82」的绿色评分圈，
+   这里换成真实的本周完成度（见 index.tsx 里为什么不编生理评分）。 */
+.scoreCircle {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: $radius-round;
+  background: rgba(0, 180, 42, 0.1);
+  color: $color-success;
+}
+
+.scoreText {
+  font-size: 48rpx;
+  font-weight: $font-weight-semibold;
+  line-height: 128rpx;
+}
+
+.scoreUnit {
+  font-size: $font-size-sm;
+  margin-left: 2rpx;
+}
+
+/* ---------------- 主按钮 ---------------- */
+.primaryBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100rpx;
+  margin-bottom: $spacing-md;
+  border-radius: $radius-button;
+  // 与晨报/收件箱/登录的主按钮同源（$gradient-emphasis，白字 5.26:1）。
+  // 不写 CSS 变量：主题里没有 --gradient-emphasis，那样会一直走 fallback 的偏褐色。
+  background: $gradient-emphasis;
+  box-shadow: 0 8rpx 24rpx rgba(199, 55, 26, 0.24);
+  cursor: pointer;
+}
+
+.primaryBtnText {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: #fff;
+}
+
+.textBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 76rpx;
+  cursor: pointer;
+}
+
+.textBtnLabel {
+  font-size: $font-size-md;
+  color: $color-primary-strong;
+}
+
+.textBtnDanger {
+  font-size: $font-size-md;
+  color: $color-error;
+}
+
+/* ---------------- 本周柱状 ---------------- */
+.weekBars {
+  display: flex;
+  align-items: flex-end;
+  gap: 12rpx;
+  height: 140rpx;
+  margin-top: $spacing-md;
+}
+
+.weekBarWrap {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.weekBar {
+  width: 100%;
+  height: 100%;
+  border-radius: $radius-xs;
+  background: #ede3d6;
+}
+
+.weekBarActive {
+  width: 100%;
+  height: 100%;
+  border-radius: $radius-xs;
+  background: $color-primary;
+}
+
+/* 周目标进度 */
+.progressTrack {
+  height: 12rpx;
+  margin-top: $spacing-sm;
+  border-radius: $radius-round;
+  background: #efe6da;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: $radius-round;
+  background: $color-primary;
+}
+
+/* ---------------- 深色数据卡 ---------------- */
+.darkCard {
+  margin-bottom: $spacing-md;
+  padding: $spacing-lg $spacing-md;
+  border-radius: $radius-lg;
+  background: #2b2723;
+  color: #fff;
+}
+
+.distRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+}
+
+.distBig {
+  font-size: 108rpx;
+  font-weight: $font-weight-semibold;
+  line-height: 1;
+  letter-spacing: -2rpx;
+  color: #fff;
+}
+
+.distUnit {
+  font-size: $font-size-md;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.darkDivider {
+  height: 1rpx;
+  margin: $spacing-md 0;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.darkStats {
+  display: flex;
+  gap: $spacing-md;
+}
+
+.darkStat {
+  flex: 1;
+  min-width: 0;
+}
+
+.darkStatValue {
+  display: block;
+  font-size: $font-size-xl;
+  font-weight: $font-weight-medium;
+  color: #fff;
+}
+
+/* 心率没有数据源：用弱化的破折号，别让它看起来像一个读数 */
+.darkStatValueDim {
+  display: block;
+  font-size: $font-size-xl;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.darkStatLabel {
+  display: block;
+  margin-top: 4rpx;
+  font-size: $font-size-xs;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* 趋势提示条（设计稿 p46 的深色「趋势」卡） */
+.darkTip {
+  margin-bottom: $spacing-md;
+  padding: $spacing-md;
+  border-radius: $radius-lg;
+  background: #2b2723;
+}
+
+.darkTipLabel {
+  display: block;
+  font-size: $font-size-sm;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.darkTipText {
+  display: block;
+  margin-top: 8rpx;
+  font-size: $font-size-md;
+  line-height: 1.6;
+  color: #fff;
+}
+
+/* ---------------- 记录中 ---------------- */
+.recTopBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4rpx 0 $spacing-md;
+}
+
+.geoOk {
+  font-size: $font-size-sm;
+  color: $color-success;
+}
+
+.geoWarn {
+  font-size: $font-size-sm;
+  color: $color-warning;
+}
+
+.mapBox {
+  margin-top: $spacing-sm;
+  padding: $spacing-sm;
+  border-radius: $radius-md;
+  background: #f3ece2;
+}
+
+.mapImg {
+  width: 100%;
+  height: 300rpx;
+}
+
+.curveBox {
+  margin-top: $spacing-sm;
+}
+
+.curveImg {
+  width: 100%;
+  height: 200rpx;
+}
+
+.recActions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 96rpx;
+  margin-top: $spacing-lg;
+}
+
+.pauseBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 176rpx;
+  height: 176rpx;
+  border-radius: $radius-round;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  cursor: pointer;
+}
+
+.pauseBtnText {
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.finishBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 176rpx;
+  height: 176rpx;
+  border-radius: $radius-round;
+  background: $color-primary;
+  box-shadow: 0 10rpx 28rpx rgba(255, 122, 69, 0.32);
+  cursor: pointer;
+}
+
+.finishBtnText {
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: #fff;
+}
+
+/* ---------------- 记录列表 ---------------- */
+.listRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  padding: $spacing-md 0;
+  border-bottom: 1rpx solid $color-card-border;
+  cursor: pointer;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.listMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.listMeta {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.listTitle {
+  display: block;
+  margin-top: 6rpx;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.listPace {
+  flex: 0 0 auto;
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-primary-strong;
+}

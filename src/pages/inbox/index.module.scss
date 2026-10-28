@@ -524,3 +524,20 @@
   color: $color-text-tertiary;
   margin-top: 4rpx;
 }
+
+// 平板/桌面（≥748px）：动作行不再拉满整列。
+// 手机上「开始解析」占满一行是拇指操作逻辑；内容列放宽到 720/1200 之后，
+// 同一个按钮横跨一千多像素只剩笨重，和旁边「添加截图」也远到看不出是一组操作。
+// 上限 420PX（大写逃过 pxtransform）：两个按钮仍在一屏内，点击热区不缩水。
+// 选择器与上面 `.actionRow .extractButton` 同权重、位置在后 —— 靠源码顺序覆盖，不用 !important。
+@media (min-width: 748px) {
+  .actionRow {
+    max-width: 420PX;
+  }
+
+  // 顶部提示条同理：1440 下它横跨 1136px，一行 60+ 字，读起来要来回摆头。
+  // 收到 720（p49 的 iPad 内容列上限），保持"提示是一段话"的形态。
+  .howTo {
+    max-width: 720PX;
+  }
+}
