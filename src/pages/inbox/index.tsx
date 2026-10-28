@@ -793,6 +793,38 @@ function InboxPage() {
       ) : (
         <EmptyState icon='📥' title={t('inbox.emptyTitle')} hint={t('inbox.emptyHint')} />
       )}
+
+      {/* 桌面右栏（p56/p57）：手机上 display:none，完全不占位。
+          只呈现页面已有的真实数据：待整理草稿 + 处理记录。 */}
+      <View className={styles.rail}>
+        <View className={styles.railCard}>
+          <Text className={styles.railTitle}>{t('inbox.railPending')}</Text>
+          {drafts.length === 0 ? (
+            <Text className={styles.railEmpty}>{t('inbox.railPendingEmpty')}</Text>
+          ) : (
+            drafts.slice(0, 3).map((d) => (
+              <View key={d.key} className={styles.railRow}>
+                <Text className={styles.railRowName}>{d.title}</Text>
+                {d.time ? <Text className={styles.railRowMeta}>{d.time}</Text> : null}
+              </View>
+            ))
+          )}
+        </View>
+
+        <View className={styles.railCard}>
+          <Text className={styles.railTitle}>{t('inbox.railHistory')}</Text>
+          {history.length === 0 ? (
+            <Text className={styles.railEmpty}>{t('inbox.railHistoryEmpty')}</Text>
+          ) : (
+            history.slice(0, 3).map((h) => (
+              <View key={h.id} className={styles.railRow}>
+                <Text className={styles.railRowName}>{h.text}</Text>
+                <Text className={styles.railRowMeta}>{h.time}</Text>
+              </View>
+            ))
+          )}
+        </View>
+      </View>
     </View>
   );
 }

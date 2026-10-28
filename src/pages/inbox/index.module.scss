@@ -541,3 +541,79 @@
     max-width: 720PX;
   }
 }
+
+// ============================================================
+// 桌面三栏（p56/p57）：左栏外壳提供，这里补右栏
+// ============================================================
+.rail {
+  display: none;
+}
+
+@media (min-width: 1200px) {
+  .page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300PX;
+    column-gap: 24PX;
+    align-items: start;
+  }
+
+  // 同记账页：必须把其余块钉在第一列，否则 grid 自动排布会把内容塞进空的第二列
+  .page > *:not(.rail) {
+    grid-column: 1;
+  }
+
+  .rail {
+    display: block;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    position: sticky;
+    top: 16PX;
+  }
+}
+
+.railCard {
+  margin-bottom: 16PX;
+  padding: 16PX;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-lg;
+}
+
+.railTitle {
+  display: block;
+  margin-bottom: 12PX;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-secondary;
+}
+
+.railRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8PX;
+  padding: 8PX 0;
+}
+
+.railRowName {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railRowMeta {
+  flex: 0 0 auto;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.railEmpty {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
