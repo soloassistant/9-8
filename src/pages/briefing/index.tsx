@@ -147,14 +147,16 @@ const TOOL_TILES = [
 ] as const;
 
 /** 桌面端左侧栏导航（2026-10-27 参考稿改版）：五个 tabBar 页的真实路由。
- *  全部是 tabBar 页 → 跳转必须 switchTab（navigateTo 对 tabBar 页会直接抛错）；
- *  第一项是当前页，点击不动作。 */
+ *  前五项全部是 tabBar 页 → 跳转必须 switchTab（navigateTo 对 tabBar 页会直接抛错）；
+ *  第一项是当前页，点击不动作。
+ *  2026-10-28 增补：末项「交易」是二级页（非 tabBar），走 navigateTo。 */
 const SIDE_NAV = [
   { icon: '☀️', label: 'briefing.navToday', url: '/pages/briefing/index' },
   { icon: '📥', label: 'briefing.navInbox', url: '/pages/inbox/index' },
   { icon: '🔥', label: 'briefing.navHot', url: '/pages/library/index' },
   { icon: '📅', label: 'briefing.navCalendar', url: '/pages/calendar/index' },
-  { icon: '🙂', label: 'briefing.navMine', url: '/pages/mine/index' }
+  { icon: '🙂', label: 'briefing.navMine', url: '/pages/mine/index' },
+  { icon: '📈', label: 'briefing.navTrade', url: '/pages/trade/index' }
 ] as const;
 
 function BriefingPage() {
@@ -1079,8 +1081,15 @@ function BriefingPage() {
               key={nav.url}
               className={classnames(styles.sideNavItem, i === 0 && styles.sideNavItemActive)}
               onClick={() => {
-                // 第一项就是当前页（晨报），点了不动作
+                // 第一项就是当前页（晨报），点了不动作；
+                // 「交易」是二级页（非 tabBar）→ navigateTo，其余 switchTab
                 if (i === 0) return;
+                if (nav.url === '/pages/trade/index') {
+                  Taro.navigateTo({ url: nav.url }).catch((err) => {
+                    console.error('[BriefingPage] 侧栏 navigateTo 失败:', err);
+                  });
+                  return;
+                }
                 Taro.switchTab({ url: nav.url }).catch((err) => {
                   console.error('[BriefingPage] 侧栏 switchTab 失败:', err);
                 });

@@ -124,6 +124,13 @@ html {
   body.briefing-desktop .taro-tabbar__tabbar {
     display: none !important;
   }
+  // 交易终端（2026-10-28）：深色终端页要占满整个窗口（1280/1920 三栏不塌），
+  // 与 briefing 同一逃逸手法 —— 页面挂载时给 body 加 .trade-terminal，卸载/隐藏时移除。
+  body.trade-terminal .taro-tabbar__panel {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-shadow: none;
+  }
 }
 
 // ============================================================

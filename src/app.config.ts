@@ -31,7 +31,10 @@ export default defineAppConfig({
     'pages/sxm/index',
     'pages/learn/index',
     'pages/learnDetail/index',
-    'pages/learnCommunity/index'
+    'pages/learnCommunity/index',
+    // 2026-10-28：专业交易终端（黄金/外汇，模拟行情）。仅 H5 渲染终端 UI，
+    // weapp 渲染「仅网页版可用」占位；非 tabBar 页（navigateTo 进入）。
+    'pages/trade/index'
   ],
   // 定位权限（weapp 生效，H5 忽略）：晨报天气城市自动定位
   // ⚠️ 文案必须与 location.ts 的真实行为一致（2026-10-12 合规修正）：

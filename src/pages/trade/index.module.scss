@@ -1,0 +1,908 @@
+// ============================================
+// 交易终端（pages/trade）—— 深色专业终端风格，自成一体
+// ------------------------------------------------------------
+// · 颜色一律引用 theme.scss 的 $t-term-* token，本文件不出现新色值字面量；
+//   token 同时导出为 CSS 自定义属性，canvas 绘制从页面根读取同一份值。
+// · 尺寸单位用大写 PX：本页是桌面终端 UI（48px 顶栏 / 260px 左栏 / 300px 右栏
+//   必须是真像素），小写 px 会被 pxtransform 按 375 设计稿换算成 rem，
+//   在 1280/1920 视口下会整体放大变形 —— 与 app.scss 的 500PX 同一逃逸手法。
+//   这是页面级例外，只限本文件。
+// ============================================
+@use '@/styles/variables.scss' as *;
+
+.page {
+  // 把 SCSS token 导出成 CSS 变量：canvas 侧经 getComputedStyle 读取，
+  // 颜色的单一来源仍是 theme.scss，JS 不另存色值。
+  --t-bg: #{$t-term-bg};
+  --t-panel: #{$t-term-panel};
+  --t-panel-deep: #{$t-term-panel-deep};
+  --t-line: #{$t-term-line};
+  --t-border: #{$t-term-border};
+  --t-text: #{$t-term-text};
+  --t-text-dim: #{$t-term-text-dim};
+  --t-up: #{$t-term-up};
+  --t-up-bg: #{$t-term-up-bg};
+  --t-down: #{$t-term-down};
+  --t-down-bg: #{$t-term-down-bg};
+  --t-gold: #{$t-term-gold};
+  --t-ma5: #{$t-term-ma5};
+  --t-ma10: #{$t-term-ma10};
+  --t-ma20: #{$t-term-ma20};
+  --t-ma60: #{$t-term-ma60};
+  --t-boll: #{$t-term-boll};
+
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 260PX 1fr 300PX;
+  grid-template-rows: 48PX 1fr 44PX;
+  background: var(--t-bg);
+  color: var(--t-text);
+  font-family: 'SF Mono', 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  font-size: 12PX;
+  text-align: left;
+
+  // 顶部账户条：横跨三列
+  .topbar {
+    grid-column: 1 / 4;
+    grid-row: 1;
+    display: flex;
+    align-items: center;
+    gap: 14PX;
+    padding: 0 12PX;
+    background: var(--t-panel);
+    border-bottom: 1PX solid var(--t-line);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .demoBadge {
+    flex: 0 0 auto;
+    padding: 3PX 8PX;
+    border: 1PX solid var(--t-gold);
+    border-radius: 3PX;
+    color: var(--t-gold);
+    font-weight: 700;
+    font-size: 12PX;
+    letter-spacing: 1PX;
+    background: rgba(240, 180, 41, 0.08);
+  }
+
+  .statItem {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+  }
+
+  .statLabel {
+    font-size: 10PX;
+    color: var(--t-text-dim);
+  }
+
+  .statValue {
+    font-size: 13PX;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .up { color: var(--t-up); }
+  .down { color: var(--t-down); }
+  .gold { color: var(--t-gold); }
+
+  .levSelect {
+    flex: 0 0 auto;
+    background: var(--t-panel-deep);
+    color: var(--t-text);
+    border: 1PX solid var(--t-border);
+    border-radius: 3PX;
+    font-size: 12PX;
+    padding: 3PX 4PX;
+    font-family: inherit;
+  }
+
+  .levWrap {
+    flex: 0 0 auto;
+    position: relative;
+  }
+
+  .levBtn {
+    padding: 3PX 8PX;
+    background: var(--t-panel-deep);
+    border: 1PX solid var(--t-border);
+    border-radius: 3PX;
+    font-size: 12PX;
+    cursor: pointer;
+    color: var(--t-text);
+  }
+
+  .levMenu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 2PX;
+    background: var(--t-panel);
+    border: 1PX solid var(--t-border);
+    border-radius: 3PX;
+    z-index: 30;
+    min-width: 64PX;
+  }
+
+  .levItem {
+    padding: 4PX 10PX;
+    font-size: 12PX;
+    color: var(--t-text-dim);
+    cursor: pointer;
+  }
+
+  .levItemActive {
+    color: var(--t-gold);
+    background: var(--t-panel-deep);
+  }
+
+  .feed {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 5PX;
+    font-size: 11PX;
+    color: var(--t-text-dim);
+  }
+
+  .feedDot {
+    width: 7PX;
+    height: 7PX;
+    border-radius: 50%;
+    background: var(--t-down); // 绿点 = 连接正常（此处不是涨跌语义）
+    box-shadow: 0 0 4PX var(--t-down);
+  }
+
+  .clock {
+    flex: 0 0 auto;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--t-text-dim);
+    font-size: 12PX;
+  }
+
+  // ===== 左栏 =====
+  .leftPanel {
+    grid-column: 1;
+    grid-row: 2;
+    background: var(--t-panel);
+    border-right: 1PX solid var(--t-line);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panelTitle {
+    padding: 8PX 10PX 4PX;
+    font-size: 11PX;
+    color: var(--t-text-dim);
+    letter-spacing: 1PX;
+  }
+
+  .wlTabs {
+    display: flex;
+    gap: 4PX;
+    padding: 0 10PX 6PX;
+  }
+
+  .wlTab {
+    padding: 2PX 10PX;
+    border-radius: 3PX;
+    font-size: 11PX;
+    color: var(--t-text-dim);
+    border: 1PX solid transparent;
+    cursor: pointer;
+  }
+
+  .wlTabActive {
+    color: var(--t-gold);
+    border-color: var(--t-border);
+    background: var(--t-panel-deep);
+  }
+
+  .wlList {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .wlRow {
+    display: grid;
+    grid-template-columns: 1fr 64PX;
+    align-items: center;
+    gap: 6PX;
+    padding: 6PX 10PX;
+    border-bottom: 1PX solid var(--t-line);
+    cursor: pointer;
+  }
+
+  .wlRowActive {
+    background: var(--t-panel-deep);
+    box-shadow: inset 2PX 0 0 var(--t-gold);
+  }
+
+  .wlName {
+    font-size: 12PX;
+    font-weight: 600;
+  }
+
+  .wlSym {
+    font-size: 10PX;
+    color: var(--t-text-dim);
+  }
+
+  .wlRight {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1.2;
+  }
+
+  .wlPrice {
+    font-size: 12PX;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .wlChange {
+    font-size: 10PX;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .wlSpark {
+    width: 56PX;
+    height: 22PX;
+  }
+
+  .perfCard {
+    flex: 0 0 auto;
+    border-top: 1PX solid var(--t-line);
+    padding: 6PX 10PX 8PX;
+  }
+
+  .perfGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4PX 10PX;
+    margin-top: 4PX;
+  }
+
+  .perfRow {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11PX;
+    line-height: 1.4;
+  }
+
+  .perfLabel { color: var(--t-text-dim); }
+
+  .perfValue {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .equityBox {
+    width: 100%;
+    height: 56PX;
+    margin-top: 4PX;
+  }
+
+  // ===== 中栏 =====
+  .centerPanel {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--t-panel-deep);
+    min-width: 0;
+  }
+
+  .chartToolbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4PX 8PX;
+    padding: 6PX 10PX;
+    border-bottom: 1PX solid var(--t-line);
+    background: var(--t-panel);
+  }
+
+  .ctBtn {
+    padding: 2PX 8PX;
+    font-size: 11PX;
+    color: var(--t-text-dim);
+    border: 1PX solid var(--t-border);
+    border-radius: 3PX;
+    background: transparent;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .ctBtnActive {
+    color: var(--t-gold);
+    border-color: var(--t-gold);
+  }
+
+  .ctGroup {
+    display: flex;
+    gap: 3PX;
+    align-items: center;
+  }
+
+  .ctDivider {
+    width: 1PX;
+    height: 14PX;
+    background: var(--t-line);
+  }
+
+  .pageIndicator {
+    font-size: 11PX;
+    color: var(--t-text-dim);
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+  }
+
+  .keyHint {
+    font-size: 10PX;
+    color: var(--t-text-dim);
+    opacity: 0.8;
+  }
+
+  .chartWrap {
+    flex: 1 1 auto;
+    position: relative;
+    min-height: 0;
+  }
+
+  .chartBox {
+    position: absolute;
+    inset: 0;
+  }
+
+  .chartCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .chartOverlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  // ===== 右栏 =====
+  .rightPanel {
+    grid-column: 3;
+    grid-row: 2;
+    background: var(--t-panel);
+    border-left: 1PX solid var(--t-line);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .orderCard {
+    flex: 0 0 auto;
+    padding: 8PX 10PX;
+    border-bottom: 1PX solid var(--t-line);
+  }
+
+  .sideTabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4PX;
+    margin-bottom: 6PX;
+  }
+
+  .sideTab {
+    text-align: center;
+    padding: 4PX 0;
+    font-size: 12PX;
+    font-weight: 600;
+    border-radius: 3PX;
+    color: var(--t-text-dim);
+    background: var(--t-panel-deep);
+    border: 1PX solid var(--t-border);
+    cursor: pointer;
+  }
+
+  .sideTabBuy {
+    color: var(--t-text);
+    background: var(--t-up-bg);
+    border-color: var(--t-up);
+  }
+
+  .sideTabSell {
+    color: var(--t-text);
+    background: var(--t-down-bg);
+    border-color: var(--t-down);
+  }
+
+  .fieldRow {
+    display: flex;
+    align-items: center;
+    gap: 6PX;
+    margin: 4PX 0;
+  }
+
+  .fieldLabel {
+    flex: 0 0 62PX;
+    font-size: 11PX;
+    color: var(--t-text-dim);
+  }
+
+  .numInput {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: var(--t-panel-deep);
+    border: 1PX solid var(--t-border);
+    border-radius: 3PX;
+    color: var(--t-text);
+    font-size: 12PX;
+    padding: 3PX 6PX;
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .segGroup {
+    flex: 1 1 auto;
+    display: flex;
+    gap: 3PX;
+  }
+
+  .segBtn {
+    text-align: center;
+    font-size: 11PX;
+    padding: 3PX 10PX;
+    color: var(--t-text-dim);
+    background: var(--t-panel-deep);
+    border: 1PX solid var(--t-border);
+    border-radius: 3PX;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  // 放在 segGroup（等分 flex 行）里的按钮才平分宽度；单独使用时按内容宽
+  .segGroup .segBtn,
+  .segGroup.segBtn {
+    flex: 1 1 0;
+    padding: 3PX 0;
+  }
+
+  .segBtnWide {
+    min-width: 52PX;
+    text-align: center;
+  }
+
+  .segBtnActive {
+    color: var(--t-text);
+    border-color: var(--t-gold);
+  }
+
+  .estGrid {
+    margin-top: 6PX;
+    border-top: 1PX dashed var(--t-line);
+    padding-top: 5PX;
+  }
+
+  .atrRow {
+    display: flex;
+    gap: 3PX;
+    margin-top: 5PX;
+  }
+
+  .atrBtn {
+    flex: 1 1 0;
+    font-size: 10PX;
+    text-align: center;
+    padding: 3PX 0;
+    color: var(--t-gold);
+    background: rgba(240, 180, 41, 0.08);
+    border: 1PX solid var(--t-border);
+    border-radius: 3PX;
+    cursor: pointer;
+  }
+
+  .atrBtnDisabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .submitBtn {
+    width: 100%;
+    margin-top: 8PX;
+    padding: 7PX 0;
+    text-align: center;
+    font-size: 13PX;
+    font-weight: 700;
+    border-radius: 3PX;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .submitBuy {
+    background: var(--t-up);
+    color: #ffffff;
+  }
+
+  .submitSell {
+    background: var(--t-down);
+    color: #ffffff;
+  }
+
+  .bookArea {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .bookHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5PX 10PX 0;
+  }
+
+  .bookTabs {
+    display: flex;
+    gap: 10PX;
+  }
+
+  .bookTab {
+    font-size: 12PX;
+    color: var(--t-text-dim);
+    padding: 3PX 0;
+    cursor: pointer;
+    border-bottom: 2PX solid transparent;
+  }
+
+  .bookTabActive {
+    color: var(--t-text);
+    border-bottom-color: var(--t-gold);
+  }
+
+  .closeAllBtn {
+    font-size: 11PX;
+    color: var(--t-up);
+    border: 1PX solid var(--t-up);
+    border-radius: 3PX;
+    padding: 1PX 8PX;
+    cursor: pointer;
+  }
+
+  .bookTable {
+    padding: 4PX 10PX 10PX;
+  }
+
+  // 持仓/委托/成交：两行小卡（300px 窄栏里塞不下六列表格）
+  .posRow {
+    padding: 6PX 0;
+    border-bottom: 1PX solid var(--t-line);
+    font-size: 11PX;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .posLine {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6PX;
+    line-height: 1.6;
+  }
+
+  .posPnl {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .posBtns {
+    display: flex;
+    gap: 4PX;
+    flex: 0 0 auto;
+  }
+
+  .dimText {
+    color: var(--t-text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .miniBtn {
+    font-size: 10PX;
+    color: var(--t-text-dim);
+    border: 1PX solid var(--t-border);
+    border-radius: 2PX;
+    padding: 0 4PX;
+    text-align: center;
+    cursor: pointer;
+    line-height: 1.5;
+  }
+
+  .miniBtnDanger {
+    color: var(--t-up);
+    border-color: var(--t-up);
+  }
+
+  .miniBtnDisabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .sltpEdit {
+    display: flex;
+    gap: 4PX;
+    align-items: center;
+    padding: 4PX 0 0;
+  }
+
+  .sltpInput {
+    flex: 1 1 0;
+    min-width: 0;
+    background: var(--t-panel-deep);
+    border: 1PX solid var(--t-border);
+    border-radius: 2PX;
+    color: var(--t-text);
+    font-size: 10PX;
+    padding: 2PX 4PX;
+    font-family: inherit;
+  }
+
+  .emptyHint {
+    padding: 16PX 10PX;
+    text-align: center;
+    font-size: 11PX;
+    color: var(--t-text-dim);
+  }
+
+  // 确认弹窗（平仓）
+  .confirmMask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 90;
+  }
+
+  .confirmCard {
+    width: 340PX;
+    max-width: calc(100vw - 32PX);
+    background: var(--t-panel);
+    border: 1PX solid var(--t-border);
+    border-radius: 6PX;
+    padding: 14PX 16PX;
+  }
+
+  .confirmTitle {
+    font-size: 14PX;
+    font-weight: 700;
+    margin-bottom: 8PX;
+  }
+
+  .confirmBody {
+    font-size: 12PX;
+    color: var(--t-text-dim);
+    line-height: 1.6;
+    margin-bottom: 12PX;
+  }
+
+  .confirmActions {
+    display: flex;
+    gap: 8PX;
+    justify-content: flex-end;
+  }
+
+  .btnGhost {
+    padding: 5PX 14PX;
+    font-size: 12PX;
+    border-radius: 3PX;
+    border: 1PX solid var(--t-border);
+    color: var(--t-text);
+    background: transparent;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .btnDanger {
+    padding: 5PX 14PX;
+    font-size: 12PX;
+    border-radius: 3PX;
+    border: none;
+    color: #ffffff;
+    background: var(--t-up);
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  // ===== 底部工具条 =====
+  .bottomBar {
+    grid-column: 1 / 4;
+    grid-row: 3;
+    background: var(--t-panel);
+    border-top: 1PX solid var(--t-line);
+    display: flex;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .toolTabs {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-right: 1PX solid var(--t-line);
+    padding: 0 6PX;
+    gap: 2PX;
+  }
+
+  .toolTab {
+    font-size: 10PX;
+    color: var(--t-text-dim);
+    padding: 1PX 8PX;
+    border-radius: 2PX;
+    cursor: pointer;
+  }
+
+  .toolTabActive {
+    color: var(--t-gold);
+    background: var(--t-panel-deep);
+  }
+
+  .toolPanel {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    gap: 8PX;
+    padding: 0 10PX;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+  }
+
+  .toolField {
+    display: flex;
+    align-items: center;
+    gap: 4PX;
+    flex: 0 0 auto;
+  }
+
+  .toolLabel {
+    font-size: 10PX;
+    color: var(--t-text-dim);
+  }
+
+  .toolInput {
+    width: 72PX;
+    background: var(--t-panel-deep);
+    border: 1PX solid var(--t-border);
+    border-radius: 3PX;
+    color: var(--t-text);
+    font-size: 11PX;
+    padding: 2PX 5PX;
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .toolSelect {
+    background: var(--t-panel-deep);
+    border: 1PX solid var(--t-border);
+    border-radius: 3PX;
+    color: var(--t-text);
+    font-size: 11PX;
+    padding: 2PX 3PX;
+    font-family: inherit;
+  }
+
+  .toolSegs {
+    display: flex;
+    gap: 3PX;
+    flex: 0 0 auto;
+  }
+
+  .toolResult {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 14PX;
+    margin-left: auto;
+    font-size: 11PX;
+  }
+
+  .resItem {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+  }
+
+  .resLabel { color: var(--t-text-dim); font-size: 10PX; }
+  .resValue { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  // ===== 非网页端占位 =====
+  .weappHint {
+    grid-column: 1 / 4;
+    grid-row: 1 / 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14PX;
+    color: var(--t-text-dim);
+  }
+
+  // ===== 窄屏（手机端）：三栏改为纵向堆叠，不横向溢出 =====
+  @media (max-width: 900PX) {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+
+    .topbar {
+      flex-wrap: wrap;
+      height: auto;
+      padding: 6PX 10PX;
+      gap: 8PX 12PX;
+      white-space: normal;
+    }
+
+    .clock { margin-left: 0; }
+
+    .leftPanel,
+    .centerPanel,
+    .rightPanel {
+      border: none;
+      border-top: 1PX solid var(--t-line);
+      min-height: 0;
+    }
+
+    .leftPanel { order: 2; }
+    .centerPanel { order: 1; }
+    .rightPanel { order: 3; }
+
+    .bottomBar { order: 4; }
+
+    .chartWrap {
+      height: 340PX;
+      flex: 0 0 auto;
+    }
+
+    .wlList {
+      max-height: 220PX;
+    }
+
+    .bottomBar {
+      flex-wrap: wrap;
+      height: auto;
+
+      .toolTabs {
+        flex-direction: row;
+        border-right: none;
+        border-bottom: 1PX solid var(--t-line);
+        padding: 4PX 6PX;
+      }
+
+      .toolPanel {
+        flex-wrap: wrap;
+        padding: 6PX 10PX;
+        white-space: normal;
+      }
+
+      .toolResult {
+        margin-left: 0;
+      }
+    }
+  }
+}

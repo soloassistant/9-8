@@ -92,3 +92,29 @@ $color-emphasis-shadow-soft: rgba(199, 55, 26, 0.18);
 // 只做背景，上面压的都是深色文字（brand-strong 5.26 起），不参与白字判定。
 $color-accent-wash: linear-gradient(135deg, rgba(255, 122, 69, 0.1) 0%, rgba(247, 186, 30, 0.08) 100%);
 $color-accent-border: rgba(255, 122, 69, 0.14);
+
+// ============================================
+// 交易终端深色 token（2026-10-28，仅 pages/trade 使用）
+// ------------------------------------------------------------
+// 终端页自成一体：不跟随应用的浅色「晨光」主题，整套深色只在这一页生效。
+// 涨跌用中式配色：涨 = 红、跌 = 绿（与国际盘相反，对齐国内用户习惯）。
+// 页面会把这组变量同时导出为 CSS 自定义属性（见 pages/trade/index.module.scss
+// 的 .page 根），canvas 绘制经 getComputedStyle 读取同一份值 —— 颜色的
+// 单一来源仍是这里，JS 侧不另存色值。
+$t-term-bg: #0b0f14;          // 页面底（近黑的冷蓝灰）
+$t-term-panel: #121821;       // 面板底
+$t-term-panel-deep: #0d1219;  // 更深一档（图表区底）
+$t-term-line: #1c2531;        // 分隔线 / 图表网格
+$t-term-border: #263140;      // 输入框 / 卡片描边
+$t-term-text: #e6edf3;        // 主文字（对 $t-term-bg ≈ 14.9:1）
+$t-term-text-dim: #8b98a5;    // 次级文字（对 $t-term-panel ≈ 5.4:1）
+$t-term-up: #e5484d;          // 涨（红）
+$t-term-up-bg: rgba(229, 72, 77, 0.14);
+$t-term-down: #2ea043;        // 跌（绿）
+$t-term-down-bg: rgba(46, 160, 67, 0.14);
+$t-term-gold: #f0b429;        // 金色点缀（现价 / 黄金品种高亮）
+$t-term-ma5: #f0b429;         // MA5
+$t-term-ma10: #4f9cf9;        // MA10
+$t-term-ma20: #b387f8;        // MA20
+$t-term-ma60: #2dd4bf;        // MA60
+$t-term-boll: #5b8def;        // BOLL 轨道
