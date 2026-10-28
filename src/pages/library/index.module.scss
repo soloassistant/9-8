@@ -1043,3 +1043,32 @@
   flex: 1;
   background: $color-bg-page;
 }
+
+// ============================================================
+// 平板/桌面（≥748px）：详情从"底部弹层"改成"右侧推入栏"（设计稿 p51/p52）
+// ------------------------------------------------------------
+// 设计稿的要求是「点开一条，列表留着」—— 手机上底部弹层是对的（一屏只放得下一样东西），
+// 到了 iPad/桌面还这么弹就等于把整屏盖住，等于丢了上下文。
+// 这里：遮罩不再吃点击（列表可以继续点下一条），详情固定成右侧 420px 一栏。
+// 关闭仍走详情里的「取消」按钮；Esc 由全局快捷键层处理。
+// ============================================================
+@media (min-width: 1024px) {
+  .blockMask {
+    background: transparent;
+    pointer-events: none;
+    justify-content: flex-start;
+    align-items: stretch;
+  }
+
+  .articleSheet {
+    pointer-events: auto;
+    width: 360PX;
+    max-width: 360PX;
+    height: 100%;
+    max-height: 100%;
+    margin-left: auto;
+    border-radius: 0;
+    box-shadow: -8PX 0 28PX rgba(45, 41, 38, 0.12);
+    border-left: 1PX solid $color-card-border;
+  }
+}

@@ -993,6 +993,14 @@ function LibraryPage() {
 
   /** 站内文章视图（2026-10-25）：正文 = 源 feed 自带的摘要/描述（content，缺失退回 summary），
    *  **不抓取正文页** —— 合规口径「不转载正文只出摘要」不变；想看全文走「阅读原文」。 */
+  // 详情打开时给 body 打类：≥1024px 由 app.scss 把内容列右边界收到 360px，
+  // 让右侧详情栏**真的占位**而不是盖在列表上（否则标题会被截掉一半）。
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5') return;
+    document.body.classList.toggle('has-detail-rail', !!article);
+    return () => document.body.classList.remove('has-detail-rail');
+  }, [article]);
+
   const renderArticleView = (item: HotspotNews) => {
     // alsoFrom 从这里取（与卡片 multiSourceCount 同源）：文章视图需要具体媒体名列表
     const alsoFrom = (item as { alsoFrom?: unknown }).alsoFrom;
