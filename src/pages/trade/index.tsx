@@ -18,7 +18,7 @@
  * 小写 px 会被 pxtransform 按 375 设计稿换算）——页面级例外，见该文件头部注释。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Taro, { useDidHide, useDidShow } from '@tarojs/taro';
+import { useDidHide, useDidShow } from '@tarojs/taro';
 import { Input, Text, View } from '@tarojs/components';
 import classnames from 'classnames';
 import { useT } from '@/store/language';
@@ -29,35 +29,18 @@ import {
   applyRealSpot,
   atr,
   boll,
-  cancelOrder,
-  closeAll,
-  closePosition,
   closesOf,
   convertCurrency,
   createEngine,
   equityOf,
-  feeOf,
-  floatingPnlOf,
-  floatingTotalOf,
-  halfLotsOf,
   macd,
-  modifyPosition,
-  notionalUsd,
-  openMarket,
-  performanceOf,
   pipValueUsd,
-  placeLimit,
-  realizedPnlOf,
   reanchorSeries,
-  roundTo,
   rsi,
   sma,
   tickEngine,
-  usedMarginOf,
   type Candle,
   type EngineState,
-  type PendingOrder,
-  type Position,
   type Side,
   type Timeframe
 } from '@/utils/marketSim';
@@ -66,9 +49,7 @@ import styles from './index.module.scss';
 
 const isH5 = process.env.TARO_ENV === 'h5';
 
-const LEVERAGES = [1, 10, 20, 50, 100, 200, 500];
 const BAR_COUNTS = [60, 120, 240];
-const ATR_MULTS = [1, 2, 3];
 const TICK_MS = 1000;
 /** 真实行情轮询间隔。腾讯免密接口按次计费，10s 对单品种足够顺滑也不至于打爆 */
 const REAL_FEED_MS = 10000;
@@ -78,11 +59,9 @@ const SPARK_LEN = 40; // 自选迷你走势的收盘根数
 
 const FX_CURRENCIES = ['USD', 'CNH', 'EUR', 'JPY'];
 const WATCH_CATS = ['all', 'gold', 'forex'] as const;
-const BOOK_TABS = ['positions', 'orders', 'trades'] as const;
 const TOOL_TABS = ['calc', 'sizing', 'fx'] as const;
 
 type Indicator = 'rsi' | 'macd';
-type BookTab = (typeof BOOK_TABS)[number];
 type ToolTab = (typeof TOOL_TABS)[number];
 type WatchCat = (typeof WATCH_CATS)[number];
 
@@ -285,19 +264,8 @@ function TradePage() {
   const [count, setCount] = useState(120);
   const [page, setPage] = useState(0); // 0 = 最新一页
   const [indicator, setIndicator] = useState<Indicator>('rsi');
-  const [leverage, setLeverage] = useState(100);
-  const [levOpen, setLevOpen] = useState(false);
 
   // 下单面板
-  const [orderSide, setOrderSide] = useState<Side>('buy');
-  const [lots, setLots] = useState('0.10');
-  const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
-  const [limitPrice, setLimitPrice] = useState('');
-  const [sl, setSl] = useState('');
-  const [tp, setTp] = useState('');
-  const [bookTab, setBookTab] = useState<BookTab>('positions');
-  const [confirmBox, setConfirmBox] = useState<{ body: string; onOk: () => void } | null>(null);
-  const [editing, setEditing] = useState<{ id: string; sl: string; tp: string } | null>(null);
 
   // 底部工具
   const [tool, setTool] = useState<ToolTab>('calc');
@@ -363,25 +331,10 @@ function TradePage() {
   const selDef = SYMBOLS.find((d) => d.symbol === selected) ?? SYMBOLS[0];
   const spot = eng ? eng.symbols[selected].spot : selDef.basePrice;
   const prevClose = eng ? eng.symbols[selected].prevClose : selDef.basePrice;
-  const lotsNum = Number.parseFloat(lots) || 0;
-  const orderPrice = orderType === 'limit' ? Number.parseFloat(limitPrice) || spot : spot;
-  const estNotional = notionalUsd(selDef, lotsNum, orderPrice);
-  const estMargin = estNotional / Math.max(1, leverage);
-  const estFee = feeOf(selDef, lotsNum, orderPrice);
+  const spotChg = prevClose > 0 ? ((spot - prevClose) / prevClose) * 100 : 0;
+  // 计算器/风控仍需要的派生（现价驱动的纯计算，不下单）
   const estPipValue = pipValueUsd(selDef, spot);
   const equity = eng ? equityOf(eng) : 100000;
-  const usedMargin = eng ? usedMarginOf(eng) : 0;
-  const freeMargin = equity - usedMargin;
-  const floatPnl = eng ? floatingTotalOf(eng) : 0;
-  const realizedPnl = eng ? realizedPnlOf(eng.account) : 0;
-  const slNum = Number.parseFloat(sl);
-  const slLoss = !Number.isNaN(slNum) && lotsNum > 0
-    ? (Math.abs(orderPrice - slNum) / selDef.pipSize) * estPipValue * lotsNum
-    : null;
-  const slLossPct = slLoss !== null && equity > 0 ? (slLoss / equity) * 100 : null;
-  const perf = eng
-    ? performanceOf(eng)
-    : { trades: 0, winRate: null, profitFactor: null, maxDrawdown: null };
 
   const chartModel = useMemo(
     () => (eng ? buildChartModel(eng, selected, tf, count, page, indicator) : null),
@@ -393,7 +346,6 @@ function TradePage() {
   /* ---------- refs：画布容器 / 颜色 / 光标 / 绘制期快照 ---------- */
   const rootRef = useRef<HTMLElement | null>(null);
   const chartBoxRef = useRef<HTMLElement | null>(null);
-  const equityBoxRef = useRef<HTMLElement | null>(null);
   const sparkRefs = useRef<Map<string, HTMLElement>>(new Map());
   // 三个独立画布仓：主图底层 / 主图 overlay / 侧栏小图 —— overlay 与底层
   // 必须是两块物理画布（mousemove 只重绘 overlay，tick 才重绘底层），
@@ -744,50 +696,6 @@ function TradePage() {
     if (!isH5 || !eng) return;
     const c = colorsRef.current;
     if (!c.bg) return;
-    const eqBox = equityBoxRef.current;
-    if (eqBox) {
-      const canvas = ensureCanvas(eqBox, sideStore.current);
-      const rect = eqBox.getBoundingClientRect();
-      const ctx = canvas && fitCanvas(canvas, rect.width, rect.height);
-      if (ctx) {
-        ctx.clearRect(0, 0, rect.width, rect.height);
-        const pts = eng.account.equityCurve;
-        if (pts.length >= 2) {
-          let min = Infinity;
-          let max = -Infinity;
-          for (const p of pts) {
-            if (p.equity < min) min = p.equity;
-            if (p.equity > max) max = p.equity;
-          }
-          const pad = (max - min) * 0.15 || 10;
-          min -= pad;
-          max += pad;
-          ctx.strokeStyle = c.gold;
-          ctx.lineWidth = 1.2;
-          ctx.beginPath();
-          pts.forEach((p, i) => {
-            const x = (i / (pts.length - 1)) * (rect.width - 4) + 2;
-            const y = rect.height - 2 - ((p.equity - min) / (max - min)) * (rect.height - 4);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-          });
-          ctx.stroke();
-          // 初始余额基准虚线
-          ctx.strokeStyle = c.line;
-          ctx.setLineDash([2, 3]);
-          const y0 = rect.height - 2 - ((eng.account.initialBalance - min) / (max - min)) * (rect.height - 4);
-          ctx.beginPath();
-          ctx.moveTo(0, y0);
-          ctx.lineTo(rect.width, y0);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        } else {
-          ctx.fillStyle = c.dim;
-          ctx.font = '10px monospace';
-          ctx.fillText(t('trade.equityEmpty'), 6, rect.height / 2);
-        }
-      }
-    }
     // 自选迷你走势（近 SPARK_LEN 根 M5 收盘）
     for (const def of SYMBOLS) {
       const box = sparkRefs.current.get(def.symbol);
@@ -813,7 +721,7 @@ function TradePage() {
       });
       ctx.stroke();
     }
-  }, [eng, t]);
+  }, [eng]);
 
   /* ---------- 模型变化 → 重绘底层与 overlay ---------- */
   useEffect(() => {
@@ -884,84 +792,6 @@ function TradePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  /* ---------- 交易动作 ---------- */
-  const submitOrder = (): void => {
-    if (!eng || lotsNum < 0.01) {
-      Taro.showToast({ title: t('trade.errLots'), icon: 'none' });
-      return;
-    }
-    const slV = Number.isNaN(slNum) ? null : slNum;
-    const tpNum = Number.parseFloat(tp);
-    const tpV = Number.isNaN(tpNum) ? null : tpNum;
-    if (orderType === 'market') {
-      openMarket(eng, selected, orderSide, lotsNum, Date.now(), slV, tpV);
-      Taro.showToast({ title: t('trade.doneMarket'), icon: 'none' });
-    } else {
-      placeLimit(eng, selected, orderSide, lotsNum, orderPrice, Date.now(), slV, tpV);
-      Taro.showToast({ title: t('trade.doneLimit'), icon: 'none' });
-      setLimitPrice('');
-    }
-    setTick((v) => v + 1);
-  };
-
-  const askCloseRow = (pos: Position): void => {
-    if (!eng) return;
-    const est = floatingPnlOf(eng, pos);
-    setConfirmBox({
-      body: t('trade.confirmCloseBody', {
-        lots: pos.lots.toFixed(2),
-        symbol: pos.symbol,
-        pnl: fmtSigned(est)
-      }),
-      onOk: () => {
-        if (eng) closePosition(eng, pos.id, undefined, Date.now());
-        setConfirmBox(null);
-        setTick((v) => v + 1);
-      }
-    });
-  };
-
-  const askCloseAll = (): void => {
-    if (!eng || eng.account.positions.length === 0) return;
-    const est = floatingTotalOf(eng);
-    const n = eng.account.positions.length;
-    setConfirmBox({
-      body: t('trade.confirmCloseAllBody', { n, pnl: fmtSigned(est) }),
-      onOk: () => {
-        if (eng) closeAll(eng, undefined, Date.now());
-        setConfirmBox(null);
-        setTick((v) => v + 1);
-      }
-    });
-  };
-
-  const applySlTp = (pos: Position): void => {
-    if (!eng || !editing || editing.id !== pos.id) return;
-    const slV = Number.parseFloat(editing.sl);
-    const tpV = Number.parseFloat(editing.tp);
-    modifyPosition(eng, pos.id, Number.isNaN(slV) ? null : slV, Number.isNaN(tpV) ? null : tpV);
-    setEditing(null);
-    setTick((v) => v + 1);
-  };
-
-  /** ATR 止盈损：买入 SL=价−N×ATR / TP=价+N×ATR，卖出镜像 */
-  const fillAtr = (mult: number, kind: 'sl' | 'tp'): void => {
-    const a = chartModel?.atrVal;
-    if (!a) return;
-    const base = orderType === 'limit' ? orderPrice : spot;
-    const v =
-      kind === 'sl'
-        ? orderSide === 'buy'
-          ? base - mult * a
-          : base + mult * a
-        : orderSide === 'buy'
-          ? base + mult * a
-          : base - mult * a;
-    const fixed = roundTo(v, selDef.digits).toFixed(selDef.digits);
-    if (kind === 'sl') setSl(fixed);
-    else setTp(fixed);
-  };
-
   // 底部工具：盈亏计算器（切方向镜像目标价/止损价）
   const switchCalcDir = (): void => {
     const next: Side = calcDir === 'buy' ? 'sell' : 'buy';
@@ -1027,56 +857,22 @@ function TradePage() {
       }}
       className={styles.page}
     >
-      {/* ===== 顶部账户条 ===== */}
+      {/* ===== 顶部行情条（只读分析版：无账户、无杠杆、无下单） ===== */}
       <View className={styles.topbar}>
         <View className={styles.demoBadge}>
           {realFeed ? t('trade.feedRealBadge') : t('trade.demoBadge')}
         </View>
         <View className={styles.statItem}>
-          <Text className={styles.statLabel}>{t('trade.netAsset')}</Text>
-          <Text className={styles.statValue}>{equity.toFixed(2)}</Text>
-        </View>
-        <View className={styles.statItem}>
-          <Text className={styles.statLabel}>{t('trade.freeMargin')}</Text>
-          <Text className={styles.statValue}>{freeMargin.toFixed(2)}</Text>
-        </View>
-        <View className={styles.statItem}>
-          <Text className={styles.statLabel}>{t('trade.usedMargin')}</Text>
-          <Text className={styles.statValue}>{usedMargin.toFixed(2)}</Text>
-        </View>
-        <View className={styles.statItem}>
-          <Text className={styles.statLabel}>{t('trade.floatPnl')}</Text>
-          <Text className={classnames(styles.statValue, floatPnl >= 0 ? styles.up : styles.down)}>
-            {fmtSigned(floatPnl)}
+          <Text className={styles.statLabel}>{selDef.nameZh}</Text>
+          <Text className={classnames(styles.statValue, spotChg >= 0 ? styles.up : styles.down)}>
+            {spot.toFixed(selDef.digits)}
           </Text>
         </View>
         <View className={styles.statItem}>
-          <Text className={styles.statLabel}>{t('trade.realizedPnl')}</Text>
-          <Text className={classnames(styles.statValue, realizedPnl >= 0 ? styles.up : styles.down)}>
-            {fmtSigned(realizedPnl)}
+          <Text className={styles.statLabel}>{t('trade.changePct')}</Text>
+          <Text className={classnames(styles.statValue, spotChg >= 0 ? styles.up : styles.down)}>
+            {fmtPct(spotChg)}
           </Text>
-        </View>
-        <View className={styles.levWrap}>
-          <View className={styles.levBtn} onClick={() => setLevOpen((o) => !o)}>
-            1:{leverage} ▾
-          </View>
-          {levOpen && (
-            <View className={styles.levMenu}>
-              {LEVERAGES.map((l) => (
-                <View
-                  key={l}
-                  className={classnames(styles.levItem, l === leverage && styles.levItemActive)}
-                  onClick={() => {
-                    setLeverage(l);
-                    eng.account.leverage = l;
-                    setLevOpen(false);
-                  }}
-                >
-                  1:{l}
-                </View>
-              ))}
-            </View>
-          )}
         </View>
         <View className={styles.feed}>
           <View className={classnames(styles.feedDot, realFeed && styles.feedDotReal)} />
@@ -1132,39 +928,6 @@ function TradePage() {
               </View>
             );
           })}
-        </View>
-        <View className={styles.perfCard}>
-          <View className={styles.panelTitle}>{t('trade.perfTitle')}</View>
-          <View className={styles.perfGrid}>
-            <View className={styles.perfRow}>
-              <Text className={styles.perfLabel}>{t('trade.perfWinRate')}</Text>
-              <Text className={styles.perfValue}>
-                {perf.winRate === null ? '—' : `${(perf.winRate * 100).toFixed(1)}%`}
-              </Text>
-            </View>
-            <View className={styles.perfRow}>
-              <Text className={styles.perfLabel}>{t('trade.perfProfitFactor')}</Text>
-              <Text className={styles.perfValue}>
-                {perf.profitFactor === null ? '—' : perf.profitFactor.toFixed(2)}
-              </Text>
-            </View>
-            <View className={styles.perfRow}>
-              <Text className={styles.perfLabel}>{t('trade.perfTrades')}</Text>
-              <Text className={styles.perfValue}>{perf.trades}</Text>
-            </View>
-            <View className={styles.perfRow}>
-              <Text className={styles.perfLabel}>{t('trade.perfMaxDd')}</Text>
-              <Text className={styles.perfValue}>
-                {perf.maxDrawdown === null ? '—' : `${(perf.maxDrawdown * 100).toFixed(1)}%`}
-              </Text>
-            </View>
-          </View>
-          <View
-            ref={(el) => {
-              equityBoxRef.current = el as HTMLElement | null;
-            }}
-            className={styles.equityBox}
-          />
         </View>
       </View>
 
@@ -1224,285 +987,6 @@ function TradePage() {
             }}
             className={styles.chartBox}
           />
-        </View>
-      </View>
-
-      {/* ===== 右栏：下单 + 持仓/委托/成交 ===== */}
-      <View className={styles.rightPanel}>
-        <View className={styles.orderCard}>
-          <View className={styles.sideTabs}>
-            <View
-              className={classnames(styles.sideTab, orderSide === 'buy' && styles.sideTabBuy)}
-              onClick={() => setOrderSide('buy')}
-            >
-              {t('trade.sideBuy')}
-            </View>
-            <View
-              className={classnames(styles.sideTab, orderSide === 'sell' && styles.sideTabSell)}
-              onClick={() => setOrderSide('sell')}
-            >
-              {t('trade.sideSell')}
-            </View>
-          </View>
-          <View className={styles.fieldRow}>
-            <Text className={styles.fieldLabel}>{t('trade.lots')}</Text>
-            <Input className={styles.numInput} type='digit' value={lots} onInput={(e) => setLots(e.detail.value)} />
-          </View>
-          <View className={styles.fieldRow}>
-            <Text className={styles.fieldLabel}>{t('trade.orderType')}</Text>
-            <View className={styles.segGroup}>
-              <View
-                className={classnames(styles.segBtn, orderType === 'market' && styles.segBtnActive)}
-                onClick={() => setOrderType('market')}
-              >
-                {t('trade.typeMarket')}
-              </View>
-              <View
-                className={classnames(styles.segBtn, orderType === 'limit' && styles.segBtnActive)}
-                onClick={() => setOrderType('limit')}
-              >
-                {t('trade.typeLimit')}
-              </View>
-            </View>
-          </View>
-          {orderType === 'limit' && (
-            <View className={styles.fieldRow}>
-              <Text className={styles.fieldLabel}>{t('trade.limitPrice')}</Text>
-              <Input
-                className={styles.numInput}
-                type='digit'
-                value={limitPrice}
-                placeholder={spot.toFixed(selDef.digits)}
-                onInput={(e) => setLimitPrice(e.detail.value)}
-              />
-            </View>
-          )}
-          <View className={styles.fieldRow}>
-            <Text className={styles.fieldLabel}>{t('trade.slLabel')}</Text>
-            <Input className={styles.numInput} type='digit' value={sl} onInput={(e) => setSl(e.detail.value)} />
-          </View>
-          <View className={styles.atrRow}>
-            <Text className={styles.fieldLabel}>{t('trade.atrSl')}</Text>
-            {ATR_MULTS.map((m) => (
-              <View key={m} className={styles.atrBtn} onClick={() => fillAtr(m, 'sl')}>
-                {m}×ATR
-              </View>
-            ))}
-          </View>
-          <View className={styles.fieldRow}>
-            <Text className={styles.fieldLabel}>{t('trade.tpLabel')}</Text>
-            <Input className={styles.numInput} type='digit' value={tp} onInput={(e) => setTp(e.detail.value)} />
-          </View>
-          <View className={styles.atrRow}>
-            <Text className={styles.fieldLabel}>{t('trade.atrTp')}</Text>
-            {ATR_MULTS.map((m) => (
-              <View key={m} className={styles.atrBtn} onClick={() => fillAtr(m, 'tp')}>
-                {m}×ATR
-              </View>
-            ))}
-          </View>
-          <View className={styles.estGrid}>
-            <View className={styles.perfRow}>
-              <Text className={styles.perfLabel}>{t('trade.estNotional')}</Text>
-              <Text className={styles.perfValue}>{estNotional.toFixed(2)}</Text>
-            </View>
-            <View className={styles.perfRow}>
-              <Text className={styles.perfLabel}>{t('trade.estMargin')}</Text>
-              <Text className={styles.perfValue}>{estMargin.toFixed(2)}</Text>
-            </View>
-            <View className={styles.perfRow}>
-              <Text className={styles.perfLabel}>{t('trade.estFee')}</Text>
-              <Text className={styles.perfValue}>{estFee.toFixed(2)}</Text>
-            </View>
-            <View className={styles.perfRow}>
-              <Text className={styles.perfLabel}>{t('trade.estPipValue')}</Text>
-              <Text className={styles.perfValue}>{estPipValue.toFixed(2)}</Text>
-            </View>
-            <View className={styles.perfRow}>
-              <Text className={styles.perfLabel}>{t('trade.estMarginPct')}</Text>
-              <Text className={styles.perfValue}>{equity > 0 ? `${((estMargin / equity) * 100).toFixed(1)}%` : '—'}</Text>
-            </View>
-            <View className={styles.perfRow}>
-              <Text className={styles.perfLabel}>{t('trade.estSlLoss')}</Text>
-              <Text className={styles.perfValue}>
-                {slLoss === null ? '—' : `${fmtSigned(-slLoss)} (${slLossPct === null ? '—' : `${slLossPct.toFixed(1)}%`})`}
-              </Text>
-            </View>
-          </View>
-          <View
-            className={classnames(styles.submitBtn, orderSide === 'buy' ? styles.submitBuy : styles.submitSell)}
-            onClick={submitOrder}
-          >
-            {orderSide === 'buy'
-              ? t('trade.submitBuy', { lots: lotsNum.toFixed(2) })
-              : t('trade.submitSell', { lots: lotsNum.toFixed(2) })}
-          </View>
-        </View>
-
-        <View className={styles.bookHead}>
-          <View className={styles.bookTabs}>
-            {BOOK_TABS.map((tab) => (
-              <View
-                key={tab}
-                className={classnames(styles.bookTab, bookTab === tab && styles.bookTabActive)}
-                onClick={() => setBookTab(tab)}
-              >
-                {t(`trade.tab.${tab}`)}
-              </View>
-            ))}
-          </View>
-          {bookTab === 'positions' && eng.account.positions.length > 0 && (
-            <View className={styles.closeAllBtn} onClick={askCloseAll}>
-              {t('trade.closeAllBtn')}
-            </View>
-          )}
-        </View>
-        <View className={styles.bookArea}>
-          <View className={styles.bookTable}>
-            {bookTab === 'positions' && (
-              <>
-                {eng.account.positions.length === 0 && (
-                  <View className={styles.emptyHint}>{t('trade.emptyPositions')}</View>
-                )}
-                {eng.account.positions.map((pos) => {
-                  const pDef = SYMBOLS.find((d) => d.symbol === pos.symbol) ?? SYMBOLS[0];
-                  const pnl = floatingPnlOf(eng, pos);
-                  const posMargin = notionalUsd(pDef, pos.lots, pos.openPrice) / Math.max(1, leverage);
-                  const retPct = posMargin > 0 ? (pnl / posMargin) * 100 : 0;
-                  const half = halfLotsOf(pos.lots);
-                  const sNow = eng.symbols[pos.symbol];
-                  return (
-                    <View key={pos.id} className={styles.posRow}>
-                      <View className={styles.posLine}>
-                        <Text className={pos.side === 'buy' ? styles.up : styles.down}>
-                          {pos.side === 'buy' ? t('trade.sideBuyShort') : t('trade.sideSellShort')} {pos.lots.toFixed(2)}
-                          {t('trade.lotsUnit')}
-                        </Text>
-                        <Text className={classnames(styles.posPnl, pnl >= 0 ? styles.up : styles.down)}>
-                          {fmtSigned(pnl)} ({fmtPct(retPct)})
-                        </Text>
-                      </View>
-                      <View className={styles.posLine}>
-                        <Text className={styles.dimText}>
-                          {pos.symbol} {pos.openPrice.toFixed(pDef.digits)} → {sNow.spot.toFixed(pDef.digits)}
-                        </Text>
-                        <View className={styles.posBtns}>
-                          <View
-                            className={classnames(styles.miniBtn, half === null && styles.miniBtnDisabled)}
-                            onClick={() => {
-                              if (half === null) return;
-                              closePosition(eng, pos.id, half, Date.now());
-                              setTick((v) => v + 1);
-                            }}
-                          >
-                            {t('trade.halfClose')}
-                          </View>
-                          <View
-                            className={styles.miniBtn}
-                            onClick={() =>
-                              setEditing((cur) =>
-                                cur && cur.id === pos.id
-                                  ? null
-                                  : {
-                                      id: pos.id,
-                                      sl: pos.sl === null ? '' : String(pos.sl),
-                                      tp: pos.tp === null ? '' : String(pos.tp)
-                                    }
-                              )
-                            }
-                          >
-                            {t('trade.editSlTp')}
-                          </View>
-                          <View className={classnames(styles.miniBtn, styles.miniBtnDanger)} onClick={() => askCloseRow(pos)}>
-                            {t('trade.closeRow')}
-                          </View>
-                        </View>
-                      </View>
-                      {editing && editing.id === pos.id && (
-                        <View className={styles.sltpEdit}>
-                          <Input
-                            className={styles.sltpInput}
-                            type='digit'
-                            placeholder={t('trade.slLabel')}
-                            value={editing.sl}
-                            onInput={(e) => setEditing({ ...editing, sl: e.detail.value })}
-                          />
-                          <Input
-                            className={styles.sltpInput}
-                            type='digit'
-                            placeholder={t('trade.tpLabel')}
-                            value={editing.tp}
-                            onInput={(e) => setEditing({ ...editing, tp: e.detail.value })}
-                          />
-                          <View className={styles.miniBtn} onClick={() => applySlTp(pos)}>
-                            {t('trade.apply')}
-                          </View>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
-              </>
-            )}
-            {bookTab === 'orders' && (
-              <>
-                {eng.account.orders.length === 0 && <View className={styles.emptyHint}>{t('trade.emptyOrders')}</View>}
-                {eng.account.orders.map((od: PendingOrder) => (
-                  <View key={od.id} className={styles.posRow}>
-                    <View className={styles.posLine}>
-                      <Text className={od.side === 'buy' ? styles.up : styles.down}>
-                        {od.side === 'buy' ? t('trade.sideBuyShort') : t('trade.sideSellShort')} {od.lots.toFixed(2)}
-                        {t('trade.lotsUnit')}
-                      </Text>
-                      <Text className={styles.dimText}>
-                        @ {od.limitPrice.toFixed((SYMBOLS.find((d) => d.symbol === od.symbol) ?? SYMBOLS[0]).digits)}
-                      </Text>
-                    </View>
-                    <View className={styles.posLine}>
-                      <Text className={styles.dimText}>{od.symbol}</Text>
-                      <View className={styles.posBtns}>
-                        <View
-                          className={styles.miniBtn}
-                          onClick={() => {
-                            cancelOrder(eng, od.id);
-                            setTick((v) => v + 1);
-                          }}
-                        >
-                          {t('trade.orderCancel')}
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                ))}
-              </>
-            )}
-            {bookTab === 'trades' && (
-              <>
-                {eng.account.trades.length === 0 && <View className={styles.emptyHint}>{t('trade.emptyTrades')}</View>}
-                {eng.account.trades.slice(0, 30).map((tr) => (
-                  <View key={tr.id} className={styles.posRow}>
-                    <View className={styles.posLine}>
-                      <Text className={tr.side === 'buy' ? styles.up : styles.down}>
-                        {tr.side === 'buy' ? t('trade.sideBuyShort') : t('trade.sideSellShort')} {tr.lots.toFixed(2)}
-                        {t('trade.lotsUnit')} {tr.symbol}
-                      </Text>
-                      <Text className={classnames(styles.posPnl, tr.pnl >= 0 ? styles.up : styles.down)}>
-                        {fmtSigned(tr.pnl)}
-                      </Text>
-                    </View>
-                    <View className={styles.posLine}>
-                      <Text className={styles.dimText}>
-                        {tr.openPrice.toFixed(2)} → {tr.closePrice.toFixed(2)}
-                      </Text>
-                      <Text className={styles.dimText}>
-                        -{tr.fee.toFixed(2)} {t('trade.feeUnit')}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </>
-            )}
-          </View>
         </View>
       </View>
 
@@ -1609,28 +1093,7 @@ function TradePage() {
         )}
       </View>
 
-      {/* ===== 平仓确认弹窗 ===== */}
-      {confirmBox && (
-        <View className={styles.confirmMask} onClick={() => setConfirmBox(null)}>
-          <View
-            className={styles.confirmCard}
-            onClick={(e) => {
-              e.stopPropagation();
-            }}
-          >
-            <View className={styles.confirmTitle}>{t('trade.confirmCloseTitle')}</View>
-            <View className={styles.confirmBody}>{confirmBox.body}</View>
-            <View className={styles.confirmActions}>
-              <View className={styles.btnGhost} onClick={() => setConfirmBox(null)}>
-                {t('trade.confirmCancel')}
-              </View>
-              <View className={styles.btnDanger} onClick={confirmBox.onOk}>
-                {t('trade.confirmOk')}
-              </View>
-            </View>
-          </View>
-        </View>
-      )}
+
     </View>
   );
 }
