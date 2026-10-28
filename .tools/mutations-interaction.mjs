@@ -76,7 +76,9 @@ export default [
     // M 组：宫格搜索入口被删（少一个一等入口）
     label: '宫格搜索入口路由被删',
     file: 'src/pages/mine/index.tsx',
-    from: "          { icon: '🔍', label: t('mine.gridSearch'), url: '/pages/search/index' }\n",
+    // 2026-10-28：宫格在「搜索」后面又加了运动/通知两项，这一行末尾变成 `},`。
+    // 锚点必须跟着改（要求"正好 1 次"，不匹配就是 ERROR），别放宽成子串匹配。
+    from: "          { icon: '🔍', label: t('mine.gridSearch'), url: '/pages/search/index' },\n",
     to: '',
     cmd: 'node .tools/verify-interaction-fixes.mjs'
   },
