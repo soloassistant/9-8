@@ -231,6 +231,13 @@ assert('D1 copy-assets 的白名单包含落地页两个文件', (() => {
   return src.includes("const SITE_FILES = ['index.html', 'site.css']");
 })());
 
+/* 配图（2026-10-28 用真实界面截图替换灰色占位）：页面引用的每张图必须真的存在，
+   否则上线就是破图 —— 而破图不会报错，只会显示一个空框，比没有还糟。 */
+const shotRefs = [...html.matchAll(/src="\.\/(shots\/[^"]+\.png)"/g)].map((m) => m[1]);
+assert('D1b 官网配图引用 ≤ 4 张且至少 1 张（发布目录不膨胀）', shotRefs.length >= 1 && shotRefs.length <= 4, `引用了 ${shotRefs.length} 张`);
+const missingShots = shotRefs.filter((rel) => !exists(`site/${rel}`));
+assert('D1c 页面引用的每张配图在 site/ 下都存在', missingShots.length === 0, `缺：${missingShots.join(',')}`);
+
 if (exists('dist')) {
   assert('D2 dist/site/index.html 存在（构建 + copy-assets 之后）', exists('dist/site/index.html'));
   assert('D3 dist/site/site.css 存在（缺了会变成没有样式的裸 HTML）', exists('dist/site/site.css'));

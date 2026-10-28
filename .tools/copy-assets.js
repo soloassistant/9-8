@@ -123,6 +123,8 @@ copySxm();
 const SITE_SRC = path.resolve(root, 'site');
 const SITE_OUT = path.join(dist, 'site');
 const SITE_FILES = ['index.html', 'site.css'];
+/** 官网配图（2026-10-28 用真实界面截图替换灰色占位）：只放 png，限 4 个文件防膨胀 */
+const SITE_SHOT_DIR = 'shots';
 
 function copySite() {
   if (!fs.existsSync(SITE_SRC)) {
@@ -152,7 +154,27 @@ function copySite() {
     return;
   }
   console.log(`[copy-assets] site -> ${SITE_OUT}: ${n} files, ${bytes} B`);
-  const stray = fs.readdirSync(SITE_SRC).filter((f) => !SITE_FILES.includes(f));
+
+  /* 配图（shots/*.png）：页面里 <img src="./shots/x.png">，缺一张就是破图 —— 逐个校验 */
+  const shotSrc = path.join(SITE_SRC, SITE_SHOT_DIR);
+  if (fs.existsSync(shotSrc)) {
+    const shotOut = path.join(SITE_OUT, SITE_SHOT_DIR);
+    fs.mkdirSync(shotOut, { recursive: true });
+    const pngs = fs.readdirSync(shotSrc).filter((f) => f.toLowerCase().endsWith('.png'));
+    if (pngs.length > 4) {
+      console.error(`[copy-assets] FATAL: 官网配图 ${pngs.length} 张超过上限 4 张（发布目录不该无限膨胀）`);
+      process.exitCode = 1;
+      return;
+    }
+    let sb = 0;
+    for (const f of pngs) {
+      fs.copyFileSync(path.join(shotSrc, f), path.join(shotOut, f));
+      sb += fs.statSync(path.join(shotSrc, f)).size;
+    }
+    console.log(`[copy-assets] site/shots -> ${shotOut}: ${pngs.length} 张, ${Math.round(sb / 1024)} KB`);
+  }
+
+  const stray = fs.readdirSync(SITE_SRC).filter((f) => !SITE_FILES.includes(f) && f !== SITE_SHOT_DIR);
   if (stray.length) {
     console.log(`[copy-assets] site 未纳入白名单（不会上线，符合预期）: ${stray.join(', ')}`);
   }

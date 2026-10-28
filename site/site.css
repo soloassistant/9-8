@@ -66,9 +66,11 @@ img { max-width: 100%; display: block; }
   cursor: pointer;
 }
 .btn-primary {
-  background: var(--brand);
+  /* 2026-10-28：浅橙 #ff7a45 压白字仅约 2.8:1（不达 AA），改用主题强调渐变
+     （起点 #c7371a，白字 5.26:1）。视觉仍是橙红系，与设计稿接近。 */
+  background: var(--gradient-emphasis);
   color: #ffffff;
-  box-shadow: 0 6px 16px rgba(255, 122, 69, 0.28);
+  box-shadow: 0 6px 16px rgba(199, 55, 26, 0.24);
 }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(255, 122, 69, 0.34); }
 .btn-ghost {
@@ -177,7 +179,7 @@ img { max-width: 100%; display: block; }
 .pc-row { font-size: 12px; padding: 3px 0; color: var(--muted-2); }
 .pc-li { font-size: 12px; color: var(--muted-2); padding: 3px 0; }
 .phone-cta {
-  background: var(--brand);
+  background: var(--gradient-emphasis);
   color: #ffffff;
   text-align: center;
   font-size: 13px;
@@ -288,6 +290,17 @@ img { max-width: 100%; display: block; }
   letter-spacing: 0.1em;
 }
 .shot-dark { background: var(--ink); color: #6f675f; }
+
+/* 真截图：手机竖图外套一层手机框，桌面横图走圆角卡片 */
+.shot-frame {
+  background: var(--bg-card);
+  border: 1px solid var(--line-warm);
+  border-radius: 16px;
+  padding: 10px;
+  box-shadow: 0 16px 40px rgba(45, 41, 38, 0.10);
+}
+.shot-img { width: 100%; height: auto; display: block; border-radius: 10px; }
+.shot-phone { max-width: 300px; margin: 0 auto; }
 .shot-cap { margin-top: 10px; font-size: 12px; color: var(--muted); }
 
 /* 还有这些：六小卡 */

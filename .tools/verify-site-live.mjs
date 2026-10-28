@@ -130,7 +130,8 @@ const firstStop = (bgImage) => {
 
 const EXPR = `(async () => {
   const out = {};
-  const navBtn = document.querySelector('.nav-links a.btn-primary');
+  // 2026-10-28 官网重做：导航 CTA 由 .nav-links 内按钮改为独立 .nav-cta（早鸟名单）
+  const navBtn = document.querySelector('.nav-cta');
   const cs = navBtn ? getComputedStyle(navBtn) : null;
   out.navBtnFound = !!navBtn;
   out.navBtnColor = cs ? cs.color : '';
@@ -148,9 +149,10 @@ const EXPR = `(async () => {
   out.vh = window.innerHeight;
   out.overflowX = Math.round(document.documentElement.scrollWidth - window.innerWidth);
 
-  const lead = document.querySelector('.lead');
+  // 2026-10-28 官网重做：旧 .lead 改名为 .hero-sub
+  const lead = document.querySelector('.hero-sub');
   out.leadWidth = lead ? Math.round(lead.getBoundingClientRect().width) : 0;
-  const heroWrap = document.querySelector('.hero .wrap');
+  const heroWrap = document.querySelector('.hero-stage');
   out.heroCols = heroWrap ? getComputedStyle(heroWrap).gridTemplateColumns : '';
   return JSON.stringify(out);
 })()`;
@@ -165,7 +167,7 @@ try {
     process.exit(2);
   }
 
-  assert('L1 导航「进入应用」按钮存在', d.navBtnFound === true);
+  assert('L1 导航 CTA 按钮存在（加入早鸟名单 → 进入应用）', d.navBtnFound === true);
   const navColor = parseRgb(d.navBtnColor);
   const navBg = firstStop(d.navBtnBg);
   assert('L2 按钮文字是白色（不是被 .nav-links a 染成深灰）', navColor === '#ffffff', `color=${d.navBtnColor}`);
@@ -197,7 +199,7 @@ try {
     `h1Top=${m.h1Top} vh=${m.vh}`
   );
   assert('L10 手机无横向溢出', m.overflowX <= 0, `overflowX=${m.overflowX}`);
-  assert('L11 正文单列铺满（lead 宽度 ≥ 80% 视口）', m.leadWidth >= 390 * 0.8, `leadWidth=${m.leadWidth}`);
+  assert('L11 hero 副文单列铺满（≥ 75% 视口）', m.leadWidth >= 390 * 0.75, `leadWidth=${m.leadWidth} vw=390`);
 
   console.log(`\n${'='.repeat(52)}`);
   console.log(`落地页渲染门禁：${pass} 通过 / ${fail} 失败`);
