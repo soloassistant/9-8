@@ -8,6 +8,14 @@
   display: none;
 }
 
+// 晨报页与交易终端在 ≥1024px 已经有自己的版式（briefing 有 200px 侧栏、终端占满窗口），
+// 它们会在 body 上打类。这里必须让位，否则 1440 下会出现两条左侧导航叠着。
+// 注意 :global 要包住完整选择器，否则 .briefing-desktop 会被 CSS Module 改名。
+:global(body.briefing-desktop) .nav,
+:global(body.trade-terminal) .nav {
+  display: none !important;
+}
+
 @media (min-width: 1200px) {
   .nav {
     position: fixed;

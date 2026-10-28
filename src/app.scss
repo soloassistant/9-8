@@ -282,6 +282,12 @@ html {
   body.has-desktop-nav .taro-tabbar__container {
     padding-left: 240PX;
   }
+  // 晨报/交易终端自己就是整屏版式（DesktopNav 在这两个页面已隐藏），
+  // 不能再让出 240 —— 否则内容整体右移，右下角空出一条。
+  body.has-desktop-nav.briefing-desktop .taro-tabbar__container,
+  body.has-desktop-nav.trade-terminal .taro-tabbar__container {
+    padding-left: 0;
+  }
   .taro-tabbar__tabbar {
     width: 240PX !important;
     max-width: 240PX !important;
