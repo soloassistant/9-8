@@ -512,6 +512,31 @@ export function createEngine(opts: CreateEngineOptions = {}): EngineState {
  * （收盘/最高/最低/量）→ 触及的限价单自动成交。
  * 原地修改 state；返回本跳成交的订单数（页面可用于提示）。
  */
+/** 末根 K 线跟随现货：跨过当前周期边界则开新 K（tick 与真实价注入共用同一条路） */
+function followSpotWithSeries(s: SymbolState, nowMs: number, rng: () => number): void {
+  for (const tf of TIMEFRAMES) {
+    const arr = s.series[tf];
+    const bucket = Math.floor(nowMs / tfMs(tf)) * tfMs(tf);
+    const last = arr[arr.length - 1];
+    if (bucket > last.time) {
+      arr.push({
+        time: bucket,
+        open: s.spot,
+        high: s.spot,
+        low: s.spot,
+        close: s.spot,
+        volume: Math.round(50 + rng() * 200)
+      });
+      if (arr.length > SERIES_LEN) arr.shift();
+    } else {
+      last.close = s.spot;
+      if (s.spot > last.high) last.high = s.spot;
+      if (s.spot < last.low) last.low = s.spot;
+      last.volume += Math.round(rng() * 8);
+    }
+  }
+}
+
 export function tickEngine(state: EngineState, nowMs: number): number {
   state.lastTickAt = nowMs;
   let filled = 0;
@@ -521,28 +546,7 @@ export function tickEngine(state: EngineState, nowMs: number): number {
     // 现货微幅波动（相对波动率的 1/40 每秒，随机流延续）
     const step = s.spot * def.volatility * 0.025 * (s.rng() - 0.5) * 2;
     s.spot = Math.max(roundTo(s.spot + step, def.digits), def.pipSize);
-    // 末根 K 线跟随现货：跨过当前周期边界则开新 K
-    for (const tf of TIMEFRAMES) {
-      const arr = s.series[tf];
-      const bucket = Math.floor(nowMs / tfMs(tf)) * tfMs(tf);
-      const last = arr[arr.length - 1];
-      if (bucket > last.time) {
-        arr.push({
-          time: bucket,
-          open: s.spot,
-          high: s.spot,
-          low: s.spot,
-          close: s.spot,
-          volume: Math.round(50 + s.rng() * 200)
-        });
-        if (arr.length > SERIES_LEN) arr.shift();
-      } else {
-        last.close = s.spot;
-        if (s.spot > last.high) last.high = s.spot;
-        if (s.spot < last.low) last.low = s.spot;
-        last.volume += Math.round(s.rng() * 8);
-      }
-    }
+    followSpotWithSeries(s, nowMs, s.rng);
     // 涨跌幅基准（prevClose）保持当日锚定不随 tick 走，涨跌幅才有意义
   }
   // 限价单触发：买入挂单在现货 ≤ 限价时成交，卖出反之
@@ -767,4 +771,42 @@ export function convertCurrency(state: EngineState, amount: number, from: string
   const rates = fxRatesOf(state);
   const usd = amount / (rates[from] ?? 1);
   return usd * (rates[to] ?? 1);
+}
+
+/* ============================ 真实行情注入（2026-10-28） ============================ */
+
+/**
+ * 把外部真实价注入引擎的**唯一收口**：现价、涨跌幅基准与三套序列的末根全部对齐。
+ * 与 tickEngine 的差别：真实价直接赋值（不叠加随机步进）；K 线跟随复用同一条路。
+ * 只对真实源覆盖到的品种生效（当前仅 XAUUSD，见 marketFeed.FEED_SYMBOL_MAP），
+ * 其余品种继续走模拟——页面角标必须如实区分，不许拿真实价冒充全真实行情。
+ */
+export function applyRealSpot(
+  state: EngineState,
+  symbol: string,
+  price: number,
+  prevClose: number | null,
+  nowMs: number
+): boolean {
+  const s = state.symbols[symbol];
+  if (!s || !Number.isFinite(price) || price <= 0) return false;
+  s.spot = roundTo(price, s.def.digits);
+  if (prevClose !== null && Number.isFinite(prevClose) && prevClose > 0) {
+    s.prevClose = roundTo(prevClose, s.def.digits);
+  }
+  followSpotWithSeries(s, nowMs, s.rng);
+  return true;
+}
+
+/**
+ * 首次拿到真实价时把整段模拟序列重新锚定到真实价。
+ * 不重锚的话，模拟历史（锚在 basePrice 4120 附近）与真实现价（如 4058）之间
+ * 会出现一根断崖 K 线，图表视觉上是坏的。重锚后历史仍是模拟推演（角标照实标注），
+ * 但与真实现价连续。注意：会改变该品种的浮动盈亏基准，只在首次接入时调用。
+ */
+export function reanchorSeries(state: EngineState, symbol: string, price: number, nowMs: number): void {
+  const s = state.symbols[symbol];
+  if (!s || !Number.isFinite(price) || price <= 0) return;
+  for (const tf of TIMEFRAMES) s.series[tf] = generateSeries(s.def, tf, nowMs, price);
+  s.spot = roundTo(price, s.def.digits);
 }

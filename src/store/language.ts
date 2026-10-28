@@ -1080,6 +1080,10 @@ const zh = {
      诚实性：行情/汇率/手续费率全是模拟值，页面用徽标与「模拟 feed」常驻声明。 */
   'trade.desktopOnly': '交易终端仅网页版可用',
   'trade.demoBadge': '模拟行情 · 演示数据',
+  // 真实/模拟分层必须说清：只有黄金现价来自腾讯真实报价，K线与外汇仍是模拟推演
+  'trade.feedRealBadge': '实时价：黄金真实（腾讯行情）· K线与外汇为模拟',
+  'trade.feedLabelReal': '真实价 feed',
+  'trade.simWatermark': '历史K线：模拟推演',
   'trade.netAsset': '净值',
   'trade.freeMargin': '可用保证金',
   'trade.usedMargin': '占用保证金',
@@ -2181,6 +2185,9 @@ const en: Record<keyof typeof zh, string> = {
   /* ---- Trading terminal (2026-10-28, pages/trade, simulated market) ---- */
   'trade.desktopOnly': 'Trading terminal is available on the web only',
   'trade.demoBadge': 'Simulated market · demo data',
+  'trade.feedRealBadge': 'Live gold price (Tencent) · charts & forex simulated',
+  'trade.feedLabelReal': 'Live price feed',
+  'trade.simWatermark': 'Candles: simulated replay',
   'trade.netAsset': 'Equity',
   'trade.freeMargin': 'Free margin',
   'trade.usedMargin': 'Used margin',

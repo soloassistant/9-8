@@ -26,6 +26,7 @@ import { isComposing, isEditableTarget } from '@/utils/hotkeys';
 import {
   SYMBOLS,
   TIMEFRAMES,
+  applyRealSpot,
   atr,
   boll,
   cancelOrder,
@@ -47,6 +48,7 @@ import {
   pipValueUsd,
   placeLimit,
   realizedPnlOf,
+  reanchorSeries,
   roundTo,
   rsi,
   sma,
@@ -59,6 +61,7 @@ import {
   type Side,
   type Timeframe
 } from '@/utils/marketSim';
+import { fetchRealQuotes, FEED_SYMBOL_MAP } from '@/utils/marketFeed';
 import styles from './index.module.scss';
 
 const isH5 = process.env.TARO_ENV === 'h5';
@@ -67,6 +70,8 @@ const LEVERAGES = [1, 10, 20, 50, 100, 200, 500];
 const BAR_COUNTS = [60, 120, 240];
 const ATR_MULTS = [1, 2, 3];
 const TICK_MS = 1000;
+/** 真实行情轮询间隔。腾讯免密接口按次计费，10s 对单品种足够顺滑也不至于打爆 */
+const REAL_FEED_MS = 10000;
 const AX_W = 56; // 右侧价格轴宽（px）
 const TIME_H = 18; // 底部时间轴高（px）
 const SPARK_LEN = 40; // 自选迷你走势的收盘根数
@@ -318,6 +323,42 @@ function TradePage() {
     return () => clearInterval(timer);
   }, [running, eng]);
 
+  /* ---------- 真实行情喂价（黄金现价，腾讯免密源） ----------
+     一处收口：真实价通过 applyRealSpot 注入引擎 spot，图表/报价/下单/浮盈全部自然跟随。
+     首次成功先 reanchorSeries 把模拟历史锚到真实价（否则会出现断崖K线），
+     之后每轮只贴现价。失败静默回退模拟态 —— 报价失败绝不能编一个价格。 */
+  const realAnchorDoneRef = useRef(false);
+  const [realFeed, setRealFeed] = useState(false);
+  useEffect(() => {
+    if (!isH5 || !running || !eng) return;
+    let alive = true;
+    const pull = async () => {
+      const quotes = await fetchRealQuotes(Object.values(FEED_SYMBOL_MAP));
+      if (!alive || !quotes) return;
+      let applied = false;
+      for (const [sym, code] of Object.entries(FEED_SYMBOL_MAP)) {
+        const q = quotes[code];
+        if (!q) continue;
+        const nowMs = Date.now();
+        if (!realAnchorDoneRef.current) {
+          reanchorSeries(eng, sym, q.price, nowMs);
+          realAnchorDoneRef.current = true;
+        }
+        if (applyRealSpot(eng, sym, q.price, q.prevClose, nowMs)) applied = true;
+      }
+      if (applied) {
+        setRealFeed(true);
+        setTick((v) => v + 1);
+      }
+    };
+    void pull();
+    const timer = setInterval(() => void pull(), REAL_FEED_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [running, eng]);
+
   /* ---------- 派生数值（每 tick 重算；都从引擎读，不在 state 里存副本） ---------- */
   const selDef = SYMBOLS.find((d) => d.symbol === selected) ?? SYMBOLS[0];
   const spot = eng ? eng.symbols[selected].spot : selDef.basePrice;
@@ -361,6 +402,9 @@ function TradePage() {
   const overlayStore = useRef<Map<HTMLElement, HTMLCanvasElement>>(new Map());
   const sideStore = useRef<Map<HTMLElement, HTMLCanvasElement>>(new Map());
   const colorsRef = useRef<ColorMap>({});
+  // 图表绘制回调刻意用空依赖（走 ref 取值），水印文字也走 ref 以便语言切换后生效
+  const simWatermarkRef = useRef(t('trade.simWatermark'));
+  simWatermarkRef.current = t('trade.simWatermark');
   const modelRef = useRef<ChartModel | null>(chartModel);
   const layoutRef = useRef<ChartLayout | null>(null);
   const hoverRef = useRef<{ x: number; y: number } | null>(null);
@@ -418,6 +462,14 @@ function TradePage() {
     layoutRef.current = { price, vol, ind, barW };
 
     const yOf = (v: number): number => price.y + price.h - ((v - model.minP) / (model.maxP - model.minP)) * price.h;
+
+    // 诚实水印：历史K线永远是模拟推演（真实源只覆盖黄金现价）。画在右下角，
+    // 避开顶部图例与OHLC读数，保证任何光标位置都可见。
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.fillStyle = c.dim;
+    ctx.textAlign = 'right';
+    ctx.fillText(simWatermarkRef.current, W - 8, H - TIME_H - 6);
+    ctx.textAlign = 'start';
     const line = (arr: Array<number | null>, color: string, map: (v: number) => number): void => {
       ctx.strokeStyle = color;
       ctx.lineWidth = 1;
@@ -977,7 +1029,9 @@ function TradePage() {
     >
       {/* ===== 顶部账户条 ===== */}
       <View className={styles.topbar}>
-        <View className={styles.demoBadge}>{t('trade.demoBadge')}</View>
+        <View className={styles.demoBadge}>
+          {realFeed ? t('trade.feedRealBadge') : t('trade.demoBadge')}
+        </View>
         <View className={styles.statItem}>
           <Text className={styles.statLabel}>{t('trade.netAsset')}</Text>
           <Text className={styles.statValue}>{equity.toFixed(2)}</Text>
@@ -1025,8 +1079,8 @@ function TradePage() {
           )}
         </View>
         <View className={styles.feed}>
-          <View className={styles.feedDot} />
-          <Text>{t('trade.feedLabel')}</Text>
+          <View className={classnames(styles.feedDot, realFeed && styles.feedDotReal)} />
+          <Text>{t(realFeed ? 'trade.feedLabelReal' : 'trade.feedLabel')}</Text>
         </View>
         <View className={styles.clock}>
           <Text>{clock}</Text>

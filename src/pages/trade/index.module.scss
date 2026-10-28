@@ -159,6 +159,12 @@
     box-shadow: 0 0 4PX var(--t-down);
   }
 
+  // 真实价 feed：金点区分「接入真实行情」与纯模拟态
+  .feedDotReal {
+    background: var(--t-gold);
+    box-shadow: 0 0 5PX var(--t-gold);
+  }
+
   .clock {
     flex: 0 0 auto;
     margin-left: auto;
