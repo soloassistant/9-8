@@ -8,6 +8,7 @@ import { useT, useLanguageStore } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiCreateOrder, type CreateOrderPayload } from '@/services/api';
 import { ordersListOwn, type CloudOrder } from '@/services/cloudOrders';
+import { recordPromoOrder, restoreSubscriptionFromOrders } from '@/services/subscription';
 import { getPayChannel, getChannelAuth, invokePayment } from '@/services/pay';
 import type { PayChannel, PayOrder } from '@/types';
 import { disabledAttr } from '@/utils/buttonDisabled';
@@ -217,6 +218,14 @@ function MembershipPage() {
     setReadFreezeCards(getReadFreezeCards());
     setRemindOn(readRenewRemindPref());
     void loadOrders();
+    // 订阅回放：登录态下把 orders 表里已支付订单回放成订阅凭证 ——
+    // 换设备/清缓存后订阅自动回来。静默，失败不提示（本地凭证不受影响）。
+    void restoreSubscriptionFromOrders().then((r) => {
+      if (r.restored) {
+        console.error('[MembershipPage] 订阅已从云端订单恢复，到期 ' + r.expiredAt);
+        void init();
+      }
+    });
   });
 
   useEffect(() => {
@@ -451,6 +460,15 @@ function MembershipPage() {
     setPromoOpen(false);
     setPromoInput('');
     Taro.showToast({ title: t('mine.promoDone', { date: res.expiredAt || '' }), icon: 'none', duration: 3000 });
+    // 兑换成功 = 一笔真实权益授予 → 落一条 paid 订单（orders 表），
+    // 这样订阅能跨设备回放恢复，与未来支付的订单走同一条链路。
+    // 落库失败不影响本地已生效的兑换（本地权益已在），只记错误日志。
+    try {
+      const recorded = await recordPromoOrder(res.days || 30);
+      if (!recorded) console.error('[MembershipPage] 促销码订单未落库（本地权益已生效）');
+    } catch (err) {
+      console.error('[MembershipPage] recordPromoOrder failed:', err);
+    }
     await init();
     await loadOrders();
   };

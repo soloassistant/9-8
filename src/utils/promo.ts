@@ -36,7 +36,9 @@ interface PromoDef {
 export const PROMO_CODES: PromoDef[] = [
   // 首发活动码（2026-10-25 由 .tools/promo-gen.mjs 生成）：30 天 PRO，2026-12-31 截止。
   // 明文码不进仓库（防从包里反推没意义——哈希单向，但码要控制发放节奏）。
-  { hash: 'c50a410675acc8f8e689ce23cd3c231c990e81f255e07621afe6c1515cd0b0c5', planDays: 30, goodUntil: '2026-12-31' }
+  { hash: 'c50a410675acc8f8e689ce23cd3c231c990e81f255e07621afe6c1515cd0b0c5', planDays: 30, goodUntil: '2026-12-31' },
+  // 订阅链路验证码（2026-10-28）：兑换后订单落 orders 表，可全链路实测「兑换→订单→恢复」
+  { hash: 'd3f960f8e093f102aee5615c9e5b230e0eded015ce939a4edde6844971fcf143', planDays: 30, goodUntil: '2027-01-31' }
 ];
 
 /** 兑换结果 */
@@ -128,6 +130,40 @@ export function readH5Subscription(): { subscribed: true; expiredAt: string } | 
   } catch (err) {
     console.error('[promo] read subscription failed:', err);
     return null;
+  }
+}
+
+/**
+ * 按天数顺延本地订阅凭证（叠加口径与 redeemPromo 一致：未过期从到期日起算）。
+ * 供订阅恢复（orders 表回放）使用 —— 兑换与恢复走同一条叠加路，口径不分叉。
+ */
+export function extendH5Subscription(days: number): string | null {
+  if (!Number.isFinite(days) || days <= 0) return null;
+  const current = readH5Subscription();
+  const base = current ? current.expiredAt : todayStr();
+  const expiredAt = addDays(base, Math.round(days));
+  try {
+    Taro.setStorageSync(H5_SUB_KEY, { expiredAt, redeemedAt: todayStr() });
+  } catch (err) {
+    console.error('[promo] extend subscription failed:', err);
+    return null;
+  }
+  return expiredAt;
+}
+
+/**
+ * 直接把本地凭证写到指定到期日（订阅恢复用：云端订单回放出的到期日可能
+ * 早于今天很久 —— extendH5Subscription 的「从今天起算」口径不适用于恢复场景）。
+ * 只允许写到不早于今天的日期（过期日不落盘，readH5Subscription 会如实判 null）。
+ */
+export function setH5SubscriptionExpiry(expiredAt: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiredAt) || expiredAt < todayStr()) return false;
+  try {
+    Taro.setStorageSync(H5_SUB_KEY, { expiredAt, redeemedAt: todayStr() });
+    return true;
+  } catch (err) {
+    console.error('[promo] set subscription expiry failed:', err);
+    return false;
   }
 }
 
