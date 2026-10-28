@@ -3,6 +3,7 @@ import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import Splash from '@/components/Splash';
 import Onboarding, { hasOnboarded } from '@/components/Onboarding';
+import DesktopNav from '@/components/DesktopNav';
 import ConsentGate from '@/components/ConsentGate';
 import HotkeyHelp from '@/components/HotkeyHelp';
 import { HELP_EVENT, focusSearchBox, useGlobalHotkeys } from '@/hooks/useHotkeys';
@@ -125,6 +126,23 @@ function App(props: PropsWithChildren) {
   // 首次启动引导（设计稿 p19/p20）：只在 H5 且有真实账号体系时才有意义，
   // 看过一次就落库，不再骚扰（微信端直接视为已看过）。
   const [onboarded, setOnboarded] = useState(() => process.env.TARO_ENV !== 'h5' || hasOnboarded());
+  // 桌面自绘左栏：只在 H5 + ≥1200px 挂载（窄屏继续用 Taro tabBar）。
+  // 同时给 body 打类，让 app.scss 把 Taro tabBar 关掉并把内容列整体右移 240。
+  const [desktopNav, setDesktopNav] = useState(false);
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(min-width: 1200px)');
+    const apply = () => {
+      setDesktopNav(mq.matches);
+      document.body.classList.toggle('has-desktop-nav', mq.matches);
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => {
+      mq.removeEventListener('change', apply);
+      document.body.classList.remove('has-desktop-nav');
+    };
+  }, []);
 
   const handleHelpKey = useCallback(() => setHelpOpen(true), []);
   const handleSearchKey = useCallback(() => {
@@ -279,6 +297,7 @@ function App(props: PropsWithChildren) {
               两套实现各自维护；收敛成一个页面后，页面上不再有悬浮物遮挡正文。 */}
           {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页 */}
           {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
+          {desktopNav ? <DesktopNav /> : null}
           {/* 首启引导：必须等隐私同意之后再挂（两个全屏层叠在一起，用户会点不到下面那层），
               也必须等开屏退场（shellReady），否则引导藏在开屏下面等于没出现。 */}
           {consentAgreed && shellReady && !onboarded ? (

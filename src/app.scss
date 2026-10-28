@@ -272,8 +272,16 @@ html {
   }
 }
 
-// 桌面带（≥1200px）：左栏加宽到 240、内容最宽 1200（p49「12 列 · 内容最宽 1200」）
+// 桌面带（≥1200px）：自绘左栏接管（DesktopNav，10 项），Taro tabBar 关掉。
+// 内容列在最宽 1200 的基础上整体右移 240 —— 只靠 margin:auto 会居中到整个视口，
+// 左边 240 会被固定定位的导航压住。
 @media (min-width: 1200px) {
+  body.has-desktop-nav .taro-tabbar__tabbar {
+    display: none !important;
+  }
+  body.has-desktop-nav .taro-tabbar__container {
+    padding-left: 240PX;
+  }
   .taro-tabbar__tabbar {
     width: 240PX !important;
     max-width: 240PX !important;
