@@ -266,8 +266,20 @@ async function main() {
       const v = await runProbe(port, vp, png, defaultInit);
       const st = pngStats(png);
       const white = st.nearWhite;
-      const expectPanel = Math.min(vp.w, PANEL_MAX);
-      const expectX = Math.round((vp.w - expectPanel) / 2);
+      // 2026-10-28 口径（设计稿 p49）：内容列宽按断点，不再是"500px 手机列"。
+      // 这台门禁跑晨报页（≥1024 是整屏版式），逐档：
+      //   <600       面板=100vw（单列）
+      //   600-747    左栏 64,  面板=min(vw-96, 720)
+      //   748-1199   左栏 232, 面板=min(vw-280, 720)
+      //   ≥1200      整屏版式, 面板=min(vw-64, 1280)，居中
+      const navW = vp.w >= 1200 ? 0 : vp.w >= 748 ? 232 : vp.w >= 600 ? 64 : 0;
+      const expectPanel =
+        vp.w >= 1200
+          ? Math.min(vp.w - 64, 1280)
+          : vp.w >= 600
+            ? Math.min(vp.w - navW - (navW ? 48 : 0), 720)
+            : vp.w;
+      const expectX = navW ? Math.round(navW + (vp.w - navW - expectPanel) / 2) : Math.round((vp.w - expectPanel) / 2);
       const checks = [
         ['容器未塌陷', (v.container?.w || 0) === vp.w, `container=${v.container?.w} 期望 ${vp.w}`],
         ['面板宽度正确', Math.abs((v.panel?.w || 0) - expectPanel) <= 1, `panel=${v.panel?.w} 期望 ${expectPanel}`],
@@ -301,11 +313,19 @@ async function main() {
       const v = await runProbe(port, vp, png, scaleInits[sc.id]);
       const st = pngStats(png);
       const white = st.nearWhite;
-      const expectPanel = Math.round(Math.min(vp.w, PANEL_MAX) * sc.scale);
+      // ⚠️ 2026-10-28 口径变更（设计稿 p49）：桌面带（≥1200px）内容列宽按**断点**给，
+      // 上限 1200、并让出 240 的左侧导航；不再随字号档位等比放大。
+      // 旧断言「panel = min(vw,500) × scale」来自 tabBar 只有 20rem 的年代 ——
+      // 那时整个应用在桌面就是一条 500px 手机列，现在按设计稿改成三栏。
+      // 字号档位仍然生效，但作用在**内容**（rem）上，不是容器宽度上。
+      // 这台门禁跑的是晨报页（自带 200px 侧栏 + body.briefing-desktop），
+      // 该页在 ≥1024px 是**整屏版式**：面板 = min(100vw - 64, 1280) 并居中，
+      // 自绘左栏在这页是隐藏的（见 DesktopNav 的 :global 让位规则）。
+      const expectPanel = Math.min(vp.w - 64, 1280);
       const expectX = Math.round((vp.w - expectPanel) / 2);
       const checks = [
         ['系数已生效', Math.abs(Number(v.uiScale) - sc.scale) < 1e-6, `--ui-scale=${v.uiScale} 期望 ${sc.scale}`],
-        ['面板随档位同比', Math.abs((v.panel?.w || 0) - expectPanel) <= 1, `panel=${v.panel?.w} 期望 ${expectPanel}`],
+        ['面板宽度按断点', Math.abs((v.panel?.w || 0) - expectPanel) <= 1, `panel=${v.panel?.w} 期望 ${expectPanel}`],
         ['面板水平居中', Math.abs((v.panel?.x || 0) - expectX) <= 1, `panel.x=${v.panel?.x} 期望 ${expectX}`],
         ['页面宽度非 0', (v.page?.w || 0) > 0, `page=${v.page?.w}`],
         ['无横向溢出', (v.scrollW || 0) <= vp.w + 1, `scrollW=${v.scrollW} 期望 <=${vp.w}`],
