@@ -230,12 +230,12 @@
   justify-content: center;
   height: 96rpx;
   border-radius: $radius-button;
-  background: $color-primary;
+  // ⚠️ 不能用 $color-primary(#ff7a45) 打底配白字：实测 2.59:1，低于 WCAG AA 4.5。
+  // 全站主按钮统一走 $gradient-emphasis（白字 5.26:1），这里与晨报/收件箱/登录同源。
+  background: $gradient-emphasis;
   box-shadow: 0 10rpx 26rpx rgba(255, 122, 69, 0.3);
   cursor: pointer;
 
-  // 白字压在 #ff7a45 上只有 2.8:1，按下态转深色（$color-primary-strong 白字 5.26:1）——
-  // 按下这一瞬间正是用户确认"点到了"的时刻，不能只靠明度变化。
   &:active {
     background: $color-primary-strong;
   }

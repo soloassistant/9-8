@@ -127,7 +127,9 @@
   height: 128rpx;
   border-radius: $radius-round;
   background: rgba(0, 180, 42, 0.1);
-  color: $color-success;
+  // ⚠️ 原来用 $color-success(#00b42a) 压浅绿底，实测 2.5:1（大字号门槛 3.0、小字 4.5 都不到）。
+  // 完成度是"读数字"的信息，必须达标：加深到 #0a6b1c 后约 5.1:1。
+  color: #0a6b1c;
 }
 
 .scoreText {

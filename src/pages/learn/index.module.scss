@@ -112,13 +112,15 @@
 
 .statUnit {
   font-size: $font-size-sm;
-  color: $color-text-tertiary;
+  color: #5f6977; // 同上：暖橙底上要再深一档才过 4.5
   font-weight: $font-weight-normal;
 }
 
 .statLabel {
   font-size: $font-size-xs;
-  color: $color-text-tertiary;
+  // ⚠️ 全局 $color-text-tertiary(#657080) 是照白底/暖纸底(#faf6f0)调的，
+  // 放到统计卡的暖橙底 #faf1df 上实测 4.48:1，差 0.02 不达 AA。这里单独加深一档。
+  color: #5f6977;
 }
 
 .statDivider {
