@@ -142,7 +142,9 @@ html {
     align-items: stretch;
     justify-content: flex-start;
     padding: 24PX 0 16PX;
-    background: #faf6f0;
+    // Taro 运行时把 app.config 的 tabBar.backgroundColor 写成内联样式
+    // （background-color: rgb(255,255,255)），常规声明赢不了内联，必须 !important
+    background: #faf6f0 !important;
     border-right: 1PX solid #ede4d9;
   }
   // 竖栏顶部品牌位（Taro 基础样式给 :before 设的是 1px 发丝线：absolute + height:1px +
@@ -161,6 +163,7 @@ html {
     padding: 0 26PX 16PX;
   }
   // 导航项：横排（图标+文字）、圆角悬停/选中态（触屏无 hover 不受影响）
+  // 底色必须不透明：栏底「我的」用 box-shadow 画分隔线，透明底会把整块阴影透出来成圆角框
   .taro-tabbar__tabbar .weui-tabbar__item {
     display: flex;
     flex: 0 0 auto;
@@ -169,6 +172,7 @@ html {
     margin: 2PX 14PX;
     padding: 12PX;
     border-radius: 12PX;
+    background: #faf6f0;
     text-align: left;
     transition: background 0.18s ease;
   }
@@ -195,12 +199,34 @@ html {
   .taro-tabbar__tabbar .weui-bar__item_on {
     background: #ffe9db;
   }
+  // 人的习惯：主要入口排上，「我的」这类账号入口锚在栏底并用发丝线分隔
+  // （900px 高的栏里 5 项全挤顶部、下方 585px 全空，看起来像没做完）
+  .taro-tabbar__tabbar .weui-tabbar__item:last-child {
+    margin-top: auto;
+    box-shadow: 0 -1PX 0 0 #ede4d9;
+  }
   // 面板：宽度不可低于内容宽（20rem），只允许被极窄视口钳制（见顶部教训）
+  // 同时给一圈极淡纸边：同色底 + 无边界时，大屏看不出应用到哪结束（像浮在桌上）
   .taro-tabbar__panel {
-    box-shadow: none;
+    box-shadow: 0 0 0 1PX rgba(221, 211, 199, 0.55), 0 10PX 40PX rgba(45, 41, 38, 0.05);
     flex: 0 0 auto;
     margin: 0 auto !important;
     width: min(20rem, calc(100vw - 64PX)) !important;
+  }
+  // 滚动条收细：系统默认条紧贴 500px 内容列右缘，既占宽度又抢视线
+  // （滚动容器实测是 .taro_page；weapp 无 -webkit-scrollbar，天然无副作用）
+  .taro_page::-webkit-scrollbar {
+    width: 8PX;
+  }
+  .taro_page::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .taro_page::-webkit-scrollbar-thumb {
+    background: #e3d8c9;
+    border-radius: 4PX;
+  }
+  .taro_page::-webkit-scrollbar-thumb:hover {
+    background: #d3c4b1;
   }
 }
 
