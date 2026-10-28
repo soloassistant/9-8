@@ -102,6 +102,10 @@ function buildInit() {
     `try {\n` +
     `  localStorage.setItem('privacy-consent', JSON.stringify({ data: { agreed: true, version: '${version}', time: Date.now() } }));\n` +
     `  localStorage.setItem('sxm-privacy-consent', JSON.stringify({ data: true }));\n` +
+    // 首启引导（Onboarding）是**全屏固定层**，不设这个标记的话每一页都会被它 100% 盖住，
+    // 巡检会把「引导层」当成遮挡硬伤，十页全 FAIL —— 真正的遮挡问题反而被淹没。
+    // 引导本身由 probe-onboarding.mjs 单独验（两屏截图 + 标记落库 + 刷新不再出现）。
+    `  localStorage.setItem('onboarded-v2', JSON.stringify({ data: true }));\n` +
     `} catch (e) {}\n`;
   const file = path.join(OUTDIR, '_init_patrol.js');
   fs.writeFileSync(file, seed + stub);
