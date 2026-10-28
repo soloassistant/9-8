@@ -421,3 +421,93 @@
   font-size: $font-size-sm;
   flex-shrink: 0;
 }
+// ============================================================
+// 桌面三栏（设计稿 p56/p57）：左栏由外壳提供，这里补右栏。
+// 手机/平板完全不渲染占位（display:none），版式与改动前一致。
+// ============================================================
+.rail {
+  display: none;
+}
+
+@media (min-width: 1200px) {
+  .page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300PX;
+    column-gap: 24PX;
+    align-items: start;
+  }
+
+  // ⚠️ 必须把非右栏的块都钉在第一列：grid 自动排布会把它们依次塞进空着的第二列
+  //（右栏只在第 1 行占位），结果中间内容跑到右侧去。
+  .page > *:not(.rail) {
+    grid-column: 1;
+  }
+
+  .rail {
+    display: block;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    position: sticky;
+    top: 16PX;
+  }
+}
+
+.railCard {
+  margin-bottom: 16PX;
+  padding: 16PX;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-lg;
+}
+
+.railTitle {
+  display: block;
+  margin-bottom: 12PX;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-secondary;
+}
+
+.railRow {
+  display: flex;
+  align-items: center;
+  gap: 8PX;
+  padding: 8PX 0;
+}
+
+.railRowName {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railRowVal {
+  flex: 0 0 auto;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+}
+
+.railRowIncome {
+  flex: 0 0 auto;
+  font-size: $font-size-sm;
+  color: $color-success;
+}
+
+.railRowPct {
+  flex: 0 0 auto;
+  min-width: 48PX;
+  text-align: right;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.railEmpty {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}

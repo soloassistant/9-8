@@ -285,6 +285,45 @@ function LedgerPage() {
     Taro.reLaunch({ url: '/pages/briefing/index' });
   }, []);
 
+  /* ---------------- 桌面右栏（p56/p57 的三栏版式） ----------------
+     只做汇总类信息，不改原有手机版式的任何交互：手机上 .rail 是 display:none。
+     数据全部来自本月账目，不新增任何统计口径。 */
+  const railCats = useMemo(() => {
+    const byCat = new Map<string, number>();
+    for (const e of monthList) {
+      if (e.kind !== 'expense') continue;
+      byCat.set(e.categoryId, (byCat.get(e.categoryId) || 0) + e.amount);
+    }
+    const total = [...byCat.values()].reduce((a, b) => a + b, 0);
+    const sorted = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
+    const top = sorted.slice(0, 3).map(([id, amount]) => ({
+      id,
+      name: resolveCategory(categories, id).name,
+      icon: resolveCategory(categories, id).icon,
+      amount,
+      share: total > 0 ? Math.round((amount / total) * 100) : 0
+    }));
+    // 只列前 3 名时，占比加起来必然不足 100%（第 4 名起没地方去）。
+    // 补一行「其他」把剩下的钱和百分点收口 —— 否则用户看到 96% 会以为数字算错了。
+    if (sorted.length > 3) {
+      const restAmount = sorted.slice(3).reduce((sum, [, v]) => sum + v, 0);
+      const shownShare = top.reduce((sum, c) => sum + c.share, 0);
+      top.push({
+        id: '__rest',
+        name: t('ledger.railOther'),
+        icon: '·',
+        amount: restAmount,
+        share: Math.max(0, 100 - shownShare)
+      });
+    }
+    return top;
+  }, [monthList, categories, t]);
+
+  const railRecent = useMemo(
+    () => [...monthList].sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0)).slice(0, 4),
+    [monthList]
+  );
+
   return (
     <View className={styles.page} style={brandVars(theme)}>
       <View className={styles.backButton} onClick={handleBack}>
@@ -500,6 +539,46 @@ function LedgerPage() {
           </View>
         </View>
       ) : null}
+
+      {/* 桌面右栏：≥1200px 才显示（样式里控制），手机上完全不占位 */}
+      <View className={styles.rail}>
+        <View className={styles.railCard}>
+          <Text className={styles.railTitle}>{t('ledger.railCats')}</Text>
+          {railCats.length === 0 ? (
+            <Text className={styles.railEmpty}>{t('ledger.railEmpty')}</Text>
+          ) : (
+            railCats.map((c) => (
+              <View key={c.id} className={styles.railRow}>
+                <Text className={styles.railRowName}>
+                  {c.icon} {c.name}
+                </Text>
+                <Text className={styles.railRowVal}>{formatMoney(c.amount)}</Text>
+                <Text className={styles.railRowPct}>{c.share}%</Text>
+              </View>
+            ))
+          )}
+        </View>
+
+        <View className={styles.railCard}>
+          <Text className={styles.railTitle}>{t('ledger.railRecent')}</Text>
+          {railRecent.length === 0 ? (
+            <Text className={styles.railEmpty}>{t('ledger.railEmpty')}</Text>
+          ) : (
+            railRecent.map((e) => (
+              <View key={e.id} className={styles.railRow}>
+                <Text className={styles.railRowName}>
+                  {resolveCategory(categories, e.categoryId).icon}{' '}
+                  {e.note || resolveCategory(categories, e.categoryId).name}
+                </Text>
+                <Text className={e.kind === 'income' ? styles.railRowIncome : styles.railRowVal}>
+                  {e.kind === 'income' ? '+' : '-'}
+                  {formatMoney(e.amount)}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+      </View>
 
       <PromptModal
         visible={budgetEdit !== null}
