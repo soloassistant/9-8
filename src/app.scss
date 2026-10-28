@@ -107,6 +107,134 @@ html {
 }
 
 // ============================================================
+// 多端壳层（≥600px，2026-10-28 重做）：底部 TabBar 纯 CSS 转左侧竖导航
+// ------------------------------------------------------------
+// ⚠️ 历史教训（同日上午回退复盘）：首版把面板写成 min(20rem, 100vw-248PX)，
+//   600~747px 视口下面板被压到内容宽（20rem）以下 → 内容横向溢出（"640 布局回归"）。
+//   内容卡是 rem 硬尺寸（全宽恒 20rem，500px 封顶），**面板宽度不可压缩，只能压左栏**：
+//     600~747px：左栏收成 64PX 图标栏（品牌收单字、隐藏文字标签），64+500=564 ≤ 600 ✓
+//     ≥748px：左栏 232PX 全量，232+500=732 ≤ 748 ✓
+//   页面内部 rpx 版式零改动（weapp 端选择器不匹配零副作用）。
+// ============================================================
+@media (min-width: 600px) {
+  body {
+    background: #faf6f0;
+  }
+  // 容器转横向 flex：竖栏（tabbar）排前面
+  .taro-tabbar__container {
+    flex-direction: row;
+  }
+  // 底部 TabBar → 左侧竖栏
+  .taro-tabbar__tabbar {
+    order: -1;
+    width: 232PX !important;
+    max-width: 232PX !important;
+    flex-shrink: 0;
+    height: auto !important;
+    left: auto !important;
+    transform: none !important;
+  }
+  .taro-tabbar__tabbar .weui-tabbar {
+    top: 0;
+    bottom: 0;
+    height: auto;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 24PX 0 16PX;
+    background: #faf6f0;
+    border-right: 1PX solid #ede4d9;
+  }
+  // 竖栏顶部品牌位（Taro 基础样式给 :before 设了 absolute top:0，必须回正到文档流）
+  .taro-tabbar__tabbar .weui-tabbar::before {
+    content: '晨报';
+    position: static;
+    font-family: 'Noto Serif SC', 'Songti SC', 'STSong', serif;
+    font-size: 17PX;
+    font-weight: 600;
+    color: #2d2926;
+    letter-spacing: 2PX;
+    padding: 0 26PX 16PX;
+  }
+  // 导航项：横排（图标+文字）、圆角悬停/选中态（触屏无 hover 不受影响）
+  .taro-tabbar__tabbar .weui-tabbar__item {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 12PX;
+    margin: 2PX 14PX;
+    padding: 12PX;
+    border-radius: 12PX;
+    text-align: left;
+    transition: background 0.18s ease;
+  }
+  .taro-tabbar__tabbar .weui-tabbar__icon {
+    width: 22PX;
+    height: 22PX;
+  }
+  .taro-tabbar__tabbar .weui-tabbar__label {
+    font-size: 13PX;
+    line-height: 1.4;
+    text-align: left;
+  }
+  @media (hover: hover) {
+    .taro-tabbar__tabbar .weui-tabbar__item:hover {
+      background: #f6efe6;
+    }
+  }
+  .taro-tabbar__tabbar .weui-tabbar__item:focus-visible {
+    outline: 2PX solid var(--brand, #ff7a45);
+    outline-offset: -2PX;
+  }
+  // 选中项：暖橙药丸底（文字色已有 --brand 规则；#fff3ec 在奶油底上不可辨，加深一档）
+  .taro-tabbar__tabbar .taro-tabbar__tab--active {
+    background: #ffe9db;
+  }
+  // 面板：宽度不可低于内容宽（20rem），只允许被极窄视口钳制（见顶部教训）
+  .taro-tabbar__panel {
+    box-shadow: none;
+    flex: 0 0 auto;
+    margin: 0 auto !important;
+    width: min(20rem, calc(100vw - 64PX)) !important;
+  }
+}
+
+// 窄带（600~747px）：左栏收成图标栏，面板保住 20rem
+@media (min-width: 600px) and (max-width: 747px) {
+  .taro-tabbar__tabbar {
+    width: 64PX !important;
+    max-width: 64PX !important;
+  }
+  .taro-tabbar__tabbar .weui-tabbar {
+    padding: 20PX 0 16PX;
+  }
+  .taro-tabbar__tabbar .weui-tabbar::before {
+    content: '晨';
+    padding: 0 0 14PX;
+    text-align: center; // 栏窄，单字居中（默认左对齐会贴边被裁）
+  }
+  .taro-tabbar__tabbar .weui-tabbar__item {
+    justify-content: center;
+    margin: 2PX 8PX;
+    padding: 12PX 0;
+  }
+  .taro-tabbar__tabbar .weui-tabbar__label {
+    display: none;
+  }
+  // 页面内 fixed 元素随窄栏右移（栏宽 64 → 半宽 32）
+  .h5Fixed {
+    left: calc(50% + 32PX) !important;
+  }
+}
+
+// 全量栏带（748~1023px）：fixed 元素随 232 栏右移半宽
+@media (min-width: 748px) and (max-width: 1023px) {
+  .h5Fixed {
+    left: calc(50% + 116PX) !important;
+  }
+}
+
+// ============================================================
 // 桌面端三栏（2026-10-27 晨报参考稿改版）
 // ------------------------------------------------------------
 // 只在「晨报页 + 视口 ≥1024px」时放开 20rem 限宽：briefing 组件挂载时给 body
@@ -115,6 +243,18 @@ html {
 // 媒体查询条件不写大写 PX：产物实测 @media 条件不参与 pxtransform 换算
 // （dist 里 min-width:500px 原样保留），换算的是条件内的声明。
 @media (min-width: 1024px) {
+  // 非全宽页的 fixed 元素随左栏右移；全宽页（晨报/交易终端）面板居中，回正 50%
+  .h5Fixed {
+    left: calc(50% + 116PX) !important;
+  }
+  body.briefing-desktop .h5Fixed,
+  body.trade-terminal .h5Fixed {
+    left: 50% !important;
+  }
+  // 交易终端与晨报同属桌面全宽版式，左栏一并隐藏
+  body.trade-terminal .taro-tabbar__tabbar {
+    display: none !important;
+  }
   body.briefing-desktop .taro-tabbar__panel {
     // ⚠️ 声明里的 px 会被 pxtransform 换算成 rem（1024 视口下 1280px 曾被算成 853px），
     // 必须大写 PX 逃过换算 —— 与上方 500PX 同一招。
