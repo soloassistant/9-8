@@ -864,11 +864,18 @@ function TradePage() {
         <View
           className={styles.backBtn}
           onClick={() => {
-            Taro.navigateBack().catch(() => {
-              // 直接从外链/刷新进入时没有上一页：回晨报（tabBar 页只能 switchTab）
-              Taro.switchTab({ url: '/pages/briefing/index' }).catch((err) => {
-                console.error('[TradePage] 返回晨报失败:', err);
+            // 必须先判栈深：Taro 的 navigateBack 在只有一页时**不一定 reject**
+            // （实测 H5 直接 resolve），只靠 .catch 兜底会让用户点返回毫无反应。
+            if (Taro.getCurrentPages().length > 1) {
+              Taro.navigateBack().catch(() => {
+                Taro.switchTab({ url: '/pages/briefing/index' }).catch((err) => {
+                  console.error('[TradePage] 返回晨报失败:', err);
+                });
               });
+              return;
+            }
+            Taro.switchTab({ url: '/pages/briefing/index' }).catch((err) => {
+              console.error('[TradePage] 返回晨报失败:', err);
             });
           }}
         >

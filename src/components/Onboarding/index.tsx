@@ -74,7 +74,15 @@ export default function Onboarding({ onDone }: OnboardingProps) {
   const t = useT();
   const { theme } = useThemeStore();
   const [step, setStep] = useState<1 | 2>(1);
-  const [remind, setRemind] = useState(() => readSettings().morningReminderEnabled !== false);
+  // ⚠️ 开关的初始值必须反映**真实权限**，不能只看偏好：偏好默认是开，
+  // 但浏览器还没给权限时如果也显示"开"，用户会以为提醒已经生效 —— 那是个假开关。
+  // 只有「权限已授予 且 偏好没关」才算真的开着。
+  const [remind, setRemind] = useState(() => {
+    if (readSettings().morningReminderEnabled === false) return false;
+    if (typeof window === 'undefined') return false;
+    const N = (window as unknown as { Notification?: typeof Notification }).Notification;
+    return !!N && N.permission === 'granted';
+  });
   const [voice, setVoice] = useState(() => readSettings().voiceEnabled !== false);
   const [permHint, setPermHint] = useState('');
 
