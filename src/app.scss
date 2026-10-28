@@ -145,10 +145,14 @@ html {
     background: #faf6f0;
     border-right: 1PX solid #ede4d9;
   }
-  // 竖栏顶部品牌位（Taro 基础样式给 :before 设了 absolute top:0，必须回正到文档流）
+  // 竖栏顶部品牌位（Taro 基础样式给 :before 设的是 1px 发丝线：absolute + height:1px +
+  // border-top + scaleY(.5)，全部要复位，否则品牌字被压进 1px 盒里从左上角戳出来）
   .taro-tabbar__tabbar .weui-tabbar::before {
     content: '晨报';
     position: static;
+    height: auto;
+    border-top: none;
+    transform: none;
     font-family: 'Noto Serif SC', 'Songti SC', 'STSong', serif;
     font-size: 17PX;
     font-weight: 600;
@@ -186,8 +190,9 @@ html {
     outline: 2PX solid var(--brand, #ff7a45);
     outline-offset: -2PX;
   }
-  // 选中项：暖橙药丸底（文字色已有 --brand 规则；#fff3ec 在奶油底上不可辨，加深一档）
-  .taro-tabbar__tabbar .taro-tabbar__tab--active {
+  // 选中项：暖橙药丸底（Taro 4 选中类是 weui-bar__item_on，不是 --active；
+  // #fff3ec 在奶油底上不可辨，加深一档；文字色来自 app.config selectedColor）
+  .taro-tabbar__tabbar .weui-bar__item_on {
     background: #ffe9db;
   }
   // 面板：宽度不可低于内容宽（20rem），只允许被极窄视口钳制（见顶部教训）
