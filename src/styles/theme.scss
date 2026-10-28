@@ -36,7 +36,11 @@ $color-sub-gradient: linear-gradient(135deg, #ff9a76 0%, #ff7a45 100%); // 会�
 $color-bg-page: #faf6f0;
 $color-bg-card: #ffffff;
 $color-bg-hover: #f1efec;
-$color-card-border: rgba(29, 33, 41, 0.06); // 卡片发丝描边（card-surface 专用，非表单边框）
+// 卡片发丝描边（card-surface 专用，非表单边框）。
+// 2026-10-28 多端改版：从近透明冷灰 rgba(29,33,41,.06) 换成参考稿暖纸色
+// --line #DDD3C7 —— 白卡在奶油底上的轮廓要「看得见」，接近透明的描边
+// 只在灰色底上有用，暖纸上等于没有（和 morning-brief-ui 同一取值）。
+$color-card-border: #ddd3c7;
 $color-bg-header: #fff3ec;   // 页面顶部晨光渐变起点
 
 // 文本色
