@@ -101,6 +101,9 @@ function paceCurveSvgUrl(samples: RunSample[]): string | null {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+/** 未主动结束时，至少跑够这么久才把残段存下来（避免误点开始就留下垃圾记录） */
+const PARTIAL_SAVE_MIN_SEC = 30;
+
 export default function SportPage() {
   const t = useT();
   const { theme } = useThemeStore();
@@ -127,6 +130,9 @@ export default function SportPage() {
   const samplesRef = useRef<RunSample[]>([]);
   const watchIdRef = useRef<number | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** 是否处于"记录中且尚未收尾"的状态。用 ref 而不是 state：卸载清理里读不到新 state。
+   *  作用：用户按浏览器返回/左栏切走时，把已经跑出来的这段**存下来**而不是静默丢弃。 */
+  const activeRef = useRef(false);
 
   const reload = useCallback(() => {
     setRuns(readRuns());
@@ -144,6 +150,25 @@ export default function SportPage() {
       if (tickRef.current) clearInterval(tickRef.current);
       if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+      // 没点「结束」就离开页面（浏览器返回、左栏切走、刷新前）：
+      // 把已经跑出来的这一段存下来，别让用户白跑。
+      // 门槛 30 秒或任意有效距离 —— 误点进「开始」马上退出不应该留下一条垃圾记录。
+      if (activeRef.current) {
+        const dur = Math.max(0, Math.round((Date.now() - startedAtRef.current - pausedTotalRef.current) / 1000));
+        const dist = distRef.current;
+        if (dur >= PARTIAL_SAVE_MIN_SEC || dist > 0) {
+          saveRun({
+            id: `run_${startedAtRef.current}_${Math.random().toString(36).slice(2, 8)}`,
+            startedAt: startedAtRef.current,
+            durationSec: dur,
+            distanceM: dist,
+            distanceKnown: dist > 0,
+            samples: samplesRef.current,
+            source: dist > 0 ? 'gps' : 'timer'
+          });
+        }
+        activeRef.current = false;
       }
     },
     []
@@ -183,6 +208,7 @@ export default function SportPage() {
     setElapsed(0);
     setDistanceM(0);
     setPaused(false);
+    activeRef.current = true;
     setRecording(true);
     setView('recording');
 
@@ -256,6 +282,7 @@ export default function SportPage() {
       samples: samplesRef.current,
       source: distRef.current > 0 ? 'gps' : 'timer'
     };
+    activeRef.current = false;
     const next = saveRun(rec);
     setRuns(next);
     setRecording(false);
@@ -273,6 +300,7 @@ export default function SportPage() {
       cancelText: t('common.cancel'),
       success: (res) => {
         if (!res.confirm) return;
+        activeRef.current = false;
         stopTick();
         stopWatch();
         setRecording(false);
