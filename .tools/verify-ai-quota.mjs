@@ -75,6 +75,11 @@ assert(
   'A10b 订阅回放在启动链上且**未被条件包住**（换设备/清缓存后权益自动恢复）',
   /^\s*void restoreSubscriptionFromOrders\(\)/m.test(appSrc) && /initCloudSync\(\)\.then/.test(appSrc)
 );
+const membership = read('src/pages/membership/index.tsx');
+assert(
+  'A11 会员页展示 AI 额度（用户能看到剩余，不只是超限时才弹窗）',
+  /getAiQuota/.test(membership) && /mine\.quotaAi/.test(membership)
+);
 assert('A10 免费额度常量是单一事实源（rules 定义，aiQuota 复用）', /FREE_CHAT_PER_DAY\s*=\s*20/.test(rulesSrc) && /from '\.\/aiQuotaRules'/.test(quotaSrc));
 
 /* ───────────── B. 判据行为 ───────────── */

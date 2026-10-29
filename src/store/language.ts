@@ -38,6 +38,7 @@ const zh = {
   'mine.quotaTitle': '这个月的额度',
   'mine.quotaVoice': '🎙 语音对话',
   'mine.quotaFav': '🔖 收藏空间',
+  'mine.quotaAi': '🤖 AI 对话',
   // 功能记账（2026-10-24）：只记真实调用，按天聚合。见 utils/featureUsage.ts 顶部说明
   'mine.usageTitle': '用掉了多少',
   'mine.usageToday': '今天',
@@ -1259,6 +1260,7 @@ const en: Record<keyof typeof zh, string> = {
   'mine.quotaTitle': 'Left this month',
   'mine.quotaVoice': '🎙 Voice Chat',
   'mine.quotaFav': '🔖 Saved Space',
+  'mine.quotaAi': 'AI chat',
   'mine.usageTitle': 'What you have used',
   'mine.usageToday': 'Today',
   'mine.usageWeek': 'Last 7 days',

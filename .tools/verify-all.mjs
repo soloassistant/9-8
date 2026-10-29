@@ -71,6 +71,12 @@ const MUTATING = new Map([['verify:mutation', '临时改写源码跑变异测试
 const EXTERNAL = new Map([
   ['verify:boards', '直连 9 个热榜源（微博/知乎/百度/抖音/B站/HelloGitHub/果壳/数字尾巴/豆瓣），单源 6s 超时']
 ]);
+// 依赖「构建产物比源码新」的门禁：改完 src 还没重建时它**必然**红，
+// 而红的含义是「产物过期」不是「代码坏了」。放进确定性套件会让每次改代码都先红一遍，
+// 门禁一旦开始"经常红但没事"就会被人忽略。它该在发布前单独跑（见 verify:deploy-fresh 头注释）。
+const ARTIFACT = new Map([
+  ['verify:deploy-fresh', '依赖新鲜 dist 产物：改完 src 未重建时必然红，发布前单独跑']
+]);
 // 自身（递归跑会无限循环）。
 const SELF = new Set(['verify:all']);
 
@@ -265,18 +271,19 @@ const scripts = pkg.scripts || {};
 const allVerify = Object.keys(scripts).filter((k) => k.startsWith('verify:'));
 
 // 例外表腐烂检查：登记了、package.json 里却没有 → 表本身过期。
-const exempted = [BROWSER, MUTATING, EXTERNAL];
+const exempted = [BROWSER, MUTATING, EXTERNAL, ARTIFACT];
 const staleTables = exempted.flatMap((m) => [...m.keys()]).concat([...SELF]).filter((k) => !scripts[k]);
 
 // --only 时**不预排除**特殊组（否则 --only=mutation 会因先排除后过滤而空跑 0 组、
 // 还退出 0 假绿 —— 2026-10-24 实测踩到）；此时 WITH_* 追加也不再需要。
 let list = ONLY
   ? [...allVerify]
-  : allVerify.filter((k) => !BROWSER.has(k) && !MUTATING.has(k) && !EXTERNAL.has(k) && !SELF.has(k));
+  : allVerify.filter((k) => !BROWSER.has(k) && !MUTATING.has(k) && !EXTERNAL.has(k) && !ARTIFACT.has(k) && !SELF.has(k));
 if (WITH_BROWSER) list = [...list, ...BROWSER.keys()];
 if (WITH_MUTATION) list = [...list, ...MUTATING.keys()];
 if (WITH_LIVE) list = [...list, ...EXTERNAL.keys()];
-if (ONLY) list = list.filter((k) => ONLY.some((o) => k === `verify:${o}` || k === o));
+// --only 要能点名跑被跳过的类别（否则等于"点名了却跑不到"，静默空跑）
+if (ONLY) list = [...list, ...ARTIFACT.keys()].filter((k) => ONLY.some((o) => k === `verify:${o}` || k === o));
 if (ONLY && list.length === 0) {
   console.error(`--only 没匹配到任何门禁（${ONLY.join(', ')}），拒绝空跑假绿。可用名见 package.json 的 verify:*`);
   process.exit(2);
@@ -353,6 +360,8 @@ if (skippedMutation.length) console.log(`未跑（会改源码，--mutation 可�
 if (skippedLive.length) {
   for (const [k, why] of EXTERNAL) if (!WITH_LIVE) console.log(`未跑（需外网，--live 可带上）：${k} —— ${why}`);
 }
+// 产物类门禁也必须在"未跑"里显式出现，否则会从摘要里静默消失（等于假装跑过）
+for (const [k, why] of ARTIFACT) console.log(`未跑（需新鲜产物，--only=${k.replace('verify:', '')} 可单独跑）：${k} —— ${why}`);
 const covered = allVerify.filter((k) => !SELF.has(k)).length;
 console.log(`入口普查：package.json 里 ${allVerify.length} 个 verify:*（本次覆盖 ${covered} 个，自身 1 个）`);
 console.log(line);

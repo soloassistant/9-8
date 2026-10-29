@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getAiQuota, type AiQuota } from '@/services/aiQuota';
 import { View, Text, Button, Switch, Input, ScrollView } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import classnames from 'classnames';
@@ -153,6 +154,8 @@ function MembershipPage() {
   const { lang } = useLanguageStore();
 
   const [planId, setPlanId] = useState<PayOrder['planId']>('earlybird_monthly');
+  /** AI 对话额度（2026-10-29）：异步取（要一次云端 count），取不到时显示 …，不编数字 */
+  const [aiQuota, setAiQuota] = useState<AiQuota | null>(null);
   const [paying, setPaying] = useState(false);
   const [locked, setLocked] = useState<LockedPriceInfo | null>(null);
   const [notices, setNotices] = useState<PriceChangeNotice[]>([]);
@@ -227,6 +230,18 @@ function MembershipPage() {
       }
     });
   });
+
+  // AI 对话额度（2026-10-29）：一次云端 count。失败时 getAiQuota 内部已降级到本地镜像，
+  // 不会 reject；真的拿不到就保持 null → UI 显示 …（不编数字）。
+  useEffect(() => {
+    let alive = true;
+    void getAiQuota().then((q) => {
+      if (alive) setAiQuota(q);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     void init();
@@ -764,6 +779,28 @@ function MembershipPage() {
             <View
               className={collectionPercent >= 90 ? styles.barFillWarning : styles.barFill}
               style={{ width: `${collectionPercent}%` }}
+            />
+          </View>
+        </View>
+        {/* AI 对话额度（2026-10-29）：llm_events 以前只写不读，用户既看不到剩余也无从得知上限。
+            这里只读展示，扣减走 AiAssistant 的闸门；取不到（未登录/断网）显示 …，不编数字。 */}
+        <View className={styles.quotaRow}>
+          <View className={styles.quotaHead}>
+            <Text className={styles.quotaLabel}>{t('mine.quotaAi')}</Text>
+            <Text className={styles.quotaValue}>
+              {aiQuota === null
+                ? '…'
+                : aiQuota.unlimited
+                  ? t('mine.unlimited')
+                  : `${aiQuota.used}/${aiQuota.limit}${lang === 'zh' ? ' 条/天' : ' / day'}`}
+            </Text>
+          </View>
+          <View className={styles.bar}>
+            <View
+              className={aiQuota && !aiQuota.unlimited && aiQuota.used >= aiQuota.limit * 0.9 ? styles.barFillWarning : styles.barFill}
+              style={{
+                width: `${aiQuota && !aiQuota.unlimited && aiQuota.limit > 0 ? Math.min(100, Math.round((aiQuota.used / aiQuota.limit) * 100)) : 0}%`
+              }}
             />
           </View>
         </View>
