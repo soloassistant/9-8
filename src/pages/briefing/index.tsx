@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Button, Image } from '@tarojs/components';
 import Taro, { usePullDownRefresh, useDidShow, useDidHide, useShareAppMessage } from '@tarojs/taro';
+import { pressableProps } from '@/utils/a11y';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
 import EmptyState from '@/components/EmptyState';
@@ -157,8 +158,12 @@ const SIDE_NAV = [
   { icon: '📥', label: 'briefing.navInbox', url: '/pages/inbox/index' },
   { icon: '🔥', label: 'briefing.navHot', url: '/pages/library/index' },
   { icon: '📅', label: 'briefing.navCalendar', url: '/pages/calendar/index' },
-  { icon: '🙂', label: 'briefing.navMine', url: '/pages/mine/index' },
-  { icon: '📈', label: 'briefing.navTrade', url: '/pages/trade/index' }
+  { icon: '📈', label: 'briefing.navTrade', url: '/pages/trade/index' },
+  // ⚠️ 「我的」必须是**最后一项**：账号/设置类入口收尾是全站一致的习惯
+  // （手机 tabBar 与 DesktopNav 的左栏也都以「我的」结尾）。2026-10-29 巡检实测
+  // 这一栏原来是 …日历/我的/交易 —— 账号入口夹在功能中间、后面还跟着主入口，
+  // 跟另外两套导航的顺序都不一样，用户从手机切到桌面会觉得"顺序乱"。
+  { icon: '🙂', label: 'briefing.navMine', url: '/pages/mine/index' }
 ] as const;
 
 function BriefingPage() {
@@ -1105,6 +1110,12 @@ function BriefingPage() {
             <View
               key={nav.url}
               className={classnames(styles.sideNavItem, i === 0 && styles.sideNavItemActive)}
+              // 键盘可达：`View` 渲染成自定义元素 `taro-view-core`，React 的 tabIndex 只写
+              // DOM property、不进 HTML 属性，浏览器 Tab 序列读的是属性 —— 故统一走
+              // pressableProps（data-pressable 标记 + aria-label），由 a11y.ensureFocusable
+              // 运行时补 tabindex="0"。2026-10-29 实测：加之前 1440 下 focusables 为空，
+              // 屏幕上 6 行导航键盘一个都到不了。
+              {...pressableProps(`${t(nav.label)}（${i === 0 ? '当前页' : '前往'}）`)}
               onClick={() => {
                 // 第一项就是当前页（晨报），点了不动作；
                 // 「交易」是二级页（非 tabBar）→ navigateTo，其余 switchTab
