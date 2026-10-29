@@ -41,22 +41,27 @@ export default [
   {
     label: '文案写「一键」（本仓绝对句黑名单里的词，落地页最容易被塞进去）',
     file: 'site/index.html',
-    from: '<h2>三件事，每天都会用到</h2>',
-    to: '<h2>三件事，一键搞定</h2>',
+    // 2026-10-29：官网 10-28 改写过，旧锚点（<h2>三件事，每天都会用到</h2>）已不存在。
+    // 现锚点取落地页「三件事」那句的正文，仍是绝对句最容易落脚的位置。
+    from: '每天最重要的三件事，各有一个专职模块。',
+    to: '每天最重要的三件事，一键搞定。',
     cmd: 'node .tools/verify-site.mjs'
   },
   {
-    label: '把「不假装看懂图片」改成「支持识别截图」（模型通道只收文本，这是假承诺）',
+    label: '把「不做看图提取」改成「支持看图提取」（模型通道只收文本，这是假承诺）',
     file: 'site/index.html',
-    from: '<b>不假装看懂图片。</b>网页端的模型通道只收文本，所以不做截图提取。',
-    to: '<b>支持识别截图。</b>网页端的模型通道会帮你读懂图片内容。',
+    // 2026-10-29 锚点更新：旧版是把 <b> 加粗句整段替换；现在这句话在「能力边界」段落里，
+    // 门禁 C3 断言的正是 `不做看图提取` 这五个字，所以直接把断言句改成正向承诺。
+    from: '不做看图提取',
+    to: '支持看图提取',
     cmd: 'node .tools/verify-site.mjs'
   },
   {
     label: '删掉「语音只在小程序端」（网页端没有转写，不说明就等于暗示有）',
     file: 'site/index.html',
-    from: '<b>语音只在小程序端。</b>网页端没有转写能力，也就不会消耗你的语音额度 ——',
-    to: '<b>语音随时可用。</b>网页端一样能说话，也不会消耗你的语音额度 ——',
+    // 2026-10-29 锚点更新：门禁 C4 断言的是 `语音只在小程序端` 这七个字，改这一段即可。
+    from: '语音只在小程序端提供录入',
+    to: '语音网页端也能录入',
     cmd: 'node .tools/verify-site.mjs'
   },
   {
@@ -67,17 +72,19 @@ export default [
     cmd: 'node .tools/verify-site.mjs'
   },
   {
-    label: '「进入应用」改回相对路径 ../（官网独立域名下它指向官网自己，点了等于原地刷新）',
+    label: '主按钮改回相对路径 ../（官网独立域名下它指向官网自己，点了等于原地刷新）',
     file: 'site/index.html',
-    from: `<a class="btn btn-primary" href="${APP}/">进入应用</a>`,
-    to: '<a class="btn btn-primary" href="../">进入应用</a>',
+    // 2026-10-29 锚点更新：CTA 文案从「进入应用」改成「加入早鸟名单」，且页面上有两处完全相同
+    // 的按钮（hero + 结尾），变异器要求锚点唯一 → 取导航栏那个带 nav-cta 类的（全页仅 1 处）。
+    from: `<a class="btn btn-primary btn-sm nav-cta" href="${APP}/">加入早鸟名单</a>`,
+    to: '<a class="btn btn-primary btn-sm nav-cta" href="../">加入早鸟名单</a>',
     cmd: 'node .tools/verify-site.mjs'
   },
   {
     label: '应用域名换过、落地页还写旧域名（改一处忘一处，访客被送到不存在的站）',
     file: 'site/index.html',
-    from: `<a href="${APP}/">进入应用</a>`,
-    to: '<a href="https://old-endpoint.app.workbuddy.host/">进入应用</a>',
+    from: `<a class="btn btn-primary btn-sm nav-cta" href="${APP}/">加入早鸟名单</a>`,
+    to: '<a class="btn btn-primary btn-sm nav-cta" href="https://old-endpoint.app.workbuddy.host/">加入早鸟名单</a>',
     cmd: 'node .tools/verify-site.mjs'
   }
 ];
