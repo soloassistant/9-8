@@ -80,8 +80,9 @@ interface CloudAuthApi {
     email: string
   ): Promise<AuthResp<{ updateUser(input: { nonce: string; password: string }): Promise<AuthResp<CloudSession>> }>>;
   /** 已登录改密（SDK 契约）：先 POST /v1/user/sudo 用旧密码换 sudo_token，再 PATCH /v1/user/password。
-   *  这是**唯一**不依赖邮箱的改密路径 —— 但必须证明持有旧密码，所以「忘了密码的手机号」走不了这条，
-   *  服务端没有短信重置接口（2026-10-25 对证 wb-sdk：resetPassword/setPasswordForEmail 仅收 email）。 */
+   *  必须证明持有旧密码，所以「忘了密码」走不了这条。
+   *  ⚠️ 2026-10-29 更正旧注释：服务端**有**短信重置能力，只是 SDK 没封装 ——
+   *  见下方 requestPasswordResetByPhone 的探测记录（已实测并对接）。 */
   resetPasswordForOld(input: { oldPassword: string; newPassword: string }): Promise<AuthResp<CloudSession>>;
   signOut(): Promise<AuthResp<null>>;
   onAuthStateChange(cb: (event: string, session: CloudSession | null) => void): () => void;
@@ -421,6 +422,133 @@ export function requestPasswordReset(
   email: string
 ): Promise<AuthResp<{ updateUser(input: { nonce: string; password: string }): Promise<AuthResp<CloudSession>> }>> {
   return safeAuth((c) => c.auth.resetPasswordForEmail(email), NOOP_UPDATE_USER);
+}
+
+/* ============================================================
+ * 手机号找回密码（2026-10-29）
+ * ------------------------------------------------------------
+ * 背景：SDK 只封装了 resetPasswordForEmail，于是「手机号忘记密码」长期被当成做不到 ——
+ * 登录页甚至在手机号 tab 下写了「没有忘记密码，请用短信登录」。
+ *
+ * 但**服务端是支持的**，直接把接口探出来了（2026-10-29 实测，均以 publishable key 作
+ * `x-wb-webapp-access-key`，与 SDK 内部完全同一套鉴权）：
+ *   · POST /.cloud/auth/v1/verification  { phone_number:"+86 13000000000",
+ *                                          usage:"PASSWORD_RESET", target:"USER" }
+ *       → 400 FAILED_PRECONDITION「账号不存在」，与邮箱形态**逐字相同**：
+ *         说明 usage/target 组合对手机号有效，且做了同样的账号存在性校验。
+ *   · POST /.cloud/auth/v1/reset { phone_number, new_password, verification_token }
+ *       → 与邮箱形态返回**完全相同**的错误（Username or password incorrect.），
+ *         说明 `phone_number` 与 `email` 一样被当作标识符接受。
+ *   · 手机号格式有强校验：`^\+[1-9][0-9]{0,3}\s[0-9]{4,20}$` —— 国家码后**必须有空格**。
+ *
+ * 所以这里按 SDK 邮箱流程的同一套协议补一份手机号实现。仍走裸 fetch 而不是 SDK：
+ * SDK 的 resetPasswordForEmail 把 email/usage 写死在函数体里，没有可复用的注入点。
+ * 一旦官方 SDK 补上这个能力，这里的三个请求整体换成 SDK 调用即可（协议不变）。
+ * ============================================================ */
+
+/** 手机号 → 服务端要求的 `+CC 号码` 形态。口径与 SDK 内部 normalizePhone 一致：
+ *  只认大陆号（/^1\d{10}$/，剥掉 0086/86 前缀）；不符合就原样回传，让服务端报错，
+ *  而不是在前端猜一个格式（猜错会把「号码写错了」显示成「网络错误」）。 */
+function toApiPhone(raw: string): string {
+  const digits = String(raw || '').replace(/\D/g, '');
+  let n = digits;
+  if (n.startsWith('0086')) n = n.slice(4);
+  else if (n.startsWith('86') && n.length === 13) n = n.slice(2);
+  return /^1\d{10}$/.test(n) ? `+86 ${n}` : String(raw || '').trim();
+}
+
+/** 裸调云端 auth 接口。**绝不 reject**（与 safeAuth 同一纪律：抛出去会让调用方的
+ *  setBusy(false) 永远执行不到，按钮就永久卡死）。 */
+async function cloudAuthPost<T>(
+  path: string,
+  body: unknown,
+  timeoutMs = 8000
+): Promise<AuthResp<T>> {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const res = await fetch(`${CLOUD_ENDPOINT}/.cloud/auth${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-wb-webapp-access-key': CLOUD_PUBLISHABLE_KEY
+      },
+      body: JSON.stringify(body),
+      signal: controller ? controller.signal : undefined
+    });
+    const text = await res.text();
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+    } catch {
+      parsed = null;
+    }
+    if (res.ok) return { data: (parsed || {}) as T, error: null };
+    const msg =
+      (parsed && (parsed.error_description as string)) ||
+      (parsed && (parsed.message as string)) ||
+      `HTTP ${res.status}`;
+    const kind =
+      res.status === 400 ? 'invalid-request'
+        : res.status === 401 ? 'unauthenticated'
+          : res.status === 403 ? 'permission-denied'
+            : res.status === 404 ? 'not-found'
+              : res.status === 429 ? 'rate-limited'
+                : res.status >= 500 ? 'backend-unavailable' : 'unknown';
+    // 账号不存在是「expected 的业务拒绝」，但**不能**把它说成网络错误 —— 服务端原话
+    // 「账号不存在」比前端统一的「出了点问题」有用得多，原样透出。
+    return { data: null as unknown as T, error: { kind, message: msg } };
+  } catch (e) {
+    return {
+      data: null as unknown as T,
+      error: { kind: 'network', message: e instanceof Error ? e.message : String(e) }
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** 手机号找回密码：发短信验证码 → 用验证码换 verification_token → 提交新密码 → 自动登录。
+ *  返回形状与 requestPasswordReset 一致（updateUser({nonce,password})），登录页两条通道共用同一段 UI。 */
+export async function requestPasswordResetByPhone(
+  phone: string
+): Promise<AuthResp<{ updateUser(input: { nonce: string; password: string }): Promise<AuthResp<CloudSession>> }>> {
+  if (!H5) return { data: NOOP_UPDATE_USER, error: null };
+  const id = toApiPhone(phone);
+  const sent = await cloudAuthPost<{ verification_id?: string }>('/v1/verification', {
+    phone_number: id,
+    usage: 'PASSWORD_RESET',
+    target: 'USER'
+  });
+  if (sent.error) return { data: NOOP_UPDATE_USER, error: sent.error };
+  const verificationId = sent.data && sent.data.verification_id;
+  if (!verificationId) {
+    return { data: NOOP_UPDATE_USER, error: { kind: 'unknown', message: '服务端未返回 verification_id' } };
+  }
+  return {
+    data: {
+      updateUser: async ({ nonce, password }) => {
+        const verified = await cloudAuthPost<{ verification_token?: string }>('/v1/verification/verify', {
+          verification_id: verificationId,
+          verification_code: nonce
+        });
+        if (verified.error) return { data: null as unknown as CloudSession, error: verified.error };
+        const token = verified.data && verified.data.verification_token;
+        if (!token) {
+          return { data: null as unknown as CloudSession, error: { kind: 'unknown', message: '服务端未返回 verification_token' } };
+        }
+        const reset = await cloudAuthPost<unknown>('/v1/reset', {
+          phone_number: id,
+          new_password: password,
+          verification_token: token
+        });
+        if (reset.error) return { data: null as unknown as CloudSession, error: reset.error };
+        // 与 SDK 的邮箱流程一致：重置成功后直接建立会话（SDK 内部也是 signInWithPassword）
+        return signInWithPassword({ phone: id }, password);
+      }
+    },
+    error: null
+  };
 }
 
 export async function signOut(): Promise<void> {

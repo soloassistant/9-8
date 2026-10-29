@@ -11,6 +11,7 @@ import {
   sendLoginCode,
   verifyLoginCode,
   requestPasswordReset,
+  requestPasswordResetByPhone,
   signOut,
   isPhoneIdentifier,
   type AuthIdentifier
@@ -490,7 +491,10 @@ export default function LoginPage() {
     if (!ensureAccount()) return;
     clearMsg();
     setBusy(true);
-    const res = await requestPasswordReset(account.trim());
+    // 手机号通道走自己实现的那条（服务端支持、SDK 未封装，见 cloudAuth.requestPasswordResetByPhone）
+    const res = channel === 'phone'
+      ? await requestPasswordResetByPhone(buildPhoneE164(dialCode, account))
+      : await requestPasswordReset(account.trim());
     setBusy(false);
     if (res.error) {
       setError(sdkDownText(res.error, t) || t('auth.errGeneric'));
@@ -672,10 +676,11 @@ export default function LoginPage() {
   }
 
   const canResend = countdown <= 0 && !busy;
-  // 手机号通道也有「密码登录」—— SDK 的 signInWithPassword 接受 phone 标识，
-  // 注册时（或后续）设过密码即可用。但没有「忘记密码」：SDK 的 resetPassword 仅收 email，
-  // 忘了密码的手机号用户走验证码登录即可。
-  const tabs: Tab[] = channel === 'phone' ? ['otp', 'password', 'signup'] : ['password', 'otp', 'signup', 'forgot'];
+  // 两个通道都有「密码登录」（SDK 的 signInWithPassword 接受 phone 标识），
+  // 也都有「忘记密码」：邮箱走 SDK 的 resetPasswordForEmail，手机号走
+  // cloudAuth.requestPasswordResetByPhone（2026-10-29 探测服务端后补齐）。
+  // 手机号那条没走 SDK 是因为 SDK 把 email/usage 写死在函数体里，没有注入点。
+  const tabs: Tab[] = channel === 'phone' ? ['otp', 'password', 'signup', 'forgot'] : ['password', 'otp', 'signup', 'forgot'];
 
   return (
     <View className={styles.screen}>
@@ -774,11 +779,11 @@ export default function LoginPage() {
               placeholder={t('auth.passwordPlaceholder')}
               onInput={(e) => setPassword(String(e.detail.value || ''))}
             />
-            {/* 手机号没有「忘记密码」可做：SDK 对已有用户把 verifyOtp 的 password 整个丢弃
-                （验证码只换 verification_token 用于登录），/v1/reset 仅收 email，已登录改密
-                又必须先用旧密码过 sudo。能给的只有诚实引导：忘了就用短信直接进，不是假重置。 */}
+            {/* 手机号也能重置密码（2026-10-29）：服务端 /v1/verification 支持
+                usage=PASSWORD_RESET + phone_number，SDK 只是没封装。入口切到 forgot tab，
+                走「短信验证码 → 新密码 → 自动登录」，与邮箱流程同一段 UI。 */}
             {channel === 'phone' ? (
-              <View className={styles.forgotPhoneRow} onClick={() => switchTab('otp')}>
+              <View className={styles.forgotPhoneRow} onClick={() => switchTab('forgot')}>
                 <Text className={styles.forgotPhoneText}>{t('auth.forgotPhoneHint')}</Text>
               </View>
             ) : null}
@@ -835,7 +840,7 @@ export default function LoginPage() {
                 className={`${styles.input} ${styles.codeInput}`}
                 type='number'
                 value={code}
-                placeholder={t('auth.codePlaceholder')}
+                placeholder={t(channel === 'phone' ? 'auth.smsCodePlaceholder' : 'auth.codePlaceholder')}
                 onInput={(e) => setCode(String(e.detail.value || ''))}
               />
             </View>
@@ -854,7 +859,7 @@ export default function LoginPage() {
 
         {notice ? <Text className={styles.notice}>{notice}</Text> : null}
         {/* 用户报「收不到验证码」时，最常见的原因就是进了垃圾箱或地址/号码写错 —— 直接给排查方向 */}
-        {notice && (tab === 'otp' || tab === 'signup') ? (
+        {notice && (tab === 'otp' || tab === 'signup' || (tab === 'forgot' && channel === 'phone')) ? (
           <Text className={styles.hint}>{channel === 'phone' ? t('auth.smsSentHint') : t('auth.otpSentHint')}</Text>
         ) : null}
         {error ? <Text className={styles.error}>{error}</Text> : null}

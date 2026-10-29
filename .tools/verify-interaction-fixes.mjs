@@ -77,16 +77,34 @@ ok(
 
 /* ---------------- D. 手机号密码登录（2026-10-25：从「切邮箱」绕行入口升为手机通道真实页签） ---------------- */
 const login = stripComments(read('src/pages/login/index.tsx'));
-ok('D1 手机通道页签含密码登录（otp, password, signup）', /channel === 'phone' \? \['otp', 'password', 'signup'\]/.test(login));
+// 2026-10-29：手机通道补上了「忘记密码」（服务端支持、SDK 未封装，见 cloudAuth.requestPasswordResetByPhone），
+// 页签因此从 3 个变 4 个。判据仍是**精确数组**，多一个少一个都会红。
+ok('D1 手机通道页签含密码登录与忘记密码（otp, password, signup, forgot）', /channel === 'phone' \? \['otp', 'password', 'signup', 'forgot'\]/.test(login));
 ok('D2 密码登录标识随通道取值（currentId：手机号 E.164 / 邮箱）', /signInWithPassword\(currentId\(\), password\)/.test(login));
 ok('D3 旧的「切邮箱」绕行入口已移除', !/passwordHint/.test(login));
 const loginScss = stripComments(read('src/pages/login/index.module.scss'));
 ok('D4 passwordHint 样式已删除', !/\.passwordHint\s*\{/.test(loginScss));
-// 2026-10-25：服务端无手机号重置接口（resetPassword 仅 email、verifyOtp 对已有用户丢弃
-// password），所以手机号「忘记密码」只允许诚实引导（切回短信登录），不许接假重置。
-ok('D5 手机号密码页签有「忘记密码」诚实引导（forgotPhoneHint）', /forgotPhoneHint/.test(login));
-ok('D6 引导点击切回验证码页签（switchTab(\'otp\')）', /switchTab\('otp'\)/.test(login));
+// 2026-10-25 的结论已被推翻（2026-10-29 探测）：服务端 /v1/verification 接受
+// usage=PASSWORD_RESET + phone_number，只是 SDK 没封装。所以手机号「忘记密码」不再是
+// 「切回短信登录」的绕行引导，而是真入口；引导文案与点击目标都必须指向 forgot 页签。
+ok('D5 手机号密码页签有「忘记密码」入口（forgotPhoneHint）', /forgotPhoneHint/.test(login));
+ok('D6 引导点击进入忘记密码页签（switchTab(\'forgot\')）', /switchTab\('forgot'\)/.test(login));
 ok('D7 引导样式已定义（forgotPhoneText）', /\.forgotPhoneText\s*\{/.test(loginScss));
+// D8/D9（2026-10-29）：手机号重置必须是**真实现**，不是假按钮。
+//   D8 判接线（框到具体调用与参数构造，不做 includes 级别的弱断言）
+//   D9 判协议（cloudAuth 里确实发了 phone_number + usage=PASSWORD_RESET，且走 /v1/reset）
+ok(
+  'D8 手机通道走 requestPasswordResetByPhone(buildPhoneE164(...))',
+  /requestPasswordResetByPhone\(buildPhoneE164\(dialCode, account\)\)/.test(login)
+);
+const authSrc = stripComments(read('src/services/cloudAuth.ts'));
+ok(
+  'D9 手机号重置协议落地（verification: phone_number + PASSWORD_RESET，reset: /v1/reset）',
+  new RegExp('phone_number:\\s*id').test(authSrc) &&
+    new RegExp("usage:\\s*'PASSWORD_RESET'").test(authSrc) &&
+    authSrc.indexOf("'/v1/reset'") >= 0 &&
+    new RegExp('verification_token:\\s*token').test(authSrc)
+);
 
 /* ---------------- K. 我的页「修改密码」常驻入口（2026-10-25） ----------------
    安全措施是产品要求，所以断言框到具体行为：旧密码 sudo、双输入一致、≥8 位、诚实说明补设不可用。 */
