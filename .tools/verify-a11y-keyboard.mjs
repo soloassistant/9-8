@@ -9,7 +9,9 @@
  *   A 机制：utils/a11y.ts 的 pressableProps / activatePressable 在，且三条让路规则齐
  *     （输入框 / 修饰键 / IME 组字）；app.tsx 挂了全局 keydown 代理；app.scss 有 focus-visible 环。
  *   A' 采纳：桌面导航、AI 发送、登录页签与主按钮**真的**展开了 pressableProps（框到文件与调用）。
- *   B 真浏览器（1440，桌面导航可见）：
+ *   B 真浏览器（1440，桌面导航可见，落到 /pages/library/index 真实列表页）：
+ *     B-2 页面正文真的渲染了（原来测的 `pages/hotspot/index` 路由不存在，
+ *         空壳页里导航照常渲染 → 21 条全绿却从没验过页面内容，2026-10-29 线上复核抓到）
  *     B1 Tab 键能把焦点移到带 data-pressable 的元素上（不是"源码里写了 tabIndex"）
  *     B2 焦点元素有可见焦点环（computed outline 不是 none）
  *     B3 Enter 能真的激活它（导航发生 -> hash 变化）
@@ -143,7 +145,16 @@ if (NO_BROWSER) {
   // ⚠️ 不要用 briefing：晨报页是整屏版式，DesktopNav 在该页**按设计隐藏**
   //    （见 app.scss「晨报/交易终端自己就是整屏版式」）。第一版在晨报页测侧栏导航，
   //    10 个元素全是 display:none，得到的 rect 0x0 —— 是测量选错了页面，不是 a11y 缺陷。
-  await send('Page.navigate', { url: `http://127.0.0.1:${port}/#/pages/hotspot/index` });
+  // ⚠️ 也别写 `pages/hotspot/index` —— **这个路由不存在**（热点已并入资料库页，
+  //    DesktopNav 的 `tab.hotspot` 指向 `/pages/library/index`）。写了不存在的路由，
+  //    Taro 渲染出空壳，但 DesktopNav 是挂在页面之外的，照样 10 项可见可聚焦，
+  //    于是 B 组全绿 —— 测的是「导航外壳」，页面正文根本没渲染（2026-10-29 线上复核时发现）。
+  // 静态先把关：本文件用的路由必须真的出现在 app.config.ts 的 pages 里。
+  const ROUTE = '/pages/library/index';
+  const appConfig = read('src/app.config.ts');
+  assert(`A0 门禁用的路由 ${ROUTE} 真的在 app.config.ts 的 pages 里（防再测一个空壳）`,
+    appConfig.includes(`'${ROUTE.slice(1)}'`), 'app.config.ts 里没有这个页面');
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}/#${ROUTE}` });
   await new Promise((r) => setTimeout(r, 9000));
   // 开屏必须点掉（本应用的开屏不会自动关，见 components/Splash 与 cdp-probe 的注释），
   // 隐私弹窗同理。少点一个，测到的就是遮罩层里的 DOM —— 桌面外壳还没挂上。
@@ -159,6 +170,32 @@ if (NO_BROWSER) {
     if (!shellReady) await new Promise((r) => setTimeout(r, 300));
   }
   assert('B-1 桌面外壳就绪（body.has-desktop-nav 已挂，否则导航整块 display:none）', shellReady === true);
+
+  // 页面正文真的渲染了 —— 这一条是补上的，因为原来测的路由不存在：
+  // 空壳页里 DesktopNav 照样渲染，B 组 21 条全绿，但「键盘能不能操作页面内容」从未被验过。
+  // 判据用 Taro 节点数（空壳约 40，真实列表页上千）+ 正文字数，双条件挡假绿。
+  const pageShape = JSON.parse(String(await ev(`(() => {
+    const nodes = document.querySelectorAll('taro-page-core, taro-view-core, taro-text-core').length;
+    const txt = ((document.getElementById('app') || document.body).innerText || '').replace(/\\s+/g, ' ').trim();
+    return JSON.stringify({ nodes, textLen: txt.length });
+  })()`)));
+  assert('B-2 页面正文真的渲染了（不是空壳页：节点 > 300 且正文 > 200 字）',
+    pageShape.nodes > 300 && pageShape.textLen > 200, `nodes=${pageShape.nodes} textLen=${pageShape.textLen}`);
+
+  // B5：输入框能正常取得焦点（让路逻辑不能把输入框也一起 ban 掉）。
+  // ⚠️ 这一条必须跑在「按 Enter 切页」之前：切页后 DOM 换了一茬，
+  //    再 querySelector('input') 命中的可能是新页面里还没挂上布局的节点，
+  //    focus() 静默失败 → 看起来像 a11y 缺陷，其实是测量时机错了（2026-10-29 实测）。
+  const entryGuard = await ev(`(() => {
+    const inp = [...document.querySelectorAll('input,textarea')].find((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    });
+    if (!inp) return JSON.stringify({ ok: true, note: 'no-visible-input-on-this-page' });
+    inp.focus();
+    return JSON.stringify({ ok: document.activeElement === inp, note: 'focused-entry' });
+  })()`);
+  assert('B5 输入框可正常取得焦点（不会被 tabIndex 逻辑阻断）', JSON.parse(String(entryGuard)).ok === true, String(entryGuard));
 
   const count = await ev(`[...document.querySelectorAll('[data-pressable]')].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length`);
   assert('B0 页面上有**可见**的可聚焦操作元素（rect 非 0，隐藏节点不算）', Number(count) > 0, `count=${count}`);
@@ -214,15 +251,7 @@ if (NO_BROWSER) {
     assert('B4b Enter 能真的激活导航项（路由变化）', String(beforeHash) !== String(afterHash), `${beforeHash} -> ${afterHash}`);
   }
 
-  // B5：输入框里按 Enter 不该被代理抢走（让路规则 1）
-  const entryGuard = await ev(`(() => {
-    const inp = document.querySelector('input,textarea');
-    if (!inp) return JSON.stringify({ ok: true, note: 'no-input-on-this-page' });
-    inp.focus();
-    const before = document.activeElement === inp;
-    return JSON.stringify({ ok: before, note: 'focused-entry' });
-  })()`);
-  assert('B5 输入框可正常取得焦点（不会被 tabIndex 逻辑阻断）', JSON.parse(String(entryGuard)).ok === true, String(entryGuard));
+  // （B5 输入框焦点检查已前移到 B-2 之后：切页后 DOM 换茬，时机不对会假失败）
 
   ws.close();
   child.kill();
