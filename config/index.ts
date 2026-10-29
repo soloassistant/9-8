@@ -110,7 +110,13 @@ export default defineConfig<'webpack5'>(async (merge) => {
       publicPath: './',
       staticDirectory: 'static',
       router: {
-        mode: 'hash'
+        mode: 'hash',
+        // 2026-10-29：按页面代码分割。线上静态服务没有 gzip，也没有 Cache-Control/ETag
+        // （实测 CloudStudio 网关只回 Content-Length），所以 2.2MB 单包是**每次访问都全额重下**。
+        // 拆开后首屏只下「外壳 + 当前页」，其余页面在跳转时按需加载。
+        // ⚠️ 代价：部署进行中开着页面的用户，点别的页会拿到已删除的旧 chunk（404）。
+        //   兜底在 src/app.tsx 的 chunk 失败监听里：一次自动重载，15s 内只救一次防死循环。
+        lazyload: true,
         // ⚠️ 2026-10-12 把 config/ 纳入类型检查后发现的历史缺陷（**只记录，未改行为**）：
         //   这里原本还写着 `animation: false`，附注释解释「关闭页面切换动画，避免把 .taro_page
         //   平移到屏幕外、依赖 onLoad 注入 taro_page_show 类才滑入，弱环境竞态导致整页白屏」。
@@ -156,9 +162,10 @@ export default defineConfig<'webpack5'>(async (merge) => {
       },
       webpackChain(chain) {
         chain.resolve.plugin('tsconfig-paths').use(TsconfigPathsPlugin);
-        // 所有 JS chunk 合并为单文件：消除「旧 html 引用已删除的懒加载 chunk → 白屏」问题
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        chain.plugin('limit-chunk-count').use(require('webpack').optimize.LimitChunkCountPlugin, [{ maxChunks: 1 }]);
+        // ⚠️ 2026-10-29 移除 `LimitChunkCountPlugin({ maxChunks: 1 })`。
+        //   它当时是为了「旧 html 引用已删除的懒加载 chunk → 白屏」而加的，代价是全站永远一个 2.2MB 包。
+        //   但那个白屏的根因是**没有自动恢复**，不是拆包本身：合并成一个包同样会指向旧 hash。
+        //   现在两头都治：按页拆包（上面的 lazyload）+ app.tsx 里 chunk 加载失败一次自动重载。
         // 生产构建显式关 sourcemap：映射表会把原始变量名/目录结构还原给浏览器，
         // 是防逆向的基线要求（此前只是"默认没生成"，现在改为配置层确保，防止
         // 将来 Taro 升级或依赖变动后悄悄改回）。开发模式保留 sourcemap 供排障。

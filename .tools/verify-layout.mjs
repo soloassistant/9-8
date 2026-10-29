@@ -205,7 +205,10 @@ function runProbe(port, vp, png, initFile) {
       '--png',
       png,
       '--wait',
-      '6000',
+      // 2026-10-29：页面按需拆包后，首屏多一次 chunk 往返（html → runtime → app → 页面 chunk），
+      // 6s 在机器负载高时偶发测到"还没渲染完"（一次 FAIL 1/9，随后三次复跑全 PASS）。
+      // 只加等待时间，不放宽任何判据。
+      '8000',
     ];
     const child = spawn(process.execPath, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';

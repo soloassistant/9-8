@@ -146,6 +146,43 @@ function App(props: PropsWithChildren) {
     };
   }, []);
 
+  /**
+   * 懒加载 chunk 加载失败的一次性自愈（2026-10-29 开启按页拆包后必需）。
+   *
+   * 场景：用户开着页面时我们发布了新版本 → 旧的页面 chunk（带内容 hash）被删除，
+   * 他点开一个没加载过的页面，浏览器去拿 `js/p-xxx.<hash>.js` 拿到 404，
+   * 页面停在空白/骨架屏上。历史上正是为了躲这个问题才把全站塞进一个 2.2MB 的单包里 ——
+   * 但单包同样会 404（index.html 引用的 app.<hash>.js 一样会变），根因是**没有恢复机制**。
+   *
+   * 两类信号都要接：脚本元素 onerror（老浏览器的 chunk 失败只走这条）和
+   * ChunkLoadError / "dynamically imported module" 的运行时错误。
+   * 15 秒窗口内只救一次：第二次还失败说明不是版本漂移，重载只会变成刷屏死循环，
+   * 那时应该让用户看到错误而不是无限刷新。
+   */
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5' || typeof window === 'undefined') return;
+    const KEY = 'chunk-reload-at';
+    const onError = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      const scriptFailed = target && target.tagName === 'SCRIPT';
+      const msg = String((e as ErrorEvent).message || '');
+      const chunkFailed = /ChunkLoadError|Loading chunk|dynamically imported module|Importing a module script failed/i.test(msg);
+      if (!scriptFailed && !chunkFailed) return;
+      try {
+        const last = Number(window.sessionStorage.getItem(KEY) || 0);
+        if (Date.now() - last < 15000) return;
+        window.sessionStorage.setItem(KEY, String(Date.now()));
+      } catch {
+        return; // sessionStorage 被禁（隐私模式）：不重载，避免无记录的死循环
+      }
+      console.error('[App] chunk 加载失败，重载一次以获取最新版本:', scriptFailed ? 'script' : msg);
+      window.location.reload();
+    };
+    // 捕获阶段才能拿到资源加载错误（它们不冒泡）
+    window.addEventListener('error', onError, true);
+    return () => window.removeEventListener('error', onError, true);
+  }, []);
+
   const handleHelpKey = useCallback(() => setHelpOpen(true), []);
   const handleSearchKey = useCallback(() => {
     // 当前页有搜索框就聚焦它（在搜索页再按 / 不该又开一页），否则去搜索页
