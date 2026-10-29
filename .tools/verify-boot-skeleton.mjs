@@ -11,6 +11,14 @@
  *   B 真浏览器：禁用 JS 时骨架必须自己站着（证明不依赖任何产物）；启用 JS 后必须被移除
  *     （不能残留盖住界面），且 #app 里确实有内容。
  *
+ * ★ 2026-10-29 补 A14/A15/B6/B7：**重复 id="app"**。
+ *   片段末尾曾被写了一个 <div id="app"></div> 当"挂载点占位"，注入时又拼一个真挂载点
+ *   ⇒ 产物里 id="app" 出现 2 次。Taro 的 getElementById 取**第一个**（片段里那个空的）
+ *   挪进 #container 渲染 —— 界面看起来完全正常；真正的挂载点留在 body，高度 = 一屏
+ *   ⇒ 页面可滚高度变 2 屏，**滚到底是一整屏纯空白**。全站每页都中，48 个门禁全绿。
+ *   泄漏原因：原断言用 `indexOf('<div id="app">')` 只判**位置**，结构上看不见第二个。
+ *   所以现在改数**出现次数**，运行时也数 `querySelectorAll('#app')`（getElementById 只给第一个）。
+ *
  * 注意：骨架**不写在 src/index.html 模板里** —— 实测那样会让 taro build 卡死
  * （10min / 6.7min / 4min 三次零产出，去掉内联 <style> 也照样卡；还原模板后 127s 完成）。
  * 所以改成构建后注入，详见 .tools/copy-assets.js 的 injectBootSkeleton 注释。
@@ -69,6 +77,16 @@ assert(
 );
 assert('A9 移除有定时兜底（transition 被禁时也能移除）', util.includes('setTimeout(() => removeNow(el), FADE_MS)'));
 assert('A10 小程序端不执行（同一份代码两端跑）', appSrc.includes("TARO_ENV !== 'h5'"));
+// ★ A15：片段里不许出现 id="app" 元素。注入语义是「拼在 dist 里那个真挂载点**之前**」，
+//   片段自带一个占位就会让产物出现两个 id="app"（2026-10-29 事故，见 A14 注释）。
+//   这条只读源码，不依赖 dist，构建前就能红。
+//   ⚠️ 同样先剥注释：本片段里解释这个坑的注释就写着 `<div id="app">`。
+const stripHtmlComments = (s) => s.replace(/<!--[\s\S]*?-->/g, '');
+assert(
+  'A15 骨架片段里不许写 id="app" 元素（会与真挂载点撞 id）',
+  (stripHtmlComments(frag).match(/id="app"/g) || []).length === 0,
+  `count=${(stripHtmlComments(frag).match(/id="app"/g) || []).length}`
+);
 
 /* ───────────── A'. 产物层 ───────────── */
 const DIST = path.join(ROOT, 'dist');
@@ -83,6 +101,16 @@ if (hasDist) {
   assert('A11 产物里有骨架节点（注入生效）', sk > 0, `idx=${sk}`);
   assert('A12 产物里骨架在 #app 之前（不跟 React 抢容器）', app > sk && sk > 0, `sk=${sk} app=${app}`);
   assert('A13 产物里骨架样式在 </head> 之前（首屏即可渲染）', styleAt > 0 && styleAt < head, `style=${styleAt} head=${head}`);
+  // ★ A14–A15：重复 id="app" 检测。原来只判 indexOf 的**位置**，结构上看不见第二个 id。
+  //   2026-10-29 事故：片段末尾自带 <div id="app"></div> 占位，注入时又拼一个 →
+  //   产物两个 id="app"，Taro 取第一个（空的）挪进 #container（界面正常），
+  //   真挂载点留在 body 当一屏高的空壳 → **滚到底是一整屏纯空白**。
+  //   ⚠️ 计数必须先剥掉 HTML 注释：片段里解释这个坑的注释本身写着 `<div id="app">`，
+  //      不剥的话 5 个"命中"里 4 个是注释 —— 与 verify-parity 被 YAML 注释骗过、
+  //      verify-docs 被解释性注释误杀是同一个坑：**判据不能把注释当事实**。
+  const stripComments = (s) => s.replace(/<!--[\s\S]*?-->/g, '');
+  const appIdCount = (stripComments(distHtml).match(/id="app"/g) || []).length;
+  assert('A14 产物里 id="app" 恰好出现 1 次（出现 2 次 = 滚到底整屏空白）', appIdCount === 1, `count=${appIdCount}`);
 } else {
   console.log('（没有 dist：跳过 A11–A13「产物注入」断言，构建后再跑）');
 }
@@ -171,9 +199,26 @@ if (NO_BROWSER) {
   const withJsState = await withJs.ev(`(() => {
     const el = document.getElementById('boot-skeleton');
     const app = document.getElementById('app');
+    // 重复 id="app" 的运行时探法：getElementById 只返回第一个，看不见第二个，
+    // 必须用 querySelectorAll 数一遍，并看每个的高度/子节点数。
+    const apps = [...document.querySelectorAll('#app')].map((n) => ({
+      h: Math.round(n.getBoundingClientRect().height),
+      kids: n.children.length,
+      inContainer: !!n.closest('#container')
+    }));
+    // 空白大块：直系子元素里高度超过半屏、却一个子节点都没有的块
+    const blankBlocks = [...document.body.children].filter((n) => {
+      const r = n.getBoundingClientRect();
+      return r.height > window.innerHeight * 0.5 && n.children.length === 0 && !(n.innerText || '').trim();
+    }).length;
     return JSON.stringify({
       skeletonGone: !el,
       appHasChildren: !!app && app.children.length > 0,
+      appCount: apps.length,
+      apps,
+      blankBlocks,
+      viewport: window.innerHeight,
+      scrollHeight: document.documentElement.scrollHeight,
       bodyText: (document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 60)
     });
   })()`);
@@ -182,6 +227,8 @@ if (NO_BROWSER) {
   const s2 = JSON.parse(String(withJsState));
   assert('B4 app 起来后骨架已移除（不残留盖住界面）', s2.skeletonGone === true, JSON.stringify(s2));
   assert('B5 移除后 #app 里确实有内容（不是"骨架没了但一片空"）', s2.appHasChildren === true, String(s2.bodyText));
+  assert('B6 运行时只有一个 #app 元素（重复会让 Taro 挂错容器，滚到底整屏空白）', s2.appCount === 1, `appCount=${s2.appCount} apps=${JSON.stringify(s2.apps)}`);
+  assert('B7 页面里没有「超过半屏高、且完全空」的顶层块', s2.blankBlocks === 0, `blankBlocks=${s2.blankBlocks} scrollHeight=${s2.scrollHeight} viewport=${s2.viewport}`);
 }
 
 console.log('\n首屏骨架门禁');

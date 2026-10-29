@@ -70,7 +70,18 @@
       <div class="bs-slow">加载得有点慢。检查一下网络，或者点下面重试。</div>
       <button class="bs-retry" type="button" onclick="location.reload()">重新加载</button>
     </div>
-    <div id="app"></div>
+    <!--
+      ⚠️ 绝对不要在这里写 <div id="app"></div> 当「挂载点占位」。
+      注入逻辑（copy-assets.js 的 injectBootSkeleton）是「把本片段拼在
+      dist/index.html 里那个真实的 <div id="app"> 之前」，片段里再写一个，
+      产物就会有两个 id="app"：
+        · Taro 的 getElementById('app') 取**第一个**（片段里这个空的），
+          把它挪进 #container 渲染 —— 界面看起来完全正常；
+        · 模板里真正的挂载点留在 body 当空壳，高度 = 100%（一屏），
+          ⇒ 页面可滚动高度变成 2 屏，**滚到底是一整屏纯空白**。
+      2026-10-29 线上复检发现：scrollHeight 1688 = 2×844，滚到底截图 3 KB 纯色。
+      门禁 verify:boot-skeleton 现在会数 id="app" 的出现次数，别再写回来。
+    -->
     <script>
       // 慢加载兜底：10 秒还没被 app 移除（= 主 bundle 没跑起来），把加载动画换成可操作的提示。
       // 只改样式类，不碰 React 挂载点；用户点「重新加载」就是一次普通 reload。

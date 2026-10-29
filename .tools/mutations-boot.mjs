@@ -47,5 +47,15 @@ export default [
     from: '    dismissBootSkeletonAfterPaint();',
     to: '    if (false) dismissBootSkeletonAfterPaint();',
     cmd: 'node .tools/verify-boot-skeleton.mjs --no-browser'
+  },
+  {
+    // 2026-10-29 线上事故的原始形态：片段里写回挂载点占位，产物出现两个 id="app"，
+    // Taro 取第一个（空的）→ 界面正常但真挂载点留在 body 当一屏高空壳 → 滚到底整片空白。
+    // 这条变异只改**片段源**，A15 必须当场抓住（A14 读产物，重新构建前不会变）。
+    label: '骨架片段又写回 <div id="app"> 占位（产物两个 #app → 滚到底整屏空白）',
+    file: 'src/assets/boot-skeleton.html',
+    from: '    <script>',
+    to: '    <div id="app"></div>\n    <script>',
+    cmd: 'node .tools/verify-boot-skeleton.mjs --no-browser'
   }
 ];
