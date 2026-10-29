@@ -5,6 +5,7 @@ import Taro from '@tarojs/taro';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
 import { apiChat, apiChatStream, apiApplyPlan, apiGetBriefing } from '@/services/api';
+import { bumpLocalUsage, canChat, getAiQuota } from '@/services/aiQuota';
 import { useT } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { loadChatLog, saveChatLog } from '@/utils/chatLog';
@@ -219,6 +220,21 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
     async (text: string) => {
       const content = text.trim();
       if (!content || sending) return;
+      // AI 对话额度闸门（2026-10-29）：llm_events 以前只写不读，免费用户可以无限用付费 AI。
+      // 计数走云端（权威）+ 本地镜像（离线/刚发完的即时值），两者取大，见 services/aiQuota.ts。
+      // 判据放在 setSending(true) **之前**：额度用尽不该让界面进入"发送中"。
+      const quota = await getAiQuota();
+      if (!canChat(quota)) {
+        Taro.showModal({
+          title: t('ai.quotaLimitTitle'),
+          content: t('ai.quotaLimitContent', { n: String(quota.limit) }),
+          confirmText: t('briefing.goSubscribe'),
+          success: (r) => {
+            if (r.confirm) Taro.navigateTo({ url: '/pages/membership/index' });
+          }
+        });
+        return;
+      }
       setSending(true);
       push('user', content);
       // 记忆回灌：发消息时读取用户长期记忆（开关关闭/读取失败则空数组），随请求带给模型
@@ -276,6 +292,9 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
           }
           // P1-E：仅携带排班提案的回复记录记忆溯源，普通回复不显示 footnote
           push('assistant', res.reply, res.image, proposal, proposal ? memoryTrace : undefined);
+          // 记账口径与云端一致：**只计成功回复**（cloudLlm 也是流式读完才 insert）。
+          // 本地镜像的意义是「发完立刻能反映」+ 云端计数不可用时的降级判据。
+          bumpLocalUsage();
 
           // M-03：云函数返回记忆条目时写入并展示 toast（P1-E：附带当前对话原文作溯源短语）
           if (Array.isArray(res.memories) && res.memories.length > 0) {

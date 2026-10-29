@@ -16,6 +16,7 @@ import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/languag
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
 import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
 import { initCloudSync } from '@/services/cloudSync';
+import { restoreSubscriptionFromOrders } from '@/services/subscription';
 import { reportCrash, installH5CrashHandlers } from '@/services/crashReport';
 import type { CrashPayload } from '@/services/crashReport';
 import { clientErrorInsert } from '@/services/cloudDb';
@@ -57,7 +58,16 @@ try {
 // 用户数据轻云同步（仅 H5）：必须在任何页面读取 storage 之前完成云端恢复，故模块加载即执行。
 // 返回的 Promise 在**启动拉取结束后** resolve —— 重放必须挂在它后面（.then），
 // 否则重放读到的是「恢复前」的 storage，跨设备改过的语言/主题/字号在首刷不生效。
-void initCloudSync().then(() => rehydrateStoresAfterCloudPull());
+void initCloudSync().then(() => {
+  rehydrateStoresAfterCloudPull();
+  // 订阅回放（2026-10-29 审计 P1）：原本只在会员中心页触发，于是**付费用户换设备/清缓存后
+  // 首页仍是免费版** —— AI 额度、语音条数、收藏上限全按免费档算，权益等于丢了。
+  // 挂到启动链上与云同步同一顺序（先 user_kv 再按 orders 回放到期日）；
+  // 未登录时 ordersListOwn 返回 no-session，是正常分支，不报错；失败只留痕，不阻断启动。
+  void restoreSubscriptionFromOrders().catch((err) => {
+    console.error('[app] restore subscription from orders failed:', err);
+  });
+});
 
 /**
  * 云端恢复**重放**（2026-10-05 实测缺陷）：ESM 会把被 import 的 store 模块体求值提到

@@ -294,6 +294,9 @@ const zh = {
   'ai.send': '发送',
   'ai.fallbackReply': '抱歉，我刚刚走神了，请再说一次。',
   'ai.thinking': '💭 正在思考…',
+  // 2026-10-29：AI 对话额度闸门（免费 20 条/天，订阅不限）。文案里不写「无限试用」「保证」
+  'ai.quotaLimitTitle': '今日 AI 对话额度已用完',
+  'ai.quotaLimitContent': '免费档每天 {n} 条 AI 对话，明天零点恢复。订阅后不限条数。',
   'ai.greeting': '你好，我是你的 AI 助理 🤖 需要我帮你做点什么？',
   'ai.greetingWithSuggestion': '你好，我是你的 AI 助理 🤖\n\n需要我帮你做点什么？比如：「{hint}」',
   'ai.memorySourceSeed': '初始',
@@ -1506,6 +1509,8 @@ const en: Record<keyof typeof zh, string> = {
   'ai.send': 'Send',
   'ai.fallbackReply': 'Sorry, I got distracted. Please say that again.',
   'ai.thinking': '💭 Thinking...',
+  'ai.quotaLimitTitle': 'Daily AI quota used up',
+  'ai.quotaLimitContent': 'The free plan includes {n} AI messages per day; it resets at midnight. Subscribe for unlimited.',
   'ai.greeting': "Hi, I'm your AI assistant 🤖 What can I help you with?",
   'ai.greetingWithSuggestion': "Hi, I'm your AI assistant 🤖\n\nWhat can I help you with? For example: \"{hint}\"",
   'ai.memorySourceSeed': 'Seeded',

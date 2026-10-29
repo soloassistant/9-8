@@ -168,6 +168,12 @@ jobs:
         # 全程内存桩替掉 wx-server-sdk / cloudPay，不连真云、不发网络请求。
         run: npm run verify:paid
 
+      - name: AI 对话额度闸门
+        # 守的是「llm_events 不能只写不读」：免费档每天 20 条要真的拦得住，
+        # 且云端计数取不到时**降级到本地仍拦**（不能当 0 静默放开）、订阅必须不限。
+        # 纯规则模块编成 CJS 直接跑行为用例，不连云。
+        run: npm run verify:ai-quota
+
       - name: 上市前整改回归
         # 守的是三个曾经出过事的对外契约：外链白名单（站内相对路径必须放行，
         # 但协议相对 //evil.com 与反斜杠绕过仍须拒绝）、云函数 OPENID 空值必须拒绝、
