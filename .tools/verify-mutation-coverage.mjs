@@ -60,6 +60,11 @@ const DEBT = new Map([
   ['verify-sources.js', '静态'],
   ['verify-summary-quality.js', '静态'],
   ['verify-sxm-decision.mjs', '静态'],
+  // 2026-10-29 新增：发布前预检读的是**真实 dist 产物 + git 历史**（指纹是否过期、入口引用的
+  // 文件是否都在、SDK 是否被复制进产物）。变异框架只改源码再跑 node 脚本，造不出
+  // 「产物过期」「半成品镜像」这两种它要抓的故障，所以登记为缺口。
+  // 将来要补覆盖，走 fixture 目录（给 .tools/fixtures/ 造一个坏产物，变异改 fixture 的引用关系）。
+  ['verify-deploy-fresh.mjs', '依赖真实产物与 git 历史，变异框架无法制造「产物过期/半成品」'],
 ]);
 
 const BROWSER_SIG = /cdp-probe|chrome|http\.server|puppeteer|playwright|--remote-debugging/i;

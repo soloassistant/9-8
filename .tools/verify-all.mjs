@@ -109,7 +109,11 @@ const CI_EXEMPT = new Map([
   ['verify:compress', '同上（真 Chrome 验 canvas 压缩）'],
   ['verify:hotkeys-live', '同上（真 Chrome 在 dist 上按快捷键）'],
   ['verify:site-live', '同上（真 Chrome 量落地页计算样式）'],
-  ['verify:boards', '需外网（9 个热榜源），CI 明确不跑']
+  ['verify:boards', '需外网（9 个热榜源），CI 明确不跑'],
+  // 2026-10-29 新增：读 dist 产物 + git 历史（指纹是否过期、入口引用是否齐全、SDK 是否被复制）。
+  // checks 工作流**不构建产物**，所以它在这里既没法跑也不该跑；它的执行位置是发布前
+  // （`npm run verify:deploy-fresh`，见该脚本头注释的 A/B/C/D 四查）。
+  ['verify:deploy-fresh', '需 dist 产物，checks 不构建产物；发布前手动执行']
 ]);
 
 export function checkCiParity(ciText, scripts, exempt = CI_EXEMPT) {
