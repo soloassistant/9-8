@@ -36,49 +36,41 @@ function check(name, ok, detail = '') {
 
 const DIST = path.resolve(ROOT, process.argv[2] || 'dist');
 
-// —— A. 指纹 vs git HEAD ——
-let head = '';
-let stampHead = '';
-try {
-  const { resolveGit } = require('./lib/git.cjs');
-  // resolveGit() 返回「可用的 git 可执行文件路径」或 null（不会抛）
-  const bin = resolveGit();
-  if (bin) {
-    const { execFileSync } = require('node:child_process');
-    head = execFileSync(bin, ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
-  }
-} catch (e) {
-  head = '';
-}
-try {
-  const stamp = JSON.parse(fs.readFileSync(path.join(DIST, 'build-stamp.json'), 'utf8'));
-  stampHead = String(stamp.head || '');
-} catch {
-  stampHead = '';
-}
-// 「产物是否还代表当前提交」不能只看 stamp.head === HEAD：
-// 只改 .tools/ 或文档的提交不影响产物，要求重建会逼着人做无意义的重建，
-// 反过来又会让人干脆绕过这道门禁。按**构建输入**判：src/、config/、site/ 有改动才算过期。
+// —— A. 指纹：产物是否由当前这批输入产出 ——
+// 比**输入内容哈希**，不比 commit：第一版用 `git diff stampHead..HEAD` 判「有没有 src 改动」，
+// 结果产物是「提交前构建、提交后发布」这个最常见的顺序时就误报过期（改动其实已经打进产物了）。
+// lib/build-inputs 的 diffAgainstStamp 才是准确语义：逐文件比内容哈希。
+let stamp = null;
 let changedInputs = [];
+let head = '';
 try {
-  const { resolveGit } = require('./lib/git.cjs');
-  const bin = resolveGit();
-  if (bin && head && stampHead) {
-    const { execFileSync } = require('node:child_process');
-    const out = execFileSync(bin, ['diff', '--name-only', `${stampHead}..HEAD`], { cwd: ROOT, encoding: 'utf8' });
-    changedInputs = out.split('\n').map((x) => x.trim()).filter(Boolean).filter((f) => /^(src|config|site)\//.test(f));
+  const { diffAgainstStamp, readStamp } = require('./lib/build-inputs');
+  const d = diffAgainstStamp(DIST, ROOT);
+  changedInputs = d.changed || [];
+  stamp = d.stamp || readStamp(DIST);
+  try {
+    const { resolveGit } = require('./lib/git.cjs');
+    const bin = resolveGit();
+    if (bin) {
+      const { execFileSync } = require('node:child_process');
+      head = execFileSync(bin, ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
+    }
+  } catch {
+    head = '';
   }
-} catch {
-  changedInputs = ['(无法比对，按未过期处理并提示)'];
+  check(
+    'A1 产物由当前这批输入产出（逐文件比内容哈希）',
+    changedInputs.length === 0,
+    changedInputs.length ? `有 ${changedInputs.length} 个输入变了：${changedInputs.slice(0, 6).join(', ')}${changedInputs.length > 6 ? ' …' : ''}` : ''
+  );
+  check(
+    'A2 指纹里记的提交存在（便于回溯"这份产物是哪个提交时构建的"）',
+    !!stamp && !!stamp.head,
+    `stamp.head=${(stamp && stamp.head && stamp.head.slice(0, 7)) || '(缺失)'} 当前 HEAD=${head ? head.slice(0, 7) : '(取不到)'}`
+  );
+} catch (e) {
+  check('A1 产物由当前这批输入产出（逐文件比内容哈希）', false, String((e && e.message) || e));
 }
-const headMatches = !!head && !!stampHead && (head.startsWith(stampHead) || stampHead.startsWith(head));
-check(
-  'A1 产物指纹对应当前提交（或自建产物以来没有构建输入变更）',
-  headMatches || changedInputs.length === 0,
-  headMatches
-    ? `stamp.head=${stampHead}`
-    : `stamp.head=${stampHead || '(缺失)'} git HEAD=${head || '(取不到)'}，期间改动的构建输入：${changedInputs.join(', ') || '无'}`
-);
 
 // —— B. 入口自洽：index.html 引用的每个文件都得在 ——
 let html = '';
