@@ -11,6 +11,7 @@
  *   · 计数只显示**真实的**：收件箱待办数来自 drafts 的持久化键，没有就不显示数字，
  *     绝不为了"看起来像设计稿"编一个 2。
  */
+import { pressableProps } from '@/utils/a11y';
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text } from '@tarojs/components';
 import Taro from '@tarojs/taro';
@@ -87,6 +88,8 @@ export default function DesktopNav() {
         key={it.key}
         className={active ? `${styles.item} ${styles.itemActive}` : styles.item}
         onClick={() => go(it)}
+        // 键盘可达（2026-10-29）：桌面导航是键盘用户最该先摸到的东西
+        {...pressableProps(`${t(it.labelKey as never)}（${active ? '当前页' : '前往'}）`)}
       >
         <Text className={styles.icon}>{it.icon}</Text>
         <Text className={styles.label}>{t(it.labelKey as never)}</Text>

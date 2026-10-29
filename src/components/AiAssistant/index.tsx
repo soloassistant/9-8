@@ -1,3 +1,4 @@
+import { pressableProps } from '@/utils/a11y';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, Input, Image } from '@tarojs/components';
 import type { ITouchEvent } from '@tarojs/components';
@@ -747,6 +748,7 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
               // 先守卫再清空：sendMessage 在 sending 时会直接 return，
               // 旧写法先 setInput('') 会把用户正在等回复时新输入的内容吞掉
               onClick={handleSend}
+              {...pressableProps(t('ai.send'))}
             >
               {sending ? '…' : t('ai.send')}
             </View>

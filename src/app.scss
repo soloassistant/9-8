@@ -438,3 +438,17 @@ body.is-login-page .taro-tabbar__panel {
 .taro_router > .taro_page:not(.taro_page_shade):not(.taro_tabbar_page) {
   display: block !important;
 }
+
+/* ===== 键盘可达性（2026-10-29）=====
+   全站可操作元素补了 role=button + tabIndex + data-pressable（见 utils/a11y.ts），
+   这里给它们统一的可见焦点环。用 :focus-visible 而不是 :focus —— 鼠标点击不闪框，
+   只有键盘 Tab 过来才显示，这也是 W3C「焦点可见」与「别打扰鼠标用户」的折中。
+   brand 变量在部分页面（登录/官网）没定义，所以带字面回退色。 */
+[data-pressable] {
+  cursor: pointer;
+}
+[data-pressable]:focus-visible {
+  outline: 2PX solid var(--brand, #c7371a);
+  outline-offset: 2PX;
+  border-radius: 8PX;
+}

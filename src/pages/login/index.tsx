@@ -1,3 +1,4 @@
+import { pressableProps } from '@/utils/a11y';
 import React, { useEffect, useState } from 'react';
 import Taro from '@tarojs/taro';
 import { View, Text, Input } from '@tarojs/components';
@@ -25,6 +26,14 @@ import styles from './index.module.scss';
 /** 阶段：校验中 → 显示登录表单。已登录不在这里"放行渲染"，而是**跳转到应用首页**。 */
 type Phase = 'checking' | 'form';
 type Tab = 'password' | 'otp' | 'signup' | 'forgot';
+
+/** 页签的 i18n 键（三处共用：渲染文案、键盘 aria-label）。抽出来避免两处写法漂移。 */
+const TAB_LABEL_KEY: Record<Tab, 'auth.tabPassword' | 'auth.tabOtp' | 'auth.tabSignup' | 'auth.tabForgot'> = {
+  password: 'auth.tabPassword',
+  otp: 'auth.tabOtp',
+  signup: 'auth.tabSignup',
+  forgot: 'auth.tabForgot'
+};
 /** 登录标识通道：邮箱 或 手机号（短信验证码）。默认手机号（产品决策）。 */
 type IdChannel = 'email' | 'phone';
 
@@ -714,17 +723,10 @@ export default function LoginPage() {
               key={k}
               className={`${styles.tab} ${tab === k ? styles.tabActive : ''}`}
               onClick={() => switchTab(k)}
+              {...pressableProps(t(TAB_LABEL_KEY[k]))}
             >
               <Text className={tab === k ? styles.tabTextActive : styles.tabText}>
-                {t(
-                  k === 'password'
-                    ? 'auth.tabPassword'
-                    : k === 'otp'
-                      ? 'auth.tabOtp'
-                      : k === 'signup'
-                        ? 'auth.tabSignup'
-                        : 'auth.tabForgot'
-                )}
+                {t(TAB_LABEL_KEY[k])}
               </Text>
             </View>
           ))}
@@ -888,7 +890,11 @@ export default function LoginPage() {
           </View>
         </View>
 
-        <View className={`${styles.submit} ${busy || !privacyOk ? styles.btnDisabled : ''}`} onClick={handleSubmit}>
+        <View
+          className={`${styles.submit} ${busy || !privacyOk ? styles.btnDisabled : ''}`}
+          onClick={handleSubmit}
+          {...pressableProps(t(tab === 'signup' ? 'auth.signup' : tab === 'forgot' ? (resetTicket ? 'auth.resetSubmit' : 'auth.sendCode') : 'auth.login'))}
+        >
           <Text className={styles.submitText}>
             {t(
               tab === 'password'

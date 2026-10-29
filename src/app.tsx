@@ -18,6 +18,7 @@ import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
 import { initCloudSync } from '@/services/cloudSync';
 import { restoreSubscriptionFromOrders } from '@/services/subscription';
 import { dismissBootSkeletonAfterPaint } from '@/utils/bootSkeleton';
+import { activatePressable, observePressables } from '@/utils/a11y';
 import { reportCrash, installH5CrashHandlers } from '@/services/crashReport';
 import type { CrashPayload } from '@/services/crashReport';
 import { clientErrorInsert } from '@/services/cloudDb';
@@ -219,6 +220,25 @@ function App(props: PropsWithChildren) {
     onNavigate: handleNavigateKey,
     enabled: !isLoginPage && consentAgreed && shellReady
   });
+
+  // 键盘可达性（2026-10-29）：把 Enter / Space 翻译成「点击当前聚焦的可操作元素」。
+  // 之所以做成**全局代理**而不是每个 View 挂 onKeyDown：taro-view-core 只稳定转发 onClick，
+  // 键盘事件由这里统一接原生事件更可靠，且新加的可操作元素只要带 data-pressable 就自动生效。
+  // 让路规则（输入框 / 修饰键 / IME 组字）见 utils/a11y.ts 的注释。
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (activatePressable(e)) e.preventDefault();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    // 自定义元素上 React 的 tabIndex 不会落成属性（浏览器进 Tab 序列看的是属性），
+    // 所以这里补 tabindex="0"，并用观察器覆盖动态渲染出来的列表项。见 utils/a11y.ts。
+    const stopObserving = observePressables();
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      stopObserving();
+    };
+  }, []);
 
   // 首屏骨架退场（2026-10-29）：骨架写在 src/index.html，是 app 挂载前的唯一可见内容。
   // 这里等两帧（挂载完成 → 真正上屏）再淡出，避免「骨架撤了、界面还没画」的白闪。
