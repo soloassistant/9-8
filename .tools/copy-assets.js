@@ -246,6 +246,40 @@ async function ensureHotspotFallback() {
 
 ensureHotspotFallback();
 
+// ---- 首屏骨架注入（2026-10-29，审计 P1：冷启动 9.1s 纯白）----
+// 为什么在**构建后注入**而不是写进 src/index.html 模板：
+//   写成模板后 `taro build` 会卡死（实测三次：10 分钟 / 6.7 分钟 / 4 分钟零产出，
+//   把内联 <style> 去掉也照样卡；还原模板后 127 秒即完成）。与其跟 html-webpack-plugin 较劲，
+//   不如在产物上做：dist/index.html 就是用户真正拿到的那份，注入后由
+//   verify:boot-skeleton 直接验产物（比验模板更接近事实）。
+// 片段源在 src/assets/boot-skeleton.html（可 review、可 diff），本函数只负责摆放：
+//   <style> → </head> 前；骨架 DOM + watchdog → <div id="app"> 前（保持 #app 为空给 React）。
+function injectBootSkeleton() {
+  const fragPath = path.join(root, 'src/assets/boot-skeleton.html');
+  const indexPath = path.join(dist, 'index.html');
+  try {
+    const frag = fs.readFileSync(fragPath, 'utf8');
+    const html = fs.readFileSync(indexPath, 'utf8');
+    if (html.includes('id="boot-skeleton"')) return; // 幂等：重复跑不会插两份
+    const m = frag.match(/^\s*<style>[\s\S]*?<\/style>\s*/);
+    const styleBlock = m ? m[0] : '';
+    const bodyBlock = m ? frag.slice(m[0].length) : frag;
+    if (!styleBlock || !bodyBlock.trim()) throw new Error('片段格式不对（缺 <style> 或骨架 DOM）');
+    if (!html.includes('</head>')) throw new Error('dist/index.html 里找不到 </head>');
+    if (!html.includes('<div id="app">')) throw new Error('dist/index.html 里找不到 <div id="app">');
+    const out = html
+      .replace('</head>', styleBlock + '</head>')
+      .replace('<div id="app">', bodyBlock + '<div id="app">');
+    fs.writeFileSync(indexPath, out);
+    console.log(`[copy-assets] 首屏骨架已注入 dist/index.html（${styleBlock.length + bodyBlock.length} B）`);
+  } catch (e) {
+    // 失败只告警不阻塞构建：发布前的 verify:boot-skeleton 会把它拦下来
+    console.warn(`[copy-assets] 首屏骨架注入失败：${String((e && e.message) || e)}`);
+  }
+}
+
+injectBootSkeleton();
+
 // ---- 构建指纹（2026-10-23 补）：把「本次构建用的是哪一版源码」写进 dist ----
 // 部署脚本据此判定 `dist` 是否真的对应当前源码。**不能用 mtime 判**：读文件就会改 mtime，
 // 内容没变也会误报；git 恢复旧内容时 mtime 变新又会漏报。比内容哈希才靠得住。

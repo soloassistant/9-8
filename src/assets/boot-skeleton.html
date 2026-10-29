@@ -1,0 +1,83 @@
+    <style>
+      #boot-skeleton {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: #fdfbf7;
+        color: #2b2622;
+        font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        transition: opacity 0.24s ease;
+      }
+      #boot-skeleton.is-leaving { opacity: 0; }
+      #boot-skeleton .bs-logo { font-size: 44px; line-height: 1; }
+      #boot-skeleton .bs-title { font-size: 17px; font-weight: 600; letter-spacing: 0.02em; }
+      #boot-skeleton .bs-sub { font-size: 12px; opacity: 0.62; }
+      #boot-skeleton .bs-bar {
+        width: 132px;
+        height: 3px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(43, 38, 34, 0.12);
+        margin-top: 4px;
+      }
+      #boot-skeleton .bs-bar::after {
+        content: '';
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: inherit;
+        background: #c7371a;
+        animation: bs-slide 1.15s ease-in-out infinite;
+      }
+      @keyframes bs-slide {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(320%); }
+      }
+      /* 慢加载提示：10s 还没挂载才出现（见下方 watchdog），正常网络下永远看不到 */
+      #boot-skeleton .bs-slow { display: none; font-size: 13px; line-height: 1.6; text-align: center; padding: 0 32px; }
+      #boot-skeleton.is-slow .bs-slow { display: block; }
+      #boot-skeleton.is-slow .bs-bar { display: none; }
+      #boot-skeleton .bs-retry {
+        display: none;
+        margin-top: 6px;
+        padding: 9px 22px;
+        border-radius: 999px;
+        background: #c7371a;
+        color: #fff;
+        font-size: 14px;
+        border: 0;
+      }
+      #boot-skeleton.is-slow .bs-retry { display: inline-block; }
+      @media (prefers-color-scheme: dark) {
+        #boot-skeleton { background: #14110f; color: #ece6dc; }
+        #boot-skeleton .bs-bar { background: rgba(236, 230, 220, 0.16); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-skeleton .bs-bar::after { animation: none; width: 100%; }
+        #boot-skeleton { transition: none; }
+      }
+    </style>
+    <div id="boot-skeleton" role="status" aria-live="polite">
+      <div class="bs-logo" aria-hidden="true">📰</div>
+      <div class="bs-title">私人晨报助理</div>
+      <div class="bs-sub">正在准备今天的晨报…</div>
+      <div class="bs-bar" aria-hidden="true"></div>
+      <div class="bs-slow">加载得有点慢。检查一下网络，或者点下面重试。</div>
+      <button class="bs-retry" type="button" onclick="location.reload()">重新加载</button>
+    </div>
+    <div id="app"></div>
+    <script>
+      // 慢加载兜底：10 秒还没被 app 移除（= 主 bundle 没跑起来），把加载动画换成可操作的提示。
+      // 只改样式类，不碰 React 挂载点；用户点「重新加载」就是一次普通 reload。
+      (function () {
+        setTimeout(function () {
+          var el = document.getElementById('boot-skeleton');
+          if (el && !el.classList.contains('is-leaving')) el.classList.add('is-slow');
+        }, 10000);
+      })();
+    </script>

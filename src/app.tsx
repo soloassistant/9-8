@@ -17,6 +17,7 @@ import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
 import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
 import { initCloudSync } from '@/services/cloudSync';
 import { restoreSubscriptionFromOrders } from '@/services/subscription';
+import { dismissBootSkeletonAfterPaint } from '@/utils/bootSkeleton';
 import { reportCrash, installH5CrashHandlers } from '@/services/crashReport';
 import type { CrashPayload } from '@/services/crashReport';
 import { clientErrorInsert } from '@/services/cloudDb';
@@ -218,6 +219,14 @@ function App(props: PropsWithChildren) {
     onNavigate: handleNavigateKey,
     enabled: !isLoginPage && consentAgreed && shellReady
   });
+
+  // 首屏骨架退场（2026-10-29）：骨架写在 src/index.html，是 app 挂载前的唯一可见内容。
+  // 这里等两帧（挂载完成 → 真正上屏）再淡出，避免「骨架撤了、界面还没画」的白闪。
+  // app 自己的开屏（splash）在这一帧已经渲染，所以用户看到的是 骨架 → 开屏 → 内容，中间不断档。
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5') return;
+    dismissBootSkeletonAfterPaint();
+  }, []);
 
   // 「我的 → 键盘快捷键」入口：二级页没法直接改 App 的 state，走事件请求打开
   useEffect(() => {

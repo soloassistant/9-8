@@ -168,6 +168,12 @@ jobs:
         # 全程内存桩替掉 wx-server-sdk / cloudPay，不连真云、不发网络请求。
         run: npm run verify:paid
 
+      - name: 首屏骨架门禁（静态组）
+        # 守「冷启动不是一片白」：骨架必须写在模板里、内联样式、不依赖外链、
+        # 有深色/减动效适配、10s 慢加载可操作的兜底、挂载后移除。
+        # 真浏览器那组（禁用 JS 仍能看到骨架 / 启用 JS 后必须退场）需要 Chrome，CI 不跑。
+        run: npm run verify:boot-skeleton -- --no-browser
+
       - name: AI 对话额度闸门
         # 守的是「llm_events 不能只写不读」：免费档每天 20 条要真的拦得住，
         # 且云端计数取不到时**降级到本地仍拦**（不能当 0 静默放开）、订阅必须不限。
