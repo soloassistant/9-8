@@ -37,6 +37,10 @@ const HOTSPOT_POOL_SIZE = 60;
 const PREF_TAG_MIN_ITEMS = 3;
 /** 源新鲜度阈值（天）：最新条目早于该值的源判定为「冻结源」，整源排除（宁缺勿滥） */
 const STALE_SOURCE_DAYS = 7;
+/** 未来时间护栏（毫秒）：源站时钟超前或「定时发布」会让时间戳落到未来，
+ *  用户侧看到的时间是错的。按 now 计、不丢条目 —— 与 .tools/fetch-data.js、
+ *  .tools/static-server.js 同口径（2026-10-29 审计）。 */
+const FUTURE_SKEW_MS = 5 * 60 * 1000;
 /** 连接级瞬时失败（socket hang up / ECONNRESET 等）的重试次数（仅此类失败重试，timeout/HTTP 不重试） */
 const FETCH_RETRY_ON_CONN_ERROR = 1;
 /** 连接级重试前的退避基数（毫秒，第 n 次重试退避 n×该值） */
@@ -339,7 +343,9 @@ function parseFeed(xml, sourceName, tag) {
       if (m) summary = summary.slice(m[0].length).trim();
     }
     const dateStr = pickTag(b, 'pubDate') || pickTag(b, 'updated') || pickTag(b, 'published');
-    const ts = dateStr ? new Date(dateStr).getTime() : 0;
+    let ts = dateStr ? new Date(dateStr).getTime() : 0;
+    // 未来时间护栏：落在未来的时间戳按 now 计（不丢条目）—— 与 fetch-data / static-server 同口径
+    if (ts > Date.now() + FUTURE_SKEW_MS) ts = Date.now();
     // content = 源自己在 feed 里发布的描述（上限 1000 码点），供站内文章视图；**不是**抓取的正文页。
     // 合规口径「不转载正文」不变：不另行抓原文，只展示源选择 syndicate 的内容 + 强制来源标注 + 原文链接。
     return {
@@ -1349,22 +1355,14 @@ function clampByCodePoint(s, max) {
  *  2026-10-22 真实数据复验追加实测：硬截有 2/3 落在句中（"…最近B站"、"…另一拨在"），
  *  读者拿到的是半截话。改为在 max-1 范围内**优先落到句末（。！？…）、其次句读
  *  （，、；：等）**，让读者拿到完整句子；截点太靠前（不足 limit/2、内容损失过多）
- *  或整段没有句读时才退回硬截。 */
-function clampSummary(s, max) {
-  const chars = Array.from(String(s == null ? '' : s));
-  if (chars.length <= max) return chars.join('');
-  const limit = Math.max(0, max - 1); // 给 '…' 留 1 码点
-  const head = chars.slice(0, limit);
-  const minCut = Math.floor(limit / 2); // 截点不足一半内容时不如不截
-  const lastStop = (set) => {
-    for (let i = head.length - 1; i >= minCut; i--) if (set.includes(head[i])) return i;
-    return -1;
-  };
-  let cut = lastStop('。！？!?…');
-  if (cut < 0) cut = lastStop('，、；：,;:');
-  const body = cut >= 0 ? chars.slice(0, cut + 1).join('') : head.join('');
-  return body.endsWith('…') ? body : body + '…';
-}
+ *  或整段没有句读时才退回硬截。
+ *
+ *  2026-10-29 审计：实现已抽到 ./text-clamp.js（**唯一事实源**）——
+ *  H5 线上数据（.tools/fetch-data.js）与本地预览（.tools/static-server.js）此前仍是
+ *  硬截/裸 slice，实测线上 414 条里 274 条（66.2%）摘要恰好 80 字、半句话直接暴露给用户。
+ *  这里是本仓库第三次出现「同一件事两份口径」（2026-09-24 源清单、2026-10-22 clampSummary）。
+ *  保留 clampSummary 这个名字是为了不动 __internals 的对外形状。 */
+const { clampText: clampSummary } = require('./text-clamp.js');
 
 /** 条目时间 → 契约可用的 ISO 串；缺失/不可解析返回 undefined。
  *

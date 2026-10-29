@@ -20,6 +20,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import esbuild from 'esbuild';
+import { createRequire } from 'node:module';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -491,6 +492,7 @@ ok('Q3b BriefingIntel.intelItems 契约含可选 createTime',
 /** 用 vm + Proxy 桩加载 webSearch 云函数（无 wx-server-sdk 也能跑），取 __internals */
 function loadWebSearchExports() {
   const file = path.join(ROOT, 'cloudfunctions/webSearch/index.js');
+  const nodeRequire = createRequire(import.meta.url);
   const makeStub = () => {
     const target = function stub() {};
     const handler = {
@@ -509,7 +511,19 @@ function loadWebSearchExports() {
   const sandbox = {
     module: { exports: {} },
     exports: null,
-    require: () => makeStub(),
+    // ⚠️ 桩要按「会不会影响被测行为」分，不能一律打桩（2026-10-29 修复）：
+    //   相对路径指向的是**本仓的纯 JS 模块**（news-trust / cross-source / text-clamp，
+    //   都无外部依赖），一律打桩会让它们变成 Proxy —— 例如 clampSummary 返回 Proxy，
+    //   fallbackIntel 产出的 text 就不再是字符串，于是
+    //   「Q6b 1h 内的同内容条目仍触发」这条**端到端**断言变红。
+    //   教训同源：桩替身会让门禁自己变成假红/假绿的来源，改判据时得先问「桩替的是谁」。
+    require: (id) => {
+      if (typeof id === 'string' && (id.startsWith('./') || id.startsWith('../'))) {
+        const p = path.resolve(path.dirname(file), id);
+        if (fs.existsSync(p)) return nodeRequire(p);
+      }
+      return makeStub();
+    },
     console: { log: () => {}, warn: () => {}, error: () => {} },
     process: { env: {} },
     Buffer,

@@ -36,13 +36,29 @@ for (const k of ['log', 'warn', 'error', 'info']) console[k] = () => {};
 
 let pass = 0;
 let fail = 0;
-function ok(name, cond) {
+const failures = [];
+/**
+ * 断言。`id` 是稳定标识（用来登记已知缺口），`name` 是人读描述。
+ *
+ * ★ 2026-10-29：从「审计脚本」升级成「棘轮门禁」。
+ *   原来这个脚本叫 `audit:identity`、exit=1，但**CI 里根本看不到它** ——
+ *   `verify:parity` 只枚举 `verify:*` 前缀（verify-all.mjs 的 checkCiParity），
+ *   `audit:` 命名空间整个是盲区。于是它红了一个月，CI 一直绿。
+ *   ⇒ 改名 `verify:identity` 接进 CI。但两条失败是**真实存在且短期修不掉**的
+ *     （redeemCodes 的 usedBy 需要 pull 语义而不能 remove；H5 与 weapp 共用 feedback 表），
+ *     直接接进 CI 会让流水线长期红着、最后被人忽略。
+ *   所以用**棘轮**：已知缺口登记在 KNOWN_GAPS，出现**新**缺口才红；
+ *   已知缺口被修好但没从 KNOWN_GAPS 删除也红（防止登记表腐烂）。
+ */
+function ok(id, name, cond) {
+  if (typeof id !== 'string' || !id) throw new Error('断言必须给一个稳定 id');
   if (typeof cond !== 'boolean') throw new Error(`断言「${name}」的 cond 不是 boolean：${typeof cond}`);
   if (cond) {
     pass++;
     out(`  ✓ ${name}`);
   } else {
     fail++;
+    failures.push(id);
     out(`  ✗ ${name}`);
   }
   return cond;
@@ -103,9 +119,12 @@ const rpcAllow = [...allowRaw.matchAll(/'([^']+)'/g)].map((m) => m[1]);
 
 // H5 真实写入面（cloudDb.ts 是唯一写云 DB 的地方）
 const dbSrc = read('src/services/cloudDb.ts');
+// 表（db.from）与 RPC（db.rpc）分开统计：RPC 名不是表，算进「写入面」会把
+// kv_set_many / log_client_error 这种方法名误当成集合。
+const h5DbTables = [...new Set([...dbSrc.matchAll(/db\.from\('([a-z_]+)'\)/g)].map((m) => m[1]))];
 const h5Tables = [
   ...new Set([
-    ...[...dbSrc.matchAll(/db\.from\('([a-z_]+)'\)/g)].map((m) => m[1]),
+    ...h5DbTables,
     ...[...dbSrc.matchAll(/db\.rpc<[^>]*>\('([a-z_]+)'/g)].map((m) => m[1])
   ])
 ];
@@ -227,23 +246,68 @@ out(`H5 真实写入面: ${h5OwnTables.join(', ')}；kvClear 只调 ${clearRpc}�
 out('');
 out('── 断言 ──');
 
-ok('I1 注销清单非空（解析没失效）', deleteCollections.length >= 10);
-ok(`I1 注销清单覆盖了所有非豁免集合（漏: ${leakedForWeapp.join(',') || '无'}）`, leakedForWeapp.length === 0);
-ok('I2 H5 放行白名单只有 webSearch/chat/extract（身份分歧的结构性根因）',
+/**
+ * 已知缺口登记表（棘轮的另一半）。
+ *
+ * 规则：**登记在这里的失败不阻断**，但出现未登记的新失败 → 红；
+ * 登记的缺口被修好却没从这张表删掉 → 也红（防止表腐烂成"永远豁免"）。
+ *
+ * ⚠️ 登记不等于放过。每条都必须写清「为什么现在修不了 / 谁来修 / 修好的样子」。
+ *    这张表的长度只应该变短。
+ */
+const KNOWN_GAPS = new Map([
+  [
+    'I1b',
+    'redeemCodes 的 usedBy 是**数组内成员**，不是每用户一条文档。' +
+      '直接塞进 deleteAccount 的 collections 会走 where({openid}).remove() —— 那会删掉整个码池文档' +
+      '（运营活动的码全废），而实际上一条也匹配不到（文档里没有 openid 字段），' +
+      '于是删除数为 0、界面还报"已删除"。正确做法是 update({ usedBy: _.pull(OPENID) })，' +
+      '需要给 deleteAccount 加一条"非文档删除"的分支，且云函数当前无法部署验证（主体未注册）。'
+  ],
+  [
+    'I3a',
+    'H5 与 weapp 共用 feedback 表：云函数按 openid 写，H5 侧按 owner_id 写。' +
+      '同一张表两套身份 → weapp 注销按 openid 删不到 H5 写的那批。' +
+      '修法是数据模型决策（H5 的反馈另起一张表，或两端统一 owner_id），不是客户端能改的。'
+  ],
+  [
+    'I3b',
+    'H5 的「注销」只调 kv_clear（清 user_kv），而 H5 还会直接写 llm_events / feedback / ' +
+      'client_errors 三张表 ⇒ 这三张表在 H5 注销后原样留在云端（2026-10-29 审计实测）。' +
+      '修法：新增一个按 auth.uid() 删除的云函数（llm_events / feedback 的行都有 ' +
+      'owner_id = auth.uid()，技术上可按 owner 删），并把 H5 的注销调用切过去；' +
+      '但云函数当前无法部署验证（主体未注册），写上去只是「看起来查了」，属于假覆盖 —— ' +
+      '所以先登记为已知缺口，等有部署凭据再做。'
+  ]
+]);
+
+ok('I1a', 'I1 注销清单非空（解析没失效）', deleteCollections.length >= 10);
+ok('I1b', `I1 注销清单覆盖了所有非豁免集合（漏: ${leakedForWeapp.join(',') || '无'}）`, leakedForWeapp.length === 0);
+ok('I2a', 'I2 H5 放行白名单只有 webSearch/chat/extract（身份分歧的结构性根因）',
   rpcAllow.length === 3 && ['webSearch', 'chat', 'extract'].every((x) => rpcAllow.includes(x)));
-ok('I2 deleteAccount / getUsage / login / queryOrder / createOrder / pay-callback 都不在 H5 白名单',
+ok('I2b', 'I2 deleteAccount / getUsage / login / queryOrder / createOrder / pay-callback 都不在 H5 白名单',
   ['deleteAccount', 'getUsage', 'login', 'queryOrder', 'createOrder', 'pay-callback'].every((x) => !rpcAllow.includes(x)));
-ok('I3 H5 的云端写入面完全不含任何 openid 集合（两端数据在物理上不同的表）',
+ok('I3a', 'I3 H5 的云端写入面完全不含任何 openid 集合（两端数据在物理上不同的表）',
   h5OwnTables.every((t) => !rows.some((r) => r.collection === t)));
-ok('I3 kvClear 只调用 kv_clear（名字即范围：清 KV，不清 llm_events）', clearRpc === 'kv_clear');
-ok('I3 H5 写了 llm_events，而 kvClear 不会清它 → H5 注销本身就有残留',
-  h5OwnTables.includes('llm_events'));
+// ★ 2026-10-29 修正**断言极性**（审计复检发现）：
+//   原来 I3b/I3c 写成「描述现状」——`clearRpc === 'kv_clear'` 与
+//   `h5OwnTables.includes('llm_events')` 都是**缺陷存在时才为真**。
+//   后果：谁把缺陷**修好**（H5 不再写 llm_events，或 kvClear 换成能清它的 RPC），
+//   这两条反而翻红、且不在 KNOWN_GAPS 里 → 棘轮会把「正确的修复」判成「新缺口」并阻断。
+//   这就是「判据不能把现状当事实」的另一个面：**断言要写「缺陷不存在」，不是「缺陷还在」**。
+//   现在改成：H5 注销后**不留任何云端残留**才算通过（今天不通过 → 登记成已知缺口 I3b）。
+const h5ResidueTables = h5DbTables.filter((t) => t !== 'user_kv' && t !== 'kv_clear');
+out(`H5 注销后残留面（kvClear 只清 user_kv ⇒ 这些表不会被清）: ${h5ResidueTables.join(' / ') || '无'}`);
+ok('I3b', `I3 H5 注销不留云端残留（当前残留: ${h5ResidueTables.join('/') || '无'}）`,
+  h5ResidueTables.length === 0);
+ok('I3c', 'I3 H5 写了 llm_events，而 kvClear 不会清它 → H5 注销本身就有残留（现状记录，不是判据）',
+  h5OwnTables.includes('llm_events') || h5ResidueTables.length === 0);
 
 const del = await runDel();
-ok('D1 有 OPENID 时注销能跑完（harness 前提）', del.ok === true);
+ok('D1', 'D1 有 OPENID 时注销能跑完（harness 前提）', del.ok === true);
 const after = await delCloud.database().collection('user_kv').where({}).get();
 const kvOwn = (after.data || []).filter((d) => d._id === 'kv-own').length;
-ok('D2 注销**不碰** user_kv（同一自然人若用过小程序+网页，weapp 注销会漏掉网页那份）', kvOwn === 1);
+ok('D2', 'D2 注销**不碰** user_kv（同一自然人若用过小程序+网页，weapp 注销会漏掉网页那份）', kvOwn === 1);
 
 // 无 OPENID：H5 形态
 const { main: delNoId } = boot('deleteAccount', { OPENID: '', APPID: 'wx-mock', UNIONID: '', ENV: 'mock' }, seed);
@@ -254,7 +318,7 @@ try {
 } catch {
   noIdRejected = true;
 }
-ok('D3 没有 OPENID 时注销被显式拒绝（H5 拿不到 OPENID ⇒ 即使想删也删不动）', noIdRejected === true);
+ok('D3', 'D3 没有 OPENID 时注销被显式拒绝（H5 拿不到 OPENID ⇒ 即使想删也删不动）', noIdRejected === true);
 
 const { main: usageNoId } = boot('getUsage', { OPENID: '', APPID: 'wx-mock', UNIONID: '', ENV: 'mock' }, { users: [], usage: [] });
 let usageRejected = false;
@@ -264,7 +328,7 @@ try {
 } catch {
   usageRejected = true;
 }
-ok('D4 没有 OPENID 时 getUsage 被显式拒绝（H5 拿不到服务端额度）', usageRejected === true);
+ok('D4', 'D4 没有 OPENID 时 getUsage 被显式拒绝（H5 拿不到服务端额度）', usageRejected === true);
 
 /* ------------------------------------------------------------------ */
 /* 5. 落盘                                                              */
@@ -298,5 +362,43 @@ fs.writeFileSync(
 );
 
 out('');
-out(`PASS ${pass} / FAIL ${fail} → .tmp-verify/identity-matrix.md`);
-process.exit(fail > 0 ? 1 : 0);
+/* ------------------------------------------------------------------ */
+/* 6. 棘轮判定                                                          */
+/* ------------------------------------------------------------------ */
+const unexpected = failures.filter((id) => !KNOWN_GAPS.has(id));
+const fixedButListed = [...KNOWN_GAPS.keys()].filter((id) => !failures.includes(id));
+
+out('── 棘轮 ──');
+if (failures.length === 0) {
+  out('  ✓ 没有未通过的断言');
+} else {
+  // ⚠️ 这里**不能**写「失败 N 条」：verify:all 的 parseCounts 用
+  //    /(?:FAIL|失败)\s*[:：]?\s*(\d+)\b/ 抓失败数，会把「已知缺口 N 条」当成
+  //    N 条真失败 ⇒ 本脚本退出 0 也会被 verify:all 判成 ✗（假红）。
+  //    同一个坑的另一个面：**判据的输出格式也是契约的一部分**。
+  out(`  未通过的断言 ${failures.length} 条：${failures.join(', ')}`);
+  for (const id of failures) {
+    if (KNOWN_GAPS.has(id)) out(`    · ${id} = 已知缺口（不阻断）`);
+    else out(`    · ${id} = **新缺口**（阻断）`);
+  }
+}
+if (fixedButListed.length) {
+  out(`  ✗ 这些缺口已经修好了，请从 KNOWN_GAPS 删除登记：${fixedButListed.join(', ')}`);
+}
+
+out('');
+const blocking = unexpected.length + fixedButListed.length;
+if (blocking === 0) {
+  // 末行用 parseCounts 认得的格式（PASS n / FAIL m），m 只数**阻断项**（新缺口 + 过期登记），
+  // 已知缺口不计入 —— 否则棘轮会在「有登记缺口」时永远被 verify:all 判红。
+  out(
+    `PASS ${pass} / FAIL 0（断言 ${pass}/${pass + fail}` +
+      `${fail ? `，已知缺口 ${fail} 条已登记` : ''}）→ .tmp-verify/identity-matrix.md`
+  );
+  process.exit(0);
+}
+if (unexpected.length) out(`阻塞：出现 ${unexpected.length} 个未登记的新缺口`);
+if (fixedButListed.length) out(`阻塞：${fixedButListed.length} 条登记已过期`);
+out(`FAIL ${blocking}（断言 ${pass}/${pass + fail}）`);
+process.exit(1);
+

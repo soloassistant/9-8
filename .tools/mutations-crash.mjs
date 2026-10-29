@@ -39,5 +39,15 @@ export default [
     from: "    if ('message' in obj) {",
     to: '    if (message) {',
     cmd: 'node .tools/verify-crash-report.js'
+  },
+  {
+    // 2026-10-29 新增：关键路径留痕的**窄规则**。
+    // 生产构建的 babel 插件 stripConsoleExceptError 只保留 console.error ——
+    // 源码里写 console.warn 的「留痕」在**线上产物里根本不存在**（实测线上包查不到该字符串）。
+    label: '关键路径留痕退回 console.warn（线上产物里这条日志不存在）',
+    file: 'src/app.tsx',
+    from: "console.error('[App] rehydrate stores after cloud pull failed:', err);",
+    to: "console.warn('[App] rehydrate stores after cloud pull failed:', err);",
+    cmd: 'node .tools/verify-crash-report.js'
   }
 ];

@@ -26,6 +26,12 @@ const path = require('path');
 
 const SERVER_JS = path.join(__dirname, 'static-server.js');
 const src = fs.readFileSync(SERVER_JS, 'utf8');
+// 截断实现已抽到共享模块（2026-10-29）：static-server.js 的 parseRss 调用 clampText，
+// 而本文件是**抽取源码 eval**（不 require 生产文件）⇒ 必须把同一份实现也放进 eval 作用域，
+// 否则 eval 出来的 parseRss 一调用 clampText 就是 ReferenceError。
+// 这里直接把**共享模块本体** require 进 eval（不是抄一份、也不是抽片段）：
+// 口径仍是唯一事实源，且模块级常量（STRONG / ABBREV …）自动跟着走。
+const CLAMP_REL = '../cloudfunctions/webSearch/text-clamp.js';
 
 // ---------- 从生产文件抽取代码（按函数名做括号配平，抗行号漂移） ----------
 function extractFn(name) {
@@ -51,6 +57,7 @@ function extractConst(name) {
 // eval 出的正是生产代码本体。ESLint 会报 no-eval —— 这里是有意为之：
 // 唯一目的是消除「尽调用代码」与「生产代码」之间的发散，eval 是达成该目的最直接的手段。
 const PROD_SRC = [
+  'const { clampText } = require("' + CLAMP_REL + '");',
   'const FETCH_TIMEOUT = ' + extractConst('FETCH_TIMEOUT') + ';',
   'const STALE_ITEM_DAYS = ' + extractConst('STALE_ITEM_DAYS') + ';',
   'const RSS_PER_SOURCE = ' + extractConst('RSS_PER_SOURCE') + ';',
@@ -58,9 +65,11 @@ const PROD_SRC = [
   extractFn('clean'),
   extractFn('parseRss'),
   extractFn('fetchText'),
-  'return { fetchText, parseRss, clean, hash, FETCH_TIMEOUT, STALE_ITEM_DAYS, RSS_PER_SOURCE };'
+  'return { fetchText, parseRss, clean, hash, clampText, FETCH_TIMEOUT, STALE_ITEM_DAYS, RSS_PER_SOURCE };'
 ].join('\n');
-const P = new Function(PROD_SRC)(); // eslint-disable-line no-new-func
+// ⚠️ require 必须**显式传进去**：`new Function` 建的函数体不在本模块作用域里，
+// 直接写 require 会 ReferenceError（Function 构造器只给全局作用域）。
+const P = new Function('require', PROD_SRC)(require); // eslint-disable-line no-new-func
 
 console.log('[vet] 已从生产文件抽取：fetchText / parseRss / clean / hash；'
   + 'TIMEOUT=' + P.FETCH_TIMEOUT + 'ms  STALE_ITEM_DAYS=' + P.STALE_ITEM_DAYS + 'd  PER_SOURCE=' + P.RSS_PER_SOURCE);

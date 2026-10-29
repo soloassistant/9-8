@@ -8,6 +8,9 @@ const { filterNewsItems } = require('../cloudfunctions/webSearch/news-trust.js')
 // 机构归一口径：alsoFrom 只记机构 —— 中新网三个子 feed 互抄不是三家媒体佐证
 // （2026-10-22 校准：预配额 181 条同题 5 组，跨机构 0 组，全是中新网自抄）
 const { orgOfSource, ALSO_FROM_MAX } = require('../cloudfunctions/webSearch/cross-source.js');
+// 截断口径与云函数**同一份**（句边界优先）：本文件此前是裸 slice(0, 80)，
+// 既会切坏代理对、也没有省略号，还把摘要腰斩在半句（2026-10-29 审计）。
+const { clampText } = require('../cloudfunctions/webSearch/text-clamp.js');
 
 // 用法：node static-server.js [rootDir]
 //   rootDir 可为相对项目根（如 .tools/preview-snapshot）或绝对路径；缺省服务 dist
@@ -155,7 +158,7 @@ function parseRss(xml, source, limit, tag) {
     out.push({
       id: 'rss_' + hash(source + title),
       title,
-      summary: (desc || title).slice(0, 80),
+      summary: clampText(desc || title, 80),
       source,
       url: link,
       tags: tag ? [tag] : [],
@@ -282,6 +285,8 @@ function hotBoard(route, label, limit, tag) {
 /** 条目新鲜度闸门（天）：与云函数 webSearch/index.js 的 STALE_SOURCE_DAYS 对齐（同为 7 天）。
  *  仅作用于 RSS 源 —— 热榜源与知乎日报 API 本身不带时间戳，既不伪造日期也不参与过滤。 */
 const STALE_ITEM_DAYS = 7;
+/** 未来时间护栏（毫秒）：与 fetch-data.js 同口径 —— 落在未来的时间戳按 now 计，不丢条目。 */
+const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 /** RSS 源的**唯一事实来源 = 生产云函数 cloudfunctions/webSearch/index.js 的 RSS_SOURCES**。
  *
@@ -545,7 +550,7 @@ async function fetchHotspot() {
   const groups = [];
   const srcStatus = [];
   const staleMaxAge = STALE_ITEM_DAYS * 24 * 60 * 60 * 1000;
-  const dropped = { undated: 0, stale: 0 };
+  const dropped = { undated: 0, stale: 0, futureSkew: 0 };
   await Promise.all(
     HOTSPOT_SOURCES.filter((s) => canFetch(s.name)).map(async (s) => {
       let ok = false;
@@ -561,6 +566,8 @@ async function fetchHotspot() {
             if (!('pubDate' in it)) { fresh.push(it); continue; } // 非 RSS 源：原样放行
             if (it.pubDate == null) { dropped.undated += 1; continue; } // 无日期：无法判定新鲜度，丢弃
             if (now - it.pubDate > staleMaxAge) { dropped.stale += 1; continue; } // 陈旧：丢弃
+            // 未来时间护栏：落在未来的时间戳按 now 计（不丢条目）—— 与 fetch-data 同口径
+            if (it.pubDate > now + FUTURE_SKEW_MS) { it.pubDate = now; dropped.futureSkew += 1; }
             fresh.push(it);
           }
           // 全源条目都被闸门丢弃 → 视同该源不健康（与云函数「整源排除」口径一致）。

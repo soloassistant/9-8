@@ -178,6 +178,59 @@ const { clampSummary } = ws.__internals;
   ok('C4 fetch-data.js 已无 (desc || title).slice(0, 80)', !/\(desc\s*\|\|\s*title\)\.slice\(0,\s*80\)/.test(fsSrc));
 }
 
+/* ============ C2. 截断口径唯一事实源 + 未来时间护栏（2026-10-29 审计） ============ */
+
+// 背景：同一件事（截断摘要）曾有三套口径 —— 云函数 2026-10-22 已改成句边界截断，
+// 而 H5 线上数据（.tools/fetch-data.js）只做硬切、本地预览（.tools/static-server.js）
+// 更是裸 slice(0,80)。实测线上 414 条里 **274 条（66.2%）摘要恰好 80 字 = 半句话**，
+// 机器截断痕迹直接暴露给用户。这是本仓库第三次「同一件事两份口径」。
+console.log('\n--- C2. 截断口径唯一事实源 / 句边界 / 未来时间护栏 ---');
+{
+  const fsFetch = fs.readFileSync(path.join(ROOT, '.tools/fetch-data.js'), 'utf8');
+  const fsServer = fs.readFileSync(path.join(ROOT, '.tools/static-server.js'), 'utf8');
+  const fsFn = fs.readFileSync(path.join(ROOT, 'cloudfunctions/webSearch/index.js'), 'utf8');
+  const CLAMP_REQUIRE = /require\(['"]\.\.\/cloudfunctions\/webSearch\/text-clamp\.js['"]\)/;
+
+  // ① 三条链路都指向**同一个**共享模块
+  ok('C2 三条链路都 require 共享的 text-clamp.js', CLAMP_REQUIRE.test(fsFetch) && CLAMP_REQUIRE.test(fsServer) && /require\(['"]\.\/text-clamp\.js['"]\)/.test(fsFn));
+  // ② 谁都不许再留自己那份副本（有副本 = 迟早发散）
+  ok('C2 fetch-data.js 不再自带 clampText 副本', !/function clampText\(/.test(fsFetch));
+  ok('C2 static-server.js 不再自带 clampText 副本', !/function clampText\(/.test(fsServer));
+  ok('C2 云函数不再自带 clampSummary 副本', !/function clampSummary\(/.test(fsFn));
+  // ③ 旧的裸 slice 口径不许复活
+  ok('C2 static-server.js 不再用裸 slice(0,80) 当摘要', !/\(desc\s*\|\|\s*title\)\.slice\(0,\s*80\)/.test(fsServer));
+  ok('C2 fetch-data.js 的摘要走 clampText', /summary: clampText\(desc \|\| title, 80\)/.test(fsFetch));
+  ok('C2 static-server.js 的摘要走 clampText', /summary: clampText\(desc \|\| title, 80\)/.test(fsServer));
+
+  // ④ 行为：句边界优先（不是半句），且没有句读时仍给省略号
+  const { clampText } = require(path.join(ROOT, 'cloudfunctions/webSearch/text-clamp.js'));
+  const zh = '这是一段需要足够长才能让第一处句号落进可截断区间的引子文字，它必须比半截更长才成立，后面再补很多内容。' + '后续补充'.repeat(20);
+  const outZh = clampText(zh, 80);
+  ok('C2 中文摘要在句边界收尾（提前收住，不是硬切）', /[。！？…]$/.test(outZh) && Array.from(outZh).length < 80);
+  const en = 'A'.repeat(60) + '. ' + 'B'.repeat(60);
+  const outEn = clampText(en, 80);
+  ok('C2 英文摘要在句号处收尾（英文句号也算句末）', /[.]…$/.test(outEn) && Array.from(outEn).length < 80);
+  const outNoStop = clampText('内'.repeat(200), 80);
+  ok('C2 没有句读时退回硬切但仍补省略号', Array.from(outNoStop).length === 80 && outNoStop.endsWith('…'));
+  ok('C2 短文本原样返回（不误加省略号）', clampText('短摘要', 80) === '短摘要');
+  ok('C2 截断不切坏代理对', !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(clampText('\u{1F600}'.repeat(200), 80)));
+
+  // ⑤ 未来时间护栏：源站时钟超前 / 定时发布 ⇒ 时间戳落到未来 ⇒ 用户看到错的时间。
+  //    处置口径：**按 now 计，不丢条目**（丢条目是更重的代价）。
+  const FUTURE = 'FUTURE_SKEW_MS';
+  ok('C2 云函数有未来时间护栏', fsFn.includes(FUTURE) && /if \(ts > Date\.now\(\) \+ FUTURE_SKEW_MS\) ts = Date\.now\(\);/.test(fsFn));
+  ok('C2 fetch-data.js 有未来时间护栏', fsFetch.includes(FUTURE) && /if \(it\.pubDate > now \+ FUTURE_SKEW_MS\)/.test(fsFetch));
+  ok('C2 static-server.js 有未来时间护栏', fsServer.includes(FUTURE) && /if \(it\.pubDate > now \+ FUTURE_SKEW_MS\)/.test(fsServer));
+  // 行为断言：喂一条未来的 pubDate，出来的 ts 不得晚于 now + 5 分钟
+  {
+    const future = new Date(Date.now() + 3600 * 1000).toUTCString();
+    const xml = `<rss><channel><item><title>未来时间的条目</title><link>https://example.com/a</link><description>测试</description><pubDate>${future}</pubDate></item></channel></rss>`;
+    const parsed = ws.__internals.parseFeed(xml, '测试源', '科技');
+    const ts = parsed && parsed[0] ? parsed[0].ts : NaN;
+    ok('C2 未来 pubDate 被按 now 计（不是原样透传）', Number.isFinite(ts) && ts <= Date.now() + 5 * 60 * 1000);
+  }
+}
+
 /* ============ D. deleteAccount 覆盖面 ============ */
 
 console.log('\n--- D. deleteAccount 集合清单---');

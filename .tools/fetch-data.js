@@ -7,6 +7,10 @@ const path = require('path');
 const { fetchAllBoards } = require('./boards-core.js');
 // 与云函数共用同一份信任过滤规则（小程序端 / 线上 H5 站点两条链路不能各判各的）
 const { filterNewsItems } = require('../cloudfunctions/webSearch/news-trust.js');
+// 截断口径与云函数**同一份**（句边界优先）—— 2026-10-29 审计：
+//   本文件此前只按码点硬切，实测线上 414 条里 274 条（66.2%）摘要恰好 80 字、半句话暴露给用户；
+//   云函数那边 2026-10-22 就修好了，本链路一直没跟上（同一件事两份口径的第三次发作）。
+const { clampText } = require('../cloudfunctions/webSearch/text-clamp.js');
 // 机构归一口径：alsoFrom 只记机构 —— 中新网三个子 feed 互抄不是三家媒体佐证
 // （2026-10-22 校准：预配额 181 条同题 5 组，跨机构 0 组，全是中新网自抄）
 const { orgOfSource, ALSO_FROM_MAX } = require('../cloudfunctions/webSearch/cross-source.js');
@@ -97,19 +101,6 @@ function cleanUrl(u) {
   return kept.length ? base + '?' + kept.join('&') : base;
 }
 
-/** 按 Unicode 码点截断并补省略号。
- *
- *  为什么不用 `slice()`（2026-10-12 内容质量审计）：
- *   ① `slice` 按 UTF-16 码元切，会把 emoji / 生僻字的代理对切成两半 → 落库即 U+FFFD 乱码；
- *   ② 硬切后正文戛然而止，读者分不清「摘要本来就短」还是「被截断了」——
- *      实测线上 198 条里 77 条摘要长度恰好等于上限，一条省略号都没有。
- *  省略号本身占 1 个码点，故在 max-1 处截，保证输出长度不超过 max。 */
-function clampText(s, max) {
-  const chars = Array.from(String(s == null ? '' : s));
-  if (chars.length <= max) return chars.join('');
-  return chars.slice(0, Math.max(0, max - 1)).join('') + '…';
-}
-
 /** 极简 RSS 解析（无依赖）。tag / pubDate 口径与 static-server.js 的 parseRss 完全一致：
  *  · tag 落到条目 tags —— 前端「资讯类目筛选」依赖它；本文件此前恒为 []，线上站点因此没有类目
  *  · pubDate 只供新鲜度闸门使用，**不进响应契约**（HotspotNews 无该字段） */
@@ -154,6 +145,10 @@ const CLOUD_WEBSEARCH = path.join(__dirname, '..', 'cloudfunctions', 'webSearch'
 const RSS_PER_SOURCE = 10;
 /** 条目新鲜度闸门（天）：与云函数 STALE_SOURCE_DAYS、static-server STALE_ITEM_DAYS 对齐 */
 const STALE_ITEM_DAYS = 7;
+/** 未来时间护栏（毫秒）：源站时钟超前或「定时发布」会让 pubDate 落到未来，
+ *  落进 createTime 后用户看到的时间是错的（实测线上 1 条：InfoQ 的时间戳比现在晚 1.5 小时）。
+ *  处置：**按 now 计**，不丢条目 —— 丢条目是更重的代价，而「不晚于现在」是保守且诚实的说法。 */
+const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 /** 连接级瞬时失败的重试次数与退避 —— 与 static-server.js 的 CONN_RETRY_TIMES / CONN_BACKOFF_MS 同口径。
  *  为什么线上抓取也需要它（2026-09-29 复检实测）：整夜 20 次刷新的历史里，
@@ -225,7 +220,7 @@ async function fetchHotspot() {
   const srcStatus = [];
   const now = Date.now();
   const staleMaxAge = STALE_ITEM_DAYS * 24 * 60 * 60 * 1000;
-  const dropped = { undated: 0, stale: 0 };
+  const dropped = { undated: 0, stale: 0, futureSkew: 0 };
 
   await Promise.all(
     HOTSPOT_SOURCES.map(async (s) => {
@@ -243,6 +238,8 @@ async function fetchHotspot() {
             if (!('pubDate' in it)) { fresh.push(it); continue; }
             if (it.pubDate == null) { dropped.undated += 1; continue; }
             if (now - it.pubDate > staleMaxAge) { dropped.stale += 1; continue; }
+            // 未来时间护栏：落在未来的时间戳按 now 计（不丢条目）
+            if (it.pubDate > now + FUTURE_SKEW_MS) { it.pubDate = now; dropped.futureSkew += 1; }
             fresh.push(it);
           }
           // 整源条目都被闸门丢掉 → 视同不健康（与云函数「整源排除」口径一致）；内容陈旧不是瞬时故障，不重试

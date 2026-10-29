@@ -47,7 +47,8 @@ const BROWSER = new Map([
 // （verify-interaction-fixes 已于 2026-10-25 配齐 mutations-interaction.mjs，从缺口表移出）
 const DEBT_CAP = 14;
 const DEBT = new Map([
-  ['verify-prelaunch-fixes.js', '上线前清单，43 条静态断言，一条变异都没有'],
+  // 2026-10-29：verify-prelaunch-fixes.js 已配 mutations-prelaunch.mjs（4 条），
+  //   从这里移出（豁免表里「已被覆盖却还留着」本身就是腐烂，见 C 组断言）。
   ['verify-trust-wiring.js', '22 条静态断言'],
   ['verify-todo-status.js', '19 条静态断言'],
   ['verify-auth-wiring.js', '静态接线断言'],

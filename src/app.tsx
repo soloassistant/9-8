@@ -90,7 +90,10 @@ function rehydrateStoresAfterCloudPull(): void {
     const scale = Taro.getStorageSync(UI_SCALE_KEY);
     if (typeof scale === 'string' && scale) useUiScaleStore.getState().setScale(scale);
   } catch (err) {
-    console.warn('[App] rehydrate stores after cloud pull failed:', err);
+    // 用 console.error：生产构建只保留 console.error（stripConsoleExceptError），
+    // 这里失败 = 云端拉回的用户设置没落到 store（跨设备改过的语言/主题/字号首刷不生效），
+    // 属于需要人工介入的数据路径故障，不能只 warn —— warn 在线上产物里根本不存在。
+    console.error('[App] rehydrate stores after cloud pull failed:', err);
   }
 }
 

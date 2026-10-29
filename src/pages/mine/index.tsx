@@ -932,7 +932,15 @@ function MinePage() {
       } catch (err) {
         console.error('[MinePage] clear storage failed:', err);
       }
-      Taro.showToast({ title: t('mine.deleteDone'), icon: 'none' });
+      Taro.showToast({
+        // ⚠️ 文案必须说真话（2026-10-29 审计）：weapp 的 deleteAccount 是**当场删**，
+        //    H5 只清了 user_kv（llm_events / feedback / client_errors 仍在云端）。
+        //    之前两端共用「注销申请已提交，我们将在 15 个工作日内完成处理」——
+        //    而系统里**没有任何受理队列**（全仓没有 deletion_requests 之类的集合），
+        //    这句话两头都不准：weapp 是早就删完了，H5 是压根没提交过。
+        title: t(process.env.TARO_ENV === 'h5' ? 'mine.deleteDoneH5' : 'mine.deleteDone'),
+        icon: 'none'
+      });
       setTimeout(() => Taro.reLaunch({ url: '/pages/briefing/index' }), 1200);
     };
     // C-04 注销分端语义（2026-10-08 修正 H5 死路，2026-10-15 修正数据保留）：
@@ -952,7 +960,11 @@ function MinePage() {
       kvClear()
         .then((n) => {
           if (n === null) {
-            console.warn('[MinePage] kvClear returned null — 云端同步键可能未清除，需人工核查');
+            // ⚠️ 必须是 console.error：生产构建的 babel 插件 stripConsoleExceptError
+            //    只保留 console.error，console.log/info/warn 的调用点会被整条改写成
+            //    void 0 —— 之前这里用 console.warn，源码注释承诺的「必须留痕」在生产
+            //    产物里根本不存在（线上 app.*.js 查不到这段字符串）。
+            console.error('[MinePage] kvClear returned null — 云端同步键可能未清除，需人工核查');
           } else {
             console.info('[MinePage] cloud user_kv cleared, rows =', n);
           }
@@ -1941,7 +1953,7 @@ function MinePage() {
       <PromptModal
         visible={deleteOpen}
         title={t('mine.deleteTitle')}
-        description={t('mine.deleteWarn')}
+        description={t(process.env.TARO_ENV === 'h5' ? 'mine.deleteWarnH5' : 'mine.deleteWarn')}
         placeholder={t('mine.deleteInputHint')}
         initialValue=''
         confirmText={t('mine.deleteSubmit')}

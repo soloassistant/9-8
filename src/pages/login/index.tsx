@@ -69,7 +69,12 @@ function readDialCode(): string {
 }
 
 /** 翻译函数的最小结构类型（只为下面那个错误归一用，避免为此把 LangKey 拖进来） */
-type TranslateFn = (key: 'auth.errSdkUnavailable') => string;
+type AuthErrKey =
+  | 'auth.errSdkUnavailable'
+  | 'auth.errNetwork'
+  | 'auth.errRateLimited'
+  | 'auth.errInvalidRequest';
+type TranslateFn = (key: AuthErrKey) => string;
 
 /**
  * 错误归一（**一处收口**）：`cloudAuth.safeAuth` 在「SDK 根本没加载 / 连不上后端」时
@@ -81,12 +86,37 @@ type TranslateFn = (key: 'auth.errSdkUnavailable') => string;
  * 所有提交分支都必须过这个函数；返回 null 时才用各自的兜底文案。
  * 注意不要顺手把 `error.message` 透出去 —— 密码登录刻意不区分"账号不存在/密码错"，
  * 透传 SDK 原文会破坏这个反枚举口径（见 submitPassword）。
+ *
+ * ★ 2026-10-29 审计复检：**按 kind 分流到不同文案，不能只判一种**。
+ *   原来只认 `backend-unavailable`，其余全部落到分支兜底文案，于是：
+ *     · `rate-limited`（被限流）→ 显示「多半是网络抖了一下，再点一次」
+ *       ⇒ 用户会照着连续点，而连续点必然继续被拒 ⇒ 死循环；
+ *     · `network`（网络不可达）→ 也显示「多半是网络抖了一下」，但它的正确说法是
+ *       「连不上服务器，**这一步不是你的密码错了**」——否则用户会先去改密码；
+ *     · `invalid-request`（参数/状态不合法）→ 归到通用文案，用户不知道自己该换什么。
+ *   SDK 实际会回的 kind 见 src/assets/wb-sdk.js（network / invalid-request / email /
+ *   phone / unauthenticated）+ 服务端 429（rate-limited），本仓自造的还有
+ *   `backend-unavailable` 与 `unknown`。
  */
 function sdkDownText(
   error: { kind?: string; message?: string } | null | undefined,
   t: TranslateFn
 ): string | null {
-  return error && error.kind === 'backend-unavailable' ? t('auth.errSdkUnavailable') : null;
+  if (!error || !error.kind) return null;
+  switch (error.kind) {
+    case 'backend-unavailable':
+      return t('auth.errSdkUnavailable');
+    case 'network':
+      return t('auth.errNetwork');
+    case 'rate-limited':
+    case 'rate_limited':
+      return t('auth.errRateLimited');
+    case 'invalid-request':
+    case 'invalid_request':
+      return t('auth.errInvalidRequest');
+    default:
+      return null;
+  }
 }
 
 /** 隐私同意的本地留存键。**默认不勾选** —— 未经用户主动同意不得发起任何登录/取码动作。 */

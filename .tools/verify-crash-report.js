@@ -317,6 +317,69 @@ ok(
   dbCode.includes("console.error('[cloudDb] log_client_error")
 );
 
+/* ===================== 5b. 关键路径留痕（窄规则） ===================== */
+
+/**
+ * 为什么是**窄规则**而不是「catch 内一律禁 warn」（2026-10-29 审计）：
+ *
+ *   实测 src 下 catch 内有 **138 处** console.warn（其中 136 warn + 2 info），
+ *   大多是缓存读失败、震动不支持、分享剪贴板、toast 失败一类**不影响主流程**的分支。
+ *   把它们一律改成 error，只会把真正的故障淹没在噪声里（生产构建只保留 console.error）。
+ *   所以这里只钉**少数几条「需要人工介入」的关键路径**，并且：
+ *     · 断言写的是「这些路径必须用 console.error」，不是「全仓不许有 warn」；
+ *     · 表是显式枚举的（新增要改这张表 ⇒ 不会悄悄扩大范围）；
+ *     · 另外输出「全仓 catch 内 warn 的处数」作为待收敛债务的可见数，不作断言。
+ */
+const CRITICAL_PATHS = [
+  { file: 'src/app.tsx', anchor: 'rehydrate stores after cloud pull failed', label: '云端拉回的用户设置没落到 store' },
+  { file: 'src/app.tsx', anchor: '门禁重定向登录页失败', label: '未登录用户仍停留在受保护页' },
+  { file: 'src/pages/mine/index.tsx', anchor: 'kvClear returned null', label: '注销清库失败（需人工核查）' },
+  { file: 'src/services/cloudDb.ts', anchor: "console.error('[cloudDb] log_client_error", label: '崩溃日志写入失败' }
+];
+ok('关键路径表不超过 8 条（窄规则，防止范围悄悄扩大）', CRITICAL_PATHS.length <= 8);
+for (const cp of CRITICAL_PATHS) {
+  const src = stripComments(read(cp.file));
+  const line = src.split('\n').find((l) => l.includes(cp.anchor)) || '';
+  ok(
+    `关键路径留痕用 console.error：${cp.file} · ${cp.label}`,
+    line.includes('console.error') && !line.includes('console.warn')
+  );
+}
+// 反向：不允许出现「既 error 又 warn」的自相矛盾写法
+{
+  let both = 0;
+  for (const cp of CRITICAL_PATHS) {
+    const src = stripComments(read(cp.file));
+    const line = src.split('\n').find((l) => l.includes(cp.anchor)) || '';
+    if (line.includes('console.error') && line.includes('console.warn')) both++;
+  }
+  ok('关键路径不同时出现 error 与 warn', both === 0);
+}
+// 债务可见性：全仓 catch 内的 console.warn 处数（不阻断，只让人看得见）
+{
+  const walk = (dir, out = []) => {
+    for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      if (e.isDirectory()) walk(`${dir}/${e.name}`, out);
+      else if (/\.(ts|tsx)$/.test(e.name)) out.push(`${dir}/${e.name}`);
+    }
+    return out;
+  };
+  let catchWarn = 0;
+  for (const f of walk('src')) {
+    const lines = stripComments(read(f)).split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (!/console\.warn\(/.test(lines[i])) continue;
+      // 往上回溯 6 行找 catch（够覆盖 `} catch (e) {` / `catch {` 紧邻的情形）
+      let inCatch = false;
+      for (let k = i - 1; k >= Math.max(0, i - 6); k--) {
+        if (/\bcatch\b/.test(lines[k])) { inCatch = true; break; }
+      }
+      if (inCatch) catchWarn++;
+    }
+  }
+  console.log(`     （可见债务：src 下 catch 内 console.warn 共 ${catchWarn} 处 —— 大多是非关键分支，不阻断）`);
+}
+
 /* ===================== 汇总 ===================== */
 
 setTimeout(() => {

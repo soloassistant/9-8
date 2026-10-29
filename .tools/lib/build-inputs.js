@@ -48,13 +48,15 @@ function collectInputs(root) {
 }
 
 /**
- * 返回 { hash, files }：hash 是全部输入内容的联合摘要，files 是逐文件摘要
+ * 返回 { hash, files, srcHash }：hash 是全部输入内容的联合摘要，files 是逐文件摘要
  * （逐文件摘要用于在闸门拒绝时**指出到底哪个文件变了**，否则只给一个总哈希没法排查）。
+ * srcHash 只覆盖 src/ —— 锁文件/配置抖动时它不动，可以据此判断「是源码变了还是只是依赖变了」。
  */
 function computeInputs(root) {
   const files = collectInputs(root);
   const per = {};
   const h = crypto.createHash('sha256');
+  const hs = crypto.createHash('sha256');
   for (const rel of files) {
     const one = sha256(fs.readFileSync(path.join(root, rel)));
     per[rel] = one;
@@ -62,8 +64,56 @@ function computeInputs(root) {
     h.update('\0');
     h.update(one);
     h.update('\n');
+    if (rel.startsWith('src/')) {
+      hs.update(rel);
+      hs.update('\0');
+      hs.update(one);
+      hs.update('\n');
+    }
   }
-  return { hash: h.digest('hex'), files: per };
+  return { hash: h.digest('hex'), srcHash: hs.digest('hex'), files: per };
+}
+
+/**
+ * 工作区状态 —— **「构建输入有没有没入库的改动」**。
+ *
+ * 为什么必须判这个（2026-10-29 审计）：`build-stamp.json` 里记的 `head` 是**构建那一刻的 HEAD**，
+ * 不是产物对应的源码状态。工作区领先 HEAD 是常态（并行会话改完还没提交就构建），
+ * 于是产物里可能装着**从未进过版本库的代码**，而 stamp 看上去一切正常。
+ * 产品入口 `D:\Agent\dist` 又是「手工复制 + 面板发布」，没有任何东西会拦住它。
+ *
+ * 口径刻意只圈**构建输入**（src/ config/ package.json tsconfig.json yarn.lock）：
+ * `.tools/` 下的门禁脚本改动不影响 bundle，用它判「脏」会在并行协作时天天误报。
+ * 反过来，未入库的新文件**必须**算脏 —— 它同样会进 bundle。
+ *
+ * 取不到 git 时返回 dirty=null（**不是 false**）：null 表示「不知道」，不能当成「干净」。
+ */
+function workingTreeState(root) {
+  const bin = resolveGit();
+  if (!bin) return { available: false, dirty: null, files: [] };
+  const scope = [...INPUT_DIRS, ...INPUT_FILES];
+  const run = (paths) => {
+    try {
+      const out = execFileSync(
+        bin,
+        ['status', '--porcelain', '--untracked-files=all', '--', ...paths],
+        { cwd: root, encoding: 'utf8' }
+      );
+      return out.split('\n').filter(Boolean);
+    } catch {
+      return null;
+    }
+  };
+  const scoped = run(scope);
+  if (scoped === null) return { available: false, dirty: null, files: [] };
+  const whole = run([]);
+  return {
+    available: true,
+    dirty: scoped.length > 0,
+    files: scoped,
+    treeDirty: whole === null ? null : whole.length > 0,
+    treeDirtyCount: whole === null ? null : whole.length
+  };
 }
 
 function currentHead(root) {
@@ -81,12 +131,21 @@ function currentHead(root) {
 
 /** 由构建后置步骤调用：把这一刻的输入指纹写进 dist */
 function writeStamp(dist, root) {
-  const { hash, files } = computeInputs(root);
+  const { hash, srcHash, files } = computeInputs(root);
+  const wt = workingTreeState(root);
   const stamp = {
     builtAt: new Date().toISOString(),
     head: currentHead(root),
     inputsHash: hash,
+    srcHash,
     inputCount: Object.keys(files).length,
+    // ★ 2026-10-29 新增：诚实记录「产物是不是由**已入库**的源码构建出来的」。
+    //   dirty=null 表示 git 不可用、状态未知（≠ 干净）；发布预检要求 dirty===false。
+    dirty: wt.dirty === true,
+    dirtyState: wt.available ? (wt.dirty ? 'dirty' : 'clean') : 'unknown',
+    dirtyFiles: wt.files || [],
+    treeDirty: wt.treeDirty === true,
+    treeDirtyCount: wt.treeDirtyCount === null ? null : wt.treeDirtyCount,
     files
   };
   fs.writeFileSync(path.join(dist, STAMP_REL), JSON.stringify(stamp, null, 2) + '\n', 'utf8');
@@ -120,9 +179,12 @@ function diffAgainstStamp(dist, root) {
 
 module.exports = {
   STAMP_REL,
+  INPUT_DIRS,
+  INPUT_FILES,
   collectInputs,
   computeInputs,
   currentHead,
+  workingTreeState,
   writeStamp,
   readStamp,
   diffAgainstStamp

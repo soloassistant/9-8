@@ -75,10 +75,35 @@ const EXTERNAL = new Map([
 // 而红的含义是「产物过期」不是「代码坏了」。放进确定性套件会让每次改代码都先红一遍，
 // 门禁一旦开始"经常红但没事"就会被人忽略。它该在发布前单独跑（见 verify:deploy-fresh 头注释）。
 const ARTIFACT = new Map([
-  ['verify:deploy-fresh', '依赖新鲜 dist 产物：改完 src 未重建时必然红，发布前单独跑']
+  ['verify:deploy-fresh', '依赖新鲜 dist 产物：改完 src 未重建时必然红，发布前单独跑'],
+  // 2026-10-29 审计复检新增：验**发布目录**（D:\Agent\dist，产品入口 = 用户真正拿到的那份）。
+  // 它同样是产物类：发布目录没同步时必然红，而红的含义是「该同步了」不是「代码坏了」。
+  ['verify:publish-preflight', '依赖发布目录已同步（D:\\Agent\\dist）：未同步时必然红，发布前单独跑']
 ]);
 // 自身（递归跑会无限循环）。
 const SELF = new Set(['verify:all']);
+
+// ── 第三类命名空间：**没有前缀**但确实是门禁的脚本 ────────────────────────
+// `verify:*` / `audit:*` 两个前缀之外还有 `selfcheck`（27 条全量验收断言）。
+// 它在 CI 里是**独立一步**（`node .tools/selfcheck.js`），但因为没有前缀，
+// 一直不在 verify:all 的发现范围里 ⇒ 「本地全绿 / CI 红」的又一个实例：
+// 开发者跑 `npm run verify:all` 全绿，CI 那一步照样可能红，而且没人知道差在哪。
+// 这就是 2026-10-29 审计记下的那条元教训：**换个前缀命名 = 从某个门禁的视野里消失**。
+const EXTRA_GATES = ['selfcheck'];
+
+// 退出码 2 = 「无 FAIL 但有 SKIP」，不等于失败（selfcheck 的约定，与 CI 步骤里的处理一致）。
+// 只对白名单里的门禁放行；其余门禁的退出码 2 一律算失败。
+const SKIP_TOLERANT = new Set(['selfcheck']);
+
+// 「已登记组」= 本地默认集合之外的分组，每组都带可核查的理由。
+// parity 的新断言就靠它判断「CI 跑的某个门禁在本地属于哪一组」。
+const LOCAL_GROUPS = new Map([
+  ...BROWSER.entries(),
+  ...MUTATING.entries(),
+  ...EXTERNAL.entries(),
+  ...ARTIFACT.entries(),
+  ...[...SELF].map((k) => [k, '自身，递归跑会无限循环'])
+]);
 
 // ── 解析输出里的 PASS/FAIL 计数（仅用于那一行展示与上面的 isBad 附加约束）────
 //
@@ -119,7 +144,10 @@ const CI_EXEMPT = new Map([
   // 2026-10-29 新增：读 dist 产物 + git 历史（指纹是否过期、入口引用是否齐全、SDK 是否被复制）。
   // checks 工作流**不构建产物**，所以它在这里既没法跑也不该跑；它的执行位置是发布前
   // （`npm run verify:deploy-fresh`，见该脚本头注释的 A/B/C/D 四查）。
-  ['verify:deploy-fresh', '需 dist 产物，checks 不构建产物；发布前手动执行']
+  ['verify:deploy-fresh', '需 dist 产物，checks 不构建产物；发布前手动执行'],
+  // 2026-10-29 审计复检新增：验发布目录（D:\Agent\dist）—— checks 跑在 CI 上，
+  // 那里根本没有这个目录（它是本机 WorkBuddy 面板的发布目录），所以只能发布前本地跑。
+  ['verify:publish-preflight', '需本机发布目录 D:\\Agent\\dist（面板按目录认 app），CI 上不存在；发布前本地执行']
 ]);
 
 export function checkCiParity(ciText, scripts, exempt = CI_EXEMPT) {
@@ -131,10 +159,16 @@ export function checkCiParity(ciText, scripts, exempt = CI_EXEMPT) {
     .split('\n')
     .filter((l) => !/^\s*#/.test(l))
     .join('\n');
-  const gates = Object.keys(scripts).filter((k) => k.startsWith('verify:'));
-  const referenced = new Set([...body.matchAll(/npm run (verify:[\w-]+)/g)].map((m) => m[1]));
+  // ⚠️ 命名空间盲区（2026-10-29 审计）：只枚举 `verify:*` ⇒ `audit:*` 脚本整个不在视野里。
+  //   真实后果：`audit:identity`（唯一能抓到「注销没删数据」的检测器）长期 exit=1，
+  //   而 CI 一直绿 —— 因为 parity 只数 verify:*，没人要求它进 CI。
+  //   三个命名空间都要算门禁，否则「换个前缀命名」就等于「从某个门禁的视野里消失」。
+  const gates = Object.keys(scripts).filter(
+    (k) => k.startsWith('verify:') || k.startsWith('audit:') || EXTRA_GATES.includes(k)
+  );
+  const referenced = new Set([...body.matchAll(/npm run ((?:verify|audit):[\w-]+)/g)].map((m) => m[1]));
   // 每个 gate 的脚本路径（取第一条 .tools/ 路径，够用且不受多脚本影响）
-  const pathOf = (g) => (String(scripts[g]).match(/\.tools\/[\w./-]+\.(mjs|js|cjs)/) || [])[0] || null;
+  const pathOf = (g) => (String(scripts[g] || '').match(/\.tools\/[\w./-]+\.(mjs|js|cjs)/) || [])[0] || null;
   const missing = gates.filter((g) => {
     if (exempt.has(g)) return false;
     if (referenced.has(g)) return false;
@@ -147,11 +181,19 @@ export function checkCiParity(ciText, scripts, exempt = CI_EXEMPT) {
   const stale = [...exempt.keys()].filter(
     (g) => !gates.includes(g) || referenced.has(g) || (pathOf(g) && body.includes(pathOf(g)))
   );
-  return { gates, missing, orphan, stale };
+  // ★ 2026-10-29 新增（CI-only 脚本）：CI 里**直调** `.tools/xxx.mjs` 的步骤，
+  //   必须能追溯到一个 package.json 入口 —— 否则这条门禁只在 CI 上跑，
+  //   开发者本地永远碰不到它 ⇒ 又一个「本地全绿 / CI 红」的藏身处。
+  //   口径只认 `.tools/` **下一层**的脚本：`.tools/fixtures/xxx.json` 是夹具不是脚本。
+  const ciPaths = [...new Set([...body.matchAll(/\.tools\/[\w-]+\.(?:mjs|js|cjs)/g)].map((m) => m[0]))];
+  const entryOf = (p) => Object.keys(scripts).find((k) => String(scripts[k] || '').includes(p)) || null;
+  const ciOnly = ciPaths.filter((p) => !entryOf(p));
+  return { gates, missing, orphan, stale, ciOnly };
 }
 
 // ── 自查：判定规则的真值表 ──────────────────────────────────────────────────
 if (process.argv.includes('--self-test')) {
+  let extraCases = 0;
   const cases = [
     // [code, fails, 期望, 说明]
     [0, 0, false, '正常通过'],
@@ -217,7 +259,55 @@ if (process.argv.includes('--self-test')) {
     );
   }
 
-  const totalCases = cases.length + pc.length + pq.length;
+  // ★ 2026-10-29 新增：命名空间盲区必须有判别力 —— `audit:` 前缀的脚本过去完全不在
+  //   CI 视野里（`audit:identity` 红了很久而 CI 全绿）。这条自测锁住「audit:* 也算门禁」，
+  //   免得以后有人把过滤条件改回只认 verify:*。
+  {
+    const r = checkCiParity('  - run: npm run verify:aa', { ...syn, 'audit:cc': 'node .tools/cc.mjs' },
+      new Map([['verify:boards', '测试用']]));
+    const okc = r.missing.includes('audit:cc');
+    if (!okc) bad++;
+    console.log(
+      `  ${okc ? '✓' : '✗'} parity[audit: 前缀也算门禁，没接 CI 要判 missing] → missing=${JSON.stringify(r.missing)}`
+    );
+    extraCases++;
+  }
+
+  // ★ 2026-10-29 新增：第三类命名空间（无前缀但确实是门禁，如 `selfcheck`）。
+  //   过去 verify:all 只认 verify:* / audit:*，于是 `selfcheck`（CI 里是独立一步）
+  //   在本地默认集合里**完全不存在** ⇒ 本地全绿而 CI 红，且没人知道差在哪。
+  {
+    const r = checkCiParity('  - run: node .tools/selfcheck.js', { ...syn, selfcheck: 'node .tools/selfcheck.js' },
+      new Map([['verify:boards', '测试用']]));
+    const okc = r.gates.includes('selfcheck');
+    if (!okc) bad++;
+    console.log(
+      `  ${okc ? '✓' : '✗'} parity[无前缀门禁（selfcheck）也要进门禁集合] → gates=${JSON.stringify(r.gates)}`
+    );
+    extraCases++;
+  }
+
+  // ★ 2026-10-29 新增：CI-only 脚本必须有本地入口（本地永远碰不到它 = 另一种藏身处）。
+  //   这一条必须有判别力：直调一个 package.json 里没有入口的脚本，必须被判成 ciOnly。
+  {
+    const withEntry = checkCiParity('  - run: node .tools/aa.mjs', syn, new Map([['verify:boards', '测试用']]));
+    const okOk = withEntry.ciOnly.length === 0;
+    if (!okOk) bad++;
+    console.log(`  ${okOk ? '✓' : '✗'} parity[CI 直调的脚本有本地入口 → 不算 ciOnly] → ciOnly=${JSON.stringify(withEntry.ciOnly)}`);
+    const noEntry = checkCiParity('  - run: node .tools/orphan-gate.mjs', syn, new Map([['verify:boards', '测试用']]));
+    const okBad = noEntry.ciOnly.includes('.tools/orphan-gate.mjs');
+    if (!okBad) bad++;
+    console.log(`  ${okBad ? '✓' : '✗'} parity[CI 直调本地无入口的脚本 → 判 ciOnly] → ciOnly=${JSON.stringify(noEntry.ciOnly)}`);
+    // 夹具不是脚本，不能被当成 CI-only
+    const fixture = checkCiParity('  - run: node .tools/aa.mjs .tools/fixtures/x.json', syn,
+      new Map([['verify:boards', '测试用']]));
+    const okFix = fixture.ciOnly.length === 0;
+    if (!okFix) bad++;
+    console.log(`  ${okFix ? '✓' : '✗'} parity[.tools/fixtures 下的夹具不算 CI-only 脚本] → ciOnly=${JSON.stringify(fixture.ciOnly)}`);
+    extraCases += 3;
+  }
+
+  const totalCases = cases.length + pc.length + pq.length + extraCases;
   console.log(`\nSELF-TEST ${totalCases - bad}/${totalCases}`);
   process.exit(bad === 0 ? 0 : 2);
 }
@@ -229,7 +319,7 @@ if (process.argv.includes('--parity')) {
     console.error('✗ 找不到 .github/workflows/checks.yml');
     process.exit(1);
   }
-  const { gates, missing, orphan, stale } = checkCiParity(fs.readFileSync(ciPath, 'utf8'), pkgP.scripts || {});
+  const { gates, missing, orphan, stale, ciOnly } = checkCiParity(fs.readFileSync(ciPath, 'utf8'), pkgP.scripts || {});
   let bad = 0;
   if (missing.length) {
     bad++;
@@ -237,7 +327,7 @@ if (process.argv.includes('--parity')) {
     for (const g of missing) console.log(`      · ${g} → ${pkgP.scripts[g]}`);
     console.log('    接进 checks.yml，或在 CI_EXEMPT 里给出可核查的理由。');
   } else {
-    console.log(`  ✓ 全部 ${gates.length} 个 verify:* 都有归属（接进 CI 或登记豁免）`);
+    console.log(`  ✓ 全部 ${gates.length} 个门禁（verify:*/audit:*/无前缀）都有归属（接进 CI 或登记豁免）`);
   }
   if (orphan.length) {
     bad++;
@@ -250,6 +340,27 @@ if (process.argv.includes('--parity')) {
     console.log(`✗ CI_EXEMPT 里有失效条目（门禁已删，或其实已接进 CI）：${stale.join('、')}`);
   } else {
     console.log('  ✓ CI_EXEMPT 没有失效条目');
+  }
+  // ★ 2026-10-29 新增：CI 直调的脚本必须在本地有入口。
+  //   只在 CI 上跑的门禁 = 开发者永远看不到它红 ⇒ 「本地全绿 / CI 红」且无从查起。
+  if (ciOnly.length) {
+    bad++;
+    console.log(`✗ CI 直调了 ${ciOnly.length} 个本地没有入口的脚本（只在 CI 上跑，开发者无法本地复现）：`);
+    for (const p of ciOnly) console.log(`      · ${p}`);
+    console.log('    在 package.json 里给它一个入口（如 verify:xxx），它就会被 verify:all 自动收录。');
+  } else {
+    console.log('  ✓ CI 里直调的脚本都有本地入口（能被 npm run verify:all 覆盖）');
+  }
+  // ★ 2026-10-29 新增：例外表腐烂检查搬进 parity。
+  //   原来它只在 verify:all 的主流程里，而 **CI 只跑 verify:parity** ⇒
+  //   门禁被删、例外表没清这件事，CI 永远抓不到（本地跑 verify:all 才看得到）。
+  const staleTables = [...BROWSER.keys(), ...MUTATING.keys(), ...EXTERNAL.keys(), ...ARTIFACT.keys(), ...SELF]
+    .filter((k) => !pkgP.scripts || !pkgP.scripts[k]);
+  if (staleTables.length) {
+    bad++;
+    console.log(`✗ 例外表腐烂：以下门禁在 package.json 里已不存在 → ${staleTables.join('、')}`);
+  } else {
+    console.log('  ✓ 例外表（BROWSER/MUTATING/EXTERNAL/ARTIFACT/SELF）没有失效条目');
   }
   console.log(`\nPARITY ${bad === 0 ? 'PASS' : `FAIL ${bad}`}`);
   process.exit(bad === 0 ? 0 : 1);
@@ -268,7 +379,13 @@ const ONLY = (() => {
 
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const scripts = pkg.scripts || {};
-const allVerify = Object.keys(scripts).filter((k) => k.startsWith('verify:'));
+// 门禁集合：verify:*、audit:* 与**无前缀但确实是门禁**的脚本（EXTRA_GATES）都算。
+// 命名空间盲区，2026-10-29 审计 —— audit: 前缀的脚本过去完全不在 CI 视野里，
+// `audit:identity` 红了很久而 CI 一直绿；`selfcheck` 则是**没有前缀**的另一种盲区：
+// 它在 CI 里是独立一步（node .tools/selfcheck.js），本地 `verify:all` 却完全看不见它。
+const allVerify = Object.keys(scripts).filter(
+  (k) => k.startsWith('verify:') || k.startsWith('audit:') || EXTRA_GATES.includes(k)
+);
 
 // 例外表腐烂检查：登记了、package.json 里却没有 → 表本身过期。
 const exempted = [BROWSER, MUTATING, EXTERNAL, ARTIFACT];
@@ -317,7 +434,20 @@ for (const name of list) {
   // 疑似空跑：退出 0 但一个字都没输出 —— 通常意味着脚本提前 return 了。
   // 这是自动发现模式下的真实风险：一个什么都不做的门禁看起来和通过一模一样。
   const silent = code === 0 && out.trim() === '';
-  results.push({ name, code, passN, fails, out, ms: Date.now() - t0, silent, bad: isBad(code, fails) || silent });
+  // SKIP 容忍：白名单门禁的退出码 2 = 「无 FAIL 但有 SKIP」（selfcheck 的约定，
+  // 与 CI 步骤里的处理一致）⇒ 算通过但要在摘要里说出来，不能悄悄咽掉。
+  const skipOnly = code === 2 && SKIP_TOLERANT.has(name) && !(typeof fails === 'number' && fails > 0);
+  results.push({
+    name,
+    code,
+    passN,
+    fails,
+    out,
+    ms: Date.now() - t0,
+    silent,
+    skipOnly,
+    bad: skipOnly ? false : isBad(code, fails) || silent
+  });
 }
 
 // ── 输出 ────────────────────────────────────────────────────────────────────
@@ -326,6 +456,7 @@ for (const r of results) {
   const tag = r.passN === null && r.fails === null ? '—' : `${r.passN ?? '?'}/${r.fails ?? '?'}`;
   if (!r.bad) {
     console.log(`  ✓ ${r.name.padEnd(26)} ${String(tag).padStart(9)}  ${(r.ms / 1000).toFixed(1)}s`);
+    if (r.skipOnly) console.log('     ↑ 退出码 2 = 无 FAIL 但有 SKIP（受限环境跑不了），按通过计；SKIP 需人工确认原因');
     if (VERBOSE) console.log(r.out.trimEnd().split('\n').map((l) => '      ' + l).join('\n'));
   } else {
     badN++;
@@ -363,7 +494,7 @@ if (skippedLive.length) {
 // 产物类门禁也必须在"未跑"里显式出现，否则会从摘要里静默消失（等于假装跑过）
 for (const [k, why] of ARTIFACT) console.log(`未跑（需新鲜产物，--only=${k.replace('verify:', '')} 可单独跑）：${k} —— ${why}`);
 const covered = allVerify.filter((k) => !SELF.has(k)).length;
-console.log(`入口普查：package.json 里 ${allVerify.length} 个 verify:*（本次覆盖 ${covered} 个，自身 1 个）`);
+console.log(`入口普查：package.json 里 ${allVerify.length} 个门禁入口（verify:*/audit:*/无前缀，本次覆盖 ${covered} 个，自身 1 个）`);
 console.log(line);
 
 process.exit(badN === 0 && staleTables.length === 0 ? 0 : 1);
