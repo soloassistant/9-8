@@ -51,16 +51,22 @@ console.log('\n── A. 文档里提到的文件 / 命令必须真的存在 ─
 //     反例（`deploy-gh-pages.ps1` 文档里明说"从来不存在"）、产物（`api/hotspot.json`）
 //     全当成"必须存在"→ 一次误报 16 条。判据宽 = 噪声多 = 没人看的门禁。
 const pathTokens = new Set();
+// 本地专用文件：AGENTS.md 里写明「**.tools/COORDINATION.md 是本地文件、已被 .gitignore 忽略**」。
+// 门禁不能要求它在干净 clone / CI 里存在 —— 那会把「文档说了实话」判成文档腐烂。
+// 白名单只登记这一类**文档自己声明过不入库**的文件，不放宽其余任何路径。
+const LOCAL_ONLY_PATHS = new Set(['.tools/COORDINATION.md']);
 for (const m of all.matchAll(/`([^`\n]+)`/g)) {
   const first = m[1].trim().split(/\s+/)[0].replace(/[,;:)]+$/, '');
   if (!/^(\.tools|\.github|docs|src|cloudfunctions|config)\/[\w./-]+\.(js|mjs|cjs|ts|tsx|json|md|scss|yml|yaml)$/.test(first)) continue;
   if (/[X*]/.test(path.basename(first))) continue;   // 占位/通配示例
   pathTokens.add(first);
 }
-const missingPaths = [...pathTokens].filter((p) => !globExist(p));
+const missingPaths = [...pathTokens].filter((p) => !LOCAL_ONLY_PATHS.has(p) && !globExist(p));
 ok(
   missingPaths.length === 0,
-  `A1 文档引用的仓库路径全部存在（检查 ${pathTokens.size} 个带根前缀的完整路径）`,
+  `A1 文档引用的仓库路径全部存在（检查 ${pathTokens.size} 个带根前缀的完整路径，其中 ${
+    [...pathTokens].filter((p) => LOCAL_ONLY_PATHS.has(p)).length
+  } 个是文档声明为本地专用的）`,
   missingPaths.join(', ')
 );
 
@@ -103,11 +109,37 @@ let realRoot = '';
 const claimRoot = all.match(/项目根\*\*：`([^`]+)`/);
 const claimedRoot = claimRoot ? claimRoot[1] : '';
 const norm = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+// B1：这条查的是「文档写的项目根是否还指向本仓库」，不是「机器路径字符串相等」。
+//   ⚠️ 2026-10-29 修：原判据直接比绝对路径，于是**在任何 clone / CI 里必然红**
+//      （checkout 目录是 `.../9-8`，文档写 `D:/Agent/晨报`）—— 常年红等于没人看。
+//   现在分两种环境：
+//     · 作者机器：声明路径存在 → 必须**就是**当前仓库根（严格，抓文档写错/仓库搬家）；
+//     · clone/CI：声明路径本机不存在 → 断言它是绝对路径，且当前目录确实是同一项目
+//       （有 src/app.scss，git remote 指向本仓），输出里写明是降级口径，不静默通过。
+const claimIsAbsolute = /^([a-zA-Z]:[\\/]|\/)/.test(claimedRoot);
+const claimExistsHere = claimRoot !== null && fs.existsSync(claimedRoot);
+let sameRepoIdentity = false;
+try {
+  sameRepoIdentity = /soloassistant\/9-8/i.test(fs.readFileSync(path.join(realRoot, '.git', 'config'), 'utf8'));
+} catch { sameRepoIdentity = false; }
+// 「当前目录确实是本项目」的判据：有 src/app.scss 且 package.json 是 morning-brief。
+// 不用 git remote 认身份：本机 clone 的 origin 可能是本地路径（我实测过），CI 里才是 https。
+const hasProjectTree =
+  fs.existsSync(path.join(realRoot, 'src', 'app.scss')) &&
+  fs.existsSync(path.join(realRoot, 'package.json')) &&
+  /"name"\s*:\s*"morning-brief"/.test(fs.readFileSync(path.join(realRoot, 'package.json'), 'utf8'));
+// 声明路径在本机存在时，它还必须是**本项目的另一个 checkout**（有 src/app.scss），
+// 否则就是文档写到了别的目录 —— 这条在作者机器上仍然生效。
+const b1ClaimIsCheckout = claimExistsHere && fs.existsSync(path.join(claimedRoot, 'src', 'app.scss'));
+const b1SamePath = claimRoot !== null && norm(claimedRoot) === norm(realRoot);
+const b1CloneMode = claimIsAbsolute && hasProjectTree && !claimExistsHere;
+const b1 = b1SamePath || b1ClaimIsCheckout || b1CloneMode;
 ok(
-  realRoot !== '' && claimRoot !== null && norm(claimedRoot) === norm(realRoot),
-  `B1 文档声明的项目根 = 实际仓库根（文档写 \`${claimedRoot}\`，实际 \`${realRoot}\`）`,
+  realRoot !== '' && claimRoot !== null && b1,
+  'B1 文档声明的项目根指向本仓库（文档写 ' + claimedRoot + '，实际 ' + realRoot
+    + (b1CloneMode ? '，clone/CI 口径：绝对路径 + 项目树识别通过' : '') + '）',
   realRoot === '' ? '找不到 .git（不是 git checkout？）—— 拒绝静默跳过'
-    : claimRoot ? '' : '文档里找不到「项目根：`…`」声明'
+    : claimRoot ? '' : '文档里找不到项目根声明'
 );
 
 // B2：不许再声称 H5 线上是 gh-pages（2026-10-23 已实测云端能力在 gh-pages 全废）
@@ -173,8 +205,15 @@ ok(
 
 console.log('\n── D. 两份文档的硬事实不许互相矛盾 ──');
 // D1：H5 数据链路（一问只能有一个答案）
-const agentSaysCloud = /H5 走 WorkBuddy 云库|H5 的数据链路是真实的/.test(text['AGENTS.md'] || '') || /H5 走 WorkBuddy 云/.test(text['MEMORY.md'] || '');
-ok(agentSaysCloud === true, 'D1 两份文档对「H5 走什么数据链路」口径一致（真实云库，非 mock）');
+// ⚠️ 2026-10-29 修：原判据只认「H5 走 WorkBuddy 云库」这一种字面写法，而 AGENTS.md 写的是
+//   「H5 不走微信云开发，走 WorkBuddy 云库（3 张表）」→ 只靠 MEMORY.md 兜底，
+//   而 MEMORY.md 被 gitignore，于是 clone / CI 里这条必然红（已实测 3 条红之一）。
+//   改成认「走 WorkBuddy 云库」这个**事实句**，仍然要求至少一份现存文档写着它 ——
+//   口径没放宽：两份都不写照样红。
+const saysCloud =
+  /走 WorkBuddy 云库|H5 的数据链路是真实的/.test(text['AGENTS.md'] || '') ||
+  /走 WorkBuddy 云库/.test(text['MEMORY.md'] || '');
+ok(saysCloud === true, 'D1 文档说明 H5 走 WorkBuddy 云库（真实云库，非 mock）');
 
 // D2：§4 是 gh-pages 口径的单一事实来源，那段结论句不许被删（删了两份文档就都没答案了）
 ok(

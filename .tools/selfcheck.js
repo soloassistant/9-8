@@ -515,8 +515,12 @@ check('桌面端布局防回退（确定宽度 + 根字号钳制 + 回归入口�
   // ① 面板必须是确定宽度，而不是只靠 max-width 等 flex 拉伸
   const panelBlock = (scss.match(/\.taro-tabbar__panel\s*\{[^}]*\}/g) || []).join('\n');
   const hasExplicitWidth = /width:\s*20rem\s*!important/.test(panelBlock);
-  // ② 根字号必须按 min(100vw, 500PX) 封顶，且大写 PX 逃逸 pxtransform
-  const rootFontOk = /font-size:\s*calc\(\s*min\(100vw,\s*500PX\)/.test(scss);
+  // ② 根字号必须按 min(100vw, 400PX) 封顶，且大写 PX 逃逸 pxtransform
+  //    ⚠️ 2026-10-29 口径变更：上限从 500PX 收到 400PX。500 那一档等于 25px 根字号，
+  //    视口一过 500 全站字号被放大 1.333 倍（iPad 上标题 3 行、首屏被吃掉 1/4）。
+  //    大屏靠「列变宽 + 断点加列」提密度，不靠放大字号。这条断言跟着决策一起改，
+  //    不是为了让门禁变绿而放宽 —— 上限再被改大时必须重新论证。
+  const rootFontOk = /font-size:\s*calc\(\s*min\(100vw,\s*400PX\)/.test(scss);
   // ③ --ui-scale 必须被钳制，否则被污染的变量能把根字号放大到 750px（审计提出的另一条根因）
   const clampOk = /MIN_UI_SCALE/.test(scale) && /MAX_UI_SCALE/.test(scale)
     && /isFinite\(value\)/.test(scale);
@@ -529,7 +533,7 @@ check('桌面端布局防回退（确定宽度 + 根字号钳制 + 回归入口�
 
   const ok = hasExplicitWidth && rootFontOk && clampOk && entryOk;
   return ok
-    ? { pass: true, detail: '面板 width:20rem!important 在位；根字号 min(100vw,500PX) 封顶；--ui-scale 钳制 0.5~2；verify:layout 已注册' }
+    ? { pass: true, detail: '面板 width:20rem!important 在位；根字号 min(100vw,400PX) 封顶；--ui-scale 钳制 0.5~2；verify:layout 已注册' }
     : {
         pass: false,
         detail: 'explicitWidth=' + hasExplicitWidth + ' rootFont=' + rootFontOk + ' clamp=' + clampOk

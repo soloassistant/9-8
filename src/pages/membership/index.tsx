@@ -579,7 +579,10 @@ function MembershipPage() {
           {PLAN_LIST.map((p) => {
             const active = p.id === planId;
             const isEarlyBird = p.id === 'earlybird_monthly';
-            const priceYuan = EARLYBIRD_PRICE[p.id] / 100;
+            // ⚠️ EARLYBIRD_PRICE 的单位就是**元**（6.9 / 9.9 / 88，见 utils/subscription.ts）。
+            // 这里曾再除一次 100，页面显示「早鸟 ¥0.069/月、年付 ¥0.88/年」，
+            // 与价目表差 100 倍 —— 价格标示与实际成交不一致（2026-10-29 审计 P0）。
+            const priceYuan = EARLYBIRD_PRICE[p.id];
             return (
               <View
                 key={p.id}
@@ -593,7 +596,7 @@ function MembershipPage() {
                 {isEarlyBird ? <Text className={styles.planBadge}>{t('mine.planEarlyBirdTag')}</Text> : null}
                 <Text className={styles.planLabel}>{t(PLAN_LABEL_KEY[p.id])}</Text>
                 <Text className={styles.planPrice}>
-                  ¥{priceYuan}
+                  ¥{Number.isInteger(priceYuan) ? priceYuan : priceYuan.toFixed(1)}
                   <Text className={styles.planUnit}>
                     {p.id === 'yearly' ? t('mine.planPerYear') : t('mine.planPerMonth')}
                   </Text>
