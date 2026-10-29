@@ -132,7 +132,20 @@ const hasProjectTree =
 // 否则就是文档写到了别的目录 —— 这条在作者机器上仍然生效。
 const b1ClaimIsCheckout = claimExistsHere && fs.existsSync(path.join(claimedRoot, 'src', 'app.scss'));
 const b1SamePath = claimRoot !== null && norm(claimedRoot) === norm(realRoot);
-const b1CloneMode = claimIsAbsolute && hasProjectTree && !claimExistsHere;
+// ⚠️ 2026-10-29 二次修：上一版 clone 口径写成「绝对路径 + 项目树」就放行，
+//   于是变异「把项目根改回 D:/Agent」在 CI 里**活下来了**（本地因为路径存在才被抓）。
+//   补一条跨环境都能判的条件：声明路径的最后一段必须是**产品名的一部分**
+//   （产品名取 src/store/language.ts 的 app.title =「私人晨报助理」，晨报 ⊂ 它）。
+//   这样 `D:/Agent`（Agent ⊄ 私人晨报助理）在 clone 里也一样会被抓住。
+const appTitle = (() => {
+  try {
+    const src = fs.readFileSync(path.join(ROOT, 'src', 'store', 'language.ts'), 'utf8');
+    return (src.match(/'app\.title':\s*'([^']+)'/) || [])[1] || '';
+  } catch { return ''; }
+})();
+const claimBase = claimedRoot.split(/[\\/]/).filter(Boolean).pop() || '';
+const claimNameMatchesProduct = !!appTitle && !!claimBase && appTitle.includes(claimBase);
+const b1CloneMode = claimIsAbsolute && hasProjectTree && claimNameMatchesProduct;
 const b1 = b1SamePath || b1ClaimIsCheckout || b1CloneMode;
 ok(
   realRoot !== '' && claimRoot !== null && b1,
