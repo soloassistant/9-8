@@ -6,15 +6,15 @@ export default [
   {
     label: '去掉 role=button（读屏不再认这是按钮）',
     file: 'src/utils/a11y.ts',
-    from: "{ role: 'button', tabIndex: 0, 'data-pressable': '1' }",
-    to: "{ role: 'group', tabIndex: 0, 'data-pressable': '1' }",
+    from: "{ role: 'button', 'data-pressable': '1' }",
+    to: "{ role: 'group', 'data-pressable': '1' }",
     cmd: 'node .tools/verify-a11y-keyboard.mjs --no-browser'
   },
   {
-    label: '去掉 tabIndex（Tab 键又穿不过去）',
+    label: '去掉 data-pressable 标记（运行时补 tabindex 与 Enter 激活都找不到它）',
     file: 'src/utils/a11y.ts',
-    from: "{ role: 'button', tabIndex: 0, 'data-pressable': '1' }",
-    to: "{ role: 'button', 'data-pressable': '1' }",
+    from: "{ role: 'button', 'data-pressable': '1' }",
+    to: "{ role: 'button' }",
     cmd: 'node .tools/verify-a11y-keyboard.mjs --no-browser'
   },
   {

@@ -41,10 +41,17 @@ const a11y = read('src/utils/a11y.ts');
 const appSrc = read('src/app.tsx');
 const scss = read('src/app.scss');
 
-assert('A1 pressableProps 给出 role=button 与标记', a11y.includes("role: 'button'") && a11y.includes("'data-pressable'"));
+// 判据框到**返回对象那一行**：只查 `includes("'data-pressable'")` 会被
+// ensureFocusable 里的选择器命中，把标记从返回对象删掉照样绿（变异测试抓到过）。
+assert('A1 pressableProps 真的返回 role=button + data-pressable', a11y.includes("const attrs: PressableAttrs = { role: 'button', 'data-pressable': '1' };"));
 assert('A1b tabindex 靠运行时补属性（自定义元素上 tabIndex 属性不生效，已实测）', a11y.includes("setAttribute('tabindex', '0')") && a11y.includes('observePressables'));
 assert('A2 aria-label 是必填参数（图标按钮不能是无名黑洞）', /export function pressableProps\(label: string\)/.test(a11y));
-assert('A3 让路规则齐全（输入框 / 修饰键 / IME 组字）', a11y.includes('isTextEntry') && a11y.includes('metaKey') && a11y.includes('isComposing'));
+// ⚠️ 判据要框到**守卫行本身**：第一版只查 `a11y.includes('isTextEntry')`，
+//    于是把 `if (!active || isTextEntry(active)) return false;` 改成 `if (!active)` 后
+//    函数定义还在、字符串还在，断言照样绿（变异测试当场抓到）。
+assert('A3 输入框让路守卫在（`if (!active || isTextEntry(active)) return false;`）', a11y.includes('if (!active || isTextEntry(active)) return false;'));
+assert('A3b IME 组字让路守卫在（`e.isComposing || e.keyCode === 229`）', a11y.includes('if (e.isComposing || e.keyCode === 229) return false;'));
+assert('A3c 修饰键让路守卫在（metaKey/ctrlKey/altKey/shiftKey）', a11y.includes('e.metaKey || e.ctrlKey || e.altKey || e.shiftKey'));
 assert('A4 Enter 与 Space 都能激活', a11y.includes("'Enter'") && a11y.includes("' '"));
 assert('A5 焦点在子节点时向上找可操作祖先（View 里套 Text 也能用）', a11y.includes("closest('[data-pressable]')") || a11y.includes('closest(') );
 assert('A6 App 挂了全局 keydown 代理且只在 H5 生效', appSrc.includes('activatePressable(e)') && appSrc.includes('window.addEventListener(\'keydown\''));
