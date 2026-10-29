@@ -57,6 +57,46 @@ function clean(s) {
     .trim();
 }
 
+/** 「套话描述」判定：feed 的 description 只有一句引导语、没有任何信息量。
+ *
+ *  2026-10-29 审计实测：437 条里 10 条（全部 InfoQ中文）的 description 就是
+ *  「点击查看原文」—— 它会被当摘要展示在卡片正文行，读起来像渲染残留。
+ *  判定用**归一化后的整串等值**（去空白/标点后在小集合里精确匹配），不做子串匹配：
+ *  「如何查看原文里的代码」这种正常标题绝不能被误杀。
+ *  命中 → 按「无 description」处理：摘要回退标题（与热榜条目同行为），content 不字段化。 */
+const BOILERPLATE_DESC = new Set([
+  '点击查看原文', '查看原文', '阅读原文', '阅读全文', '点击阅读原文', '阅读更多', '查看更多',
+  '点击查看详情', '查看详情', '阅读详情', '全文如下', 'readmore', 'seemore', 'vieworiginal',
+  'continuereading', 'more', '详情', '原文'
+]);
+function isBoilerplateDesc(s) {
+  const n = String(s || '').toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
+  return n !== '' && BOILERPLATE_DESC.has(n);
+}
+
+/** 剥 URL 查询串里的追踪参数。
+ *
+ *  2026-10-29 任务3 审计实测：437 条里 20 条带 utm_*（爱范儿 / InfoQ 的 RSS feed 自带），
+ *  还见过 fr=/from=/spm= 这类站点统计参数。危害有三：链接更长、同一篇文章变成两个 URL、
+ *  用户每次点开都在向第三方回传「从 RSS 来」的归因信息。
+ *
+ *  只剥查询参数、不动路径与 hash；白名单外的一律保留 —— 宁可少剥，不可误伤
+ *  （百度热点的 ?wd=、Solidot 的 ?sid= 都是内容本体，必须活着）。
+ *  只用于 fetch-data 链路；小程序 webSearch 云函数那条链路的 URL 不在此改（口径变更要单独过）。 */
+function cleanUrl(u) {
+  const s = String(u || '');
+  const q = s.indexOf('?');
+  if (q < 0) return s;
+  const base = s.slice(0, q);
+  if (!base) return s; // 只有查询串的怪链接，原样保留
+  const kept = s.slice(q + 1).split('&').filter((kv) => {
+    const k = kv.split('=')[0].toLowerCase();
+    return k !== '' && !k.startsWith('utm_') &&
+      !['spm', 'fr', 'from', 'ref', 'scene', 'share_from', 'share_token', 'nsukey'].includes(k);
+  });
+  return kept.length ? base + '?' + kept.join('&') : base;
+}
+
 /** 按 Unicode 码点截断并补省略号。
  *
  *  为什么不用 `slice()`（2026-10-12 内容质量审计）：
@@ -79,7 +119,9 @@ function parseRss(xml, source, limit, tag) {
   for (const b of blocks.slice(0, limit)) {
     const title = clean((b.match(/<title>([\s\S]*?)<\/title>/) || [])[1]);
     const link = clean((b.match(/<link>([\s\S]*?)<\/link>/) || [])[1]);
-    const desc = clean((b.match(/<description>([\s\S]*?)<\/description>/) || [])[1]);
+    const descRaw = clean((b.match(/<description>([\s\S]*?)<\/description>/) || [])[1]);
+    // 套话描述（「点击查看原文」这类）按无描述处理，别让它混进摘要/content
+    const desc = isBoilerplateDesc(descRaw) ? '' : descRaw;
     if (!title) continue;
     const pubRaw = clean((b.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1]);
     const pubMs = pubRaw ? Date.parse(pubRaw) : NaN;
@@ -91,7 +133,7 @@ function parseRss(xml, source, limit, tag) {
       // 与 webSearch 云函数的 content 字段同语义（2026-10-25）。无 description 不字段化。
       content: desc ? clampText(desc, 1000) : undefined,
       source,
-      url: link,
+      url: cleanUrl(link),
       tags: tag ? [tag] : [],
       pubDate: Number.isFinite(pubMs) ? pubMs : null
     });

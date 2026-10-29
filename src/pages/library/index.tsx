@@ -1093,7 +1093,12 @@ function LibraryPage() {
           {/* 竞品分析 L1：AI 筛选条目标题旁「AI」小角标 */}
           {showAiBadge ? <Text className={styles.aiBadge}>AI</Text> : null}
         </View>
-        <Text className={styles.newsSummary}>{item.summary}</Text>
+        {/* 摘要与标题同文时不渲染：抓取端对「feed 没有描述」的条目（热榜无 desc、
+            被剥掉「点击查看原文」套话的）会用标题兜底当摘要，照原样显示就是
+            同一句话上下出现两遍，读起来像渲染残留（2026-10-29 实测 InfoQ 条目）。 */}
+        {item.summary && item.summary !== item.title ? (
+          <Text className={styles.newsSummary}>{item.summary}</Text>
+        ) : null}
         {/* 竞品分析 X1：Why it matters（缺失不渲染，不占位） */}
         {item.whyItMatters ? (
           <Text className={styles.whyItMatters}>{item.whyItMatters}</Text>
