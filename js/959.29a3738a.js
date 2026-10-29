@@ -1,0 +1,1 @@
+"use strict";(self.webpackJsonp=self.webpackJsonp||[]).push([[959],{"5959":function(e,n,i){function login(){return{"openid":"mock-openid-001","nickname":"晨友","briefingTime":"07:30","preferences":["科技","效率工具"],"subscribed":!1,"expiredAt":null,"isEarlyBird":!1}}i.r(n),i.d(n,{"default":function(){return login}})}}]);

@@ -1,0 +1,1 @@
+"use strict";(self.webpackJsonp=self.webpackJsonp||[]).push([[975],{"8975":function(e,t,n){function deleteAccount(){return{"deleted":!0}}n.r(t),n.d(t,{"default":function(){return deleteAccount}})}}]);

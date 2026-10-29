@@ -1,0 +1,1 @@
+"use strict";(self.webpackJsonp=self.webpackJsonp||[]).push([[118],{"1118":function(t,e,n){function extract(t){return{"events":[],"todos":[],"collection":void 0,"note":"AI 提取当前不可用，未解析你的内容。可稍后重试，或手动新建日程与待办。"}}n.r(e),n.d(e,{"default":function(){return extract}})}}]);
