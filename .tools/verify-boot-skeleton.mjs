@@ -54,13 +54,18 @@ assert(
   frag.includes('is-slow') && frag.includes('10000') && frag.includes('重新加载')
 );
 assert('A6 骨架对读屏是 status 区（不是纯装饰块）', /id="boot-skeleton"[^>]*role="status"/.test(frag));
+// ⚠️ 判据必须框到「行首就是这次调用」：第一版用 includes，变异把调用包进
+// `if (false) injectBootSkeleton();` 后照样通过 —— 变异测试当场抓出这个假绿。
+const injectCall = /^[ \t]*injectBootSkeleton\(\);[ \t]*$/m.test(copyAssets);
 assert(
-  'A7 由 copy-assets 注入产物（不在 webpack 模板里，避开那个 build 卡死）',
-  copyAssets.includes('injectBootSkeleton()') && copyAssets.includes('<div id="app">')
+  'A7 由 copy-assets 注入产物且未被条件包住（不在 webpack 模板里，避开那个 build 卡死）',
+  injectCall && copyAssets.includes('<div id="app">')
 );
+// 同上：`if (false) dismissBootSkeletonAfterPaint();` 必须判红
+const dismissCall = /^[ \t]*dismissBootSkeletonAfterPaint\(\);[ \t]*$/m.test(appSrc);
 assert(
-  'A8 app 挂载后移除骨架（等两帧，避免白闪）',
-  appSrc.includes('dismissBootSkeletonAfterPaint') && util.includes('requestAnimationFrame(() => requestAnimationFrame')
+  'A8 app 挂载后移除骨架且未被条件包住（等两帧，避免白闪）',
+  dismissCall && util.includes('requestAnimationFrame(() => requestAnimationFrame')
 );
 assert('A9 移除有定时兜底（transition 被禁时也能移除）', util.includes('setTimeout(() => removeNow(el), FADE_MS)'));
 assert('A10 小程序端不执行（同一份代码两端跑）', appSrc.includes("TARO_ENV !== 'h5'"));
