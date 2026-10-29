@@ -58,6 +58,20 @@ assert('A4 Enter 与 Space 都能激活', a11y.includes("'Enter'") && a11y.inclu
 assert('A5 焦点在子节点时向上找可操作祖先（View 里套 Text 也能用）', a11y.includes("closest('[data-pressable]')") || a11y.includes('closest(') );
 assert('A6 App 挂了全局 keydown 代理且只在 H5 生效', appSrc.includes('activatePressable(e)') && appSrc.includes('window.addEventListener(\'keydown\''));
 assert('A7 焦点环用 :focus-visible（鼠标点击不闪框）', /\[data-pressable\]:focus-visible/.test(scss) && /outline:\s*2PX/.test(scss));
+// ★ 2026-10-29 第二轮：自动识别可点击元素。
+//   手工 `pressableProps` 只覆盖了 3 处，全站 239 处 onClick 里 236 处仍是「只有鼠标能用」。
+//   ⚠️ 判据必须框到**整行**：`includes('markClickableAsPressable(')` 只能证明名字出现过，
+//      把调用改成 `if (false) markClickableAsPressable(...)` 照样绿（今天已经栽过三次）。
+assert('A16 自动标记机制存在（按 React props 反查 onClick）',
+  a11y.includes('__reactProps$') && /^export function markClickableAsPressable\(/m.test(a11y));
+assert('A16a 只有真的拿到 onClick 才标记（守卫整行，否则 mask/sheet 之类也被标成按钮）',
+  /^[ \t]*if \(!props \|\| typeof props\.onClick !== 'function'\) continue;$/m.test(a11y));
+assert('A16b 首屏扫一遍（整行调用，不是被 if(false) 包住）',
+  /^[ \t]*markClickableAsPressable\(document\.body\);$/m.test(a11y));
+assert('A16c 新增子树也扫（动态列表才覆盖得到）',
+  /^[ \t]*for \(const el of batch\) markClickableAsPressable\(el\);$/m.test(a11y));
+assert('A16d 扫过的节点记进 WeakSet（长列表上否则是 O(n²) 重扫）',
+  a11y.includes('new WeakSet<Element>()') && a11y.includes('scanned.has(el)'));
 
 /* ───────────── A'. 采纳 ───────────── */
 const nav = read('src/components/DesktopNav/index.tsx');
@@ -199,6 +213,17 @@ if (NO_BROWSER) {
 
   const count = await ev(`[...document.querySelectorAll('[data-pressable]')].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length`);
   assert('B0 页面上有**可见**的可聚焦操作元素（rect 非 0，隐藏节点不算）', Number(count) > 0, `count=${count}`);
+
+  // B0b：**内容区**（排除左侧导航）也必须有一批可操作元素。
+  // 这一条才是「a11y 覆盖到页面内容」的判据 —— 原来 B0 只要求 >0，而导航就挂在页面之外，
+  // 于是哪怕正文一个可操作元素都没有，B0 也绿（审计原话：23 个页面里只有 login 有）。
+  const contentCount = await ev(`[...document.querySelectorAll('[data-pressable]')].filter((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    const label = el.getAttribute('aria-label') || '';
+    return !/前往|当前页/.test(label); // 排除左侧导航
+  }).length`);
+  assert('B0b 页面**内容区**有 ≥30 个可聚焦操作元素（证明不是只覆盖了导航）', Number(contentCount) >= 30, `contentCount=${contentCount}`);
 
   // B1–B4：连按 Tab，记录焦点落点。
   // ⚠️ 第一版假定「按一次 Tab 就落在可操作元素上」—— 实测第一站是别的东西（页面里的

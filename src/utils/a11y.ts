@@ -8,11 +8,14 @@
  * 做法（不改组件结构、不引入新依赖）：
  *   1. `pressableProps()` 返回一组可直接展开到 `View` 上的属性：
  *      role=button + tabIndex=0 + data-pressable 标记 + aria-label。
- *   2. `activatePressable()` 由 **App 上的全局 keydown 代理**调用：
+ *   2. `markClickableAsPressable()` **自动**把「有 onClick 的 Taro 元素」标成可操作
+ *      （靠 React 挂在 DOM 上的 `__reactProps$*` 反查）。全站 239 处 onClick 不可能一一手改，
+ *      而且手改必然漏 —— 见该函数上方注释。
+ *   3. `activatePressable()` 由 **App 上的全局 keydown 代理**调用：
  *      Enter / Space 在「当前焦点是 [data-pressable]」时触发它的 click()。
  *      为什么不给每个元素挂 onKeyDown：`taro-view-core` 对 React 合成事件的转发
  *      只在 onClick 上稳定，键盘事件走原生 addEventListener 更可靠（一处代理管全站）。
- *   3. 焦点环写在 app.scss 的 `[data-pressable]:focus-visible` —— 用 focus-visible
+ *   4. 焦点环写在 app.scss 的 `[data-pressable]:focus-visible` —— 用 focus-visible
  *      而不是 focus，鼠标点击不闪框，键盘 Tab 才有框。
  */
 
@@ -54,12 +57,108 @@ export function ensureFocusable(root: ParentNode = document): number {
   return n;
 }
 
+/**
+ * ── 自动识别可点击元素（2026-10-29，第二轮 a11y）──────────────────────────
+ *
+ * 为什么不再一处一处加 `pressableProps`：全站 19 页有 **239 处** `onClick`，
+ * 手工改不但工作量巨大，而且**必然漏** —— 新写的页面又回到「只有鼠标能用」。
+ * 审计原话是「pressableProps 在 23 个页面里只有 login 有 2 处，其余为 0」。
+ *
+ * 做法：React 18 会把组件 props 挂到宿主 DOM 节点上（`__reactProps$<随机>`）。
+ * 于是可以反过来问 DOM：「这个 `taro-view-core` 上到底有没有 onClick？」
+ * 有 → 它就是个可操作元素，补 role/tabindex/data-pressable，交给既有的
+ * 全局 keydown 代理去响应 Enter/Space。
+ *
+ * 为什么不用 `addEventListener` 打挂：React 18 是**根节点事件委托**，
+ * 根本不会在这些元素上逐个 addEventListener('click')，钩子打不到。
+ *
+ * 降级：拿不到 React 内部键（升级 React / 换渲染器）时只是**不自动标记**，
+ * 不报错、不影响手工 `pressableProps` 的那几处。
+ */
+const CLICKABLE_SELECTOR = 'taro-view-core, taro-text-core, taro-button-core';
+
+/** 已经扫过的节点（避免每次 DOM 变动全量重扫，长列表上那是 O(n²)） */
+const scanned = new WeakSet<Element>();
+
+/** 取 React 挂在这个 DOM 节点上的 props（拿不到返回 null，属正常降级） */
+function reactProps(el: Element): Record<string, unknown> | null {
+  const keys = Object.keys(el);
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i].startsWith('__reactProps$')) {
+      const p = (el as unknown as Record<string, unknown>)[keys[i]];
+      return p && typeof p === 'object' ? (p as Record<string, unknown>) : null;
+    }
+  }
+  return null;
+}
+
+/** 读屏名字：优先 aria-label，其次元素自身文字（截断 60 字，卡片标题常常很长） */
+function readableName(el: Element): string {
+  const own = el.getAttribute('aria-label');
+  if (own && own.trim()) return own.trim();
+  const raw = (el as HTMLElement).innerText || el.textContent || '';
+  const s = raw.replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  return s.length > 60 ? `${s.slice(0, 60)}…` : s;
+}
+
+/**
+ * 把 root 子树里「有 onClick 但没被标记」的元素标成可操作。
+ * 返回新标记的数量（门禁与调试用）。
+ */
+export function markClickableAsPressable(root: ParentNode = document): number {
+  if (typeof document === 'undefined') return 0;
+  const roots: Element[] = [];
+  if (root instanceof Element && root.matches(CLICKABLE_SELECTOR)) roots.push(root);
+  root.querySelectorAll(CLICKABLE_SELECTOR).forEach((el) => roots.push(el));
+
+  let n = 0;
+  for (const el of roots) {
+    if (scanned.has(el)) continue;
+    scanned.add(el);
+    if (el.hasAttribute('data-pressable')) continue; // 手工标过的别再动，尊重作者写的 aria-label
+    const props = reactProps(el);
+    if (!props || typeof props.onClick !== 'function') continue;
+    el.setAttribute('role', 'button');
+    el.setAttribute('data-pressable', '1');
+    el.setAttribute('tabindex', '0');
+    const label = readableName(el);
+    if (label) el.setAttribute('aria-label', label);
+    n += 1;
+  }
+  return n;
+}
+
 /** 观察 DOM 变化，给新出现的可操作元素补 tabindex。返回 disconnect */
 export function observePressables(): () => void {
   if (typeof document === 'undefined' || typeof MutationObserver !== 'function') return () => {};
-  ensureFocusable();
-  const mo = new MutationObserver(() => {
+  const pending = new Set<Element>();
+  let scheduled = false;
+  const flush = () => {
+    scheduled = false;
+    const batch = [...pending];
+    pending.clear();
+    for (const el of batch) markClickableAsPressable(el);
     ensureFocusable();
+  };
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+    else setTimeout(flush, 16);
+  };
+
+  // 首屏已存在的节点扫一遍；之后只看新增子树（React 每次插入的都在里面）
+  markClickableAsPressable(document.body);
+  ensureFocusable();
+
+  const mo = new MutationObserver((records) => {
+    for (const r of records) {
+      r.addedNodes.forEach((n) => {
+        if (n.nodeType === 1 && !scanned.has(n as Element)) pending.add(n as Element);
+      });
+    }
+    if (pending.size) schedule();
   });
   mo.observe(document.body, { childList: true, subtree: true });
   return () => mo.disconnect();
