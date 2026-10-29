@@ -43,6 +43,13 @@ const quotaSrc = read('src/services/aiQuota.ts');
 const rulesSrc = read('src/services/aiQuotaRules.ts');
 const lang = read('src/store/language.ts');
 
+// ⚠️ 断言必须看在**未注释的代码**上：第一版直接把 `bumpLocalUsage();` 注释掉，
+//   字符串仍在文件里、A4/A5 照样通过 —— 变异测试当场抓出这个假绿。
+const assistantCode = assistant
+  .split('\n')
+  .filter((l) => !/^\s*\/\//.test(l))
+  .join('\n');
+
 const gateCallIdx = assistant.indexOf('const quota = await getAiQuota();');
 const sendingIdx = assistant.indexOf('setSending(true);', gateCallIdx);
 const bumpIdx = assistant.indexOf('bumpLocalUsage();');
@@ -51,16 +58,22 @@ const successPushIdx = assistant.indexOf("push('assistant', res.reply");
 assert('A1 发送路径上调用了额度闸门（getAiQuota）', gateCallIdx > 0, `idx=${gateCallIdx}`);
 assert('A2 闸门判据在 setSending(true) 之前（额度用尽不进入"发送中"）', gateCallIdx > 0 && sendingIdx > gateCallIdx);
 assert('A3 超限时弹窗引导去订阅，而不是静默失败', /ai\.quotaLimitTitle/.test(assistant) && /pages\/membership\/index/.test(assistant));
-assert('A4 记账在**成功回复之后**（失败不扣额度，与 cloudLlm 同口径）', bumpIdx > successPushIdx && successPushIdx > 0, `bump=${bumpIdx} push=${successPushIdx}`);
-assert('A5 记账只在这一处调用（避免双计）', assistant.split('bumpLocalUsage()').length - 1 === 1);
+const bumpCodeIdx = assistantCode.indexOf('bumpLocalUsage();');
+const successCodeIdx = assistantCode.indexOf("push('assistant', res.reply");
+assert(
+  'A4 记账在**成功回复之后**且真的存在（注释掉不算）',
+  bumpCodeIdx > successCodeIdx && successCodeIdx > 0,
+  `bump=${bumpCodeIdx} push=${successCodeIdx}`
+);
+assert('A5 记账只在这一处调用（避免双计）', assistantCode.split('bumpLocalUsage();').length - 1 === 1);
 assert('A6 云端计数带 kind=chat 且按日界区间查（不是按天字符串比）', /eq\('kind',\s*'chat'\)/.test(quotaSrc) && /gte\('created_at'/.test(quotaSrc) && /lt\('created_at'/.test(quotaSrc));
 assert('A7 云端查询用 count 查询（head:true，不拉全表）', /count:\s*'exact'/.test(quotaSrc) && /head:\s*true/.test(quotaSrc));
 assert('A8 云端失败返回 null 而不是 0', /return null;/.test(quotaSrc) && !/catch\s*\{[^}]*return 0;/.test(quotaSrc));
 assert('A9 中英文案都在（超限标题 + 含 {n} 的说明）', /'ai\.quotaLimitTitle'/.test(lang) && lang.split("'ai.quotaLimitContent'").length - 1 === 2 && /\{n\}/.test(lang));
 const appSrc = read('src/app.tsx');
 assert(
-  'A10b 订阅回放在启动链上（换设备/清缓存后付费权益自动恢复，不只靠会员页）',
-  /restoreSubscriptionFromOrders\(\)/.test(appSrc) && /initCloudSync\(\)\.then/.test(appSrc)
+  'A10b 订阅回放在启动链上且**未被条件包住**（换设备/清缓存后权益自动恢复）',
+  /^\s*void restoreSubscriptionFromOrders\(\)/m.test(appSrc) && /initCloudSync\(\)\.then/.test(appSrc)
 );
 assert('A10 免费额度常量是单一事实源（rules 定义，aiQuota 复用）', /FREE_CHAT_PER_DAY\s*=\s*20/.test(rulesSrc) && /from '\.\/aiQuotaRules'/.test(quotaSrc));
 
