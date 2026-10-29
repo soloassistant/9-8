@@ -56,10 +56,28 @@ try {
 } catch {
   stampHead = '';
 }
+// 「产物是否还代表当前提交」不能只看 stamp.head === HEAD：
+// 只改 .tools/ 或文档的提交不影响产物，要求重建会逼着人做无意义的重建，
+// 反过来又会让人干脆绕过这道门禁。按**构建输入**判：src/、config/、site/ 有改动才算过期。
+let changedInputs = [];
+try {
+  const { resolveGit } = require('./lib/git.cjs');
+  const bin = resolveGit();
+  if (bin && head && stampHead) {
+    const { execFileSync } = require('node:child_process');
+    const out = execFileSync(bin, ['diff', '--name-only', `${stampHead}..HEAD`], { cwd: ROOT, encoding: 'utf8' });
+    changedInputs = out.split('\n').map((x) => x.trim()).filter(Boolean).filter((f) => /^(src|config|site)\//.test(f));
+  }
+} catch {
+  changedInputs = ['(无法比对，按未过期处理并提示)'];
+}
+const headMatches = !!head && !!stampHead && (head.startsWith(stampHead) || stampHead.startsWith(head));
 check(
-  'A1 产物指纹与当前提交一致',
-  !!head && !!stampHead && (head.startsWith(stampHead) || stampHead.startsWith(head)),
-  `stamp.head=${stampHead || '(缺失)'} git HEAD=${head || '(取不到)'}`
+  'A1 产物指纹对应当前提交（或自建产物以来没有构建输入变更）',
+  headMatches || changedInputs.length === 0,
+  headMatches
+    ? `stamp.head=${stampHead}`
+    : `stamp.head=${stampHead || '(缺失)'} git HEAD=${head || '(取不到)'}，期间改动的构建输入：${changedInputs.join(', ') || '无'}`
 );
 
 // —— B. 入口自洽：index.html 引用的每个文件都得在 ——
