@@ -30,14 +30,19 @@ page {
 // ============================================================
 // H5 响应式适配（主动适应分辨率；weapp 端 rpx 由框架自行换算，选择器不匹配即无副作用）
 // ------------------------------------------------------------
-// 1) rem 基准随视口线性缩放：适配区间 375~500px（375px 视口 → 18.75px），
-//    500px 封顶后不再放大（避免桌面端字体巨大）。
-//    注意：上限必须写大写 PX 逃逸 Taro pxtransform（小写 px 会被误转成 rem，
-//    而 rem 在 html 自身上按浏览器默认 16px 解析，导致根字号被压缩到 ~10.67px）
-//    !important 用于压过 Taro flexible 脚本对 html fontSize 的内联设置
+// rem 基准：375px 设计宽 → 根字号 18.75px；窄于 375 随视口等比收缩，**宽于 400 就封顶**。
+//
+// ⚠️ 上限曾经是 500PX（等于 25px 根字号），2026-10-29 线上巡检判定为缺陷：
+//   视口一过 500，全站字号被统一放大 1.333 倍（正文 14 → 18.67px），
+//   iPad 上晨报标题撑成 3 行、首屏被吃掉 1/4，信息密度反而低于手机。
+//   大屏该靠「列变宽 + 断点加列」提密度，不该靠放大字号。
+//   现在 400 封顶 ⇒ 20px，相对手机只 +6.7%（正文 14 → 14.9px），不再有 1.333 倍跳变。
+//   注意：上限必须写大写 PX 逃过 Taro pxtransform（小写 px 会被转成 rem，
+//   而 rem 在 html 自身上按浏览器默认 16px 解析，导致根字号被压缩到 ~10.67px）
+//   !important 用于压过 Taro flexible 脚本对 html fontSize 的内联设置
 // ============================================================
 html {
-  font-size: calc(min(100vw, 500PX) / 20 * var(--ui-scale, 1)) !important;
+  font-size: calc(min(100vw, 400PX) / 20 * var(--ui-scale, 1)) !important;
 }
 
 @media (min-width: 500px) {
@@ -272,18 +277,48 @@ html {
   }
 }
 
-// 桌面带（≥1200px）：自绘左栏接管（DesktopNav，10 项），Taro tabBar 关掉。
-// 内容列在最宽 1200 的基础上整体右移 240 —— 只靠 margin:auto 会居中到整个视口，
-// 左边 240 会被固定定位的导航压住。
-@media (min-width: 1200px) {
+// ============================================================
+// 外壳导航接管（≥600px）：自绘左栏 DesktopNav（10 项）取代 Taro tabBar
+// ------------------------------------------------------------
+// 为什么换掉 Taro tabBar：`app.config.ts` 的 tabBar 最多 5 项、不能分组、不能加计数。
+// 后果非常具体 —— 768 的 iPad 与 1440 的桌面共用同一套外壳时，iPad 只有 5 个入口，
+// 记账 / 运动 / 省钱全埋在「我的」九宫格里（2026-10-29 线上巡检）。
+// 自绘栏从 600 起就是同一份 10 项，只按断点改宽度，与 p49 的左栏表一致：
+//     600-747   64PX  图标栏（隐藏文字）
+//     748-1199  232PX 全量
+//     ≥1200     240PX 全量
+// 内容列宽度不变（各档的 min(100vw - navW - 间距, 上限) 本来就按 navW 算的），
+// 所以这次只换「谁画导航」，不动版式。
+// ============================================================
+@media (min-width: 600px) {
   body.has-desktop-nav .taro-tabbar__tabbar {
     display: none !important;
   }
   body.has-desktop-nav .taro-tabbar__container {
-    padding-left: 240PX;
+    padding-left: 64PX;
   }
   // 晨报/交易终端自己就是整屏版式（DesktopNav 在这两个页面已隐藏），
-  // 不能再让出 240 —— 否则内容整体右移，右下角空出一条。
+  // 不能再让出左栏 —— 否则内容整体右移，右下角空出一条。
+  body.has-desktop-nav.briefing-desktop .taro-tabbar__container,
+  body.has-desktop-nav.trade-terminal .taro-tabbar__container {
+    padding-left: 0;
+  }
+}
+@media (min-width: 748px) {
+  body.has-desktop-nav .taro-tabbar__container {
+    padding-left: 232PX;
+  }
+  body.has-desktop-nav.briefing-desktop .taro-tabbar__container,
+  body.has-desktop-nav.trade-terminal .taro-tabbar__container {
+    padding-left: 0;
+  }
+}
+
+// 桌面带（≥1200px）：左栏再加宽到 240，面板上限放到 1200
+@media (min-width: 1200px) {
+  body.has-desktop-nav .taro-tabbar__container {
+    padding-left: 240PX;
+  }
   body.has-desktop-nav.briefing-desktop .taro-tabbar__container,
   body.has-desktop-nav.trade-terminal .taro-tabbar__container {
     padding-left: 0;

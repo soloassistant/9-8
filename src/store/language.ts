@@ -228,7 +228,9 @@ const zh = {
   // 用户读完应该知道自己省了什么。原版全是形容词（不限次/无限量/优先体验），
   // **没有一项可验证** —— 对比代码 voiceQuota:20 / collectionQuota:50 才知道差在哪。
   'mine.subDesc': '语音每月 20 条 → 不限次 · 收藏 50 条 → 不限量 · 含习惯守护',
-  'mine.freeUser': '免费版用户',
+  'briefing.brandTagline': '把明天，安排明白',
+  'mine.noNickname': '未设置昵称',
+  'mine.freeUser': '免费版',
   'mine.earlyBirdBadge': '早鸟会员',
   'mine.memberBadge': '订阅会员',
   'mine.priceNote': '/月 起 · 前 500 名锁价（早鸟价）',
@@ -320,7 +322,7 @@ const zh = {
   'briefing.navMine': '我的',
   'briefing.navTrade': '交易',
   'briefing.helpers': '快捷入口',
-  'briefing.freePlan': '免费档',
+  'briefing.freePlan': '免费版',
   'briefing.chatHint': '和助理说点什么，或按住麦克风说话',
   'briefing.aiTag': '— AI 生成内容，仅供参考 —',
   'briefing.inputPlaceholder': '说点什么…', // D2：原长文案在 414px 手机宽度下被截断（2026-10-21 视觉巡检复现），按问题总表解法改短
@@ -857,13 +859,13 @@ const zh = {
   'mine.assistantDesc': '对话、排程、语音与记忆',
   'mine.manageSub': '管理订阅',
   'mine.foldHabit': '习惯守护与最近动态',
-  'mine.subStatusNone': '未订阅',
-  'mine.subStatusNoneHint': '当前为免费档',
+  'mine.subStatusNone': '免费版',
+  'mine.subStatusNoneHint': '当前为免费版',
   'mine.subStatusActive': '订阅有效至 {date}',
   'mine.subStatusExpiring': '还剩 {n} 天',
   'mine.subStatusExpired': '已过期 {n} 天',
   'mine.subStatusToday': '今天到期',
-  'mine.quotaShort': '本月语音 {used}/{quota}',
+  'mine.quotaShort': '语音 {used}/{quota} 次',
 
   /* ---- 键盘快捷键（2026-10-27，桌面端 H5） ----
      这些 key 由 src/utils/hotkeys.ts 的 HOTKEYS[].labelKey 直接引用，
@@ -1443,7 +1445,8 @@ const en: Record<keyof typeof zh, string> = {
   'mine.docRead': "I've read it",
   'mine.badgeSubscribed': 'Subscribed',
   'mine.subDesc': 'Voice 20/month → unlimited · saves 50 → unlimited · habit guard included',
-  'mine.freeUser': 'Free plan user',
+  'mine.noNickname': 'No nickname set',
+  'mine.freeUser': 'Free plan',
   'mine.earlyBirdBadge': 'Early Bird Member',
   'mine.memberBadge': 'Subscriber',
   'mine.priceNote': '/mo starting · first 500 locked price (early-bird)',
@@ -1530,6 +1533,7 @@ const en: Record<keyof typeof zh, string> = {
   'briefing.navMine': 'Me',
   'briefing.navTrade': 'Trading',
   'briefing.helpers': 'Quick Access',
+  'briefing.brandTagline': 'Plan tomorrow tonight',
   'briefing.freePlan': 'Free plan',
   'briefing.chatHint': 'Talk to me, or hold the mic to speak',
   'briefing.aiTag': '— AI-generated content, for reference only —',
@@ -2048,13 +2052,13 @@ const en: Record<keyof typeof zh, string> = {
   'mine.assistantDesc': 'Chat, scheduling, voice and memory',
   'mine.manageSub': 'Manage',
   'mine.foldHabit': 'Habit guard and recent activity',
-  'mine.subStatusNone': 'Not subscribed',
-  'mine.subStatusNoneHint': 'Currently on the free tier',
+  'mine.subStatusNone': 'Free plan',
+  'mine.subStatusNoneHint': 'Currently on the free plan',
   'mine.subStatusActive': 'Active until {date}',
   'mine.subStatusExpiring': '{n} days left',
   'mine.subStatusExpired': 'Expired {n} days ago',
   'mine.subStatusToday': 'Expires today',
-  'mine.quotaShort': 'Voice this month {used}/{quota}',
+  'mine.quotaShort': 'Voice {used}/{quota} this month',
 
   /* ---- Keyboard shortcuts (2026-10-27, desktop H5) ---- */
   'hotkeys.title': 'Keyboard shortcuts',

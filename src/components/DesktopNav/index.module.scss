@@ -1,14 +1,19 @@
 @use '@/styles/variables.scss' as *;
 
 // ============================================================
-// 桌面左栏导航（≥1200px）。低于该宽度整块不渲染（app.tsx 也按断点挂载），
-// 窄屏继续用 Taro tabBar，两条路径不重叠。
+// 外壳左栏导航（≥600px）。低于 600 不渲染（app.tsx 按断点挂载），
+// 手机继续用 Taro 的底部 tabBar，两条路径不重叠。
+// ------------------------------------------------------------
+// 分档与 p49 的左栏表一致：600-747 图标栏 64 / 748-1199 全量 232 / ≥1200 全量 240。
+// 图标栏不做「只显示 5 项」的缩水 —— 项数恒定 10，变窄只收文字。
+// ⚠️ 顺序：基础样式在前、媒体查询在后。反过来的话 `.groupLabel { display:block }`
+//   会盖掉图标栏里的 `display:none`（同权重、后者胜）。
 // ============================================================
 .nav {
   display: none;
 }
 
-// 晨报页与交易终端在 ≥1024px 已经有自己的版式（briefing 有 200px 侧栏、终端占满窗口），
+// 晨报页与交易终端在 ≥1024px 已经有自己的版式（briefing 有侧栏、终端占满窗口），
 // 它们会在 body 上打类。这里必须让位，否则 1440 下会出现两条左侧导航叠着。
 // 注意 :global 要包住完整选择器，否则 .briefing-desktop 会被 CSS Module 改名。
 :global(body.briefing-desktop) .nav,
@@ -16,29 +21,10 @@
   display: none !important;
 }
 
-@media (min-width: 1200px) {
-  .nav {
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 20;
-    display: flex;
-    flex-direction: column;
-    width: 240PX;
-    padding: 20PX 12PX 16PX;
-    box-sizing: border-box;
-    background: $color-bg-header;
-    border-right: 1PX solid $color-card-border;
-    overflow-y: auto;
-  }
-}
-
 .brandRow {
   display: flex;
   align-items: center;
   gap: 10PX;
-  padding: 0 8PX 18PX;
 }
 
 .logo {
@@ -47,6 +33,7 @@
   justify-content: center;
   width: 34PX;
   height: 34PX;
+  flex-shrink: 0;
   border-radius: 10PX;
   background: $color-primary;
 }
@@ -66,6 +53,9 @@
   font-size: 14PX;
   font-weight: $font-weight-semibold;
   color: $color-text-primary;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .brandDate {
@@ -78,7 +68,6 @@
 .group {
   display: flex;
   flex-direction: column;
-  gap: 2PX;
 }
 
 .groupLabel {
@@ -93,7 +82,6 @@
   display: flex;
   align-items: center;
   gap: 10PX;
-  padding: 9PX 10PX;
   border-radius: 8PX;
   cursor: pointer;
   transition: background-color 120ms ease;
@@ -124,4 +112,69 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (min-width: 600px) {
+  .nav {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    width: 64PX;
+    padding: 18PX 8PX 16PX;
+    box-sizing: border-box;
+    background: $color-bg-header;
+    border-right: 1PX solid $color-card-border;
+    overflow-y: auto;
+  }
+  // 窄栏：只留 logo 一个字，文字全部收起
+  .brandRow {
+    justify-content: center;
+    padding: 0 0 16PX;
+  }
+  .brandMeta,
+  .groupLabel,
+  .label {
+    display: none;
+  }
+  .group {
+    gap: 4PX;
+  }
+  .item {
+    justify-content: center;
+    padding: 12PX 0;
+  }
+}
+
+// 全量栏（748 起）：文字回来，图标左对齐
+@media (min-width: 748px) {
+  .nav {
+    width: 232PX;
+    padding: 20PX 12PX 16PX;
+  }
+  .brandRow {
+    justify-content: flex-start;
+    padding: 0 8PX 18PX;
+  }
+  .brandMeta,
+  .groupLabel,
+  .label {
+    display: block;
+  }
+  .group {
+    gap: 2PX;
+  }
+  .item {
+    justify-content: flex-start;
+    padding: 9PX 10PX;
+  }
+}
+
+@media (min-width: 1200px) {
+  .nav {
+    width: 240PX;
+  }
 }

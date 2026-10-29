@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Input, Image, Button } from '@tarojs/components';
 import Taro, { useShareAppMessage, useDidHide, useDidShow } from '@tarojs/taro';
+import { isPageForeground } from '@/utils/pageRoute';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
 import TagChip from '@/components/TagChip';
@@ -436,6 +437,8 @@ function LibraryPage() {
 
   /** 页面隐藏时补一次上报：兜住「上了云但还没到防抖窗口就切走」的情况 */
   useDidHide(() => {
+    // 详情右栏的占位规则必须随页面一起收回（tab 页不卸载，不清就会压到别的页面上）
+    if (process.env.TARO_ENV === 'h5') document.body.classList.remove('has-detail-rail');
     if (affinitySyncTimer.current) {
       clearTimeout(affinitySyncTimer.current);
       affinitySyncTimer.current = null;
@@ -508,6 +511,10 @@ function LibraryPage() {
   }, []);
 
   useDidShow(() => {
+    // 切回本页时详情还开着就补挂占位规则（必须在下面的「60s 新鲜窗口」提前 return 之前）
+    if (process.env.TARO_ENV === 'h5' && article) {
+      document.body.classList.toggle('has-detail-rail', isPageForeground('pages/library/index'));
+    }
     // 最近浏览不受新鲜窗口限制：本页自己写的记录（点击资讯卡）与外部入口的展开标记都要即时反映
     refreshRecent();
     consumeOpenHistoryFlag();
@@ -995,9 +1002,14 @@ function LibraryPage() {
    *  **不抓取正文页** —— 合规口径「不转载正文只出摘要」不变；想看全文走「阅读原文」。 */
   // 详情打开时给 body 打类：≥1024px 由 app.scss 把内容列右边界收到 360px，
   // 让右侧详情栏**真的占位**而不是盖在列表上（否则标题会被截掉一半）。
+  // ⚠️ 本页是 tab 页，切走**不卸载**：只靠 effect 的 cleanup 收不回 body 类，
+  // 于是「打开详情 → 点左栏去别的页」会让那些页继续按详情版式收窄 720，
+  // 在 1440 下被 240 宽的左栏压住（2026-10-29 桌面逐页扫描）。
+  // 所以三处都要：effect（详情开关）、didHide（切走收回）、didShow（切回补挂）。
   useEffect(() => {
     if (process.env.TARO_ENV !== 'h5') return;
-    document.body.classList.toggle('has-detail-rail', !!article);
+    const on = !!article && isPageForeground('pages/library/index');
+    document.body.classList.toggle('has-detail-rail', on);
     return () => document.body.classList.remove('has-detail-rail');
   }, [article]);
 

@@ -23,6 +23,7 @@ import { guardHabitsOnOpen, commitHabitGuards, listRestorableRecords, undoHabitG
 import type { HabitGuardRecord } from '@/utils/habit';
 import { locateCity } from '@/services/location';
 import { openExternalPage } from '@/utils/externalLink';
+import { isPageForeground } from '@/utils/pageRoute';
 import {
   ensurePermission,
   isDeniedDegraded,
@@ -452,7 +453,7 @@ function BriefingPage() {
     const mq = window.matchMedia('(min-width: 1024px)');
     desktopMqRef.current = mq;
     const apply = () => {
-      if (mq.matches) document.body.classList.add('briefing-desktop');
+      if (mq.matches && isPageForeground('pages/briefing/index')) document.body.classList.add('briefing-desktop');
       else document.body.classList.remove('briefing-desktop');
     };
     apply();
@@ -533,7 +534,9 @@ function BriefingPage() {
   useDidShow(() => {
     stopSpeak();
     // 桌面三栏：从别的 tab 回到晨报页时恢复面板限宽豁免（卸载不发生，必须在 show 里补挂）
-    if (isH5 && desktopMqRef.current?.matches) document.body.classList.add('briefing-desktop');
+    if (isH5 && desktopMqRef.current?.matches && isPageForeground('pages/briefing/index')) {
+      document.body.classList.add('briefing-desktop');
+    }
     // 记账呈报：每次进入前台都重读（而不是只读一次）——
     // 用户可能在别的页面（购物页/我的页）之外直接加了一笔，也可能跨了零点。
     void (async () => {
@@ -1091,7 +1094,10 @@ function BriefingPage() {
           </View>
           <View className={styles.sideBrandText}>
             <Text className={styles.sideBrandTitle}>{t('app.title')}</Text>
-            <Text className={styles.sideBrandSub}>{t('share.title')}</Text>
+            {/* 副标题只能是**标语**，不能又写一遍产品名：share.title 是「私人晨报助理 · 把明天，
+                安排明白」，和上面的标题重复一次，再被 200px 宽度挤成两行 + 一行省略号，
+                同一个名字在左栏出现三遍（2026-10-29 巡检截图）。 */}
+            <Text className={styles.sideBrandSub}>{t('briefing.brandTagline')}</Text>
           </View>
         </View>
         <View className={styles.sideNavList}>
@@ -1125,7 +1131,9 @@ function BriefingPage() {
               <Text className={styles.sideUserAvatarText}>{(displayName || '晨').slice(0, 1)}</Text>
             </View>
             <View className={styles.sideUserMeta}>
-              <Text className={styles.sideUserName}>{displayName || t('briefing.freePlan')}</Text>
+              {/* ⚠️ 昵称缺失时不能拿「免费档」当名字：下一行本来就写着档位，
+                  两行都显示「免费档」，读起来像渲染残留。*/}
+              <Text className={styles.sideUserName}>{displayName || t('mine.noNickname')}</Text>
               <Text className={styles.sideUserPlan}>
                 {profile.subscribed ? t('mine.badgeSubscribed') : t('briefing.freePlan')}
               </Text>

@@ -126,12 +126,14 @@ function App(props: PropsWithChildren) {
   // 首次启动引导（设计稿 p19/p20）：只在 H5 且有真实账号体系时才有意义，
   // 看过一次就落库，不再骚扰（微信端直接视为已看过）。
   const [onboarded, setOnboarded] = useState(() => process.env.TARO_ENV !== 'h5' || hasOnboarded());
-  // 桌面自绘左栏：只在 H5 + ≥1200px 挂载（窄屏继续用 Taro tabBar）。
-  // 同时给 body 打类，让 app.scss 把 Taro tabBar 关掉并把内容列整体右移 240。
+  // 外壳左栏导航：H5 + ≥600px 挂载（手机继续用 Taro 底部 tabBar）。
+  // 同时给 body 打类，让 app.scss 把 Taro tabBar 关掉并把内容列按断点右移（64/232/240）。
+  // 断点从 1200 降到 600 的原因：Taro tabBar 最多 5 项，768 的 iPad 上记账/运动/省钱
+  // 全没有入口（2026-10-29 线上巡检）；自绘栏从 600 起就是同一份 10 项。
   const [desktopNav, setDesktopNav] = useState(false);
   useEffect(() => {
     if (process.env.TARO_ENV !== 'h5' || typeof window.matchMedia !== 'function') return;
-    const mq = window.matchMedia('(min-width: 1200px)');
+    const mq = window.matchMedia('(min-width: 600px)');
     const apply = () => {
       setDesktopNav(mq.matches);
       document.body.classList.toggle('has-desktop-nav', mq.matches);

@@ -969,7 +969,7 @@
   .page {
     display: flex;
     align-items: flex-start;
-    gap: 64rpx;
+    gap: 48PX;
     max-width: 1280PX; // 大写 PX 逃过 pxtransform（小写 1280px 曾被换算成 853px 等效 rem）
     margin: 0 auto;
     padding: 64rpx 48rpx calc(#{$page-pad-bottom-tab} + #{$spacing-lg});
@@ -984,7 +984,10 @@
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    width: 300rpx; // ≈200px，参考稿左栏宽
+    // ⚠️ 用大写 PX 而不是 300rpx：原写法是"根字号 25px 时的 200px"，
+    // 根字号 2026-10-29 封顶改成 20px 后，同一句会缩到 160px —— 版式跟着字号一起缩水，
+    // 品牌名被挤成两行、标语被省略号吃掉。栏宽是版式尺寸，不该随字号档位变化。
+    width: 200PX;
     position: sticky;
     top: 0;
     min-height: 72vh;
@@ -994,13 +997,13 @@
   .rightRail {
     display: block;
     flex-shrink: 0;
-    width: 390rpx; // ≈260px，参考稿右栏宽
+    width: 260PX; // 同理：原 390rpx = 25px 根字号下的 260px
     position: sticky;
     top: 0;
   }
 
-  // 根字号在 ≥500px 视口封顶为 25px（rpx 会同比放大 1.33 倍），
-  // 问候标题按参考稿回落到 26px 档（40rpx×0.667≈26.7px）
+  // 根字号现在 ≥400px 就封顶 20px（不再放大 1.333 倍），rpx 与 PX 在这一档的比例
+  // 固定为 0.0267rem/rpx；问候标题仍按参考稿的 26px 档给，不随视口变。
   .greeting {
     font-size: $font-size-xxl;
   }

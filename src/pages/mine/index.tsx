@@ -1151,11 +1151,15 @@ function MinePage() {
               显示一个名字，等于让用户以为"登录好了"—— 这正是本轮在修的"假身份"问题本身。
               空串只是没有名字，不是错误声明。（`07:30` 那处不同：那是应用的默认值，不是身份。） */}
           <Text className={styles.nickname}>{profile?.nickname || ''}</Text>
-          <Text className={styles.userMeta}>
-            {profile?.subscribed && profile?.expiredAt
-              ? `订阅至 ${profile.expiredAt.slice(0, 10)}`
-              : t('mine.freeUser')}
-          </Text>
+          {/* 档位只在一个地方说：卡片这里只写**到期日**（只有订阅才有），
+              免费版的「免费版」统一交给下方订阅条 —— 原来昵称下写「免费版用户」、
+              订阅条写「未订阅」、额度写「本月语音 0/20」，同一件事三种说法并排出现
+              （2026-10-29 线上巡检）。 */}
+          {profile?.subscribed && profile?.expiredAt ? (
+            <Text className={styles.userMeta}>
+              {t('mine.subStatusActive', { date: profile.expiredAt.slice(0, 10) })}
+            </Text>
+          ) : null}
         </View>
         {profile?.subscribed ? (
           <View className={styles.subBadge}>
@@ -1212,7 +1216,11 @@ function MinePage() {
               : t('mine.quotaUnlimited')}
           </Text>
         </View>
-        <Text className={styles.subBarAction}>{t('mine.manageSub')} ›</Text>
+        {/* 免费版用户的按钮不能写「管理订阅」——没有订阅可管理，点了只会进一个推销页。
+            两个状态分别给对应动作，跳转目标仍是同一个会员中心。 */}
+        <Text className={styles.subBarAction}>
+          {profile?.subscribed ? t('mine.manageSub') : t('mine.subscribe')} ›
+        </Text>
       </View>
 
       {/* 习惯守护与近期动态（2026-10-25 折叠 / 2026-10-26 改名）：
