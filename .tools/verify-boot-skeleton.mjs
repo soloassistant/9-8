@@ -148,7 +148,8 @@ if (NO_BROWSER) {
    *  opts.failChunks=1 时用 Fetch 域**精确失败数字前缀的分包**，模拟「切页时分包取不到」。 */
   async function openPage(js, opts) {
     const failChunks = !!(opts && opts.failChunks);
-    const dbgPort = port + 100 + js + (failChunks ? 10 : 0);
+    const hangChunks = !!(opts && opts.hangChunks);
+    const dbgPort = port + 100 + js + (failChunks ? 10 : 0) + (hangChunks ? 20 : 0);
     const udd = path.join(os.tmpdir(), `bs-${Date.now()}-${js}`);
     const child = spawn(CHROME, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
       '--disable-extensions', '--no-proxy-server', `--remote-debugging-port=${dbgPort}`,
@@ -177,7 +178,7 @@ if (NO_BROWSER) {
     };
     await send('Page.enable');
     await send('Runtime.enable');
-    if (failChunks) {
+    if (failChunks || hangChunks) {
       // ⚠️ 不能用 Network.setBlockedURLs(['*/js/[0-9]*.js'])：它只支持 * 和 ?，
       //    字符类会被当字面量 —— 实测一个请求都没拦到，却得出「页面正常」的假结论。
       // ⚠️ 也不能按时间（"导航 3 秒后才拦"）：分包在启动过程中就可能被拦到，
@@ -189,6 +190,9 @@ if (NO_BROWSER) {
         const m = JSON.parse(e.data);
         if (m.method !== 'Fetch.requestPaused') return;
         const { requestId, request } = m.params;
+        if (hangChunks && /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(request.url)) {
+          return; // 挂着不回：模拟「很慢但没失败」
+        }
         if (startFailing && /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(request.url)) {
           send('Fetch.failRequest', { requestId, errorReason: 'Failed' });
         } else {
@@ -306,6 +310,37 @@ if (NO_BROWSER) {
   failPage.close();
   assert('B10 点重试真的重载且带 cache-busting（URL 出现 r= 时间戳）',
     /[?&]r=\d{10,}/.test(afterHref), afterHref);
+  // B11–B13：分包**挂起不返回**（慢，不是失败）—— 冷启动直接进该页时必须留在骨架上。
+  //   这不是我猜的：实测冷启动 + 挂起分包，6s/10s/16s 三次采样都是
+  //   节点 0、骨架在、进度停在 706 KB / 898 KB，10s 后自动出「网络似乎卡住了」。
+  //   也就是说「什么都没有」这个最坏形态被骨架挡住了 —— 这条断言把它钉住。
+  const hangPage = await openPage(1, { hangChunks: 1 });
+  await new Promise((r) => setTimeout(r, 6000));
+  const h1 = JSON.parse(String(await hangPage.ev(`JSON.stringify({
+    nodes: document.querySelectorAll('taro-view-core,taro-text-core').length,
+    skeleton: !!document.getElementById('boot-skeleton'),
+    text: (document.body.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 60)
+  })`)));
+  assert('B11 分包挂起时骨架不撤（用户看到进度，而不是空白页）',
+    h1.skeleton === true && h1.nodes === 0, JSON.stringify(h1).slice(0, 140));
+
+  await new Promise((r) => setTimeout(r, 6000));
+  const h2 = JSON.parse(String(await hangPage.ev(`(() => {
+    const skel = document.getElementById('boot-skeleton');
+    const btn = document.querySelector('#boot-skeleton .bs-retry');
+    const r = btn ? btn.getBoundingClientRect() : null;
+    return JSON.stringify({
+      cls: skel ? String(skel.className) : '',
+      text: (document.body.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 80),
+      retryVisible: !!(r && r.width > 0 && r.height > 0)
+    });
+  })()`)));
+  assert('B12 挂起 12s 后进入「卡住」态并给出人话文案',
+    /is-stall|is-fail/.test(h2.cls) && /卡住|没能加载|慢/.test(h2.text), JSON.stringify(h2).slice(0, 160));
+  assert('B13 该状态下有可见的重试按钮（用户能自己救，不必干等）',
+    h2.retryVisible === true, String(h2.text));
+  hangPage.close();
+
   server.close();
 }
 
