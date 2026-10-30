@@ -65,6 +65,18 @@ export default [
     cmd: 'node .tools/verify-live-bridge.mjs'
   },
   {
+    // 2026-10-30：上面那条变异第一版是 NOT-CAUGHT —— 因为 C2 判的是
+    // `includes('media:content')`，改成 `media:contentX` 之后子串还在 ⇒ 照样绿。
+    // 补了行为层断言（C2b：真求值 pickImage，每路只给一个只含该路的块）之后才抓住。
+    // 这一条再打「另一路」：enclosure 的「url 在 type 前」那种写法，
+    // 源码里那句正则改一个字就会让一半 enclosure 源抽不到图。
+    label: '抽图的 enclosure 路只认「type 在 url 前」（另一半 enclosure 源抽不到图）',
+    file: '.tools/fetch-data.js',
+    from: "/<enclosure[^>]*url=[\"']([^\"']+)[\"'][^>]*type=[\"'][^\"']*image/i",
+    to: "/<enclosureXX[^>]*url=[\"']([^\"']+)[\"'][^>]*type=[\"'][^\"']*image/i",
+    cmd: 'node .tools/verify-live-bridge.mjs'
+  },
+  {
     label: '机构表漏登记 NASA Science（同一家 NASA 的两个 feed 被当成两家媒体 ⇒ alsoFrom 假信号）',
     file: 'cloudfunctions/webSearch/cross-source.js',
     from: "  'NASA Science': 'NASA',",
