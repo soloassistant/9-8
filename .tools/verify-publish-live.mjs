@@ -186,10 +186,14 @@ try {
     while (Date.now() - t0 < MOUNT_TIMEOUT_MS) {
       await sleep(2000);
       m = await ev(MEASURE);
-      if (m && (m.container || (m.appKids > 0))) { mounted = true; break; }
+      // ⚠️ 别用 `#container 存在` 判挂载：它是 index.html 里的**静态 div**，解析完就有，
+      //    于是循环在第一次采样（2s）就 break，后面三条断言全在启动瞬间取样 ——
+      //    实测因此两次误红（一次 opacity=0.098 正在淡出，一次 opacity=1、进度才 100KB/899KB）。
+      //    真正的判据是「#app 有内容 且 骨架已撤」。
+      if (m && m.appKids > 0 && !m.skel) { mounted = true; break; }
     }
     const secs = Math.round((Date.now() - t0) / 1000);
-    ok(`⑤ 页面在 ${Math.round(MOUNT_TIMEOUT_MS / 1000)}s 内真的挂载（#container 存在 / #app 有内容）`, mounted, `耗时 ${secs}s；${JSON.stringify(m)}`);
+    ok(`⑤ 页面在 ${Math.round(MOUNT_TIMEOUT_MS / 1000)}s 内真的挂载（#app 有内容且骨架已撤）`, mounted, `耗时 ${secs}s；${JSON.stringify(m)}`);
     ok('⑤ 首屏骨架已被移除（不再全屏遮挡）', !m || !m.skel, `骨架仍在 DOM，opacity=${m && m.skelOpacity}`);
     const stillSkeleton = m && /正在准备今天的晨报|加载得有点慢/.test(m.bodyText || '');
     ok('⑤ 页面显示的是真实界面而不是骨架文案', !stillSkeleton, `body="${m && m.bodyText}"`);
