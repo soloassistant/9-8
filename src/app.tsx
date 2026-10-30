@@ -18,6 +18,7 @@ import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
 import { initCloudSync } from '@/services/cloudSync';
 import { restoreSubscriptionFromOrders } from '@/services/subscription';
 import { dismissBootSkeletonAfterPaint } from '@/utils/bootSkeleton';
+import { showBootFailure } from '@/utils/bootFailure';
 import { activatePressable, observePressables } from '@/utils/a11y';
 import { reportCrash, installH5CrashHandlers } from '@/services/crashReport';
 import type { CrashPayload } from '@/services/crashReport';
@@ -232,22 +233,36 @@ function App(props: PropsWithChildren) {
         }
       })();
       if (inBoot) {
-        // 启动期：把骨架切到失败态，让用户看到「没加载出来」+ 能重试，而不是无限刷新
-        console.error('[App] 启动期资源加载失败（不整页重载，交由骨架的失败态处理）:', scriptFailed ? 'script' : msg);
+        // 启动期：优先交给骨架的失败态（它带进度与重试），骨架不在就直接插兜底层。
+        // ⚠️ 骨架在**应用挂载成功那一刻就被撤掉了**，而最常见的失败恰恰发生在挂载之后
+        //    （外壳起来了、切页的分包挂了）—— 那时 `skel` 为 null，原来这里静默无效：
+        //    实测掐掉 js/855.*.js 后用户看到的是一个没有内容、没有提示、没有重试的页面。
+        console.error('[App] 启动期资源加载失败:', scriptFailed ? 'script' : msg);
+        let handedToSkeleton = false;
         try {
           const skel = document.getElementById('boot-skeleton');
-          if (skel) skel.classList.add('is-fail');
+          if (skel) {
+            skel.classList.add('is-fail');
+            handedToSkeleton = true;
+          }
         } catch {
-          /* DOM 不可用就只记日志 */
+          /* DOM 不可用就走兜底层 */
         }
+        if (!handedToSkeleton) showBootFailure(scriptFailed ? 'script onerror' : msg);
         return;
       }
       try {
         const last = Number(window.sessionStorage.getItem(KEY) || 0);
-        if (Date.now() - last < 15000) return;
+        if (Date.now() - last < 15000) {
+          // 已经在 15s 内救过一次还失败 = 不是版本漂移，再刷就是刷屏死循环。
+          // 以前这里直接 return（用户面对一个空白页无路可走），改成给一个能点的重试。
+          showBootFailure(`二次失败，放弃自动重载：${msg}`);
+          return;
+        }
         window.sessionStorage.setItem(KEY, String(Date.now()));
       } catch {
-        return; // sessionStorage 被禁（隐私模式）：不重载，避免无记录的死循环
+        showBootFailure('sessionStorage 不可用，无法安全自动重载');
+        return;
       }
       console.error('[App] chunk 加载失败，重载一次以获取最新版本:', scriptFailed ? 'script' : msg);
       window.location.reload();

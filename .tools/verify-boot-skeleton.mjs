@@ -89,7 +89,9 @@ assert(
 );
 
 /* ───────────── A'. 产物层 ───────────── */
-const DIST = path.join(ROOT, 'dist');
+/** --dist= 可指定别的产物目录（用来对旧产物证明断言有判别力） */
+const DIST_ARG = (process.argv.find((a) => a.startsWith('--dist=')) || '').slice(7);
+const DIST = DIST_ARG || path.join(ROOT, 'dist');
 const distHtmlPath = path.join(DIST, 'index.html');
 const hasDist = fs.existsSync(distHtmlPath);
 if (hasDist) {
@@ -142,16 +144,19 @@ if (NO_BROWSER) {
   const port = 9700 + Math.floor(Math.random() * 40);
   await new Promise((r) => server.listen(port, '127.0.0.1', r));
 
-  /** 打开一页；js=0 表示禁用脚本执行（证明骨架不依赖 JS） */
-  async function openPage(js) {
+  /** 打开一页；js=0 表示禁用脚本执行（证明骨架不依赖 JS）
+   *  opts.failChunks=1 时用 Fetch 域**精确失败数字前缀的分包**，模拟「切页时分包取不到」。 */
+  async function openPage(js, opts) {
+    const failChunks = !!(opts && opts.failChunks);
+    const dbgPort = port + 100 + js + (failChunks ? 10 : 0);
     const udd = path.join(os.tmpdir(), `bs-${Date.now()}-${js}`);
     const child = spawn(CHROME, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-      '--disable-extensions', '--no-proxy-server', `--remote-debugging-port=${port + 100 + js}`,
+      '--disable-extensions', '--no-proxy-server', `--remote-debugging-port=${dbgPort}`,
       `--user-data-dir=${udd}`, '--window-size=390,844', 'about:blank'], { stdio: 'ignore' });
     let wsUrl;
     for (let i = 0; i < 80; i++) {
       try {
-        const l = await (await fetch(`http://127.0.0.1:${port + 100 + js}/json/list`)).json();
+        const l = await (await fetch(`http://127.0.0.1:${dbgPort}/json/list`)).json();
         const p = l.find((t) => t.type === 'page');
         if (p) { wsUrl = p.webSocketDebuggerUrl; break; }
       } catch { /* 端口还没起 */ }
@@ -160,6 +165,7 @@ if (NO_BROWSER) {
     const ws = new globalThis.WebSocket(wsUrl);
     await new Promise((r) => (ws.onopen = r));
     let id = 0;
+    let navAt = 0;
     const pending = new Map();
     ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
     const send = (m, p = {}) => { const i = ++id; ws.send(JSON.stringify({ id: i, method: m, params: p })); return new Promise((r) => pending.set(i, r)); };
@@ -170,9 +176,34 @@ if (NO_BROWSER) {
     };
     await send('Page.enable');
     await send('Runtime.enable');
+    if (failChunks) {
+      // ⚠️ 不能用 Network.setBlockedURLs(['*/js/[0-9]*.js'])：它只支持 * 和 ?，
+      //    字符类会被当字面量 —— 实测一个请求都没拦到，却得出「页面正常」的假结论。
+      // 只掐**导航 3 秒之后**才请求的数字分包：那时外壳早已挂载、骨架已撤，
+      // 正是「切页时分包取不到」这个最真实、也最没兜底的失败形态。
+      await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
+      ws.addEventListener('message', (e) => {
+        const m = JSON.parse(e.data);
+        if (m.method !== 'Fetch.requestPaused') return;
+        const { requestId, request } = m.params;
+        const late = navAt > 0 && Date.now() - navAt > 3000;
+        if (late && /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(request.url)) {
+          send('Fetch.failRequest', { requestId, errorReason: 'Failed' });
+        } else {
+          send('Fetch.continueRequest', { requestId });
+        }
+      });
+    }
     await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     if (!js) await send('Emulation.setScriptExecutionDisabled', { value: true });
-    await send('Page.navigate', { url: `http://127.0.0.1:${port}/` });
+    // failChunks 这一路必须注入会话桩：否则应用直接跳登录页，压根不会请求页面分包，
+    // 失败态永远测不到（第一版就是这么「失败」的 —— 其实是没走到那条路径）。
+    if (failChunks) {
+      await send('Page.addScriptToEvaluateOnNewDocument', { source: fs.readFileSync(path.join(ROOT, '.tools/cdp-probe-session.js'), 'utf8') });
+      await send('Page.addScriptToEvaluateOnNewDocument', { source: `try{localStorage.setItem('onboarded-v2', JSON.stringify({data:true}));localStorage.setItem('privacy-consent', JSON.stringify({data:true}));}catch(e){}` });
+    }
+    navAt = Date.now();
+    await send('Page.navigate', { url: `http://127.0.0.1:${port}/${failChunks ? '#/pages/library/index' : ''}` });
     await new Promise((r) => setTimeout(r, js ? 9000 : 2500));
     return { ev, close: () => { try { ws.close(); } catch { /* 已关 */ } child.kill(); } };
   }
@@ -223,12 +254,46 @@ if (NO_BROWSER) {
     });
   })()`);
   withJs.close();
-  server.close();
   const s2 = JSON.parse(String(withJsState));
   assert('B4 app 起来后骨架已移除（不残留盖住界面）', s2.skeletonGone === true, JSON.stringify(s2));
   assert('B5 移除后 #app 里确实有内容（不是"骨架没了但一片空"）', s2.appHasChildren === true, String(s2.bodyText));
   assert('B6 运行时只有一个 #app 元素（重复会让 Taro 挂错容器，滚到底整屏空白）', s2.appCount === 1, `appCount=${s2.appCount} apps=${JSON.stringify(s2.apps)}`);
   assert('B7 页面里没有「超过半屏高、且完全空」的顶层块', s2.blankBlocks === 0, `blankBlocks=${s2.blankBlocks} scrollHeight=${s2.scrollHeight} viewport=${s2.viewport}`);
+
+  // B8–B10：**这个洞实测存在过** —— 外壳挂载成功、骨架撤掉之后，切页的分包才失败。
+  //   那时 `#boot-skeleton` 已经不在 DOM 里，原来 app.tsx 只是给它加 `is-fail`（静默无效），
+  //   用户看到的是「没有内容、没有提示、没有重试」的页面，只能自己想到刷新。
+  //   这三条断言的就是兜底层真的出现、真的能点、点完真的带 cache-busting 重载。
+  const failPage = await openPage(1, { failChunks: 1 });
+  await new Promise((r) => setTimeout(r, 10000));
+  const failState = await failPage.ev(`(() => {
+    const box = document.getElementById('wb-boot-failure');
+    const btn = box ? box.querySelector('button') : null;
+    const r = btn ? btn.getBoundingClientRect() : null;
+    return JSON.stringify({
+      overlay: !!box,
+      text: box ? box.innerText.replace(/\\s+/g, ' ').trim().slice(0, 60) : '',
+      btnText: btn ? btn.textContent : '',
+      btnVisible: !!(r && r.width > 0 && r.height > 0),
+      btnSize: r ? Math.round(r.width) + 'x' + Math.round(r.height) : '',
+      skeletonGone: !document.getElementById('boot-skeleton'),
+      href: location.href
+    });
+  })()`);
+  const f1 = JSON.parse(String(failState));
+  assert('B8 分包失败时用户看得到失败提示（不是无内容无提示的死页面）',
+    f1.overlay === true && String(f1.text).length > 0, JSON.stringify(f1));
+  assert('B9 失败提示里有**可见**的重试按钮（尺寸非 0，不是 display:none 的摆设）',
+    f1.btnVisible === true, `btn=${f1.btnText} size=${f1.btnSize}`);
+
+  // 点一下：必须带 cache-busting 的 query 重载（坏响应被网关缓存住时，同 URL 再请求还是坏的）
+  await failPage.ev(`(() => { const b = document.querySelector('#wb-boot-failure button'); if (b) b.click(); return 1; })()`);
+  await new Promise((r) => setTimeout(r, 1500));
+  const afterHref = String(await failPage.ev('location.href'));
+  failPage.close();
+  assert('B10 点重试真的重载且带 cache-busting（URL 出现 r= 时间戳）',
+    /[?&]r=\d{10,}/.test(afterHref), afterHref);
+  server.close();
 }
 
 console.log('\n首屏骨架门禁');
