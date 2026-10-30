@@ -270,14 +270,17 @@ function App(props: PropsWithChildren) {
         //    页面打不开漏掉（实测 B8–B10 就是这么红的）。必须看失败脚本的 src。
         // 判「应用是否已经在渲染界面」不能只数节点：登录页只有 45 个节点，会被误判成"没挂载"。
         // Taro 一旦产出 .taro_page 就说明路由已经在渲染（哪怕渲染的是登录页）。
-        const pageRoot = document.querySelector('.taro_page');
-        const mounted = !!pageRoot && document.querySelectorAll('taro-view-core').length > 10;
         const failSrc = (target as HTMLScriptElement | null)?.src || '';
+        const mounted = !!document.querySelector('.taro_page') && document.querySelectorAll('taro-view-core').length > 10;
         const failedPageChunk = /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(failSrc);
-        if (!handedToSkeleton && (chunkFailed || failedPageChunk || !mounted)) {
+        // SDK 是**可缺**的：它挂了只是云能力降级（登录/同步不可用），应用本身照常能跑。
+        // 而且它在渲染之前就加载，失败时页面还没挂载，用 mounted 判会误盖全屏。
+        // 所以这一条按文件直接排除，不看时机。
+        const sdkFailed = /\/assets\/wb-sdk\.js/.test(failSrc);
+        if (!handedToSkeleton && !sdkFailed && (chunkFailed || failedPageChunk || !mounted)) {
           showBootFailure(scriptFailed ? `script onerror: ${failSrc.split('/').pop() || '?'}` : msg);
-        } else if (!handedToSkeleton && mounted) {
-          console.error('[App] 单个脚本加载失败但应用已挂载，不盖全屏（交由功能降级处理）:', failSrc.split('/').pop());
+        } else if (!handedToSkeleton) {
+          console.error('[App] 非致命脚本失败，不盖全屏（交由功能降级处理）:', failSrc.split('/').pop() || msg);
         }
         return;
       }
