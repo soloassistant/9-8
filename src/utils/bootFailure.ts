@@ -26,7 +26,6 @@ export function showBootFailure(detail?: string): void {
   if (typeof document === 'undefined') return;
   if (detail) console.error('[boot] 首屏失败:', detail);
   if (document.getElementById(OVERLAY_ID)) return;
-
   const box = document.createElement('div');
   box.id = OVERLAY_ID;
   box.setAttribute('role', 'alertdialog');

@@ -262,7 +262,20 @@ function App(props: PropsWithChildren) {
         } catch {
           /* DOM 不可用就走兜底层 */
         }
-        if (!handedToSkeleton) showBootFailure(scriptFailed ? 'script onerror' : msg);
+        // ⚠️ 不能一有 script 失败就盖全屏：`<script onerror>` 也包含 wb-sdk.js。
+        //    SDK 挂了但应用本身照常能渲染简报，这时盖一层「页面没有加载出来」
+        //    会把**本来能用**的界面挡掉 —— 比不处理更糟。
+        // ⚠️ 也不能只靠 message 判：分包失败在浏览器里是 script 元素的 onerror，
+        //    message 是空串（没有 ChunkLoadError 文本），按 message 判会把真正的
+        //    页面打不开漏掉（实测 B8–B10 就是这么红的）。必须看失败脚本的 src。
+        const failSrc = (target as HTMLScriptElement | null)?.src || '';
+        const failedPageChunk = /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(failSrc);
+        const mounted = document.querySelectorAll('taro-view-core').length > 50;
+        if (!handedToSkeleton && (chunkFailed || failedPageChunk || !mounted)) {
+          showBootFailure(scriptFailed ? `script onerror: ${failSrc.split('/').pop() || '?'}` : msg);
+        } else if (!handedToSkeleton && mounted) {
+          console.error('[App] 单个脚本加载失败但应用已挂载，不盖全屏（交由功能降级处理）:', failSrc.split('/').pop());
+        }
         return;
       }
       try {
