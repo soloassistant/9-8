@@ -127,6 +127,15 @@ assert(
 const sqlExists = fs.existsSync(path.join(ROOT, SQL_REL));
 const sql = sqlExists ? read(SQL_REL) : '';
 /**
+ * ⚠️ **先剥 SQL 注释再判**（2026-10-31 实测踩到）：
+ *   变异「把某条语句注释掉」（`-- ALTER TABLE ...`）在**不剥注释**时，判据照样命中 ——
+ *   因为那段文字还在文件里。于是 4 条 SQL 变异全部 NOT-CAUGHT，而门禁自己显示「10 项要求齐备」。
+ *   这与「注释不能当事实」是同一条：**判据读的是代码，不是代码旁边的说明**。
+ *   （本仓库已有同类教训：verify-live-bridge 的 A6、verify-docs 的 B3 都栽在「先剥注释再判」上。）
+ */
+const stripSqlComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
+const sqlCode = stripSqlComments(sql);
+/**
  * 逐条判据：[说明, 正则, 期望存在?]
  *
  * ⚠️ 策略类判据**必须逐条**写，不能用一条宽正则概括 ——
@@ -147,10 +156,10 @@ const sqlNeed = [
   ['llm_events 保持只增不改（不给 UPDATE/DELETE）', /REVOKE UPDATE, DELETE ON TABLE public\.llm_events/i, true]
 ];
 const missingSql = sqlNeed
-  .filter(([, re, want]) => (want ? !re.test(sql) : re.test(sql)))
+  .filter(([, re, want]) => (want ? !re.test(sqlCode) : re.test(sqlCode)))
   .map(([label]) => label);
 assert(
-  'S7 收紧迁移文件存在且覆盖全部要求',
+  'S7 收紧迁移文件存在且覆盖全部要求（判据读剥掉注释后的语句，注释掉的语句不算数）',
   sqlExists && missingSql.length === 0,
   sqlExists ? (missingSql.length ? `不合规：${missingSql.join('；')}` : `${sqlNeed.length} 项要求齐备`) : `缺文件 ${SQL_REL}`
 );
