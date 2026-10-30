@@ -263,6 +263,26 @@
   backdrop-filter: blur(12rpx);
 }
 
+/* 2026-10-30：桌面端把底条让开自绘左栏。
+   它原来写 left:0 + right:0 横跨整个视口，在 ≥600px 会伸到左栏下面
+   （1440 巡检长期报「addBar 压 nav 17%」）—— 左栏 z-index 更高所以没穿帮，
+   但底条的左段其实被压在导航底下，属实地错位。分档与 app.scss 的壳层一致。 */
+@media (min-width: 600px) {
+  .addBar {
+    left: 64PX;
+  }
+}
+@media (min-width: 748px) {
+  .addBar {
+    left: 232PX;
+  }
+}
+@media (min-width: 1200px) {
+  .addBar {
+    left: 240PX;
+  }
+}
+
 .addInput {
   flex: 1;
   height: $button-height-md;
