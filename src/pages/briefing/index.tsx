@@ -12,6 +12,9 @@ import PlanProposalCard from '@/components/PlanProposalCard';
 import { BriefingSkeleton } from '@/components/Skeleton';
 import BurstBanner from '@/components/BurstBanner';
 import { NAV_MAIN, NAV_MORE, type Item as NavItem } from '@/components/DesktopNav';
+import { recordBriefingArchive } from '@/utils/briefingArchive';
+import { matchWatchItems } from '@/utils/intelWatch';
+import { readWatchKeywords } from '@/utils/intelWatchStore';
 import { resolveIntelGroups } from '@/utils/intelGroups';
 import type { IntelSourceRef } from '@/utils/intelGroups';
 import { formatPlayCount } from '@/utils/videoNews';
@@ -208,6 +211,22 @@ function BriefingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [briefing]);
   const intelCount = briefing?.intel?.intelItems?.length ?? 0;
+
+  // ===== 追踪命中（2026-10-31，产品评估 §7.2 E）=====
+  // 用户在 prefs 里盯的词，在本批资讯里命中的条目。词表进云同步（intel-watchlist），
+  // 解析/匹配口径全在 intelWatch.ts（纯函数）；本页只消费。无词表 → [] → 区块不渲染。
+  const [watchKeywords] = useState(() => readWatchKeywords());
+  const watchMatches = useMemo(
+    () =>
+      matchWatchItems(
+        watchKeywords,
+        (briefing?.intel?.intelItems || []).map((it) => {
+          const text = String((it as { text?: string })?.text || '');
+          return { id: text, title: text };
+        })
+      ),
+    [watchKeywords, briefing]
+  );
   /** 最近一次算出的账单摘要。仅供 useDidShow 里的日志读 —— React state 在闭包里是stale 的，
    *  直接打ledgerBrief 永远打出 null，排查时会误判成「没算出来」。 */
   const ledgerBriefRef = useRef<TodayBrief | null>(null);
@@ -348,6 +367,8 @@ function BriefingPage() {
           briefingRef.current = cached;
           // 缓存命中同样要做习惯守护惰性结算（幂等）
           runHabitGuard(cached.events || []);
+          // 打开晨报即记存档（同日覆盖；写失败只告警不连累主流程）
+          recordBriefingArchive(cached);
           return;
         }
       }
@@ -362,6 +383,7 @@ function BriefingPage() {
         briefingRef.current = data;
         setLoadError(false);
         writeBriefingCache(data);
+        recordBriefingArchive(data);
         // 取得最新日程后立即守护（幂等，重复调用无副作用）
         if (data) runHabitGuard(data.events || []);
       } catch (err) {
@@ -1574,6 +1596,27 @@ function BriefingPage() {
           ) : null}
         </View>
       )}
+
+      {/* ===== 追踪命中（2026-10-31，产品评估 §7.2 E）=====
+          独立于情报区：情报没有内容（天气都没有的降级日）但词表命中历史缓存时，
+          「用户盯的事有动静」仍要可见 —— 这是追踪的全部价值。
+          复用 section/digest 类族，不引入第三套观感；tap 暂不做（v1 只展示，挂账）。 */}
+      {watchMatches.length > 0 ? (
+        <View className={styles.section}>
+          <View className={styles.sectionHeader}>
+            <Text className={styles.sectionIcon}>🎯</Text>
+            <Text className={styles.sectionTitle}>{t('briefing.watchTitle')}</Text>
+            <Text className={styles.sectionCount}>{watchMatches.length}</Text>
+          </View>
+          {watchMatches.map((m, i) => (
+            <View className={styles.digestItem} key={`${m.item.id}-${i}`}>
+              <Text className={styles.digestText}>
+                {`[${m.hit}] ${m.item.title}`}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {/* 记账卡片：独立于 hasContent 门禁 —— 记账与日程无关，
           用户「今天没安排日程但记了账」时也必须能看到账单。

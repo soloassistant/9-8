@@ -629,6 +629,9 @@ function MembershipPage() {
           </View>
           <Text className={styles.lockBody}>{t('mine.lockBody')}</Text>
           <Text className={styles.lockLose}>{t('mine.lockLose')}</Text>
+          {/* 2026-10-31 订阅话术补强（产品评估 §7.3）：涨价预告是订阅惯例里的信任件 ——
+              早鸟的「锁价」只有配上「调价前 30 天通知」才构成完整承诺。 */}
+          <Text className={styles.lockLose}>{t('mine.lockRise')}</Text>
         </View>
 
         {/* ③ 支付按钮 + 通道提示 */}
