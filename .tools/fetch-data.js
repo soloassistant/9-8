@@ -485,13 +485,52 @@ function guardRegression(outPath, newCount) {
   return `新快照 ${newCount} 条 < 上一份 ${prevCount} 条的 ${Math.round(REGRESS_RATIO * 100)}%（上一份仅 ${Math.round(ageMs / 60000)} 分钟前）`;
 }
 
+/**
+ * 主流程。
+ *
+ * ⚠️ 2026-10-31 新增「状态标记」：此前「数据到底更新了没有」**机器不可判定** ——
+ *   ① 被回归闸拒绝时退出码仍是 0（保旧是成功，CI 语义正确）；
+ *   ② 全源失败时退出码是 1。
+ *   于是自动化只能看到「退出码 0」，**分不清「写入了新数据」与「原样保住了旧数据」**。
+ *   后果实测：构建产物里带着 gh-pages 的旧快照（09:31Z）却毫无标记，
+ *   任何人（包括门禁）都无法判断「这次到底刷新了没有」。
+ *
+ *   现在多两个出口：
+ *     --status <file>   写一份机器可读的状态（written / reason / count / updatedAt）。
+ *                       供构建流程与发布预检断言「产物里的数据是不是新写的」。
+ *     --allow-stale     **构建路径专用**：全源失败但既有快照还在时，沿用它并 exit 0，
+ *                       让构建仍能出产物（数据保旧优先）。CI 的 refresh-data **不带**这个开关，
+ *                       行为不变（源全挂仍然红灯）—— 那才是 CI 该有的语义。
+ */
 async function main() {
   const argIdx = process.argv.indexOf('--out');
   const outPath = argIdx > -1 ? process.argv[argIdx + 1] : null;
+  const statusIdx = process.argv.indexOf('--status');
+  const statusPath = statusIdx > -1 ? process.argv[statusIdx + 1] : null;
+  const allowStale = process.argv.includes('--allow-stale');
+
+  /** 写状态文件 + 打一行机器可读的状态（stdout 便于日志 grep，文件便于门禁断言） */
+  const emitStatus = (st) => {
+    const s = { at: new Date().toISOString(), ...st };
+    console.log('[fetch-data] STATUS ' + JSON.stringify(s));
+    if (!statusPath) return;
+    try {
+      fs.mkdirSync(path.dirname(path.resolve(statusPath)), { recursive: true });
+      fs.writeFileSync(statusPath, JSON.stringify(s, null, 2));
+    } catch (e) {
+      console.warn('[fetch-data] 状态文件写入失败:', e && e.message);
+    }
+  };
 
   const { items, videos, meta } = await fetchHotspot();
   if (!items.length) {
+    const hasExisting = !!(outPath && fs.existsSync(outPath) && fs.statSync(outPath).size > 0);
     console.error('[fetch-data] all sources failed - keep existing output untouched');
+    emitStatus({ written: false, reason: 'all-sources-failed', count: 0, keptExisting: hasExisting });
+    if (allowStale && hasExisting) {
+      console.warn('[fetch-data] --allow-stale：沿用既有快照，构建继续（数据未刷新！）');
+      process.exit(0);
+    }
     process.exit(1); // Actions 侧失败退出：不覆盖上一次的好数据
   }
 
@@ -501,6 +540,7 @@ async function main() {
     // 且 gh-pages 的「无变化则跳过提交」逻辑会自然生效。
     console.warn('[fetch-data] 拒绝覆盖：' + rejected + ' → 保留上一份，本次不写入');
     meta.dropped = { ...(meta.dropped || {}), regressionGuard: items.length };
+    emitStatus({ written: false, reason: rejected, count: items.length, keptExisting: !!outPath });
     if (!outPath) process.stdout.write(JSON.stringify({ items, videos, ...meta }));
     return;
   }
@@ -513,6 +553,13 @@ async function main() {
   } else {
     process.stdout.write(json);
   }
+  emitStatus({
+    written: true,
+    reason: null,
+    count: items.length,
+    videos: Array.isArray(videos) ? videos.length : 0,
+    updatedAt: meta.updatedAt || null
+  });
 }
 
 main().catch((e) => {
