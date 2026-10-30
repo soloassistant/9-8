@@ -35,7 +35,14 @@ import styles from './index.module.scss';
  *   **把真实数据说成演示数据**（反向谎言）。
  *   现在每个页面只声明**自己关心的 action**，别的页面的降级不会串进来。
  *   不传 actions = 显示全部（保持既有行为，给没有明确边界的页面用）。
- */
+ *
+ * ⚠️ 2026-10-30 修一个语义陷阱：`actions={[]}`（显式空数组）此前会被当成「没传」
+ *   —— 原判据写的是 `scope && scope.length ? 过滤 : 全部`，空数组的 length 是 0 ⇒
+ *   走「全部」分支 ⇒ **本页本来什么都该不显示，却把全局降级横幅拉了过来**。
+ *   现在以 `scope === undefined` 区分两者：
+ *     · undefined（没传）⇒ 显示全部（既有行为）
+ *     · []（传了空的）⇒ 本页不显示任何降级提示
+ *   区分「没传」与「传了但为空」是必要的：页面级横幅的意义就是**不串台**。 */
 function DemoDataHint({ actions: scope }: { actions?: string[] }) {
   const t = useT();
   const [degraded, setDegraded] = useState<string[]>(() => getDegradedActions());
@@ -43,8 +50,8 @@ function DemoDataHint({ actions: scope }: { actions?: string[] }) {
   // subscribeDegraded 订阅时立即回调一次当前快照，并返回取消订阅函数
   useEffect(() => subscribeDegraded(setDegraded), []);
 
-  // 页面粒度过滤：只看本页关心的 action
-  const hit = scope && scope.length ? degraded.filter((a) => scope.indexOf(a) >= 0) : degraded;
+  // 页面粒度过滤：**只有没传 actions 时才显示全部**；传了（哪怕是空数组）就只看本页关心的
+  const hit = scope === undefined ? degraded : degraded.filter((a) => scope.indexOf(a) >= 0);
   if (hit.length === 0) return null;
 
   return (

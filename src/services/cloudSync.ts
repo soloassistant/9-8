@@ -68,7 +68,36 @@ const SYNC_KEYS = [
   // 运动（2026-10-28）：跑步记录 + 周目标。与记账同款拆两个 key ——
   // 记录写入频繁、周目标几乎不改，分开才不会互相覆盖。
   'sportRuns',
-  'sport-goal-km'
+  'sport-goal-km',
+  // ── 2026-10-30 补齐：这些键**写了本地存储却没进 SYNC_KEYS** ──
+  // 后果：换设备 / 重装 / 清缓存 ⇒ 这份数据静默消失（用户视角：功能像坏了，
+  // 而界面不提示任何东西）。与「webSearch 打不存在的 PG 函数」同族：
+  // 通路断在暗处，用户只看到「数据没了」。
+  // 判据：键里装的是**用户自己的内容或权益状态**，且**跨设备有意义**。
+  // 明确**不**纳入的（各带理由）：
+  //   · mb-cat-affinity-ab / mb_ai_audio_trace —— A/B 分流与追踪计数器，代码注释已写明不上云；
+  //   · privacy-consent / sxm-privacy-consent / location-cross-border-consent —— 合规同意，设备级；
+  //   · onboarded-v2 / burst-banner-dismissed / sxm-phone-bind-* —— 引导与弹窗展示状态，设备级；
+  //   · llm-conversation-id / subscribeStat / subscribeDeny / mb-sub-auth-at —— 会话与实验分流；
+  //   · briefingDailyCache / library-open-history / sxm-dial-code / sxm-remember-login —— 缓存与设备偏好；
+  //   · h5-subscription —— **派生值**（真值在 orders 表，由订阅回放算出来）；同步缓存反而会与回放打架。
+  'learnCommunityStore',  // 学习社区动态 + 打卡（社区页换设备要能接着发）
+  'learnAchievements',    // 学习成就徽章（已解锁时间）
+  'learnNickname',        // 学习昵称
+  'habitStore',           // 习惯守护（连续天数/目标）
+  'readStreakStore',      // 阅读连续天数
+  'mb-brief-streak',      // 晨报连续天数
+  'mb_news_blocklist',    // 资讯屏蔽词（换设备后被屏蔽的内容不能复活）
+  'mb-cat-affinity',      // 类目亲和度（影响资讯排序偏好）
+  'mb-prefs',             // 内容偏好（科学/文化/健康…，selectByPreference 要用）
+  'mb_personalization',   // 个性化开关与画像
+  'ai_chat_usage',        // AI 对话本地用量计数（配额显示要一致）
+  'notify-log',           // 通知历史
+  'mb_tts_voice',         // 语音音色偏好
+  'mb_renew_remind',      // 续费提醒开关（权益相关提醒）
+  'mb_renew_remind_day',  // 续费提醒节流日期
+  'mb_locked_price'       // 早鸟终身锁价（2026-10-30 补：**权益**，不派生自 orders 表 ⇒ 不会自动恢复；
+                          //   不同步 ⇒ 换设备后用户看到现价，早鸟权益消失）
 ] as const;
 
 /**
@@ -105,18 +134,46 @@ const REMOVE_PLACEHOLDER: Record<string, unknown> = {
   briefingChatLog: [],
   aiAssistantLog: [],
   sportRuns: [],
+  'mb_news_blocklist': [],
+  'mb-cat-affinity': [],
+  'notify-log': [],
+  // 2026-10-30 补齐（此前这 5 个键漏了占位值 ⇒ 万一整键被删除，删除动作同步不出去，
+  // 云端会留着旧数据）。类型逐个读写入点确认：ledgerEntries / ledger-categories 是数组、
+  // ledgerBudget 是 { 日上限, 月上限 } 对象、watchlist 是字符串数组、user-avatar 是字符串。
+  'ledgerEntries': [],
+  'ledger-categories': [],
+  'ledgerBudget': {},
+  'watchlist': [],
+  'user-avatar': '',
   // 对象类
   'user-settings': {},
   // 功能记账是 `{ 'YYYY-MM-DD': { chat: n } }` 的对象，占位必须是空对象；
   // 写成 '' 会被 parseBuckets 当成空账本 —— 删除动作传不出去，云端留着旧计数。
   'feature-usage': {},
+  // 2026-10-30 补齐的 15 个键：占位值必须与**该键真实存储类型**一致
+  // （逐个读写入点确认：achievements 存 id→ISO 映射、brief-streak 存 { last, count }、
+  //  ai_chat_usage 存 { day, used }、prefs 存 UserPrefs、habit/readStreak 存对象）。
+  'learnCommunityStore': {},
+  'learnAchievements': {},
+  'habitStore': {},
+  'readStreakStore': {},
+  'mb-brief-streak': {},
+  'mb-prefs': {},
+  'mb_personalization': {},
+  'ai_chat_usage': {},
+  'mb_locked_price': {},
   // 标量类
   'user-city': '',
   'usage-voice': '',
   'brand-theme': '',
   'app-lang': '',
   'ui-scale': '',
-  'sport-goal-km': ''
+  'sport-goal-km': '',
+  'learnNickname': '',
+  'mb_tts_voice': '',
+  'mb_renew_remind_day': '',
+  // 布尔类（开关）：占位必须是布尔，写成 '' 会被读取端当成「未设置」
+  'mb_renew_remind': false
 };
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
