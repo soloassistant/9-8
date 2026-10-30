@@ -5,6 +5,7 @@ import { useT } from '@/store/language';
 import { cloudLlmChat, safeParseReply } from '@/services/cloudLlm';
 import { bumpLocalUsage, canChat, getAiQuota } from '@/services/aiQuota';
 import { recordUsage } from '@/utils/usageLog';
+import { disabledAttr } from '@/utils/buttonDisabled';
 import { currentMonthStr, monthEntries, summarize } from '@/utils/ledgerAggregate';
 import type { LedgerEntry } from '@/types';
 
@@ -84,7 +85,7 @@ export default function MonthReview({ entries }: { entries: LedgerEntry[] }) {
           color: 'inherit',
         }}
         loading={busy}
-        disabled={busy}
+        disabled={disabledAttr(busy)}
         onClick={() => void handleRun()}
       >
         {busy ? t('ledger.reviewBusy') : t('ledger.reviewBtn')}
