@@ -198,9 +198,32 @@ function parseDgtle(text) {
   });
 }
 
+/** 秒 → mm:ss / h:mm:ss（B站 ranking/v2 的 duration 是**秒数**，实测 3435 = 57:15）。
+ *  口径与前端 src/utils/videoNews.ts 的 safeDuration（mm:ss|h:mm:ss）一致。 */
+function formatDuration(sec) {
+  const s = Number(sec);
+  if (!Number.isFinite(s) || s <= 0) return '';
+  const total = Math.floor(s);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const ss = total % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${m}:${pad(ss)}`;
+}
+
 /** B站热榜：JSON data.list[]；**实测无需 WBI 签名**，裸请求即可。
  *  链接优先 short_link_v2（形如 https://b23.tv/BV14Baa6JENd，本身已是移动短链），
- *  兜底 https://www.bilibili.com/video/<bvid>。hot 用 stat.view（播放量）。 */
+ *  兜底 https://www.bilibili.com/video/<bvid>。hot 用 stat.view（播放量）。
+ *
+ *  2026-10-30：补齐**视频元信息**（封面 / 时长 / UP主 / 播放量 / 发布时间）。
+ *  之前这五样被整个丢掉 —— 于是线上热点里那 10 条 B站热榜条目**一张封面都没有**，
+ *  「热点 + 短视频」这个组合在数据层根本没有素材。现在补上：
+ *  ① 封面 pic（B站给的是 http://，统一升 https://，否则 H5 页面在 https 下会被浏览器拦成混合内容）；
+ *  ② 时长 duration（**秒数**，转 mm:ss / h:mm:ss）；
+ *  ③ UP主 owner.name（旧接口字段 author 兜底）；
+ *  ④ 播放量 stat.view（数值型，供前端 formatPlayCount 格式化）；
+ *  ⑤ 发布时间 pubdate（unix 秒 → ISO）。
+ *  这些字段**只在 B站板块存在**，其余板块为 undefined —— 形状兼容，不影响别的板块。 */
 function parseBilibili(text) {
   const d = JSON.parse(text);
   const arr = Array.isArray(d && d.data && d.data.list) ? d.data.list : [];
@@ -209,12 +232,27 @@ function parseBilibili(text) {
     const short = it && it.short_link_v2 ? String(it.short_link_v2) : '';
     const url = short || (bvid ? 'https://www.bilibili.com/video/' + bvid : '');
     const view = it && it.stat && it.stat.view;
+    const pic = it && typeof it.pic === 'string' ? it.pic.replace(/^http:/, 'https:') : '';
+    const duration = formatDuration(it && it.duration);
+    const owner = it && it.owner && typeof it.owner.name === 'string' ? it.owner.name : '';
+    const legacyAuthor = it && typeof it.author === 'string' ? it.author : '';
+    const pubSec = Number(it && it.pubdate);
+    const publishedAt =
+      Number.isFinite(pubSec) && pubSec > 0 ? new Date(pubSec * 1000).toISOString() : '';
     return {
       title: it && it.title,
       url,
       mobileUrl: url,
       hot: view == null ? '' : String(view),
-      desc: it && it.desc
+      desc: it && it.desc,
+      image: pic,
+      duration,
+      author: owner || legacyAuthor,
+      play: typeof view === 'number' && Number.isFinite(view) ? view : undefined,
+      publishedAt,
+      // bvid：视频页规范标识。链接可能是 b23.tv 短链（前端白名单只认 bilibili.com/video/BV… 形态），
+      // 所以规范 URL 要靠 bvid 重建，不能靠短链。
+      bvid
     };
   });
 }
@@ -354,7 +392,10 @@ const ROUTES = [
 const BOARDS = ROUTES.map((b) => ({ id: b.id, label: b.label, tag: b.tag }));
 
 /** 归一 + 截断：保证返回的一定是 {title,url,mobileUrl,hot,desc} 全为字符串的数组，
- *  丢掉空标题项，并按 limit 截断。任何字段类型不符（null/number/object）都被强转成字符串。 */
+ *  丢掉空标题项，并按 limit 截断。任何字段类型不符（null/number/object）都被强转成字符串。
+ *
+ *  2026-10-30：透传**视频类板块的可选元信息**（image / duration / author / play）。
+ *  只有 B站热榜产出这四样，其余板块为 undefined ⇒ 缺省即「没有」，形状对别的板块不变。 */
 function normalizeList(list, limit) {
   if (!Array.isArray(list)) return [];
   const out = [];
@@ -362,12 +403,23 @@ function normalizeList(list, limit) {
     if (!it) continue;
     const title = wash(it.title);
     if (!title) continue;
+    const image = typeof it.image === 'string' ? it.image.trim() : '';
+    const duration = typeof it.duration === 'string' ? it.duration.trim() : '';
+    const author = typeof it.author === 'string' ? it.author.trim() : '';
+    const play = Number(it.play);
+    const publishedAt = typeof it.publishedAt === 'string' ? it.publishedAt.trim() : '';
     out.push({
       title,
       url: String(it.url || ''),
       mobileUrl: String(it.mobileUrl || ''),
       hot: wash(it.hot),
-      desc: wash(it.desc)
+      desc: wash(it.desc),
+      ...(image ? { image } : {}),
+      ...(duration ? { duration } : {}),
+      ...(author ? { author } : {}),
+      ...(Number.isFinite(play) && play > 0 ? { play } : {}),
+      ...(typeof it.bvid === 'string' && it.bvid ? { bvid: it.bvid } : {}),
+      ...(publishedAt ? { publishedAt } : {})
     });
     if (out.length >= limit) break;
   }
@@ -458,7 +510,18 @@ async function fetchAllBoards(opts) {
         source: r.board.label,
         url: it.mobileUrl || it.url || '',
         // 综合榜 tag 为空 → 只挂 ['热榜']，前端 categoryOf() 归为「综合热榜」（与 static-server 同口径）
-        tags: r.board.tag ? ['热榜', r.board.tag] : ['热榜']
+        tags: r.board.tag ? ['热榜', r.board.tag] : ['热榜'],
+        // 视频元信息（仅 B站热榜有，其余板块为 undefined ⇒ 键不存在）
+        // 有了它，热点列表里那 10 条 B站条目才有封面，UI 的 <Image lazyLoad> 才有 src 可用。
+        ...(it.image ? { image: it.image } : {}),
+        ...(it.duration ? { duration: it.duration } : {}),
+        ...(it.author ? { author: it.author } : {}),
+        ...(it.play ? { play: it.play } : {}),
+        ...(it.bvid ? { bvid: it.bvid } : {}),
+        ...(it.publishedAt ? { publishedAt: it.publishedAt } : {}),
+        // 板块自带描述（仅部分板块有）：此前被整个丢掉，条目只剩「XX 榜 第 N 位 · 热度 X」这种
+        // 榜单位置串。留着它，视频条目才有可读的正文（见 .tools/fetch-data.js 的 videos 产出）。
+        ...(it.desc ? { desc: it.desc } : {})
       });
     }
     statuses.push({

@@ -22,7 +22,7 @@ import { setTodoStatus } from '@/data/dailyPlan';
 import { normalizeVideoItems } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
 import { recordUsage } from '@/utils/usageLog';
-import { callFunction, chatCloudStream } from './cloud';
+import { callFunction, chatCloudStream, getHotspotPayload } from './cloud';
 import type { ChatStreamHooks, ChatStreamResult } from './cloud';
 import { invoke, isWeapp } from './dataSource';
 import { feedbackInsert } from './cloudDb';
@@ -92,10 +92,21 @@ export function apiGetBriefing(): Promise<Briefing> {
   return callFunction<Briefing>('getBriefing');
 }
 
-/** 视频新闻（B站热榜第 1 条，公开内容免登录）。
- *  失败（云函数不可达/超时）抛错由调用方降级为「不渲染该卡片」——
+/** 视频新闻（B站热榜，公开内容免登录）。
+ *
+ *  2026-10-30 改口径 —— **H5 端不再走 webSearch 云函数**：
+ *  应用数据库里**没有** `webSearch` 这个 PG 函数（线上实测 404 PGRST202
+ *  "Could not find the function public.webSearch"），所以原来这条调用在 H5 上
+ *  **必然失败** ⇒ 晨报页的视频卡片在线上永远不渲染（小程序端 `Taro.cloud.callFunction` 正常）。
+ *  现在 H5 改读**同源热点载荷里的 videos 字段**（由 .tools/fetch-data.js 从 B站热榜产出，
+ *  与热点条目同一个 JSON、同一次请求 ⇒ 不新增任何网络请求，反而少掉那一发注定 404 的 rpc）。
+ *  失败（拿不到热点载荷）抛错由调用方降级为「不渲染该卡片」——
  *  不提供本地 mock：视频新闻无法诚实地伪造，宁缺毋假。 */
 export async function apiGetVideoNews(): Promise<VideoNewsItem[]> {
+  if (!isWeapp) {
+    const payload = await getHotspotPayload();
+    return normalizeVideoItems(payload ? payload.videos : []);
+  }
   const raw = await callFunction<unknown>('webSearch', { action: 'videoNews' });
   return normalizeVideoItems(raw);
 }
@@ -165,10 +176,24 @@ export function apiGetHotspot(): Promise<HotspotNews[]> {
   return callFunction<HotspotNews[]>('getHotspot');
 }
 
-/** 视频精选（2026-10-25）：webSearch action=videoNews 的 B 站热榜视频（带封面/时长/播放量）。
- *  任何失败（rpc 未注册 / 网络抖动 / 数据为空）一律返回 [] —— 调用方按空数组隐藏板块，
+/** 视频精选（2026-10-25；2026-10-30 改 H5 数据源）：B站热榜视频（带封面/时长/播放量）。
+ *
+ *  H5 端改读**同源热点载荷的 videos 字段** —— 原先走的是 webSearch 云函数的 videoNews 动作，
+ *  而应用数据库里没有 `webSearch` 这个 PG 函数（线上实测 404 PGRST202）⇒ **必然失败**、
+ *  返回 []、板块永不渲染。现在与热点条目共用同一次 JSON 请求 ⇒ 净请求数 **-1**。
+ *
+ *  任何失败（拿不到载荷 / 数据为空）一律返回 [] —— 调用方按空数组隐藏板块，
  *  不显示假加载态也不报错弹窗（免费增值内容，不值得打扰）。 */
 export async function apiVideoNews(): Promise<HotspotNews[]> {
+  if (!isWeapp) {
+    try {
+      const payload = await getHotspotPayload();
+      return payload && Array.isArray(payload.videos) ? payload.videos : [];
+    } catch (err) {
+      console.warn('[api] videoNews failed:', err);
+      return [];
+    }
+  }
   try {
     const payload = (await invoke('webSearch', { action: 'videoNews' })) as {
       code: number;
@@ -208,9 +233,19 @@ export async function apiNewsSearch(keyword: string): Promise<HotspotNews[] | nu
   }
 }
 
-/** 资讯反馈（F22）：记录 👍/👎，驱动内容瘦身；本地持久化 + 云端落库 */
+/** 资讯反馈（F22）：记录 👍/👎，驱动内容瘦身；本地持久化 + 云端落库
+ *
+ *  2026-10-30 更正口径（**此前的注释是错的**）：
+ *  H5 端**并不是**「从未落库」—— `newsFeedback` 在 `services/cloudSync.ts` 的 SYNC_KEYS 里，
+ *  本地写入会被劫持并推到应用库的 `user_kv`（RLS 按 owner 隔离），**数据确实上云了**。
+ *  真正的问题反过来：H5 端每次点赞还要**额外**调一次 webSearch 云函数的 feedback 动作，
+ *  而应用数据库里没有 `webSearch` 这个 PG 函数（线上实测 404 PGRST202）⇒ 这一发**必然失败**：
+ *  白费一个请求、还会把「webSearch」登记进降级表（于是页级横幅亮出「云端功能暂不可用」，
+ *  在数据其实是真数据的热点页 = 把真实数据说成演示数据）。
+ *
+ *  ⇒ H5 直接跳过这次调用（cloudSync 负责上云），weapp 保留（微信云函数按 openid 聚合）。 */
 export function apiNewsFeedback(id: string, feedback: 'up' | 'down'): Promise<{ id: string; feedback: 'up' | 'down' }> {
-  // 本地持久化（双端即时生效）
+  // 本地持久化（双端即时生效；H5 由此经 cloudSync 上云）
   try {
     const raw = Taro.getStorageSync('newsFeedback') || {};
     raw[id] = feedback;
@@ -218,7 +253,11 @@ export function apiNewsFeedback(id: string, feedback: 'up' | 'down'): Promise<{ 
   } catch (err) {
     console.warn('[api] newsFeedback persist failed:', err);
   }
-  // 云端落库；失败不阻塞本地标记（双端都会尝试，登录态/网络不通时静默降级为纯本地）
+  if (!isWeapp) {
+    // H5：cloudSync 的 SYNC_KEYS 已包含 newsFeedback ⇒ 落库由它负责，这里不再发注定失败的一发。
+    return Promise.resolve({ id, feedback });
+  }
+  // weapp：云函数落库；失败不阻塞本地标记（登录态/网络不通时静默降级为纯本地）
   return invoke('webSearch', { action: 'feedback', id, feedback })
     .then(() => ({ id, feedback }))
     .catch((err) => {

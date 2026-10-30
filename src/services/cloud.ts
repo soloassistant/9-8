@@ -7,7 +7,7 @@ import { categoryOf } from '../utils/categoryLabel'
 import { selectByPreference } from '../utils/prefSelect'
 import { readProfileSettings } from './localProfile'
 import { invoke, isWeapp } from './dataSource'
-import { chatViaCloudLlm, extractViaCloudLlm, typewriter } from './cloudLlm'
+import { chatViaCloudLlm, extractViaCloudLlm, typewriter, cloudLlmChat } from './cloudLlm'
 import { recordUsage } from '../utils/usageLog'
 
 /** 热点数据来源元信息（服务端 /api/hotspot 附带，mock/真机路径为 null） */
@@ -88,43 +88,126 @@ export function subscribeDegraded(cb: (actions: string[]) => void): () => void {
  *  GitHub Pages 对该文件返回 `Access-Control-Allow-Origin: *`（已实测），故可跨域直取。 */
 const LIVE_HOTSPOT_URL = 'https://soloassistant.github.io/9-8/api/hotspot.json'
 
-/** H5 热点数据源（真实数据分层，顺序即优先级）：
- *  ① 同源 /api/hotspot（本地预览 / 带后端的部署，最新鲜）
- *  ② 线上实时 JSON（每 30 分钟刷新，发布版靠它不过期）
- *  ③ 同源烘焙 ./api/hotspot.json（相对路径兼容 /9-8/ 子路径；离线兜底）
- *  ④ 全部失败返回 null，调用方自行 mock 兜底 */
-async function loadHotspotPayload(): Promise<{
+/** 同源烘焙副本（发布时由 .tools/copy-assets.js 从 gh-pages 落盘）。
+ *  2026-10-30 新增到优先级第一位：它是**同源**请求 —— 无跨域 DNS/TLS、无 CORS 预检，
+ *  且线上实测它与 gh-pages 那份**内容完全相同**（copy-assets 就是从 gh-pages 拉的）。
+ *  实测原先的第一优先项 `/api/hotspot`（目录形态）在 WorkBuddy 部署下**必然 404** ——
+ *  每个用户都要白付一次 404 往返。 */
+const SAME_ORIGIN_HOTSPOT_URL = './api/hotspot.json'
+/** 带后端部署（本地预览 / 自托管 static-server）时的实时接口 */
+const LOCAL_API_HOTSPOT_URL = '/api/hotspot'
+
+/** 同源烘焙副本「算新鲜」的阈值：CI 每 30 分钟刷一次 gh-pages，
+ *  取 35 分钟（略大于刷新周期）—— 落在窗口内就不必再问远端，省一次跨域往返。 */
+const HOTSPOT_FRESH_MS = 35 * 60 * 1000
+/** 内存缓存有效期（ms）：同一会话内跨页（热点页 / 晨报页）不重复下载几百 KB 的 JSON。
+ *  取 5 分钟：远端数据本身是 30 分钟粒度的静态快照，5 分钟足够新。 */
+const HOTSPOT_CACHE_MS = 5 * 60 * 1000
+
+/** 热点数据载荷（items + videos + 元信息） */
+export interface HotspotPayload {
   items: HotspotNews[]
+  /** 视频条目（2026-10-30 新增）：由 .tools/fetch-data.js 从 B站热榜产出，
+   *  与 items 同一个 JSON、同一次请求 —— 不新增任何网络请求。 */
+  videos: HotspotNews[]
   updatedAt: string | null
   stale: boolean
   sources: { name: string; count: number; ok: boolean }[]
-} | null> {
-  for (const url of ['/api/hotspot', LIVE_HOTSPOT_URL, './api/hotspot.json']) {
-    try {
-      const res = await fetch(url)
-      const payload = await res.json()
-      if (Array.isArray(payload.items) && payload.items.length > 0) {
-        return {
-          // 信任边界：服务端聚合 JSON 未逐字段校验，在此收口为 HotspotNews。
-          // ⚠️ 必须逐条归一 tags/summary（2026-10-24 审计）：资讯库页直接
-          // `item.tags.some(...)` / `item.tags.forEach(...)`，任一条目缺 tags 就是
-          // TypeError 整页白屏。一个 as 断言挡不住运行时的脏数据 —— 在数据入口
-          // 一处收口，而不是每个使用点各自防御（AGENTS.md 铁律）。
-          items: (payload.items as Array<Partial<HotspotNews>>).map((it) => ({
-            ...it,
-            tags: Array.isArray(it.tags) ? it.tags : [],
-            summary: typeof it.summary === 'string' ? it.summary : ''
-          })) as HotspotNews[],
-          updatedAt: payload.updatedAt || null,
-          stale: !!payload.stale,
-          sources: payload.sources || []
-        }
+}
+
+/** 内存缓存 + in-flight 去重：并发调用共用同一个请求；完成后按 TTL 复用。 */
+let hotspotCache: { at: number; payload: HotspotPayload | null } | null = null
+let hotspotInFlight: Promise<HotspotPayload | null> | null = null
+
+/** 取热点载荷（带缓存与 in-flight 去重）。**并发调用只发一轮请求。 */
+export function getHotspotPayload(): Promise<HotspotPayload | null> {
+  if (hotspotCache && Date.now() - hotspotCache.at < HOTSPOT_CACHE_MS) {
+    return Promise.resolve(hotspotCache.payload)
+  }
+  if (!hotspotInFlight) {
+    hotspotInFlight = loadHotspotPayload().then(
+      (payload) => {
+        hotspotCache = { at: Date.now(), payload }
+        hotspotInFlight = null
+        return payload
+      },
+      (err) => {
+        hotspotInFlight = null
+        throw err
       }
-    } catch {
-      /* 换下一个数据源 */
+    )
+  }
+  return hotspotInFlight
+}
+
+/** 已加载热点载荷里的视频条目（H5 端「视频精选 / 视频资讯」的唯一数据源）。
+ *  没加载过热点数据时返回空数组 —— 调用方按空数组隐藏板块（既有约定）。 */
+export function getHotspotVideos(): HotspotNews[] {
+  return (hotspotCache && hotspotCache.payload && hotspotCache.payload.videos) || []
+}
+
+/** 拉一份热点 JSON 并归一。失败/结构不对返回 null（调用方换下一个源）。 */
+async function fetchHotspotJson(url: string): Promise<HotspotPayload | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const payload = await res.json()
+    if (!Array.isArray(payload.items) || payload.items.length === 0) return null
+    // 信任边界：服务端聚合 JSON 未逐字段校验，在此收口为 HotspotNews。
+    // ⚠️ 必须逐条归一 tags/summary（2026-10-24 审计）：资讯库页直接
+    // `item.tags.some(...)` / `item.tags.forEach(...)`，任一条目缺 tags 就是
+    // TypeError 整页白屏。一个 as 断言挡不住运行时的脏数据 —— 在数据入口
+    // 一处收口，而不是每个使用点各自防御（AGENTS.md 铁律）。
+    const norm = (list: unknown): HotspotNews[] =>
+      (Array.isArray(list) ? list : []).map((it) => {
+        const o = (it || {}) as Partial<HotspotNews>
+        return {
+          ...o,
+          tags: Array.isArray(o.tags) ? o.tags : [],
+          summary: typeof o.summary === 'string' ? o.summary : ''
+        }
+      }) as HotspotNews[]
+    return {
+      items: norm(payload.items),
+      videos: norm(payload.videos),
+      updatedAt: payload.updatedAt || null,
+      stale: !!payload.stale,
+      sources: payload.sources || []
+    }
+  } catch {
+    return null
+  }
+}
+
+/** H5 热点数据源（真实数据分层，顺序即优先级）：
+ *  ① 同源 ./api/hotspot.json（发布时烘焙；无跨域成本；够新鲜时直接用它）
+ *  ② 线上实时 JSON（每 30 分钟刷新；① 不够新鲜或取不到时才问它）
+ *  ③ 同源 /api/hotspot（带后端部署的本地预览 / 自托管）
+ *  ④ 全部失败返回 null，调用方自行 mock 兜底
+ *
+ * 2026-10-30 改动：原先顺序是「/api/hotspot → 线上实时 → 同源烘焙」，
+ * 在 WorkBuddy 部署下第一跳必然 404（目录路由不存在）⇒ 每次进页面白付一次 404 往返，
+ * 而**同源那份（其实与远端内容相同）永远用不上**。现在同源优先。
+ *
+ * ⚠️ 首屏预算：这条链路只允许**不增加**请求数。当前常态是 1 个请求（同源），
+ * 只有烘焙副本过期（发布后未再构建）才付第 2 个（远端跨域）。 */
+async function loadHotspotPayload(): Promise<HotspotPayload | null> {
+  const same = await fetchHotspotJson(SAME_ORIGIN_HOTSPOT_URL)
+  if (same) {
+    const ts = same.updatedAt ? Date.parse(same.updatedAt) : NaN
+    if (!Number.isFinite(ts) || Date.now() - ts < HOTSPOT_FRESH_MS) {
+      // 同源这份够新鲜（或没有时间戳可判）⇒ 不用再问远端
+      return same
     }
   }
-  return null
+  const live = await fetchHotspotJson(LIVE_HOTSPOT_URL)
+  if (live) {
+    // 两份都有时间戳时取新的；同源无时间戳但内容可用时，优先同源（省跨域依赖）
+    if (!same || !same.updatedAt || !live.updatedAt) return live.updatedAt ? live : same
+    return Date.parse(live.updatedAt) > Date.parse(same.updatedAt) ? live : same
+  }
+  if (same) return same
+  return fetchHotspotJson(LOCAL_API_HOTSPOT_URL)
 }
 
 /** H5 天气数据源：同源 /api/briefing（本地预览）→ 失败直连 Open-Meteo（Pages 线上）→ null */
@@ -324,7 +407,7 @@ export async function callFunction<T = unknown>(
     // H5 预览：双端先用本地 mock（前端清 storage）
     if (name === 'getHotspot') {
       // 真实数据优先：同源聚合接口（本地预览）/ Pages 静态聚合（Actions 定时刷新），失败降级本地 mock
-      const payload = await loadHotspotPayload()
+      const payload = await getHotspotPayload()
       if (payload) {
         hotspotMeta = payload.updatedAt
           ? { updatedAt: payload.updatedAt, stale: payload.stale, sources: payload.sources }
@@ -351,7 +434,7 @@ export async function callFunction<T = unknown>(
       }
       try {
         const city = String(Taro.getStorageSync('user-city') || '北京')
-        const [hotspot, weather] = await Promise.all([loadHotspotPayload(), loadWeather(city)])
+        const [hotspot, weather] = await Promise.all([getHotspotPayload(), loadWeather(city)])
         // H5 本地兜底走的是与免费档同构的路径（RSS 原始条目、零 LLM），
         // 故 aiEnabled:false —— 不能让前端把它误显示成「AI 提炼暂不可用」。
         const intel: BriefingIntel = { subscribed: false, weather: null, intelItems: [], degraded: false, aiEnabled: false }
@@ -472,6 +555,44 @@ const AI_FILTER_CANDIDATE_MAX = 110; // 与 static-server.js 的候选上限同�
 const AI_FILTER_MAX = 10; // 展示条数上限（AI_PICK_MAX）
 const AI_FILTER_PER_CATEGORY_MAX = 2; // 同类目硬上限（AI_PICK_PER_CATEGORY_MAX）
 
+/** AI 精选的系统提示 —— **必须与 webSearch 云函数 `action=aiFilter` 的 systemContent 逐字一致**。
+ *
+ *  2026-10-30：H5 端改走 cloud.llm 直连（下面 AI_FILTER_SYSTEM_PROMPT 的说明）。
+ *  两端各有一份提示词（云函数那一份在 cloudfunctions/webSearch/index.js）——
+ *  云函数目录会**独立打包部署**（只含自身目录），src/ 也从不跨目录 import（仓库无此先例），
+ *  所以这里**不能**共用一个模块。改口径时必须**同时改两处**，
+ *  `.tools/verify-live-bridge.mjs` 有一条断言强制两者逐字一致（改一处不改另一处会被门禁抓住）。
+ */
+const AI_FILTER_SYSTEM_PROMPT =
+  '你是新闻筛选助手。根据用户兴趣画像，从候选新闻中挑出最值得看的条目，按相关度从高到低排序，最多输出 20 条。' +
+  '规则：1) 只挑与兴趣相关或与近期关注相近的条目；若整体相关度都低，也要挑出相对最相关的 6 条；' +
+  '2) 合规降权（优先级最高，覆盖第1条）：时政/外交/军事/突发事件监管类内容不得入选 picks；财经类最多 1 条；优先科技/数字生活/健康/教育等生活建设性议题；' +
+  '3) 类目多样性（优先级仅次于合规）：候选条目格式为「编号. [来源·类目] 标题」，请据此判断每条的类目；' +
+  '同一类目最多给 2 条；请把不同类目的条目都排进这 20 条里 —— 给出 20 条是为了让下游按类目去重后仍能凑满 10 条，' +
+  '所以同类目的备用条目请排在后面，不要用同一类目占满靠前的位置；' +
+  '4) reason 用不超过16字说明「为什么推荐给这位用户」，不要复述标题；' +
+  '5) 对每个选中条目额外输出 why 字段：不超过30字的中文，回答「为什么这条值得**这个用户**看」，必须结合其 interests/custom 画像给出个人化理由（不是通用新闻价值）；' +
+  '6) summary 以早报员「小晨」的口吻写（克制友好、少废话），不超过20字；' +
+  '7) 严格返回 JSON：{"picks":[{"n":编号数字,"reason":"理由","why":"个人化理由(30字内)"}],"summary":"一句话概括筛选依据(20字内)"}，不要输出任何其他内容；why 缺失时允许为空字符串，但字段必须存在。'
+
+/** 解析 LLM 返回的 JSON（容忍 ```json 包裹与前后杂字）。
+ *  与云函数 safeParse 同口径：**解析失败就当没有结果**，不猜、不用正则抠碎片。 */
+function parseAiFilterPayload(raw: string): { picks?: Array<{ n?: number; reason?: string; why?: string }>; summary?: string } | null {
+  if (!raw) return null;
+  let s = String(raw).trim();
+  const fence = s.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  if (fence) s = fence[1].trim();
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const obj = JSON.parse(s.slice(start, end + 1));
+    return obj && typeof obj === 'object' ? obj : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function apiAiNewsFilter(
   items: HotspotNews[],
   interests: string[],
@@ -486,6 +607,46 @@ export async function apiAiNewsFilter(
     const tags = Array.isArray(it.tags) && it.tags.length ? '·' + it.tags.join('/') : '';
     return `${i + 1}. [${it.source}${tags}] ${it.title}`;
   });
+
+  // ── H5：走 cloud.llm 直连（2026-10-30）────────────────────────────────
+  // 原先 H5 也调 webSearch 云函数的 aiFilter 动作，而应用数据库里**没有**
+  // `webSearch` 这个 PG 函数（线上实测 404 PGRST202）⇒ 必然失败；退到 `/api/news/ai-filter`
+  // 那条本地 static-server 路径，而线上是纯静态托管 ⇒ 恒 404。
+  // ⇒ 「✨ 生成 AI 精选」在 H5 上**从来没有成功过**。
+  // 现在 H5 改走 cloud.llm（H5 的 AI 对话/AI 提取已在用的真 AI 通道），提示词与云函数一致。
+  if (!isWeapp) {
+    const userContent =
+      `兴趣标签：${interests.length ? interests.join('、') : '（未设置）'}\n` +
+      `自定义关注：${custom || '（无）'}\n` +
+      `近期关注（参考）：${signals.length ? signals.join(' / ').slice(0, 120) : '（无）'}\n\n` +
+      `候选新闻：\n${candidates.join('\n')}`;
+    try {
+      const raw = await cloudLlmChat({ system: AI_FILTER_SYSTEM_PROMPT, userContent });
+      const data = raw ? parseAiFilterPayload(raw) : null;
+      if (!data) throw new Error('aiFilter: LLM 返回无法解析');
+      const picked = pickAiFilterItems(pool, data.picks);
+      if (picked.length) return { items: picked, summary: String(data.summary || '') };
+      throw new Error('aiFilter: 挑不出条目');
+    } catch (err) {
+      console.warn('[Cloud] aiFilter via cloud.llm failed, try local endpoint:', err);
+    }
+    // 最后兜底：本地 static-server 预览路径（开发态）。生产环境纯静态托管 ⇒ 该路由不存在 ⇒ 404 ⇒ null。
+    try {
+      const res = await fetch('/api/news/ai-filter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interests, custom, signals })
+      });
+      if (!res.ok) return null;
+      const payload = await res.json();
+      if (!payload || !Array.isArray(payload.items)) return null;
+      return { items: payload.items as HotspotNews[], summary: String(payload.summary || '') };
+    } catch (err) {
+      console.warn('[Cloud] aiNewsFilter local endpoint failed:', err);
+      return null;
+    }
+  }
+
   try {
     const res = (await invoke('webSearch', {
       action: 'aiFilter',
@@ -499,40 +660,33 @@ export async function apiAiNewsFilter(
       data?: { picks?: Array<{ n?: number; reason?: string; why?: string }>; summary?: string } | null;
     } | null;
     if (!res || res.code !== 0 || !res.data) throw new Error((res && res.message) || 'aiFilter failed');
-    const picks = Array.isArray(res.data.picks) ? res.data.picks : [];
-    // 确定性多样性兜底：按模型给的相关度顺序贪心取，同类目超上限则跳过。
-    // 提示词不可靠（实测教育曾占 4/10），这里才是唯一能保证结果的地方。
-    const perCat = new Map<string, number>();
-    const out: HotspotNews[] = [];
-    for (const p of picks) {
-      const it = pool[Number(p.n) - 1];
-      if (!it) continue;
-      const cat = categoryOf(it.tags);
-      const used = perCat.get(cat) || 0;
-      if (used >= AI_FILTER_PER_CATEGORY_MAX || out.length >= AI_FILTER_MAX) continue;
-      perCat.set(cat, used + 1);
-      const why = typeof p.why === 'string' ? p.why.trim() : '';
-      out.push({ ...it, aiReason: String(p.reason || ''), ...(why ? { whyItMatters: why } : {}) });
-    }
-    if (!out.length) return null;
-    return { items: out, summary: String(res.data.summary || '') };
+    const picked = pickAiFilterItems(pool, res.data.picks);
+    if (!picked.length) return null;
+    return { items: picked, summary: String(res.data.summary || '') };
   } catch (err) {
-    // 云函数未部署 / 未注册为 RPC 时，退回本地 static-server 预览路径
-    console.warn('[Cloud] aiFilter via cloud function failed, try local endpoint:', err);
-  }
-  if (isWeapp) return null; // 小程序没有同源 /api
-  try {
-    const res = await fetch('/api/news/ai-filter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ interests, custom, signals })
-    });
-    if (!res.ok) return null;
-    const payload = await res.json();
-    if (!payload || !Array.isArray(payload.items)) return null;
-    return { items: payload.items as HotspotNews[], summary: String(payload.summary || '') };
-  } catch (err) {
-    console.warn('[Cloud] aiNewsFilter local endpoint failed:', err);
+    console.warn('[Cloud] aiFilter via cloud function failed:', err);
     return null;
   }
+}
+
+/** 候选 → 展示条数：按模型给的相关度顺序贪心取，同类目超上限则跳过。
+ *  确定性多样性兜底：提示词不可靠（实测教育曾占 4/10），这里才是唯一能保证结果的地方。 */
+function pickAiFilterItems(
+  pool: HotspotNews[],
+  picks: Array<{ n?: number; reason?: string; why?: string }> | undefined
+): HotspotNews[] {
+  const list = Array.isArray(picks) ? picks : [];
+  const perCat = new Map<string, number>();
+  const out: HotspotNews[] = [];
+  for (const p of list) {
+    const it = pool[Number(p.n) - 1];
+    if (!it) continue;
+    const cat = categoryOf(it.tags);
+    const used = perCat.get(cat) || 0;
+    if (used >= AI_FILTER_PER_CATEGORY_MAX || out.length >= AI_FILTER_MAX) continue;
+    perCat.set(cat, used + 1);
+    const why = typeof p.why === 'string' ? p.why.trim() : '';
+    out.push({ ...it, aiReason: String(p.reason || ''), ...(why ? { whyItMatters: why } : {}) });
+  }
+  return out;
 }

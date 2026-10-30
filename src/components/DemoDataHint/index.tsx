@@ -26,15 +26,26 @@ import styles from './index.module.scss';
  * 无障碍：这里只渲染文本，**不写 role/aria-*** —— Taro 的 View/Text 不把这些未知属性
  * 透传到 H5 真实节点（详见 components/Splash 的 nativeProps 说明），写上去属于假修。
  * 文本本身就能被读屏获取，不需要额外标注。
+ *
+ * 2026-10-30 新增 `actions` prop（**页面粒度**）：
+ *   降级登记表是**模块级全局**、SPA 跨页不清 —— 于是 A 页的一次降级会把横幅带到 B 页。
+ *   线上实测（2026-10-30）：晨报页的 `apiGetVideoNews()` 走了 H5 上必然 404 的
+ *   webSearch 的 rpc 调用 ⇒ `markDegraded('webSearch')` ⇒ 横幅跟着流到热点页，
+ *   而热点页显示的是 **412 条真实 RSS** ⇒ 提示写「当前为本地演示数据」=
+ *   **把真实数据说成演示数据**（反向谎言）。
+ *   现在每个页面只声明**自己关心的 action**，别的页面的降级不会串进来。
+ *   不传 actions = 显示全部（保持既有行为，给没有明确边界的页面用）。
  */
-function DemoDataHint() {
+function DemoDataHint({ actions: scope }: { actions?: string[] }) {
   const t = useT();
-  const [actions, setActions] = useState<string[]>(() => getDegradedActions());
+  const [degraded, setDegraded] = useState<string[]>(() => getDegradedActions());
 
   // subscribeDegraded 订阅时立即回调一次当前快照，并返回取消订阅函数
-  useEffect(() => subscribeDegraded(setActions), []);
+  useEffect(() => subscribeDegraded(setDegraded), []);
 
-  if (actions.length === 0) return null;
+  // 页面粒度过滤：只看本页关心的 action
+  const hit = scope && scope.length ? degraded.filter((a) => scope.indexOf(a) >= 0) : degraded;
+  if (hit.length === 0) return null;
 
   return (
     <View className={styles.hint}>

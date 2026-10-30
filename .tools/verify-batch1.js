@@ -78,7 +78,7 @@ const PAGES = [
     name: 'shopping',
     tsx: 'src/pages/shopping/index.tsx',
     scss: 'src/pages/shopping/index.module.scss',
-    anchor: '<DemoDataHint />'
+    anchor: '<DemoDataHint'
   },
   {
     name: 'ledger',

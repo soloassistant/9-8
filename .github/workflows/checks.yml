@@ -181,6 +181,16 @@ jobs:
         # chunk 失败不在启动期整页重载、骨架要报真实进度且不许重复 id。
         run: npm run verify:boot-path
 
+      - name: 线上 H5 通路门禁
+        # 守「H5 端的云功能真的通」：2026-10-30 线上实测 `invoke('webSearch')` 打的是
+        # 应用数据库里**根本不存在**的 PG 函数（404 PGRST202），而它一直在 RPC 白名单里
+        # ⇒ H5 一次带倒 4 个功能（视频精选 / 视频资讯 / 全网搜索 / AI 资讯精选），
+        # 且每次调用都白发一发注定 404 的请求。这条门禁要求：
+        # 白名单里不得有 webSearch、白名单闸在取 rpc 之前、H5 的视频/AI 走真通路、
+        # 机构归一表不漏登记（alsoFrom 不得是「一家机构自己的两个 feed」）、
+        # 降级横幅按页面粒度（不许把真实数据说成演示数据）。
+        run: npm run verify:live-bridge
+
       - name: 键盘可达性门禁（机制与采纳）
         # 守「键盘用户能 Tab 到操作元素」：pressableProps 的 role/tabIndex/aria-label、
         # 三条让路规则（输入框/修饰键/IME）、全局 keydown 代理、focus-visible 焦点环，

@@ -17,7 +17,18 @@ export const isWeapp = process.env.TARO_ENV === 'weapp'
  *   ② 取不到身份时**拒绝**（抛错），而不是让 openid 以 undefined 落库。
  *
  * 目前放行：
- *   · `webSearch` — hotspot/searchNews 不碰用户态；feedback/briefing 取不到身份会直接拒绝。
+ *   · ~~`webSearch`~~ —— **2026-10-30 摘除**。线上实测（匿名探针）：
+ *     `POST /.cloud/database/rest/rpc/webSearch` → **404 DATABASE_PGRST202
+ *     "Could not find the function public.webSearch(action, feedback, id) in the schema cache"**
+ *     —— 应用数据库里**根本没有** `webSearch` 这个 PG 函数（微信云开发里的那个同名云函数
+ *     与应用数据库是两套运行时）。而它此前在白名单里 ⇒ H5 每次调它都白发一发**注定 404** 的请求，
+ *     并把「webSearch」登记进降级表 ⇒ 页级横幅亮出「云端功能暂不可用，当前为本地演示数据」，
+ *     而页面上显示的是**真实** RSS ⇒ 把真实数据说成演示数据（反向谎言）。
+ *     一次带倒 4 个功能：视频精选 / 视频资讯 / 全网搜索 / AI 资讯精选（+ 👍👎 的多余落库请求）。
+ *     摘除后任何残留调用**立即抛错**（不发网络请求）⇒ 失败可被门禁与控制台立刻发现。
+ *     H5 的替代通路：视频改走**同源静态载荷**（services/cloud.ts 的 getHotspotPayload +
+ *     services/api.ts 的 apiVideoNews），AI 精选改走 cloud.llm；
+ *     小程序端不受影响（走 Taro.cloud.callFunction，不经过这张表）。
  *   · `chat` / `extract` — 有用户态，但 2026-10-08 已收口为**只认微信上下文**
  *     （`cloud.getWXContext().OPENID`，取不到即 throw）。H5 没有微信上下文，故当前必被拒 ——
  *     这是身份契约，不是缺陷。
@@ -28,6 +39,11 @@ export const isWeapp = process.env.TARO_ENV === 'weapp'
  * 将来哪个函数被移植进应用数据库，先确认它在上面两条下安全，再进来。
  * H5 的对话已改走 cloud.llm（见 services/cloudLlm），不经 RPC。
  *
+ * ★ **放行前必须有线上探针证明对应的 PG 函数真实存在**（2026-10-30 立规）：
+ *   探针形状：`POST {endpoint}/.cloud/database/rest/rpc/<name>`，看返回码。
+ *   PGRST202「Could not find the function」= 函数不存在 ⇒ **不许放行**。
+ *   探针必须匿名跑（无登录态 ⇒ 服务端身份分支必拒绝 ⇒ 零写入风险）。
+ *
  * **平台文档（cloud-service 技能 references/database/code-generation.md）明确要求：身份由
  * `cloud.auth` 会话在请求层自动附带，客户端不得传任何 token / user id / owner id。**
  * 因此本层**不再注入 openid** —— 客户端自传 openid 既被平台明令禁止，又可被冒用（谁都能填别人的 id）。
@@ -37,7 +53,7 @@ export const isWeapp = process.env.TARO_ENV === 'weapp'
  * **新增云函数进白名单前，先确认它在上面两条下是安全的。** 闸门放在传输层而不是业务代码里，
  * 是为了不依赖调用方自觉 —— 放业务层的话新调用点一定会绕过。
  */
-const RPC_ALLOWLIST = new Set(['webSearch', 'chat', 'extract'])
+const RPC_ALLOWLIST = new Set(['chat', 'extract'])
 
 /**
  * 云函数调用面 —— 唯一的跨端传输层。
