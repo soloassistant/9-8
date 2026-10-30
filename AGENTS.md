@@ -121,7 +121,7 @@ MSYS_NO_PATHCONV=1 robocopy "D:\Agent\晨报\dist" "D:\Agent\dist" /MIR
 > `SITES_UPLOAD_FAILED`。而且该失败**已经改写了线上 sandbox**，链接会短时间不可用，必须重新发布一次恢复。
 > **必须是真实目录副本**（3.4 MB，可接受）。
 
-发布后 4 项必查（缺一项都可能"看起来上线了但其实坏的"）：
+发布后 5 项必查（缺一项都可能"看起来上线了但其实坏的"）：
 
 ```bash
 H=https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host
@@ -151,6 +151,32 @@ curl -s "$H/.cloud/database/rest/user_kv?select=*" -H "Origin: $H" -H "X-Wb-Weba
 > `createWorkBuddyCloud({endpoint:location.origin, publishableKey:…}).auth.signInWithPassword(不存在的账号)`
 > 必须返回业务错误 `invalid-request / "Username or password incorrect."`；返回 `Failed to fetch`
 > 就是 Origin/CORS 问题，**不是密码问题**。
+
+### ★ 第 5 项（浏览器级）：**用户到底看不看得见界面**
+
+上面 4 项全是**资产 / API 级**检查 —— 它们回答「文件到位了吗、接口通吗」，
+**回答不了「用户打开页面，看得见界面吗」**。一条命令跑完全部 5 项：
+
+```bash
+npm run publish:check        # node .tools/verify-publish-live.mjs
+```
+
+第 ⑤ 项用真 Chrome 打开线上入口，断言：**30s 内真的挂载**（`#container` 存在 / `#app` 有内容）、
+**首屏骨架已被移除**（`#boot-skeleton` 不在 DOM 里）、**页面显示的是真实界面而不是骨架文案**、**没有横向溢出**。
+
+> ⚠️ **2026-10-30 实测踩出来的坑**（当时线上 ①②③④ **全绿**）：
+> 真浏览器里 **30 秒后 React 仍未挂载**（没有 `#container`，`#app` 还是模板里的空占位），
+> 首屏骨架 `<div id="boot-skeleton">`（`position:fixed; z-index:9999`）**一直盖在最上面**，
+> `elementFromPoint` 命中的还是骨架，页面上只有「正在准备今天的晨报…加载得有点慢…重新加载」
+> ⇒ **用户永远看不到登录页**。
+>
+> 根因在投递侧（源站偶发卡顿 + 网关不压缩）：实测 **5.4 KB 的 HTML 要 8 秒**、
+> **616 KB 的主包要 7 秒**（`Content-Encoding` 为空 ⇒ 没有任何压缩），
+> Taro 运行时 chunk（`js/657.*.js`）到位太晚 ⇒ 运行时没跑起来 ⇒ 没人撤骨架。
+>
+> ⇒ **「资产都在」不等于「用户看得见界面」**。只查资产的那 4 项，必须配第 ⑤ 项一起跑。
+> 排查这类现象时先分清三种原因：**① 产物半成品 / ② 产物落后于未提交源码 / ③ 投递侧慢或失败**，
+> 别一上来就改源码。
 
 顺带一条隔离举证（顺手做的，可复用）：**未登录** `database.from('user_kv').select('*')` 返回
 `rows: 0, error: null` —— 库里 20+ 行真实数据对匿名用户完全不可见，即 RLS 生效。

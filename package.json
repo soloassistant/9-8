@@ -69,6 +69,7 @@
     "deploy:cloud": "node .tools/deploy-cloud.mjs",
     "deploy:cloud:check": "node .tools/deploy-cloud.mjs --check",
     "deploy:pages": "node .tools/deploy-gh-pages.mjs",
+    "publish:check": "node .tools/verify-publish-live.mjs",
     "build:weapp": "node .tools/verify-deploy-fresh.mjs --prebuild && taro build --type weapp",
     "build:swan": "taro build --type swan",
     "build:alipay": "taro build --type alipay",
