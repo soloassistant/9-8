@@ -131,8 +131,11 @@
 
         function bytesNow() {
           try {
-            var rs = performance.getEntriesByType('resource');
             var sum = 0;
+            // 文档自身的字节也要算：'resource' 不含 navigation，只算它会让进度一直停在 0 KB
+            var nav = performance.getEntriesByType('navigation');
+            if (nav && nav[0]) sum += (nav[0].encodedBodySize || 0);
+            var rs = performance.getEntriesByType('resource');
             for (var i = 0; i < rs.length; i++) {
               sum += (rs[i].encodedBodySize || rs[i].encodedDataSize || rs[i].transferSize || 0);
             }
@@ -157,10 +160,11 @@
           if (prog) {
             if (ready) {
               prog.textContent = '资源已下载完成，正在启动…';
-            } else if (TOTAL > 0) {
-              prog.textContent = '正在下载页面资源… ' + fmt(b) + ' / ' + fmt(TOTAL);
+            } else if (b > 0) {
+              prog.textContent = '正在下载页面资源… ' + fmt(b) + (TOTAL > 0 ? ' / ' + fmt(TOTAL) : '');
             } else {
-              prog.textContent = '正在下载页面资源… ' + fmt(b);
+              // 一个字节都还没到 ⇒ 别显示「0 KB / 900 KB」（那是在拿分母冒充进度）
+              prog.textContent = '正在下载页面资源…';
             }
           }
           if (elapsed > 10000) skel.classList.add('is-slow');
