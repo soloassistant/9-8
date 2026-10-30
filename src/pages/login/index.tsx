@@ -37,6 +37,14 @@ const TAB_LABEL_KEY: Record<Tab, 'auth.tabPassword' | 'auth.tabOtp' | 'auth.tabS
 /** 登录标识通道：邮箱 或 手机号（短信验证码）。默认手机号（产品决策）。 */
 type IdChannel = 'email' | 'phone';
 
+/**
+ * 是否 H5（发布版）通道。
+ * ⚠️ 微信小程序端**没有短信通道**：身份由微信提供（云函数 login 拿 openid），
+ *    压根不需要「账号 + 密码」这套。所以那里**不许**给出「忘记密码」入口 ——
+ *    给一个做不到的入口，用户点下去只会撞上一句「云服务不可用」（2026-10-29 审计）。
+ */
+const IS_H5 = process.env.TARO_ENV === 'h5';
+
 /** 「获取验证码」同一次流程里的凭据。**必须活在事件之外** ——
  *  SDK 约定：获取验证码与提交验证是两个独立动作，提交时**不得再次发送**（否则每个码都作废）。 */
 interface PendingOtp {
@@ -719,7 +727,12 @@ export default function LoginPage() {
   // 也都有「忘记密码」：邮箱走 SDK 的 resetPasswordForEmail，手机号走
   // cloudAuth.requestPasswordResetByPhone（2026-10-29 探测服务端后补齐）。
   // 手机号那条没走 SDK 是因为 SDK 把 email/usage 写死在函数体里，没有注入点。
-  const tabs: Tab[] = channel === 'phone' ? ['otp', 'password', 'signup', 'forgot'] : ['password', 'otp', 'signup', 'forgot'];
+  // ⚠️ 但「忘记密码」只在 H5 通道成立（小程序端没有短信通道，见 IS_H5 的说明）。
+  // ⚠️ baseTabs 单独一行：数组字面量直接进 .filter() 会被拓宽成 string[]（TS2322），
+  //    先用 Tab[] 收住类型；同时这段表达式保持**纯 JS 可求值**——
+  //    门禁要把它真跑一遍（IS_H5=false/true 两种），所以里面不能掺 TS 专有语法。
+  const baseTabs: Tab[] = channel === 'phone' ? ['otp', 'password', 'signup', 'forgot'] : ['password', 'otp', 'signup', 'forgot'];
+  const tabs: Tab[] = baseTabs.filter((k) => IS_H5 || k !== 'forgot');
 
   return (
     <View className={styles.screen}>
@@ -814,7 +827,7 @@ export default function LoginPage() {
             {/* 手机号也能重置密码（2026-10-29）：服务端 /v1/verification 支持
                 usage=PASSWORD_RESET + phone_number，SDK 只是没封装。入口切到 forgot tab，
                 走「短信验证码 → 新密码 → 自动登录」，与邮箱流程同一段 UI。 */}
-            {channel === 'phone' ? (
+            {channel === 'phone' && IS_H5 ? (
               <View className={styles.forgotPhoneRow} onClick={() => switchTab('forgot')}>
                 <Text className={styles.forgotPhoneText}>{t('auth.forgotPhoneHint')}</Text>
               </View>
