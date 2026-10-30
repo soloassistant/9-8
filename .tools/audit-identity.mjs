@@ -4,7 +4,7 @@
  *
  * ## 要回答的问题（不依赖真机、不依赖部署）
  *   1. 每个集合的身份字段是 `openid` 还是 `owner_id`？
- *   2. H5 有没有能力读写这些集合？（`RPC_ALLOWLIST` 只放行三个函数）
+ *   2. H5 有没有能力读写这些集合？（`RPC_ALLOWLIST` 已于 2026-10-31 清空 —— 见 I2a）
  *   3. H5「注销」到底删了什么、漏了什么？weapp「注销」反过来会漏什么？
  *   4. 同一自然人两端登录，是不是两个互不相干的用户？
  *
@@ -286,18 +286,23 @@ const KNOWN_GAPS = new Map([
 
 ok('I1a', 'I1 注销清单非空（解析没失效）', deleteCollections.length >= 10);
 ok('I1b', `I1 注销清单覆盖了所有非豁免集合（漏: ${leakedForWeapp.join(',') || '无'}）`, leakedForWeapp.length === 0);
-ok('I2a', 'I2 H5 放行白名单只有 chat/extract（webSearch 已证实无对应 PG 函数，必须摘除）',
+ok('I2a', 'I2 H5 RPC 白名单必须为空（留任何名字 = 白发一发注定 404 的请求）',
   // 2026-10-30 **判据更新**（线上探针推翻原假设）：
   //   原判据要求白名单恰好是 webSearch/chat/extract。2026-10-30 线上匿名探针实测：
   //     POST /.cloud/database/rest/rpc/webSearch → 404 DATABASE_PGRST202
   //     "Could not find the function public.webSearch(action, feedback, id) in the schema cache"
   //   ⇒ 应用数据库里**根本没有** webSearch 这个 PG 函数（微信云开发里的同名云函数与
-  //     应用数据库是两套运行时）。它留在白名单里 ⇒ H5 每次调它都白发一发注定 404 的请求，
-  //     并把「webSearch」登记进降级表 ⇒ 页级横幅把 412 条**真实** RSS 说成「本地演示数据」。
-  //   ⇒ 已从白名单摘除（src/services/dataSource.ts），任何残留调用**立即抛错**、不发网络请求。
-  //   本条判据随之改为「白名单只有 chat/extract，且 webSearch 必须在外面」。
-  rpcAllow.length === 2 && ['chat', 'extract'].every((x) => rpcAllow.includes(x)) &&
-  !rpcAllow.includes('webSearch'));
+  //     应用数据库是两套运行时）。
+  // 2026-10-31 **判据再次更新**（03aede4 清空白名单，verify-db-contract 接管 DB 面）：
+  //   带真实参数名的探针证明 chat / extract / newsFeedback / feedback / getBriefing / shopping
+  //   **同样不是**应用数据库的 PG 函数（chat/extract 在 H5 走 cloud.llm，本就不经 DB）。
+  //   白名单里留「不可达但看起来可用」的名字 = 假的安全感：谁按名单写新调用点就白发 404。
+  //   ⇒ 白名单**清空**；H5 真实 DB 通路只剩直连通道（user_kv/llm_events/feedback/
+  //     client_errors + kv_set_many/kv_clear/log_client_error，2026-10-31 探针证实全部存在），
+  //     由 `verify-db-contract.mjs` 守契约（函数存在性 + 匿名收紧 + 前端不读收口表）。
+  //   本条判据随之收紧为「白名单必须为空」—— 将来要放行某个名字，必须先在线上证明
+  //   对应 PG 函数存在，并同步更新本断言与 verify-db-contract。
+  rpcAllow.length === 0);
 ok('I2b', 'I2 deleteAccount / getUsage / login / queryOrder / createOrder / pay-callback 都不在 H5 白名单',
   ['deleteAccount', 'getUsage', 'login', 'queryOrder', 'createOrder', 'pay-callback'].every((x) => !rpcAllow.includes(x)));
 ok('I3a', 'I3 H5 的云端写入面完全不含任何 openid 集合（两端数据在物理上不同的表）',
