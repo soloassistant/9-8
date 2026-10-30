@@ -280,27 +280,6 @@ function injectBootSkeleton() {
 
 injectBootSkeleton();
 
-// ---- Service Worker（2026-10-30）：把 VERSION 换成构建输入哈希后落盘 ----
-// 为什么要单独生成而不是直接拷 src/assets/sw.js：VERSION 变了才触发浏览器更新 SW，
-// 而「这次构建的输入有没有变」只有构建脚本知道。用 mtime 或时间戳会让每次构建都失效缓存。
-// 失败不阻塞构建：verify:sw 会把它拦下来。
-function emitServiceWorker(version) {
-  const src = path.join(root, 'src/assets/sw.js');
-  const out = path.join(dist, 'sw.js');
-  try {
-    if (!fs.existsSync(src)) throw new Error('缺 src/assets/sw.js');
-    const code = fs.readFileSync(src, 'utf8');
-    if (!code.includes("'__BUILD_VERSION__'")) throw new Error('模板里找不到 __BUILD_VERSION__ 占位');
-    const v = String(version || '').slice(0, 12) || 'dev';
-    fs.writeFileSync(out, code.replace("'__BUILD_VERSION__'", `'${v}'`));
-    console.log(`[copy-assets] sw.js 已生成（version=${v}）`);
-    return v;
-  } catch (e) {
-    console.warn(`[copy-assets] sw.js 生成失败：${String((e && e.message) || e)}`);
-    return null;
-  }
-}
-
 // ---- 构建指纹（2026-10-23 补）：把「本次构建用的是哪一版源码」写进 dist ----
 // 部署脚本据此判定 `dist` 是否真的对应当前源码。**不能用 mtime 判**：读文件就会改 mtime，
 // 内容没变也会误报；git 恢复旧内容时 mtime 变新又会漏报。比内容哈希才靠得住。
@@ -312,7 +291,6 @@ try {
     `[copy-assets] build-stamp: ${stamp.inputsHash.slice(0, 12)}… ` +
       `(${stamp.inputCount} 个输入, head=${stamp.head ? stamp.head.slice(0, 7) : 'n/a'})`
   );
-  emitServiceWorker(stamp.inputsHash);
 } catch (e) {
   console.warn(`[copy-assets] build-stamp 写入失败（部署新鲜度闸会退化为 mtime 判据）：${String((e && e.message) || e)}`);
 }

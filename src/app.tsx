@@ -19,7 +19,6 @@ import { initCloudSync } from '@/services/cloudSync';
 import { restoreSubscriptionFromOrders } from '@/services/subscription';
 import { dismissBootSkeletonAfterPaint } from '@/utils/bootSkeleton';
 import { activatePressable, observePressables } from '@/utils/a11y';
-import { registerServiceWorker } from '@/utils/sw';
 import { reportCrash, installH5CrashHandlers } from '@/services/crashReport';
 import type { CrashPayload } from '@/services/crashReport';
 import { clientErrorInsert } from '@/services/cloudDb';
@@ -314,12 +313,6 @@ function App(props: PropsWithChildren) {
     const timer = setTimeout(() => syncTabBar(lang), 300);
     return () => clearTimeout(timer);
   }, [lang]);
-
-  // Service Worker：让重复访问走本地缓存，绕开源站偶发的「单个请求卡 10 秒+」。
-  // 策略见 src/assets/sw.js；这里失败不影响任何功能，所以不需要错误界面。
-  useEffect(() => {
-    registerServiceWorker();
-  }, []);
 
   // 登录页是独立的全屏版式：Taro 的 TabBar 由路由层渲染，不在 React 树里，
   // 所以只能在 body 上打类、由 app.scss 关掉（否则登录页底部挂着主 TabBar，
