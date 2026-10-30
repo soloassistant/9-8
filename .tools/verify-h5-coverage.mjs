@@ -171,7 +171,12 @@ const syncSet = new Set(syncKeys);
     syncSrc.indexOf('const REMOVE_PLACEHOLDER'),
     syncSrc.indexOf('};', syncSrc.indexOf('const REMOVE_PLACEHOLDER')) + 2
   );
-  const noPh = syncKeys.filter((k) => !phBlock.includes(`'${k}'`) && !phBlock.includes(`${k}:`));
+  // ⚠️ 必须**剥注释**再判：变异把占位值整行注释掉时，注释里仍留着键名
+  //   （`// 'mb_locked_price': {},`）⇒ 不剥就照样判绿 ⇒ 这条变异实测 NOT-CAUGHT。
+  const phCode = phBlock
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const noPh = syncKeys.filter((k) => !phCode.includes(`'${k}'`) && !phCode.includes(`${k}:`));
   assert('A6 每个 SYNC_KEY 都有 REMOVE_PLACEHOLDER（删除动作也要能同步出去）', noPh.length === 0, noPh.join(', '));
 }
 

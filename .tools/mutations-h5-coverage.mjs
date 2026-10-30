@@ -20,8 +20,10 @@ export default [
   {
     label: '早鸟锁价不上云（mb_locked_price 移出 SYNC_KEYS ⇒ 换设备权益消失）',
     file: 'src/services/cloudSync.ts',
-    from: "  'mb_locked_price'",
-    to: "  // 'mb_locked_price'",
+    // 锚点要**唯一**：只写 `'mb_locked_price'` 会在 REMOVE_PLACEHOLDER 里再命中一次
+    // ⇒ 框架报「锚点出现 2 次」直接拒绝执行这条变异（实测踩过）。
+    from: "  'mb_locked_price'       // 早鸟终身锁价",
+    to: "  // 'mb_locked_price'       // 早鸟终身锁价",
     cmd: 'node .tools/verify-h5-coverage.mjs'
   },
   {
