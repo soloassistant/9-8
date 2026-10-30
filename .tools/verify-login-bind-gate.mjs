@@ -137,6 +137,22 @@ t('逃生口：读取时按 TTL 判定，过期即重新要求绑定', () => {
   return !/getStorageSync\(PHONE_BIND_DISMISSED_KEY\)\s*===\s*true/.test(loginSrc) || '读取处还在用 === true';
 });
 
+t('注册必须设密码（邮箱/手机号一视同仁，不留通道例外）', () => {
+  // 之前是 `channel === 'email' || password.length > 0` —— 手机号选填。
+  // 现在应是「注册就校验长度」，不再按通道分叉。
+  const byChannel = /channel === 'email'[^\n]*password\.length/.test(loginSrc);
+  if (byChannel) return '还有按通道分叉的密码必填逻辑（手机号仍可空）';
+  const hasGuard = /const isSignup = withPassword && !pending\.isExistingUser/.test(loginSrc) &&
+    /isSignup && password\.length < 8/.test(loginSrc);
+  return hasGuard || '找不到「注册即校验密码长度」的实现';
+});
+
+t('手机号登录不再要求补绑手机号', () => {
+  // 手机号通道登录成功 = 本机已有手机号，直接落"已绑定"标记，避免再弹一次
+  const hit = /if \(channel === 'phone'\) markPhoneBound\(\)/.test(loginSrc);
+  return hit || '手机号登录后没有 markPhoneBound()，会被要求重复绑定';
+});
+
 /* ── 汇总 ── */
 const failed = results.filter((r) => !r.pass);
 const out = { status: failed.length ? 'FAIL' : 'PASS', pass: results.length - failed.length, total: results.length, failures: failed };
