@@ -268,9 +268,12 @@ function App(props: PropsWithChildren) {
         // ⚠️ 也不能只靠 message 判：分包失败在浏览器里是 script 元素的 onerror，
         //    message 是空串（没有 ChunkLoadError 文本），按 message 判会把真正的
         //    页面打不开漏掉（实测 B8–B10 就是这么红的）。必须看失败脚本的 src。
+        // 判「应用是否已经在渲染界面」不能只数节点：登录页只有 45 个节点，会被误判成"没挂载"。
+        // Taro 一旦产出 .taro_page 就说明路由已经在渲染（哪怕渲染的是登录页）。
+        const pageRoot = document.querySelector('.taro_page');
+        const mounted = !!pageRoot && document.querySelectorAll('taro-view-core').length > 10;
         const failSrc = (target as HTMLScriptElement | null)?.src || '';
         const failedPageChunk = /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(failSrc);
-        const mounted = document.querySelectorAll('taro-view-core').length > 50;
         if (!handedToSkeleton && (chunkFailed || failedPageChunk || !mounted)) {
           showBootFailure(scriptFailed ? `script onerror: ${failSrc.split('/').pop() || '?'}` : msg);
         } else if (!handedToSkeleton && mounted) {

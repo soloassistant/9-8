@@ -149,7 +149,8 @@ if (NO_BROWSER) {
   async function openPage(js, opts) {
     const failChunks = !!(opts && opts.failChunks);
     const hangChunks = !!(opts && opts.hangChunks);
-    const dbgPort = port + 100 + js + (failChunks ? 10 : 0) + (hangChunks ? 20 : 0);
+    const failSdk = !!(opts && opts.failSdk);
+    const dbgPort = port + 100 + js + (failChunks ? 10 : 0) + (hangChunks ? 20 : 0) + (failSdk ? 30 : 0);
     const udd = path.join(os.tmpdir(), `bs-${Date.now()}-${js}`);
     const child = spawn(CHROME, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
       '--disable-extensions', '--no-proxy-server', `--remote-debugging-port=${dbgPort}`,
@@ -178,7 +179,7 @@ if (NO_BROWSER) {
     };
     await send('Page.enable');
     await send('Runtime.enable');
-    if (failChunks || hangChunks) {
+    if (failChunks || hangChunks || failSdk) {
       // ⚠️ 不能用 Network.setBlockedURLs(['*/js/[0-9]*.js'])：它只支持 * 和 ?，
       //    字符类会被当字面量 —— 实测一个请求都没拦到，却得出「页面正常」的假结论。
       // ⚠️ 也不能按时间（"导航 3 秒后才拦"）：分包在启动过程中就可能被拦到，
@@ -190,6 +191,10 @@ if (NO_BROWSER) {
         const m = JSON.parse(e.data);
         if (m.method !== 'Fetch.requestPaused') return;
         const { requestId, request } = m.params;
+        if (failSdk && /\/assets\/wb-sdk\.js/.test(request.url)) {
+          send('Fetch.failRequest', { requestId, errorReason: 'Failed' });
+          return;
+        }
         if (hangChunks && /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(request.url)) {
           return; // 挂着不回：模拟「很慢但没失败」
         }
@@ -340,6 +345,28 @@ if (NO_BROWSER) {
   assert('B13 该状态下有可见的重试按钮（用户能自己救，不必干等）',
     h2.retryVisible === true, String(h2.text));
   hangPage.close();
+
+  // B14–B15：**SDK 挂了但应用还能用** —— 这时绝不能盖全屏兜底层。
+  //   覆盖面：`<script onerror>` 也包含 assets/wb-sdk.js。上一版只要有任何脚本失败
+  //   就插全屏「页面没有加载出来」，会把本来能看的晨报挡掉 —— 比不处理更糟。
+  //   判据必须看失败脚本的 src（页面分包才盖），不能只看 message。
+  const sdkPage = await openPage(1, { failSdk: 1 });
+  await new Promise((r) => setTimeout(r, 9000));
+  const sdkState = JSON.parse(String(await sdkPage.ev(`(() => {
+    const box = document.getElementById('wb-boot-failure');
+    return JSON.stringify({
+      overlay: !!box,
+      nodes: document.querySelectorAll('taro-view-core,taro-text-core').length,
+      text: (document.body.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 40)
+    });
+  })()`)));
+  sdkPage.close();
+  assert('B14 SDK 加载失败时不盖全屏兜底层（应用还能用就别挡用户）',
+    sdkState.overlay === false, JSON.stringify(sdkState).slice(0, 140));
+  // SDK 挂了 ⇒ 门禁无法确认会话 ⇒ 正常回落登录页（这是对的）。所以这里只要求
+  // 「有可见内容」，不要求是简报页：45 节点的登录页也算正常渲染。
+  assert('B15 该情况下页面仍有可见内容（登录页也算，不是白屏）',
+    sdkState.nodes > 20 && String(sdkState.text).length > 10, `nodes=${sdkState.nodes} text=${sdkState.text}`);
 
   server.close();
 }
