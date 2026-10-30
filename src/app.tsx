@@ -173,16 +173,45 @@ function App(props: PropsWithChildren) {
    * ChunkLoadError / "dynamically imported module" 的运行时错误。
    * 15 秒窗口内只救一次：第二次还失败说明不是版本漂移，重载只会变成刷屏死循环，
    * 那时应该让用户看到错误而不是无限刷新。
+   *
+   * ⚠️ 2026-10-30 加了**启动期豁免**：此前任何脚本加载失败（**包括网络抖动/超时**）
+   *   都会整页 reload。而发布网关对单个请求有 20–31 秒的首字节长尾（实测），
+   *   一次卡顿就会把用户从「已渲染的界面」打回「重新下载 900 KB + 骨架重来」——
+   *   把一次局部抖动放大成整页重来，比不重载更糟。
+   *   ⇒ 启动后 15 秒内不重载：那段时间多半是网络问题，不是版本漂移；
+   *     真碰上版本漂移（首屏拿到的 index.html 是旧的）也有更好的出路 ——
+   *     骨架的「重新加载」按钮带 cache-busting 的 query，会强制取一份**新的** index.html。
+   *   启动期失败改为把骨架切到失败态（文案 + 可重试按钮），不再静默整页刷新。
    */
   useEffect(() => {
     if (process.env.TARO_ENV !== 'h5' || typeof window === 'undefined') return;
     const KEY = 'chunk-reload-at';
+    /** 启动后这段时间内的失败不整页重载（见上方注释） */
+    const BOOT_GRACE_MS = 15000;
     const onError = (e: Event) => {
       const target = e.target as HTMLElement | null;
       const scriptFailed = target && target.tagName === 'SCRIPT';
       const msg = String((e as ErrorEvent).message || '');
       const chunkFailed = /ChunkLoadError|Loading chunk|dynamically imported module|Importing a module script failed/i.test(msg);
       if (!scriptFailed && !chunkFailed) return;
+      const inBoot = (() => {
+        try {
+          return typeof performance !== 'undefined' && performance.now() < BOOT_GRACE_MS;
+        } catch {
+          return false;
+        }
+      })();
+      if (inBoot) {
+        // 启动期：把骨架切到失败态，让用户看到「没加载出来」+ 能重试，而不是无限刷新
+        console.error('[App] 启动期资源加载失败（不整页重载，交由骨架的失败态处理）:', scriptFailed ? 'script' : msg);
+        try {
+          const skel = document.getElementById('boot-skeleton');
+          if (skel) skel.classList.add('is-fail');
+        } catch {
+          /* DOM 不可用就只记日志 */
+        }
+        return;
+      }
       try {
         const last = Number(window.sessionStorage.getItem(KEY) || 0);
         if (Date.now() - last < 15000) return;

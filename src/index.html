@@ -23,11 +23,28 @@
       版本仍是 dev 线那个具体构建（与 2026-10-13 锁定的一致），等价于"冻结 @dev 的字节"；
       src/assets/wb-sdk.js 的 sha384 已与旧 CDN integrity 比对一致（fjris8pRF0OENf…），
       要升级必须显式换文件 + 同步改这里。
-      `defer` 保持：app bundle 本身也是 `defer`，按文档序 SDK 仍在 app 之前定义全局
-      WorkBuddyCloud，顺序不变（内联 rem 脚本不依赖该全局，已在产物中确认）。
       同源本地文件无需 SRI/crossorigin：去掉 integrity，避免将来 1 字节差异就拒绝执行。
+
+      ⚠️ 2026-10-30：这里从 `defer` 改成 `async`，**因为 defer 会把 SDK 串行卡在主包前面**。
+      实测（线上真浏览器网络时间线，3 次）：发布网关对**单个请求**有 20–31 秒的首字节长尾
+      （实测 20402ms / 23851ms / 30877ms），而同一批并行请求里其余的只要 0.4–3 秒。
+      `defer` 脚本按**文档序**执行 ⇒ 本文件里 SDK 排在 webpack 注入的
+      `js/657.*.js` / `js/app.*.js` 之前 ⇒ **SDK 那一枪卡住，整个应用就卡住**：
+        · 线上实测第 3 次加载：app.js 早在 3.7 秒就下载完了，却因为 SDK 首字节卡了
+          23.8 秒，应用到 27.6 秒才挂载；
+        · 线上实测第 2 次加载：卡在 657.*.js 的 30.9 秒 ⇒ 30 秒内**根本没挂载**，
+          用户一直看着「正在准备今天的晨报…」。
+      改 `async` 后 SDK 与主包**并行下载、互不阻塞**，谁先到谁先执行。
+
+      安全性：SDK 全局 `window.WorkBuddyCloud` **只在 `cloudAuth.getCloudClient()` 里读**，
+      而它前置的 `waitForSdk()` 本来就是「轮询等全局出现（最多 5s，超时按不可用处理）」——
+      说明代码本来就假设 SDK 可能晚到。2026-10-30 同步把 waitForSdk 的上限提到 20s
+      （网关长尾实测到 31 秒），并加了「超时则重新注入一次 <script>」的补救
+      （长尾是**按请求**随机的，重试换一个请求往往就快了）。
+      ⇒ 唯一的行为变化：SDK 可能在 app.js 之后执行；凡是读它的代码都必须走
+      waitForSdk()/getCloudClient()，不能直接摸 window.WorkBuddyCloud。
     -->
-    <script defer src="./assets/wb-sdk.js"></script>
+    <script async src="./assets/wb-sdk.js"></script>
     <script>
       <%= htmlWebpackPlugin.options.script %>
     </script>

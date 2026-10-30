@@ -38,10 +38,27 @@
         0% { transform: translateX(-100%); }
         100% { transform: translateX(320%); }
       }
+      /* 真实进度：2026-10-30 加。此前骨架只会说「正在准备今天的晨报…」，
+         而线上网关对单个请求有 20–31 秒的首字节长尾，用户其实是在等**下载**，
+         却看到一句「正在准备」——这不是谎报，但会让人以为已经好了。 */
+      #boot-skeleton .bs-prog {
+        font-size: 12px;
+        opacity: 0.72;
+        font-variant-numeric: tabular-nums;
+        text-align: center;
+        padding: 0 32px;
+      }
       /* 慢加载提示：10s 还没挂载才出现（见下方 watchdog），正常网络下永远看不到 */
       #boot-skeleton .bs-slow { display: none; font-size: 13px; line-height: 1.6; text-align: center; padding: 0 32px; }
       #boot-skeleton.is-slow .bs-slow { display: block; }
       #boot-skeleton.is-slow .bs-bar { display: none; }
+      /* 卡住：连续 8 秒一个字节都没多（网关把某个请求卡住了，实测能到 30 秒以上） */
+      #boot-skeleton .bs-stall { display: none; font-size: 13px; line-height: 1.6; text-align: center; padding: 0 32px; color: #a2560b; }
+      #boot-skeleton.is-stall .bs-stall { display: block; }
+      /* 失败态：45 秒还没挂载 ⇒ 不再假装「正在准备」，明说没加载出来 */
+      #boot-skeleton .bs-fail { display: none; font-size: 13px; line-height: 1.6; text-align: center; padding: 0 32px; color: #a3231a; }
+      #boot-skeleton.is-fail .bs-fail { display: block; }
+      #boot-skeleton.is-fail .bs-bar { display: none; }
       #boot-skeleton .bs-retry {
         display: none;
         margin-top: 6px;
@@ -52,10 +69,14 @@
         font-size: 14px;
         border: 0;
       }
-      #boot-skeleton.is-slow .bs-retry { display: inline-block; }
+      #boot-skeleton.is-slow .bs-retry,
+      #boot-skeleton.is-stall .bs-retry,
+      #boot-skeleton.is-fail .bs-retry { display: inline-block; }
       @media (prefers-color-scheme: dark) {
         #boot-skeleton { background: #14110f; color: #ece6dc; }
         #boot-skeleton .bs-bar { background: rgba(236, 230, 220, 0.16); }
+        #boot-skeleton .bs-stall { color: #e0a458; }
+        #boot-skeleton .bs-fail { color: #ef8a80; }
       }
       @media (prefers-reduced-motion: reduce) {
         #boot-skeleton .bs-bar::after { animation: none; width: 100%; }
@@ -67,8 +88,16 @@
       <div class="bs-title">私人晨报助理</div>
       <div class="bs-sub">正在准备今天的晨报…</div>
       <div class="bs-bar" aria-hidden="true"></div>
+      <div class="bs-prog">正在下载页面资源…</div>
+      <div class="bs-stall">网络似乎卡住了，正在继续等…</div>
       <div class="bs-slow">加载得有点慢。检查一下网络，或者点下面重试。</div>
-      <button class="bs-retry" type="button" onclick="location.reload()">重新加载</button>
+      <div class="bs-fail">页面始终没能加载出来。多半是网络断了或服务器在抽风，点「重新加载」再试一次。</div>
+      <!--
+        重试**必须带 cache-busting 的 query**：网关把卡住的那一次响应缓存下来的话，
+        同一个 URL 再请求还是同样的慢/同样的坏。query 换一个 key，强制取新响应。
+        （实测 `/?r=<时间戳>` 在线上返回 200 + 与 `/` 完全一致的 5390 B。）
+      -->
+      <button class="bs-retry" type="button" onclick="location.replace(location.pathname+location.search+(location.search?'&':'?')+'r='+Date.now())">重新加载</button>
     </div>
     <!--
       ⚠️ 绝对不要在这里写 <div id="app"></div> 当「挂载点占位」。
@@ -83,12 +112,65 @@
       门禁 verify:boot-skeleton 现在会数 id="app" 的出现次数，别再写回来。
     -->
     <script>
-      // 慢加载兜底：10 秒还没被 app 移除（= 主 bundle 没跑起来），把加载动画换成可操作的提示。
-      // 只改样式类，不碰 React 挂载点；用户点「重新加载」就是一次普通 reload。
+      // 首屏进度 + 状态机（2026-10-30）。
+      // 为什么要有：2026-10-30 实测线上首屏**最慢挂载 30 秒以上**（网关单请求首字节
+      // 长尾 20–31 秒，见 src/index.html 里的说明）。此前骨架只会转圈 + 一句
+      // 「正在准备今天的晨报…」，用户既不知道在等什么、也没法判断是不是死了。
+      // 现在：用 performance API 报**真实下载进度**，并按「多久没进展 / 等了多久」
+      // 分成三种文案，最后给一个能真正重试（带 cache-busting）的按钮。
       (function () {
-        setTimeout(function () {
-          var el = document.getElementById('boot-skeleton');
-          if (el && !el.classList.contains('is-leaving')) el.classList.add('is-slow');
-        }, 10000);
+        var skel = document.getElementById('boot-skeleton');
+        if (!skel) return;
+        var prog = skel.querySelector('.bs-prog');
+        // 分母由构建期注入（copy-assets.js 按 dist 里真实的 JS/CSS 体积算），
+        // 没注入时为 0 → 只报「已下载 X KB」，不编造一个假分母。
+        var TOTAL = parseInt('__BOOT_TOTAL_BYTES__', 10) || 0;
+        var started = Date.now();
+        var lastBytes = -1;
+        var lastChange = started;
+
+        function bytesNow() {
+          try {
+            var rs = performance.getEntriesByType('resource');
+            var sum = 0;
+            for (var i = 0; i < rs.length; i++) {
+              sum += (rs[i].encodedBodySize || rs[i].encodedDataSize || rs[i].transferSize || 0);
+            }
+            return sum;
+          } catch (e) {
+            return 0;
+          }
+        }
+        function fmt(b) {
+          if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
+          return Math.round(b / 1024) + ' KB';
+        }
+        function tick() {
+          if (!document.getElementById('boot-skeleton')) return; // 已被 app 移除
+          var b = bytesNow();
+          if (b !== lastBytes) {
+            lastBytes = b;
+            lastChange = Date.now();
+          }
+          var elapsed = Date.now() - started;
+          var ready = document.readyState === 'complete';
+          if (prog) {
+            if (ready) {
+              prog.textContent = '资源已下载完成，正在启动…';
+            } else if (TOTAL > 0) {
+              prog.textContent = '正在下载页面资源… ' + fmt(b) + ' / ' + fmt(TOTAL);
+            } else {
+              prog.textContent = '正在下载页面资源… ' + fmt(b);
+            }
+          }
+          if (elapsed > 10000) skel.classList.add('is-slow');
+          if (Date.now() - lastChange > 8000) skel.classList.add('is-stall');
+          if (elapsed > 45000) {
+            skel.classList.add('is-fail');
+            return; // 失败态是终态，不再刷进度
+          }
+          setTimeout(tick, 500);
+        }
+        setTimeout(tick, 300);
       })();
     </script>
