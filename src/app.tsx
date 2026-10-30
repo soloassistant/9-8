@@ -157,19 +157,33 @@ function App(props: PropsWithChildren) {
   useEffect(() => {
     if (process.env.TARO_ENV !== 'h5' || isLoginPage) return;
     let alive = true;
-    // 用项目现成的 getCloudUserId：它已处理「未登录/会话异常返回 null」，
-    // 别在这里再手解 s.user.id（重复实现容易和 SDK 形状漂移）。
-    getCloudUserId()
-      .then((uid) => {
-        if (!alive) return;
-        setOnboardUid(uid);
-        setOnboarded(hasOnboardedFor(uid));
-      })
-      .catch((err) => {
-        console.warn('[App] 引导的账号级判定失败，沿用设备级标记:', err);
-      });
+    let tries = 0;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    // ⚠️ 2026-10-30 线上实测：这条判定**只跑一次**，而 getSession() 在「刚登录 / 刚刷新」
+    //    那一刻经常还是 null（SDK 的会话恢复有竞态）。一次拿不到就退化成设备级判断
+    //    （hasOnboardedFor(null) → 退回设备标记 true）→ 「登录后补引导」**永远不会弹**，
+    //    真账号 E2E 里 L4/L4b 都是 false 就是这个原因。
+    //    改成最多重试 10 次（约 7 秒）：拿到 uid 再决定，拿不到才沿用设备级。
+    const decide = () => {
+      getCloudUserId()
+        .then((uid) => {
+          if (!alive) return;
+          if (!uid && tries < 10) {
+            tries += 1;
+            timers.push(setTimeout(decide, 700));
+            return;
+          }
+          setOnboardUid(uid);
+          setOnboarded(hasOnboardedFor(uid));
+        })
+        .catch((err) => {
+          console.warn('[App] 引导的账号级判定失败，沿用设备级标记:', err);
+        });
+    };
+    decide();
     return () => {
       alive = false;
+      timers.forEach((t) => clearTimeout(t));
     };
   }, [isLoginPage]);
   // 外壳左栏导航：H5 + ≥600px 挂载（手机继续用 Taro 底部 tabBar）。
