@@ -62,15 +62,39 @@ async function makeMailbox() {
     method: 'POST',
     body: JSON.stringify({ address, password })
   });
-  return { address, token: tokJson.token };
+  // password 必须一起返回并落盘：mail.tm 的 token 会过期，只有密码能重新换 token。
+  // 第一版只存了 token —— 过期即失联，账号就废了。
+  return { address, password, token: tokJson.token };
 }
 
-async function waitForCode(token, maxMs = 150000) {
+/** 用邮箱密码换一个新 token（token 过期时的唯一恢复路径） */
+async function refreshToken(address, password) {
+  const tokJson = curlJson('https://api.mail.tm/token', {
+    method: 'POST',
+    body: JSON.stringify({ address, password })
+  });
+  return tokJson.token;
+}
+
+/** 取当前邮件 id 集合 —— 请求新验证码前先拍快照，之后只认新到的邮件。
+ *  不这么做的话，复用同一个内部号时会抓到上一次的旧验证码（已失效），
+ *  表现为「码填了但一直停在登录页」，极容易误判成产品坏了。 */
+async function listMessageIds(token) {
+  try {
+    const j = curlJson('https://api.mail.tm/messages', { token });
+    return (j['hydra:member'] || []).map((m) => m.id);
+  } catch {
+    return [];
+  }
+}
+
+async function waitForCode(token, excludeIds = [], maxMs = 150000) {
   const t0 = Date.now();
   while (Date.now() - t0 < maxMs) {
     try {
       const j = curlJson('https://api.mail.tm/messages', { token });
       for (const m of j['hydra:member'] || []) {
+        if (excludeIds.includes(m.id)) continue; // 旧邮件，跳过
         const msg = curlJson(`https://api.mail.tm/messages/${m.id}`, { token });
         const body = `${msg.text || ''}\n${(msg.html || []).join('')}`.replace(/<[^>]+>/g, ' ');
         const code = /(?<!\d)(\d{6})(?!\d)/.exec(body);
@@ -146,11 +170,29 @@ async function ev(expr) {
   if (process.env.SAVE_ACCOUNT === '1') {
     mail = await makeMailbox();
     fs.mkdirSync(path.dirname(ACCOUNT_FILE), { recursive: true });
-    fs.writeFileSync(ACCOUNT_FILE, JSON.stringify({ email: mail.address, token: mail.token, createdAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
+    fs.writeFileSync(
+      ACCOUNT_FILE,
+      JSON.stringify(
+        { email: mail.address, mailboxPassword: mail.password, token: mail.token, createdAt: new Date().toISOString() },
+        null,
+        2
+      ),
+      { mode: 0o600 }
+    );
     log('内部号已创建并落盘（凭据在仓库外）:', ACCOUNT_FILE);
   } else if (fs.existsSync(ACCOUNT_FILE)) {
     const saved = JSON.parse(fs.readFileSync(ACCOUNT_FILE, 'utf8'));
-    mail = { address: saved.email, token: saved.token };
+    // 每次都换一个新 token：mail.tm 的 token 有有效期，用旧的会突然 401。
+    // 有密码就刷新；旧格式（只有 token）退化为直接用，失败会明确报错。
+    let token = saved.token;
+    if (saved.mailboxPassword) {
+      try {
+        token = await refreshToken(saved.email, saved.mailboxPassword);
+      } catch (e) {
+        log('⚠️ token 刷新失败，改用文件里的旧 token:', String(e && e.message || e).slice(0, 60));
+      }
+    }
+    mail = { address: saved.email, token };
     log('复用内部号（不新建账号）');
   } else {
     mail = await makeMailbox();
@@ -222,10 +264,12 @@ async function ev(expr) {
     return m.value ? 'ok' : 'empty';
   })()`);
   await sleep(400);
+  // 发码前拍快照：复用内部号时邮箱里必然还躺着上一次的验证码，只认新到的
+  const beforeIds = await listMessageIds(mail.token);
   const sent = await ev(`window.__clickText('获取验证码')`);
   check('L1 能在线上发出验证码（真实邮箱）', filled === 'ok' && sent === true, `fill=${filled} send=${sent}`);
 
-  const code = await waitForCode(mail.token);
+  const code = await waitForCode(mail.token, beforeIds);
   check('L2 收到真实验证码邮件', !!code, code ? 'len=6' : '150s 内未收到');
   if (!code) { ws.close(); child.kill(); process.exit(1); }
 
