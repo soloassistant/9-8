@@ -11,6 +11,7 @@ import HabitGuardBar from '@/components/HabitGuardBar';
 import PlanProposalCard from '@/components/PlanProposalCard';
 import { BriefingSkeleton } from '@/components/Skeleton';
 import BurstBanner from '@/components/BurstBanner';
+import { NAV_MAIN, NAV_MORE, type Item as NavItem } from '@/components/DesktopNav';
 import { resolveIntelGroups } from '@/utils/intelGroups';
 import type { IntelSourceRef } from '@/utils/intelGroups';
 import { formatPlayCount } from '@/utils/videoNews';
@@ -149,22 +150,24 @@ const TOOL_TILES = [
   { icon: '🔍', label: 'mine.gridSearch', url: '/pages/search/index' }
 ] as const;
 
-/** 桌面端左侧栏导航（2026-10-27 参考稿改版）：五个 tabBar 页的真实路由。
- *  前五项全部是 tabBar 页 → 跳转必须 switchTab（navigateTo 对 tabBar 页会直接抛错）；
- *  第一项是当前页，点击不动作。
- *  2026-10-28 增补：末项「交易」是二级页（非 tabBar），走 navigateTo。 */
-const SIDE_NAV = [
-  { icon: '☀️', label: 'briefing.navToday', url: '/pages/briefing/index' },
-  { icon: '📥', label: 'briefing.navInbox', url: '/pages/inbox/index' },
-  { icon: '🔥', label: 'briefing.navHot', url: '/pages/library/index' },
-  { icon: '📅', label: 'briefing.navCalendar', url: '/pages/calendar/index' },
-  { icon: '📈', label: 'briefing.navTrade', url: '/pages/trade/index' },
-  // ⚠️ 「我的」必须是**最后一项**：账号/设置类入口收尾是全站一致的习惯
-  // （手机 tabBar 与 DesktopNav 的左栏也都以「我的」结尾）。2026-10-29 巡检实测
-  // 这一栏原来是 …日历/我的/交易 —— 账号入口夹在功能中间、后面还跟着主入口，
-  // 跟另外两套导航的顺序都不一样，用户从手机切到桌面会觉得"顺序乱"。
-  { icon: '🙂', label: 'briefing.navMine', url: '/pages/mine/index' }
-] as const;
+/** 桌面端左侧栏导航（2026-10-27 参考稿改版）。
+ *
+ *  ⚠️ **不再自己写一份列表**：直接取 `DesktopNav` 的 `NAV_MAIN`/`NAV_MORE`（全站桌面
+ *  左栏的唯一数据源），再插入晨报页专属的「交易」。
+ *  2026-10-29 巡检的根因就是这里有第二份列表、且只有 6 项 —— 桌面用户在晨报页
+ *  找不到学习/运动/省钱/记账，而换到别的页又能看到，同一台机器上两套导航。
+ *
+ *  顺序：主导航 8 项 → 交易（晨报页专属，二级页）→ 设置/我的。
+ *  账号类入口一律收尾（手机 tabBar 与 DesktopNav 也都是「我的」结尾）。
+ *  第一项是当前页（晨报），点击不动作。 */
+const TRADE_ITEM: NavItem = {
+  key: 'trade',
+  icon: '📈',
+  labelKey: 'briefing.navTrade',
+  url: '/pages/trade/index',
+  tab: false
+};
+const SIDE_NAV: NavItem[] = [...NAV_MAIN, TRADE_ITEM, ...NAV_MORE];
 
 function BriefingPage() {
   const t = useT();
@@ -1115,24 +1118,21 @@ function BriefingPage() {
               // pressableProps（data-pressable 标记 + aria-label），由 a11y.ensureFocusable
               // 运行时补 tabindex="0"。2026-10-29 实测：加之前 1440 下 focusables 为空，
               // 屏幕上 6 行导航键盘一个都到不了。
-              {...pressableProps(`${t(nav.label)}（${i === 0 ? '当前页' : '前往'}）`)}
+              {...pressableProps(`${t(nav.labelKey as never)}（${i === 0 ? '当前页' : '前往'}）`)}
               onClick={() => {
-                // 第一项就是当前页（晨报），点了不动作；
-                // 「交易」是二级页（非 tabBar）→ navigateTo，其余 switchTab
+                // 第一项就是当前页（晨报），点了不动作；其余按 nav.tab 分流 ——
+                // tabBar 页只能 switchTab（navigateTo 会直接抛错），二级页只能 navigateTo。
                 if (i === 0) return;
-                if (nav.url === '/pages/trade/index') {
-                  Taro.navigateTo({ url: nav.url }).catch((err) => {
-                    console.error('[BriefingPage] 侧栏 navigateTo 失败:', err);
-                  });
-                  return;
-                }
-                Taro.switchTab({ url: nav.url }).catch((err) => {
-                  console.error('[BriefingPage] 侧栏 switchTab 失败:', err);
+                const jump = nav.tab
+                  ? Taro.switchTab({ url: nav.url })
+                  : Taro.navigateTo({ url: nav.url });
+                jump.catch((err) => {
+                  console.error('[BriefingPage] 侧栏跳转失败:', nav.url, err);
                 });
               }}
             >
               <Text className={styles.sideNavIcon}>{nav.icon}</Text>
-              <Text className={styles.sideNavLabel}>{t(nav.label)}</Text>
+              <Text className={styles.sideNavLabel}>{t(nav.labelKey as never)}</Text>
             </View>
           ))}
         </View>
