@@ -161,11 +161,12 @@ const iw = await loadUtil('intelWatch.ts', ['parseIntelWatchKeywords', 'matchWat
   const items = [
     { id: 1, title: '大厂秋招开启', summary: 'xx' },
     { id: 2, title: '别的新闻', summary: '提到 AI agent' },
-    { id: 3, title: '毫无关系', summary: 'yyy' },
+    { id: 3, title: '双命中条目', summary: '秋招季的 AI 工具盘点' },
+    { id: 4, title: '毫无关系', summary: 'yyy' },
   ];
   const m = iw.matchWatchItems(['AI', '秋招'], items, 10);
-  check('IW4', '匹配：title/summary 子串命中、每条只记第一个命中词、顺序稳定',
-    m.length === 2 && m[0].item.id === 1 && m[0].hit === '秋招' && m[1].item.id === 2 && m[1].hit === 'AI');
+  check('IW4', '匹配：子串命中、每条只记**第一个**命中词（双命中条目 hit=AI 不是秋招）、顺序稳定',
+    m.length === 3 && m[0].hit === '秋招' && m[1].hit === 'AI' && m[2].item.id === 3 && m[2].hit === 'AI');
   check('IW5', '大小写不敏感', iw.matchWatchItems(['agent'], items, 10).length === 1);
   check('IW6', 'limit 截断 + 空关键词/空列表 → []',
     iw.matchWatchItems(['的新闻'], items, 1).length === 1 &&
