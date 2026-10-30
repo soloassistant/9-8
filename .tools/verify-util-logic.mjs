@@ -192,8 +192,21 @@ assert('C2 utils/date.ts 不再导出 getGreeting（防止死实现回流）',
 assert('C3 头部问候有「数据未到」守卫：briefing 为空时只说时间基调，不得断言今天没有安排',
   /\{?const headerGreeting = !briefing[\s\S]{0,80}greetingBase/.test(BRIEFING) ||
     /!briefing\s*\n?\s*\?/.test(BRIEFING));
+// C4 四种事实分支齐备：接下来 / 已结束 / 剩余待办 / 无安排
+//   2026-10-30 放宽（为什么改 / 改前是什么行为）：
+//   改前：判据要求「无安排」必须以 greet.empty 的形式**待在标题里**。
+//   改后：判据只要求「无安排」这个**事实不许消失** —— 要么标题里还有 greet.empty，
+//         要么它已明确移交到概览卡的轻量说明（briefing.leanOverview 在页面里被用上，
+//         且中英各一份）。
+//   为什么改：同一轮重构把「没有安排」从标题里挪走了 —— 概览那一行已经写着同一件事，
+//   标题再补一句等于同一件事说两遍，还把标题顶成两行。判据锁死「写在标题里」
+//   就成了对实现细节的误判（实测：这条把 verify:util 判红，连带整套变异跑不起来）。
+//   判别力不减：两处都拿掉 ⇒ 事实消失 ⇒ 这里照样判红。
 assert('C4 四种事实分支齐备：接下来 / 已结束 / 剩余待办 / 无安排',
-  ['greet.next', 'greet.allDone', 'greet.todoOnly', 'greet.empty'].every((k) => BRIEFING.includes(k)));
+  ['greet.next', 'greet.allDone', 'greet.todoOnly'].every((k) => BRIEFING.includes(k)) &&
+    (BRIEFING.includes('greet.empty') ||
+      (BRIEFING.includes('briefing.leanOverview') &&
+        (LANG.match(/'briefing\.leanOverview':/g) || []).length === 2)));
 assert('C5 时间基调五档齐备（夜/早/午/下午/晚）',
   ['greet.night', 'greet.morning', 'greet.noon', 'greet.afternoon', 'greet.evening'].every((k) =>
     BRIEFING.includes(k)));
