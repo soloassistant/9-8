@@ -28,10 +28,15 @@ export default [
     cmd: 'node .tools/verify-boot-skeleton.mjs --no-browser'
   },
   {
+    // 2026-10-30 修锚点：慢加载兜底从「setTimeout(..., 10000)」改写成
+    // 「elapsed > 10000」的轮询判断（boot 重构：别再数节点，改看 .taro_page），
+    // 旧锚点在新源码里出现 0 次 ⇒ 这条变异**根本没跑**（框架报「锚点出现 0 次」）
+    // ⇒ 「慢加载兜底被延到 27 小时」这个退化当时无人看守。
+    // 现在锚点跟着源码改，阈值仍由门禁 A5（frag 必须含 10000）守着。
     label: '慢加载兜底被延到 27 小时（网络差时无限转圈，用户无路可走）',
     file: 'src/assets/boot-skeleton.html',
-    from: '        }, 10000);',
-    to: '        }, 99999999);',
+    from: "if (elapsed > 10000) skel.classList.add('is-slow');",
+    to: "if (elapsed > 99999999) skel.classList.add('is-slow');",
     cmd: 'node .tools/verify-boot-skeleton.mjs --no-browser'
   },
   {
