@@ -501,15 +501,15 @@ export default function LoginPage() {
       setError(t('auth.errCodeNeeded'));
       return;
     }
-    // 新账号注册可设密码：邮箱必填；手机号选填 —— SDK 的 signUp/verifyOtp 对两种标识
-    // 都收可选 password（实测 src/assets/wb-sdk.js：`if (e.password) s.password = e.password`）。
-    // 手机号选填是因为短信本就能登；但只要填了就必须 ≥8 位（与邮箱同规则）。老账号登录不传密码。
-    const wantsPassword =
-      withPassword && !pending.isExistingUser && (channel === 'email' || password.length > 0);
-    if (wantsPassword && password.length < 8) {
+    // 新账号注册**必须设密码**（2026-10-30 用户定的口径：邮箱和手机号首次登录都要设）。
+    // 此前手机号通道是选填 —— 理由是"短信本就能登"，但那等于允许账号永远没有密码，
+    // 一旦换号/换设备就只能靠短信，找回路径单一。现在两条通道一视同仁，都 ≥8 位。
+    const isSignup = withPassword && !pending.isExistingUser;
+    if (isSignup && password.length < 8) {
       setError(t('auth.errPassword'));
       return;
     }
+    const wantsPassword = isSignup;
     clearMsg();
     setBusy(true);
     const res = await verifyLoginCode({
@@ -879,8 +879,8 @@ export default function LoginPage() {
                 </View>
               </View>
             </View>
-            {/* 新账号注册可设密码：邮箱必填；手机号选填（选填说明见 passwordOptionalHint）。
-                手机号设了密码以后就能用「密码登录」页签；不设则始终用验证码登录。 */}
+            {/* 新账号注册**必须设密码**（邮箱/手机号都必填，见 submitOtp 的 isSignup 判定）。
+                设了密码之后还能用「密码登录」页签；也避免账号只剩短信一条找回路径。 */}
             {tab === 'signup' || (pending && !pending.isExistingUser) ? (
               <View className={styles.field}>
                 <Text className={styles.label}>{t('auth.password')}</Text>
@@ -891,9 +891,6 @@ export default function LoginPage() {
                   placeholder={t('auth.passwordPlaceholder')}
                   onInput={(e) => setPassword(String(e.detail.value || ''))}
                 />
-                {channel === 'phone' ? (
-                  <Text className={styles.hint}>{t('auth.passwordOptionalHint')}</Text>
-                ) : null}
               </View>
             ) : null}
           </React.Fragment>
