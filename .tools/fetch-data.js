@@ -17,6 +17,51 @@ const { orgOfSource, ALSO_FROM_MAX } = require('../cloudfunctions/webSearch/cros
 
 const FETCH_TIMEOUT = 8000;
 
+/**
+ * 抓取并发上限（2026-10-31 新增）。
+ *
+ * 改前是 `Promise.all(全部源)` —— 几十个源**同时**建连，每个源只拿到 8 秒预算，
+ * 于是「并发挤爆」和「主机真的不可达」两种失败混在一起，分不清是谁的锅。
+ *
+ * 2026-10-31 隔离实验（41 个源，同一 8s 超时，逐档跑，记录成功数与总耗时）：
+ *   并发  1 → 成功 29/41，耗时 138.9s
+ *   并发  3 → 成功 27/41，耗时  50.1s
+ *   并发  8 → 成功 **32/41**，耗时 **17.0s**   ← 峰值
+ *   并发 16 → 成功 23/41，耗时  14.1s          ← 过度订阅，出现断崖
+ *   并发 41 → 成功 29/41，耗时   8.1s          ← 改前的实现
+ * ⇒ ① 并发有**甜点区**，8 是峰值；无界并发（41）会过度订阅，16 更差。
+ *   ② 每一档都失败的那批主机（Space.com / Variety / Stereogum / IndieWire /
+ *      NASA×3 / Yale / Psychology Today…）在**并发 1** 时同样失败
+ *      ⇒ 剩下这些是**主机级不可达**（本机到这些海外站点的网络问题），
+ *      不是代码能修的；同一份代码在 GitHub Actions（美国 runner）上产出 430 条。
+ *   ③ 实测收益：本地一次抓取从 **207 条 → 283 条**（失败源 26 → 18）。
+ *
+ * ⚠️ 不要把「剩下的 timeout」当成可修的缺陷 —— 它们与本文件无关，
+ *   换机器/换网络就会变；本文件只负责**别把自己挤爆**。
+ */
+const FETCH_CONCURRENCY = 8;
+
+/** 有界并发映射：保持入参顺序返回，单个失败不影响其它（错误由调用方处理）。 */
+async function mapWithConcurrency(list, limit, fn) {
+  const out = new Array(list.length);
+  let next = 0;
+  const workers = [];
+  const workerCount = Math.max(1, Math.min(limit, list.length));
+  for (let w = 0; w < workerCount; w++) {
+    workers.push(
+      (async () => {
+        for (;;) {
+          const i = next++;
+          if (i >= list.length) return;
+          out[i] = await fn(list[i], i);
+        }
+      })()
+    );
+  }
+  await Promise.all(workers);
+  return out;
+}
+
 function fetchText(url) {
   return Promise.race([
     fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then((r) => {
@@ -306,8 +351,7 @@ async function fetchHotspot() {
   const staleMaxAge = STALE_ITEM_DAYS * 24 * 60 * 60 * 1000;
   const dropped = { undated: 0, stale: 0, futureSkew: 0 };
 
-  await Promise.all(
-    HOTSPOT_SOURCES.map(async (s) => {
+  await mapWithConcurrency(HOTSPOT_SOURCES, FETCH_CONCURRENCY, async (s) => {
       let ok = false;
       let reason = '';
       for (let attempt = 1; attempt <= CONN_RETRY_TIMES; attempt++) {
@@ -345,8 +389,7 @@ async function fetchHotspot() {
       // 无法归因 —— 同一缺陷早已在 static-server.js 修过，这里漏改。
       if (!ok) console.warn('[fetch-data] 源失败 ' + s.name + '：' + (reason || 'unknown'));
       srcStatus.push({ name: s.name, count: 0, ok, reason: reason || '' });
-    })
-  );
+    });
   // 热榜板块：走仓库自带的零依赖实现（.tools/boards-core.js），**不依赖本机 DailyHotApi 服务** ——
   // 本脚本跑在 GitHub Actions runner 上，够不到 127.0.0.1:6688，这正是线上长期没有热榜的原因。
   // 覆盖 6 个板块（含全部 4 个垂类）；微博/知乎/抖音 需 cookie，服务器环境取不到，仍在注释里记明。
