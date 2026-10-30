@@ -513,7 +513,20 @@ async function cloudAuthPost<T>(
 export async function requestPasswordResetByPhone(
   phone: string
 ): Promise<AuthResp<{ updateUser(input: { nonce: string; password: string }): Promise<AuthResp<CloudSession>> }>> {
-  if (!H5) return { data: NOOP_UPDATE_USER, error: null };
+  if (!H5) {
+    // 微信小程序端**没有短信通道**（身份由微信提供，压根不需要账号密码这套）。
+    // ⚠️ 这里**必须回 error**，不能回 error:null —— 原来回 null 时，登录页的
+    //    `if (res.error) {...}` 判不出来，于是走进「验证码已发送」分支：
+    //    界面显示「重置验证码已发送」，而实际上**一条短信都没发**，用户白等 60 秒。
+    //    这正是本项目一贯反对的「对用户撒谎」（2026-10-29 审计）。
+    return {
+      data: NOOP_UPDATE_USER,
+      error: {
+        kind: 'backend-unavailable',
+        message: '短信找回密码仅在 H5 通道可用（小程序端由微信身份直接登录）'
+      }
+    };
+  }
   const id = toApiPhone(phone);
   const sent = await cloudAuthPost<{ verification_id?: string }>('/v1/verification', {
     phone_number: id,

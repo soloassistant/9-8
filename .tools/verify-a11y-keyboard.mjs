@@ -282,6 +282,12 @@ if (NO_BROWSER) {
   })()`)));
   assert('B4 导航项在焦点序列里（tabindex=0，不是被排除在外）',
     navInfo.count >= 8 && navInfo.allFocusable === true, JSON.stringify(navInfo));
+  // ★ B4c：Tab 顺序。原来 DesktopNav 排在 children 之后，导航首个停靠点是 2121/2131 ——
+  //   键盘用户要穿过整个正文才摸得到导航。改成排在正文之前后应该在个位数。
+  //   判据取「前 30 位」而不是「第 1 位」：正文前面可能有开屏/同意层的按钮，留点余量。
+  assert('B4c 导航排在前 30 个停靠点之内（Tab 顺序：导航 → 正文，不是正文 → 导航）',
+    navInfo.firstIndex >= 0 && navInfo.firstIndex < 30,
+    `导航首个停靠点在第 ${navInfo.firstIndex + 1} / ${navInfo.totalFocusables} 位`);
   // 如实记录 Tab 顺序现状：导航排在正文之后，键盘用户要穿过去。写成可见数字，别藏。
   console.log(`  （Tab 顺序现状：导航首个停靠点在第 ${navInfo.firstIndex + 1} / ${navInfo.totalFocusables} 位）`);
 

@@ -369,6 +369,12 @@ function App(props: PropsWithChildren) {
 
   return (
     <>
+      {/* ★ 2026-10-30：侧栏必须排在正文**之前**。
+          DesktopNav 是 position:fixed，放在 children 前后视觉上完全一样，
+          但**Tab 顺序按 DOM 走** —— 放在 children 后面时，键盘用户得先穿过整个正文
+          才摸得到导航（资料库页实测 2121 个停靠点、导航排在第 2121 位）。
+          登录页不渲染侧栏，所以此处要自己带 isLoginPage 守卫（原来靠外层 Fragment 兜着）。 */}
+      {!isLoginPage && desktopNav ? <DesktopNav /> : null}
       {props.children}
       {/* 应用外壳一律不进登录页：未登录时它既无用又泄漏"应用已就绪"的错觉 */}
       {isLoginPage ? null : (
@@ -378,7 +384,6 @@ function App(props: PropsWithChildren) {
               两套实现各自维护；收敛成一个页面后，页面上不再有悬浮物遮挡正文。 */}
           {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页 */}
           {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
-          {desktopNav ? <DesktopNav /> : null}
           {/* 首启引导：必须等隐私同意之后再挂（两个全屏层叠在一起，用户会点不到下面那层），
               也必须等开屏退场（shellReady），否则引导藏在开屏下面等于没出现。 */}
           {consentAgreed && shellReady && !onboarded ? (
