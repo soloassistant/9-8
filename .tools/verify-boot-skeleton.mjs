@@ -166,6 +166,7 @@ if (NO_BROWSER) {
     await new Promise((r) => (ws.onopen = r));
     let id = 0;
     let navAt = 0;
+    let startFailing = false;
     const pending = new Map();
     ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
     const send = (m, p = {}) => { const i = ++id; ws.send(JSON.stringify({ id: i, method: m, params: p })); return new Promise((r) => pending.set(i, r)); };
@@ -179,15 +180,16 @@ if (NO_BROWSER) {
     if (failChunks) {
       // ⚠️ 不能用 Network.setBlockedURLs(['*/js/[0-9]*.js'])：它只支持 * 和 ?，
       //    字符类会被当字面量 —— 实测一个请求都没拦到，却得出「页面正常」的假结论。
-      // 只掐**导航 3 秒之后**才请求的数字分包：那时外壳早已挂载、骨架已撤，
-      // 正是「切页时分包取不到」这个最真实、也最没兜底的失败形态。
+      // ⚠️ 也不能按时间（"导航 3 秒后才拦"）：分包在启动过程中就可能被拦到，
+      //    早一点走骨架失败态、晚一点走兜底层，结果**不稳定**（实测同一份产物
+      //    一次 25/25 一次 22/25）。改成由用例显式 setFail(true) —— 先让页面挂载成功，
+      //    再开始失败，这样命中的必然是「外壳起来了、切页的分包挂了」这条确定路径。
       await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
       ws.addEventListener('message', (e) => {
         const m = JSON.parse(e.data);
         if (m.method !== 'Fetch.requestPaused') return;
         const { requestId, request } = m.params;
-        const late = navAt > 0 && Date.now() - navAt > 3000;
-        if (late && /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(request.url)) {
+        if (startFailing && /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(request.url)) {
           send('Fetch.failRequest', { requestId, errorReason: 'Failed' });
         } else {
           send('Fetch.continueRequest', { requestId });
@@ -203,9 +205,9 @@ if (NO_BROWSER) {
       await send('Page.addScriptToEvaluateOnNewDocument', { source: `try{localStorage.setItem('onboarded-v2', JSON.stringify({data:true}));localStorage.setItem('privacy-consent', JSON.stringify({data:true}));}catch(e){}` });
     }
     navAt = Date.now();
-    await send('Page.navigate', { url: `http://127.0.0.1:${port}/${failChunks ? '#/pages/library/index' : ''}` });
+    await send('Page.navigate', { url: `http://127.0.0.1:${port}/${failChunks ? '#/pages/briefing/index' : ''}` });
     await new Promise((r) => setTimeout(r, js ? 9000 : 2500));
-    return { ev, close: () => { try { ws.close(); } catch { /* 已关 */ } child.kill(); } };
+    return { ev, setFail: (v) => { startFailing = !!v; }, close: () => { try { ws.close(); } catch { /* 已关 */ } child.kill(); } };
   }
 
   // B1–B3：禁用 JS —— 骨架必须自己站着（这是"不依赖产物"的唯一硬证据）
@@ -265,7 +267,18 @@ if (NO_BROWSER) {
   //   用户看到的是「没有内容、没有提示、没有重试」的页面，只能自己想到刷新。
   //   这三条断言的就是兜底层真的出现、真的能点、点完真的带 cache-busting 重载。
   const failPage = await openPage(1, { failChunks: 1 });
-  await new Promise((r) => setTimeout(r, 10000));
+  // ① 先等外壳真的挂载（骨架撤掉、有可见 taro 节点）——此时分包还没失败
+  let mounted = false;
+  for (let i = 0; i < 40 && !mounted; i++) {
+    await new Promise((r) => setTimeout(r, 300));
+    mounted = (await failPage.ev(`(!document.getElementById('boot-skeleton')) && document.querySelectorAll('taro-view-core').length > 20`)) === true;
+  }
+  assert('B8a 前置：外壳已挂载、骨架已撤（失败注入必须在挂载之后，否则测的是骨架态）',
+    mounted === true, `mounted=${mounted}`);
+  // ② 现在开始失败分包，再切到一个需要懒加载分包的页
+  await failPage.setFail(true);
+  await failPage.ev(`location.hash = '#/pages/library/index'`);
+  await new Promise((r) => setTimeout(r, 6000));
   const failState = await failPage.ev(`(() => {
     const box = document.getElementById('wb-boot-failure');
     const btn = box ? box.querySelector('button') : null;
