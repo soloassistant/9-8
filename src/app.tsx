@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import Splash from '@/components/Splash';
-import Onboarding, { hasOnboarded } from '@/components/Onboarding';
+import Onboarding, { hasOnboarded, hasOnboardedFor, markOnboardedFor } from '@/components/Onboarding';
 import DesktopNav from '@/components/DesktopNav';
 import ConsentGate from '@/components/ConsentGate';
 import HotkeyHelp from '@/components/HotkeyHelp';
@@ -10,7 +10,7 @@ import { HELP_EVENT, focusSearchBox, useGlobalHotkeys } from '@/hooks/useHotkeys
 import { hotkeyRoute } from '@/utils/hotkeys';
 import type { HotkeyId } from '@/utils/hotkeys';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
-import { needsAuthGate, getSession, markGateRedirect } from '@/services/cloudAuth';
+import { needsAuthGate, getSession, markGateRedirect, getCloudUserId } from '@/services/cloudAuth';
 import { hasAgreedConsent } from '@/data/legal';
 import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/language';
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
@@ -141,6 +141,36 @@ function App(props: PropsWithChildren) {
   // 首次启动引导（设计稿 p19/p20）：只在 H5 且有真实账号体系时才有意义，
   // 看过一次就落库，不再骚扰（微信端直接视为已看过）。
   const [onboarded, setOnboarded] = useState(() => process.env.TARO_ENV !== 'h5' || hasOnboarded());
+  // 当前会话的 uid：引导完成时按账号落库（见下方 effect 与 Onboarding 的 accountKey）
+  const [onboardUid, setOnboardUid] = useState<string | null>(null);
+  /**
+   * 登录后补一次用户指导（2026-10-30，用户反馈「只有注册有、登录没有」）。
+   *
+   * 上面 useState 只在应用挂载时求值一次，读的是**设备级**标记 —— 于是：
+   *   · 老用户换设备登录 → 本地没标记，但那次挂载可能发生在登录页（不渲染引导），
+   *     登录成功切进来后 state 已定，不会重新判断 → 一次指导都看不到；
+   *   · 同设备换账号登录 → 设备标记还在 → 新账号也永远看不到。
+   * 这里在「离开登录页」时按**账号**再判一次，没看过就补上。
+   * 会话取不到时保持原判断（宁可少弹一次，也不要因为异常把人挡在门外）。
+   */
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5' || isLoginPage) return;
+    let alive = true;
+    // 用项目现成的 getCloudUserId：它已处理「未登录/会话异常返回 null」，
+    // 别在这里再手解 s.user.id（重复实现容易和 SDK 形状漂移）。
+    getCloudUserId()
+      .then((uid) => {
+        if (!alive) return;
+        setOnboardUid(uid);
+        setOnboarded(hasOnboardedFor(uid));
+      })
+      .catch((err) => {
+        console.warn('[App] 引导的账号级判定失败，沿用设备级标记:', err);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isLoginPage]);
   // 外壳左栏导航：H5 + ≥600px 挂载（手机继续用 Taro 底部 tabBar）。
   // 同时给 body 打类，让 app.scss 把 Taro tabBar 关掉并把内容列按断点右移（64/232/240）。
   // 断点从 1200 降到 600 的原因：Taro tabBar 最多 5 项，768 的 iPad 上记账/运动/省钱
@@ -416,7 +446,12 @@ function App(props: PropsWithChildren) {
           {/* 首启引导：必须等隐私同意之后再挂（两个全屏层叠在一起，用户会点不到下面那层），
               也必须等开屏退场（shellReady），否则引导藏在开屏下面等于没出现。 */}
           {consentAgreed && shellReady && !onboarded ? (
-            <Onboarding onDone={() => setOnboarded(true)} />
+            <Onboarding
+              onDone={() => {
+                markOnboardedFor(onboardUid);
+                setOnboarded(true);
+              }}
+            />
           ) : null}
           {/* 键盘快捷键面板：`?` 或「我的 → 键盘快捷键」打开（H5 桌面端） */}
           <HotkeyHelp open={helpOpen} onClose={() => setHelpOpen(false)} />

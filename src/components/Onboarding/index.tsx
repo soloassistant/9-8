@@ -32,6 +32,44 @@ export function hasOnboarded(): boolean {
   }
 }
 
+/**
+ * 账号级引导标记（2026-10-30）。
+ *
+ * 上面那个 key 是**设备级**的：这台机器看过一次就再也不弹。后果是老用户
+ * 换设备登录、或者同一台机器上换一个账号登录，都看不到任何指导 ——
+ * 用户反馈的原话是「只有注册有，登录没有」。
+ *
+ * 所以再叠一层账号维度：`onboarded-v2:<userId>`。
+ *   · 注册 → 登录 → 该账号第一次进应用：弹
+ *   · 同一个账号再登录：不弹（设备级也在，双保险）
+ *   · 换账号登录：这个账号没看过 → 弹
+ *   · 拿不到 uid（会话未就绪/异常）：退回设备级判断 —— 宁可少弹一次，
+ *     也不要因为取不到 id 就每次登录都糊一层引导。
+ */
+function accountKey(uid: string): string {
+  return `${ONBOARD_STORAGE_KEY}:${uid}`;
+}
+
+export function hasOnboardedFor(uid: string | null | undefined): boolean {
+  if (!uid) return hasOnboarded();
+  try {
+    const v = Taro.getStorageSync(accountKey(uid));
+    return v === true || v === 'true' || v === 1;
+  } catch {
+    return hasOnboarded();
+  }
+}
+
+export function markOnboardedFor(uid: string | null | undefined): void {
+  try {
+    if (uid) Taro.setStorageSync(accountKey(uid), true);
+    // 设备级也写上：下次冷启动会话还没到时，不必先弹一层再收回
+    Taro.setStorageSync(ONBOARD_STORAGE_KEY, true);
+  } catch (err) {
+    console.warn('[Onboarding] 写入引导标记失败:', err);
+  }
+}
+
 export function markOnboarded(): void {
   try {
     Taro.setStorageSync(ONBOARD_STORAGE_KEY, true);
