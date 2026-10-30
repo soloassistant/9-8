@@ -100,8 +100,11 @@ function startServer() {
 
 async function main() {
   if (!fs.existsSync(path.join(DIST, 'index.html'))) {
-    console.error(`✗ ${DIST} 里没有 index.html —— 先构建`);
-    process.exit(2);
+    // 与 verify:deploy-fresh 同一口径：依赖新鲜产物、而产物不存在时**未跑**，不是失败。
+    // 直接 exit 2 会让所有人在没构建的机器上看到一个指向「并行会话新门禁」的假红，
+    // 那样真实故障就会被这条噪声掩盖。
+    console.log(`未跑（需 dist 产物：${DIST} 里没有 index.html，先 npm run build:h5）`);
+    process.exit(0);
   }
   if (!fs.existsSync(CHROME)) {
     console.error(`✗ 找不到 Chrome: ${CHROME}`);
