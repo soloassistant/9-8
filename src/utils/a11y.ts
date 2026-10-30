@@ -64,32 +64,47 @@ export function ensureFocusable(root: ParentNode = document): number {
  * 手工改不但工作量巨大，而且**必然漏** —— 新写的页面又回到「只有鼠标能用」。
  * 审计原话是「pressableProps 在 23 个页面里只有 login 有 2 处，其余为 0」。
  *
- * 做法：React 18 会把组件 props 挂到宿主 DOM 节点上（`__reactProps$<随机>`）。
- * 于是可以反过来问 DOM：「这个 `taro-view-core` 上到底有没有 onClick？」
- * 有 → 它就是个可操作元素，补 role/tabindex/data-pressable，交给既有的
- * 全局 keydown 代理去响应 Enter/Space。
+ * ★ 怎么判断「这个 Taro 元素自己有没有点击处理器」—— 试错记录，别再走回头路：
+ *   ① `el.tabIndex` / props 里的 `onClick`：拿不到。Taro 的 `View` 只是普通 props 透传，
+ *      渲染成自定义元素后 `__reactProps$*` 上只有 `style / children / dangerouslySetInnerHTML`，
+ *      实测 4611 个元素里 `onClick` 命中 **0**。
+ *   ② 顺着 `__reactFiber$*` 往上找 `memoizedProps.onClick`：能命中 2121 个，**但会把
+ *      卡片里每一层子节点都算进去**（祖先的处理器被后代替继承）—— 一张卡会变成 10 个 Tab 停靠点。
+ *   ③ 正解：Taro 的 H5 运行时是**逐元素 `addEventListener('click')`**（不是 React 18
+ *      那种根委托）。所以包装一次 `EventTarget.prototype.addEventListener`，
+ *      把「注册过 click 的 TARO-* 元素」记下来，就是精确答案。
+ *      实测同一页面：注册 2124 个、可见 2121 个，样本全是真按钮（「全部」「⚡ PRO」「关闭个性化推荐」）。
  *
- * 为什么不用 `addEventListener` 打挂：React 18 是**根节点事件委托**，
- * 根本不会在这些元素上逐个 addEventListener('click')，钩子打不到。
- *
- * 降级：拿不到 React 内部键（升级 React / 换渲染器）时只是**不自动标记**，
- * 不报错、不影响手工 `pressableProps` 的那几处。
+ * 代价：包装了全局 `addEventListener`。所以只做一件事 —— type === 'click' 且是 TARO-*
+ * 就记一笔，然后原样转发；不改行为、不吞异常。拿不到（旧浏览器/被别的库先包装）
+ * 就静默不标记，手工 `pressableProps` 的那几处照旧工作。
  */
 const CLICKABLE_SELECTOR = 'taro-view-core, taro-text-core, taro-button-core';
 
-/** 已经扫过的节点（避免每次 DOM 变动全量重扫，长列表上那是 O(n²)） */
-const scanned = new WeakSet<Element>();
+/** 注册过原生 click 的 Taro 元素（精确的「自己可点」名单） */
+const clickBound = new WeakSet<Element>();
 
-/** 取 React 挂在这个 DOM 节点上的 props（拿不到返回 null，属正常降级） */
-function reactProps(el: Element): Record<string, unknown> | null {
-  const keys = Object.keys(el);
-  for (let i = 0; i < keys.length; i++) {
-    if (keys[i].startsWith('__reactProps$')) {
-      const p = (el as unknown as Record<string, unknown>)[keys[i]];
-      return p && typeof p === 'object' ? (p as Record<string, unknown>) : null;
+let listenerPatched = false;
+
+/** 包装一次 addEventListener，记录哪些 Taro 元素自己挂了 click（幂等） */
+export function patchClickTracking(): void {
+  if (listenerPatched) return;
+  if (typeof EventTarget === 'undefined' || !EventTarget.prototype.addEventListener) return;
+  listenerPatched = true;
+  const orig = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function patchedAddEventListener(
+    this: EventTarget,
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions
+  ) {
+    if (type === 'click') {
+      const el = this as unknown as Element;
+      // 只看 Taro 自定义元素：React 根委托、window/document 的监听一概不记
+      if (el && typeof el.tagName === 'string' && el.tagName.indexOf('TARO-') === 0) clickBound.add(el);
     }
-  }
-  return null;
+    return orig.call(this, type, listener, options);
+  } as typeof EventTarget.prototype.addEventListener;
 }
 
 /** 读屏名字：优先 aria-label，其次元素自身文字（截断 60 字，卡片标题常常很长） */
@@ -103,8 +118,12 @@ function readableName(el: Element): string {
 }
 
 /**
- * 把 root 子树里「有 onClick 但没被标记」的元素标成可操作。
+ * 把 root 子树里「自己挂了 click 但还没被标记」的元素标成可操作。
  * 返回新标记的数量（门禁与调试用）。
+ *
+ * ⚠️ 不要用「扫过就永久跳过」的 WeakSet：元素可能先插入 DOM、后挂监听，
+ *    一次性跳过会把它们永久漏掉。代价是每次新增子树都重扫一遍，
+ *    但扫描范围只有这次新增的子树，不是整页。
  */
 export function markClickableAsPressable(root: ParentNode = document): number {
   if (typeof document === 'undefined') return 0;
@@ -114,11 +133,8 @@ export function markClickableAsPressable(root: ParentNode = document): number {
 
   let n = 0;
   for (const el of roots) {
-    if (scanned.has(el)) continue;
-    scanned.add(el);
     if (el.hasAttribute('data-pressable')) continue; // 手工标过的别再动，尊重作者写的 aria-label
-    const props = reactProps(el);
-    if (!props || typeof props.onClick !== 'function') continue;
+    if (!clickBound.has(el)) continue; // 没挂 click = 不是可操作元素（含遮罩/弹层的吞点击节点）
     el.setAttribute('role', 'button');
     el.setAttribute('data-pressable', '1');
     el.setAttribute('tabindex', '0');
@@ -129,9 +145,16 @@ export function markClickableAsPressable(root: ParentNode = document): number {
   return n;
 }
 
-/** 观察 DOM 变化，给新出现的可操作元素补 tabindex。返回 disconnect */
+/**
+ * 观察 DOM 变化，给新出现的可操作元素补 tabindex。返回 disconnect
+ *
+ * ⚠️ 必须在**任何 Taro 元素渲染之前**调用 `patchClickTracking()`，
+ *    否则首屏那批元素的 click 监听已经挂完，包装器看不到它们
+ *    （首屏会漏标，用户 Tab 到导航后再也摸不到正文）。
+ */
 export function observePressables(): () => void {
   if (typeof document === 'undefined' || typeof MutationObserver !== 'function') return () => {};
+  patchClickTracking();
   const pending = new Set<Element>();
   let scheduled = false;
   const flush = () => {
@@ -155,7 +178,7 @@ export function observePressables(): () => void {
   const mo = new MutationObserver((records) => {
     for (const r of records) {
       r.addedNodes.forEach((n) => {
-        if (n.nodeType === 1 && !scanned.has(n as Element)) pending.add(n as Element);
+        if (n.nodeType === 1) pending.add(n as Element);
       });
     }
     if (pending.size) schedule();
@@ -195,3 +218,10 @@ export function activatePressable(e: KeyboardEvent): boolean {
   (host as HTMLElement).click();
   return true;
 }
+
+// ★ 模块加载即接上包装（不是等 observePressables 被调）。
+//   原因：`observePressables()` 在 app.tsx 的 useEffect 里跑，那时首屏元素
+//   （开屏、隐私弹窗、首个页面）**已经创建并挂好 click 监听**了 —— 包装器看不到它们，
+//   首屏就漏标。模块求值发生在这之前，是唯一稳的时点。
+//   小程序端没有 EventTarget 的 DOM 语义，patchClickTracking 自己会 return。
+if (typeof window !== 'undefined') patchClickTracking();
