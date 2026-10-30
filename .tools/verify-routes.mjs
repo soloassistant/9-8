@@ -145,7 +145,12 @@ async function main() {
     if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') {
       bag.errors.push((m.params.args || []).map((a) => String(a.value || a.description || '')).join(' ').slice(0, 160));
     }
-    if (m.method === 'Network.loadingFailed') bag.failed.push(`${m.params.type}:${m.params.errorText}`);
+    if (m.method === 'Network.loadingFailed') {
+      // 图片失败不算页面故障：资讯缩略图来自第三方，被 ORB/防盗链拦是常态，
+      // 页面照样能用。只关心会真正让路由打不开的东西（脚本/样式/文档）。
+      if (m.params.type === 'Image') return;
+      bag.failed.push(`${m.params.type}:${m.params.errorText}`);
+    }
   };
   const send = (method, params = {}) => {
     const i = ++id;
