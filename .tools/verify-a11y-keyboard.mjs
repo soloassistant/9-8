@@ -181,6 +181,17 @@ if (NO_BROWSER) {
   await ev(`(()=>{const s=document.querySelector('[class*="__splash__"]')||document.querySelector('[class*="splash"]');if(s)s.click();const c=document.querySelector('[class*="consentAgree"]');if(c)c.click();return 1})()`);
   await new Promise((r) => setTimeout(r, 1500));
 
+  // 等页面内容真正到位再采样：固定 9s 不够 —— 资料库页要拉分包，实测同一份产物
+  // 连跑三次，有一次采样时只有 100 个节点/274 字（页面还在加载），B-2 与 B0b 双双误红。
+  // 这是**门的竞态**，不是页面坏了：改成轮询到「节点够多」或超时，再采样。
+  let pageSettled = false;
+  for (let i = 0; i < 30 && !pageSettled; i++) {
+    const n = Number(await ev(`document.querySelectorAll('taro-view-core,taro-text-core').length`));
+    if (n > 300) { pageSettled = true; break; }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  await new Promise((r) => setTimeout(r, 1500));
+
   // 桌面外壳就绪判定：`body.has-desktop-nav` 是桌面导航可见的前提（由 app.tsx 按 matchMedia 挂）。
   // 没挂上时导航 display:none —— 里面 10 个可操作元素的 rect 全是 0x0，Tab 永远摸不到。
   // 第一版没等这个条件，看到 10 个元素就以为测到了，实际测的是一组隐藏节点（假失败）。
@@ -197,7 +208,10 @@ if (NO_BROWSER) {
   const pageShape = JSON.parse(String(await ev(`(() => {
     const nodes = document.querySelectorAll('taro-page-core, taro-view-core, taro-text-core').length;
     const txt = ((document.getElementById('app') || document.body).innerText || '').replace(/\\s+/g, ' ').trim();
-    return JSON.stringify({ nodes, textLen: txt.length });
+    return JSON.stringify({ nodes, textLen: txt.length,
+      overlay: !!document.getElementById('wb-boot-failure'),
+      skeleton: !!document.getElementById('boot-skeleton'),
+      head: txt.slice(0, 50) });
   })()`)));
   assert('B-2 页面正文真的渲染了（不是空壳页：节点 > 300 且正文 > 200 字）',
     pageShape.nodes > 300 && pageShape.textLen > 200, `nodes=${pageShape.nodes} textLen=${pageShape.textLen}`);
