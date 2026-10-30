@@ -29,20 +29,44 @@ export const isWeapp = process.env.TARO_ENV === 'weapp'
  *     H5 的替代通路：视频改走**同源静态载荷**（services/cloud.ts 的 getHotspotPayload +
  *     services/api.ts 的 apiVideoNews），AI 精选改走 cloud.llm；
  *     小程序端不受影响（走 Taro.cloud.callFunction，不经过这张表）。
- *   · `chat` / `extract` — 有用户态，但 2026-10-08 已收口为**只认微信上下文**
- *     （`cloud.getWXContext().OPENID`，取不到即 throw）。H5 没有微信上下文，故当前必被拒 ——
- *     这是身份契约，不是缺陷。
+ *   · ~~`chat` / `extract`~~ — **2026-10-31 一并摘除**。
+ *     它们是**微信云函数**（`cloudfunctions/chat`、`cloudfunctions/extract`），跑在微信云开发里，
+ *     **不是**应用数据库的 PG 函数。线上匿名探针实测（2026-10-31）：
+ *       POST /.cloud/database/rest/rpc/chat    → 404 DATABASE_PGRST202
+ *         "Could not find the function public.chat(messages) in the schema cache"
+ *       POST /.cloud/database/rest/rpc/extract → 404 DATABASE_PGRST202
+ *         "Could not find the function public.extract(text) in the schema cache"
+ *     放行它们 = 给 H5 开两扇通往**不存在**的函数的门。
+ *     为什么一直没炸：H5 上 `services/cloud.ts` 在 invoke 之前就把 chat/extract 特判走
+ *     cloud.llm 了（`if (name === 'chat' || name === 'extract')`），而小程序端走
+ *     `Taro.cloud.callFunction`、**根本不过这张表** ⇒ 这两个名字在本表里**不可达**。
+ *     不可达 ⇒ 留着不炸，但它是**假的安全感**：谁按「chat/extract 已放行」去写新调用点，
+ *     就会得到一发注定 404 的请求 + 一条「云端不可用」的假降级横幅。摘掉后残留调用
+ *     **立即抛错**（不发网络请求），失败可被门禁与控制台立刻发现。
+ *
+ * ⚠️ 2026-10-31 复核并**改口**：此前这段写「chat/extract 有用户态，当前必被拒 —— 这是身份
+ *   契约，不是缺陷」。那说的是**微信云函数**侧的身份契约（`getWXContext().OPENID`），
+ *   与本表无关。就「应用数据库 PG 函数」而言，它们是**不存在**，不是「存在但被拒」。
+ *   两者修法不同：后者只需摘表，前者要造函数。
  *
  * ⚠️ 2026-10-13 迁移注记：`database.rpc` 调的是**应用数据库里的 PostgreSQL 函数**，
- * 而 cloudfunctions/ 跑在微信云开发里 —— 两者不是一套运行时。上述放行项在应用数据库里
- * 尚未注册对应 PG 函数，因此当前调用必然失败、由调用方降级；白名单保留的是「端口径」：
- * 将来哪个函数被移植进应用数据库，先确认它在上面两条下安全，再进来。
+ * 而 cloudfunctions/ 跑在微信云开发里 —— 两者不是一套运行时。
  * H5 的对话已改走 cloud.llm（见 services/cloudLlm），不经 RPC。
  *
- * ★ **放行前必须有线上探针证明对应的 PG 函数真实存在**（2026-10-30 立规）：
+ * ★ **放行前必须有线上探针证明对应的 PG 函数真实存在**（2026-10-30 立规，2026-10-31 加闸）：
  *   探针形状：`POST {endpoint}/.cloud/database/rest/rpc/<name>`，看返回码。
  *   PGRST202「Could not find the function」= 函数不存在 ⇒ **不许放行**。
  *   探针必须匿名跑（无登录态 ⇒ 服务端身份分支必拒绝 ⇒ 零写入风险）。
+ *   ⚠️ 探针必须**带真实参数名**：PostgREST 按参数名匹配函数签名，
+ *   不带参数时返回「Could not find the function public.X **without parameters**」——
+ *   那句话只说明没匹配上这个调用形状，**不能**据此断定函数不存在。
+ *   闸门：`.tools/verify-db-contract.mjs` 逐个探针本表的每个名字，不存在即红。
+ *
+ * ★ **本表当前为空**：应用数据库侧**没有任何**面向客户端的 PG 函数。
+ *   H5 的用户数据读写走的是**另一条通道** —— `services/cloudDb.ts` 的 `db.rpc('kv_set_many')`
+ *   / `db.rpc('kv_clear')`（会话态、RLS 按 auth.uid() 过滤），**不经过本闸**。
+ *   两条通道必须分开看：本闸管的是「H5 能不能打应用数据库的 rpc」，cloudDb 管的是
+ *   「能不能读写自己那一行的键值」。
  *
  * **平台文档（cloud-service 技能 references/database/code-generation.md）明确要求：身份由
  * `cloud.auth` 会话在请求层自动附带，客户端不得传任何 token / user id / owner id。**
@@ -52,8 +76,17 @@ export const isWeapp = process.env.TARO_ENV === 'weapp'
  *
  * **新增云函数进白名单前，先确认它在上面两条下是安全的。** 闸门放在传输层而不是业务代码里，
  * 是为了不依赖调用方自觉 —— 放业务层的话新调用点一定会绕过。
+ *
+ * ⚠️ 2026-10-31：本表被**清空**。改前是 `new Set(['chat', 'extract'])` ——
+ *   这两个名字在应用数据库里**都不存在**（线上探针 PGRST202，见上），且在 H5 上
+ *   **不可达**（cloud.ts 已特判截走）。改后是空集：H5 的 `invoke()` 一律**立即抛错、
+ *   不发网络请求**。行为变化逐条核过，**无功能回退**：
+ *     · H5：chat/extract 的既有调用点**全部**在 invoke 之前被 cloud.ts 特判截走 ⇒ 改前改后完全同路。
+ *     · weapp：`invoke()` 在 `if (isWeapp)` 分支里就 `return` 了，**根本不过本表** ⇒ 无影响。
+ *     · 唯一差别：若将来有人直接写 `invoke('chat')`，改前是「发一发注定 404 的请求」，
+ *       改后是「立刻抛 rpc-not-allowed」—— 后者更快、更可查、且不污染降级表。
  */
-const RPC_ALLOWLIST = new Set(['chat', 'extract'])
+const RPC_ALLOWLIST = new Set<string>([])
 
 /**
  * 云函数调用面 —— 唯一的跨端传输层。

@@ -200,6 +200,27 @@ jobs:
         #   · 横幅：只显示本页的降级，且区分「没传 actions」与「传了空数组」。
         run: npm run verify:h5-coverage
 
+      - name: 应用数据库契约门禁（白名单真伪 / 匿名访问面 / 收紧迁移）
+        # 守 2026-10-31 线上实测查出的两件事：
+        #   · 跨运行时：RPC 白名单是「H5 能不能打应用数据库的 rpc」，而微信云函数
+        #     （chat / extract / webSearch…）在应用数据库里**没有同名 PG 函数**
+        #     （探针 404 PGRST202）⇒ 放行=每次白发一发 404。这条门禁要求白名单里
+        #     不得出现这类名字、且同步键读写必须走 cloudDb.ts 的 db.rpc（另一条通道）。
+        #   · 匿名访问面：anon 对 feedback / user_kv / llm_events **有 SELECT 权限**，
+        #     而这三张表装着用户数据（feedback.contact 是联系方式 PII，user_kv.value
+        #     是 AI 记忆/聊天记录/购物清单…）。仓库里备好幂等收紧迁移
+        #     （.tools/sql/v2-db-anon-revoke.sql：REVOKE anon + RLS 兜底），
+        #     并断言客户端**从不 SELECT** 这些表（否则收权会弄坏功能）。
+        run: npm run verify:db-contract
+
+      - name: 应用数据库线上探针（PG 函数存在与否 / 匿名读到的行数）
+        # 必须真的去线上问一次「这个函数到底存不存在」—— 读源码只能证明「有人这么以为」。
+        #   · PGRST202 = 不存在；42501 = 存在但匿名无权（**与不存在相反**，别混）。
+        #   · 探针必须带真实参数名：空 body 会得到「without parameters」，
+        #     那句话不能用来断定不存在。
+        #   · 匿名读用户数据表必须读到 0 行 —— 表里有行且 RLS 失守时立刻红。
+        run: npm run verify:db-live
+
       - name: 键盘可达性门禁（机制与采纳）
         # 守「键盘用户能 Tab 到操作元素」：pressableProps 的 role/tabIndex/aria-label、
         # 三条让路规则（输入框/修饰键/IME）、全局 keydown 代理、focus-visible 焦点环，

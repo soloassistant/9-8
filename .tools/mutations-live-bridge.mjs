@@ -16,10 +16,13 @@
  */
 export default [
   {
+    // ⚠️ 2026-10-31：锚点随白名单清空而更新（改前 `new Set(['chat', 'extract'])`，
+    //   改后 `new Set<string>([])`）。锚点漂移 = 这条变异**根本没跑** = 覆盖率缺口，
+    //   必须当缺陷修，不能当噪音忽略。
     label: '把 webSearch 放回 RPC_ALLOWLIST（应用库无此 PG 函数 ⇒ 每页白发一发 404）',
     file: 'src/services/dataSource.ts',
-    from: "const RPC_ALLOWLIST = new Set(['chat', 'extract'])",
-    to: "const RPC_ALLOWLIST = new Set(['webSearch', 'chat', 'extract'])",
+    from: 'const RPC_ALLOWLIST = new Set<string>([])',
+    to: "const RPC_ALLOWLIST = new Set<string>(['webSearch'])",
     cmd: 'node .tools/verify-live-bridge.mjs'
   },
   {

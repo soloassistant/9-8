@@ -114,7 +114,10 @@ const deleteCollections = [...delListRaw.matchAll(/'([^']+)'/g)].map((m) => m[1]
 
 // H5 传输层白名单
 const dsSrc = read('src/services/dataSource.ts');
-const allowRaw = /const RPC_ALLOWLIST = new Set\(\[([\s\S]*?)\]\)/.exec(dsSrc)?.[1] ?? '';
+// ⚠️ 2026-10-31：白名单清空成 `new Set<string>([])`（TS 泛型带在字面量里），
+//   原正则 `/new Set\(\[([\s\S]*?)\]\)/` 匹配不上 ⇒ 解析成空串（碰巧结果一样，
+//   但那是**巧合**：一旦白名单里再有名，审计会看不见它）。改成容错正则。
+const allowRaw = /const RPC_ALLOWLIST[^=]*=\s*new Set(?:<[^>]*>)?\(\s*\[([\s\S]*?)\]\s*\)/.exec(dsSrc)?.[1] ?? '';
 const rpcAllow = [...allowRaw.matchAll(/'([^']+)'/g)].map((m) => m[1]);
 
 // H5 真实写入面（cloudDb.ts 是唯一写云 DB 的地方）
