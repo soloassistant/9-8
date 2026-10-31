@@ -383,6 +383,12 @@ export interface CloudChatResult {
   action: string;
   proposals?: unknown[];
   memories?: string[];
+  /** 动作载荷：batch 的 newEvents、done/reschedule 的 targetId、reschedule 的 newTime。
+   *  2026-10-31 之前这里只透传 reply/action/proposals/memories，模型给的 newEvents /
+   *  targetId 被整个丢掉 —— 于是「AI 说帮你排好了」但客户端手上根本没有要写什么。 */
+  targetId?: string | null;
+  newTime?: string | null;
+  newEvents?: unknown[];
 }
 
 /**
@@ -415,6 +421,10 @@ export async function chatViaCloudLlm(data?: {
   };
   if (Array.isArray(parsed.proposals)) out.proposals = parsed.proposals;
   if (Array.isArray(parsed.memories)) out.memories = parsed.memories.filter((m): m is string => typeof m === 'string');
+  // 动作载荷必须一起带出来，否则调用方只能拿到一句「已经安排好了」
+  if (typeof parsed.targetId === 'string' || parsed.targetId === null) out.targetId = parsed.targetId as string | null;
+  if (typeof parsed.newTime === 'string' || parsed.newTime === null) out.newTime = parsed.newTime as string | null;
+  if (Array.isArray(parsed.newEvents)) out.newEvents = parsed.newEvents;
   return out;
 }
 
