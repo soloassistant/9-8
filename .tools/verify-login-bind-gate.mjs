@@ -109,6 +109,50 @@ t('变异验证：回退修复后测试能抓住（已绑定/跳过被误判强�
   return true;
 });
 
+/* ── 逃生口的形状（2026-10-30）：光验纯函数不够 ──
+ * `decidePostLogin({dismissed:true})` → enter-app 本身没错，但它假设「dismissed 是可信的」。
+ * 真正的口径是**什么时候允许用户把 dismissed 写成 true**，以及**它能维持多久**。
+ * 之前「稍后再说」常驻 + 标记永久有效 ⇒ 一次点击就是这台设备的永久豁免，
+ * 与 docs/competitive-analysis-2026-10-19.md:153 写的「强制绑手机」正好相反。
+ * 所以这三条查页面侧的真实写法，不查纯函数。 */
+const loginSrc = readFileSync(path.join(ROOT, 'src/pages/login/index.tsx'), 'utf8');
+
+t('逃生口：跳过按钮受条件包裹（不是常驻）', () => {
+  const hit = /bindTrouble\s*\|\|\s*bindFailCount\s*>=\s*3/.test(loginSrc);
+  if (!hit) return '找不到「仅在发码异常 / 连续失败 3 次后才给跳过」的条件';
+  // 反面：不能又退化成"无条件渲染"（找 onClick={skipBind} 外层的 {…? … : null}）
+  const guarded = /\{bindTrouble\s*\|\|\s*bindFailCount\s*>=\s*3\s*\?/.test(loginSrc);
+  return guarded || '条件存在但没包住按钮，可能仍常驻';
+});
+
+t('逃生口：跳过标记写的是时间戳（可过期），不是恒 true', () => {
+  const bad = /setStorageSync\(PHONE_BIND_DISMISSED_KEY,\s*true\)/.test(loginSrc);
+  if (bad) return '仍在写 true —— 一次跳过=永久豁免';
+  return /setStorageSync\(PHONE_BIND_DISMISSED_KEY,\s*Date\.now\(\)\)/.test(loginSrc) || '没找到写时间戳';
+});
+
+t('逃生口：读取时按 TTL 判定，过期即重新要求绑定', () => {
+  const hasTtl = /BIND_DISMISS_TTL_MS/.test(loginSrc) && /Date\.now\(\)\s*-\s*at\s*<\s*BIND_DISMISS_TTL_MS/.test(loginSrc);
+  if (!hasTtl) return '没有 TTL 判定';
+  return !/getStorageSync\(PHONE_BIND_DISMISSED_KEY\)\s*===\s*true/.test(loginSrc) || '读取处还在用 === true';
+});
+
+t('注册必须设密码（邮箱/手机号一视同仁，不留通道例外）', () => {
+  // 之前是 `channel === 'email' || password.length > 0` —— 手机号选填。
+  // 现在应是「注册就校验长度」，不再按通道分叉。
+  const byChannel = /channel === 'email'[^\n]*password\.length/.test(loginSrc);
+  if (byChannel) return '还有按通道分叉的密码必填逻辑（手机号仍可空）';
+  const hasGuard = /const isSignup = withPassword && !pending\.isExistingUser/.test(loginSrc) &&
+    /isSignup && password\.length < 8/.test(loginSrc);
+  return hasGuard || '找不到「注册即校验密码长度」的实现';
+});
+
+t('手机号登录不再要求补绑手机号', () => {
+  // 手机号通道登录成功 = 本机已有手机号，直接落"已绑定"标记，避免再弹一次
+  const hit = /if \(channel === 'phone'\) markPhoneBound\(\)/.test(loginSrc);
+  return hit || '手机号登录后没有 markPhoneBound()，会被要求重复绑定';
+});
+
 /* ── 汇总 ── */
 const failed = results.filter((r) => !r.pass);
 const out = { status: failed.length ? 'FAIL' : 'PASS', pass: results.length - failed.length, total: results.length, failures: failed };

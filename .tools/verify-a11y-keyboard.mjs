@@ -58,6 +58,26 @@ assert('A4 Enter 与 Space 都能激活', a11y.includes("'Enter'") && a11y.inclu
 assert('A5 焦点在子节点时向上找可操作祖先（View 里套 Text 也能用）', a11y.includes("closest('[data-pressable]')") || a11y.includes('closest(') );
 assert('A6 App 挂了全局 keydown 代理且只在 H5 生效', appSrc.includes('activatePressable(e)') && appSrc.includes('window.addEventListener(\'keydown\''));
 assert('A7 焦点环用 :focus-visible（鼠标点击不闪框）', /\[data-pressable\]:focus-visible/.test(scss) && /outline:\s*2PX/.test(scss));
+// ★ 2026-10-29 第二轮：自动识别可点击元素。
+//   手工 `pressableProps` 只覆盖了 3 处，全站 239 处 onClick 里 236 处仍是「只有鼠标能用」。
+//   识别信号是「这个 Taro 元素自己注册过原生 click」—— 靠包装一次 addEventListener 记录。
+//   （试错过程写在 a11y.ts 顶部：props 里拿不到 onClick，fiber 回溯会把子节点全算进去。）
+//   ⚠️ 判据必须框到**整行**：`includes('markClickableAsPressable(')` 只能证明名字出现过，
+//      把调用改成 `if (false) markClickableAsPressable(...)` 照样绿（今天已经栽过三次）。
+assert('A16 自动识别机制存在（包装 addEventListener 记录 Taro 元素的 click）',
+  /^export function patchClickTracking\(\): void \{$/m.test(a11y) &&
+  a11y.includes('EventTarget.prototype.addEventListener = function patchedAddEventListener('));
+assert('A16a 包装只记 click、只记 TARO-* 元素（不污染 React 根委托/其他库）',
+  /^[ \t]*if \(type === 'click'\) \{$/m.test(a11y) &&
+  a11y.includes("el.tagName.indexOf('TARO-') === 0"));
+assert('A16b 只有自己挂了 click 才标记（遮罩/弹层这类吞点击节点不该变成按钮）',
+  /^[ \t]*if \(!clickBound\.has\(el\)\) continue;(?:[ \t]*\/\/.*)?$/m.test(a11y));
+assert('A16c 包装必须在首屏扫描之前接上（否则首屏那批元素的监听已经挂完，看不见）',
+  /^[ \t]*patchClickTracking\(\);$/m.test(a11y) &&
+  /^[ \t]*markClickableAsPressable\(document\.body\);$/m.test(a11y) &&
+  a11y.indexOf('patchClickTracking();') < a11y.indexOf('markClickableAsPressable(document.body);'));
+assert('A16d 新增子树也扫（动态列表才覆盖得到）',
+  /^[ \t]*for \(const el of batch\) markClickableAsPressable\(el\);$/m.test(a11y));
 
 /* ───────────── A'. 采纳 ───────────── */
 const nav = read('src/components/DesktopNav/index.tsx');
@@ -161,6 +181,17 @@ if (NO_BROWSER) {
   await ev(`(()=>{const s=document.querySelector('[class*="__splash__"]')||document.querySelector('[class*="splash"]');if(s)s.click();const c=document.querySelector('[class*="consentAgree"]');if(c)c.click();return 1})()`);
   await new Promise((r) => setTimeout(r, 1500));
 
+  // 等页面内容真正到位再采样：固定 9s 不够 —— 资料库页要拉分包，实测同一份产物
+  // 连跑三次，有一次采样时只有 100 个节点/274 字（页面还在加载），B-2 与 B0b 双双误红。
+  // 这是**门的竞态**，不是页面坏了：改成轮询到「节点够多」或超时，再采样。
+  let pageSettled = false;
+  for (let i = 0; i < 30 && !pageSettled; i++) {
+    const n = Number(await ev(`document.querySelectorAll('taro-view-core,taro-text-core').length`));
+    if (n > 300) { pageSettled = true; break; }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  await new Promise((r) => setTimeout(r, 1500));
+
   // 桌面外壳就绪判定：`body.has-desktop-nav` 是桌面导航可见的前提（由 app.tsx 按 matchMedia 挂）。
   // 没挂上时导航 display:none —— 里面 10 个可操作元素的 rect 全是 0x0，Tab 永远摸不到。
   // 第一版没等这个条件，看到 10 个元素就以为测到了，实际测的是一组隐藏节点（假失败）。
@@ -177,7 +208,10 @@ if (NO_BROWSER) {
   const pageShape = JSON.parse(String(await ev(`(() => {
     const nodes = document.querySelectorAll('taro-page-core, taro-view-core, taro-text-core').length;
     const txt = ((document.getElementById('app') || document.body).innerText || '').replace(/\\s+/g, ' ').trim();
-    return JSON.stringify({ nodes, textLen: txt.length });
+    return JSON.stringify({ nodes, textLen: txt.length,
+      overlay: !!document.getElementById('wb-boot-failure'),
+      skeleton: !!document.getElementById('boot-skeleton'),
+      head: txt.slice(0, 50) });
   })()`)));
   assert('B-2 页面正文真的渲染了（不是空壳页：节点 > 300 且正文 > 200 字）',
     pageShape.nodes > 300 && pageShape.textLen > 200, `nodes=${pageShape.nodes} textLen=${pageShape.textLen}`);
@@ -199,6 +233,17 @@ if (NO_BROWSER) {
 
   const count = await ev(`[...document.querySelectorAll('[data-pressable]')].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length`);
   assert('B0 页面上有**可见**的可聚焦操作元素（rect 非 0，隐藏节点不算）', Number(count) > 0, `count=${count}`);
+
+  // B0b：**内容区**（排除左侧导航）也必须有一批可操作元素。
+  // 这一条才是「a11y 覆盖到页面内容」的判据 —— 原来 B0 只要求 >0，而导航就挂在页面之外，
+  // 于是哪怕正文一个可操作元素都没有，B0 也绿（审计原话：23 个页面里只有 login 有）。
+  const contentCount = await ev(`[...document.querySelectorAll('[data-pressable]')].filter((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    const label = el.getAttribute('aria-label') || '';
+    return !/前往|当前页/.test(label); // 排除左侧导航
+  }).length`);
+  assert('B0b 页面**内容区**有 ≥30 个可聚焦操作元素（证明不是只覆盖了导航）', Number(contentCount) >= 30, `contentCount=${contentCount}`);
 
   // B1–B4：连按 Tab，记录焦点落点。
   // ⚠️ 第一版假定「按一次 Tab 就落在可操作元素上」—— 实测第一站是别的东西（页面里的
@@ -230,20 +275,45 @@ if (NO_BROWSER) {
   assert('B2 聚焦后有可见焦点环（outline 不是 none/0px）', !!outlineVisible, hit ? `${hit.outlineStyle}/${hit.outlineWidth}` : 'no-hit');
   assert('B3 焦点元素有可读名字（aria-label 非空）', !!(hit && typeof hit.label === 'string' && hit.label.length > 0), hit ? String(hit.label) : 'no-hit');
 
-  // B4：继续 Tab 找到导航项（aria-label 里有「前往/当前页」），再按 Enter 必须真的切路由
-  let navFound = null;
-  if (hit && /前往|当前页/.test(String(hit.label))) navFound = hit;
-  for (let i = 0; i < 14 && !navFound; i++) {
-    await key('Tab', 'Tab', 9);
-    await new Promise((r) => setTimeout(r, 180));
-    const st = JSON.parse(String(await ev(`(() => {
-      const a = document.activeElement;
-      return JSON.stringify({ isPressable: !!(a && a.hasAttribute && a.hasAttribute('data-pressable')), label: a && a.getAttribute ? a.getAttribute('aria-label') : null });
-    })()`)));
-    if (st.isPressable && /前往|当前页/.test(String(st.label))) navFound = st;
-  }
-  assert('B4 能 Tab 到侧栏导航项（aria-label 带「前往/当前页」）', !!navFound, navFound ? String(navFound.label) : '未找到导航项');
-  if (navFound) {
+  // B4：导航项本身必须可聚焦、且 Enter 能真的切路由。
+  //
+  // ⚠️ 这里**不再用连续 Tab** 去「走到」导航。自动标记上线后正文有 2000+ 停靠点，
+  //    而 DesktopNav 在 DOM 里排在正文**之后**（实测焦点序号 2121–2130）——
+  //    真按 Tab 要走两千次才到导航。那是**产品问题（Tab 顺序），不是 a11y 缺失**，
+  //    用「按 60 次 Tab 找到导航」当判据只会得到一个永远红、且红得没意义的断言。
+  //    所以这里验两件能验的事：① 导航项在焦点序列里（tabindex=0，不是被排除）；
+  //    ② 聚焦后 Enter 真的切路由。Tab 顺序问题单独记为已知缺口（见本文件末尾注释）。
+  const navInfo = JSON.parse(String(await ev(`(() => {
+    const nav = [...document.querySelectorAll('[data-pressable]')]
+      .filter((el) => /前往|当前页/.test(el.getAttribute('aria-label') || ''));
+    const focusables = [...document.querySelectorAll('[tabindex]')].filter((el) => el.tabIndex >= 0);
+    return JSON.stringify({
+      count: nav.length,
+      allFocusable: nav.length > 0 && nav.every((el) => el.getAttribute('tabindex') === '0'),
+      firstIndex: nav.length ? focusables.indexOf(nav[0]) : -1,
+      totalFocusables: focusables.length
+    });
+  })()`)));
+  assert('B4 导航项在焦点序列里（tabindex=0，不是被排除在外）',
+    navInfo.count >= 8 && navInfo.allFocusable === true, JSON.stringify(navInfo));
+  // ★ B4c：Tab 顺序。原来 DesktopNav 排在 children 之后，导航首个停靠点是 2121/2131 ——
+  //   键盘用户要穿过整个正文才摸得到导航。改成排在正文之前后应该在个位数。
+  //   判据取「前 30 位」而不是「第 1 位」：正文前面可能有开屏/同意层的按钮，留点余量。
+  assert('B4c 导航排在前 30 个停靠点之内（Tab 顺序：导航 → 正文，不是正文 → 导航）',
+    navInfo.firstIndex >= 0 && navInfo.firstIndex < 30,
+    `导航首个停靠点在第 ${navInfo.firstIndex + 1} / ${navInfo.totalFocusables} 位`);
+  // 如实记录 Tab 顺序现状：导航排在正文之后，键盘用户要穿过去。写成可见数字，别藏。
+  console.log(`  （Tab 顺序现状：导航首个停靠点在第 ${navInfo.firstIndex + 1} / ${navInfo.totalFocusables} 位）`);
+
+  const navActivated = await ev(`(() => {
+    const el = [...document.querySelectorAll('[data-pressable]')]
+      .find((x) => /前往/.test(x.getAttribute('aria-label') || ''));
+    if (!el) return 'no-nav';
+    el.focus();
+    return document.activeElement === el ? 'focused' : 'focus-failed';
+  })()`);
+  assert('B4a 导航项能被聚焦（键盘用户确实可以停在上面）', String(navActivated) === 'focused', String(navActivated));
+  if (String(navActivated) === 'focused') {
     const beforeHash = await ev('location.hash');
     await key('Enter', 'Enter', 13);
     await new Promise((r) => setTimeout(r, 1200));

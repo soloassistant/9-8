@@ -17,6 +17,51 @@ const { orgOfSource, ALSO_FROM_MAX } = require('../cloudfunctions/webSearch/cros
 
 const FETCH_TIMEOUT = 8000;
 
+/**
+ * 抓取并发上限（2026-10-31 新增）。
+ *
+ * 改前是 `Promise.all(全部源)` —— 几十个源**同时**建连，每个源只拿到 8 秒预算，
+ * 于是「并发挤爆」和「主机真的不可达」两种失败混在一起，分不清是谁的锅。
+ *
+ * 2026-10-31 隔离实验（41 个源，同一 8s 超时，逐档跑，记录成功数与总耗时）：
+ *   并发  1 → 成功 29/41，耗时 138.9s
+ *   并发  3 → 成功 27/41，耗时  50.1s
+ *   并发  8 → 成功 **32/41**，耗时 **17.0s**   ← 峰值
+ *   并发 16 → 成功 23/41，耗时  14.1s          ← 过度订阅，出现断崖
+ *   并发 41 → 成功 29/41，耗时   8.1s          ← 改前的实现
+ * ⇒ ① 并发有**甜点区**，8 是峰值；无界并发（41）会过度订阅，16 更差。
+ *   ② 每一档都失败的那批主机（Space.com / Variety / Stereogum / IndieWire /
+ *      NASA×3 / Yale / Psychology Today…）在**并发 1** 时同样失败
+ *      ⇒ 剩下这些是**主机级不可达**（本机到这些海外站点的网络问题），
+ *      不是代码能修的；同一份代码在 GitHub Actions（美国 runner）上产出 430 条。
+ *   ③ 实测收益：本地一次抓取从 **207 条 → 283 条**（失败源 26 → 18）。
+ *
+ * ⚠️ 不要把「剩下的 timeout」当成可修的缺陷 —— 它们与本文件无关，
+ *   换机器/换网络就会变；本文件只负责**别把自己挤爆**。
+ */
+const FETCH_CONCURRENCY = 8;
+
+/** 有界并发映射：保持入参顺序返回，单个失败不影响其它（错误由调用方处理）。 */
+async function mapWithConcurrency(list, limit, fn) {
+  const out = new Array(list.length);
+  let next = 0;
+  const workers = [];
+  const workerCount = Math.max(1, Math.min(limit, list.length));
+  for (let w = 0; w < workerCount; w++) {
+    workers.push(
+      (async () => {
+        for (;;) {
+          const i = next++;
+          if (i >= list.length) return;
+          out[i] = await fn(list[i], i);
+        }
+      })()
+    );
+  }
+  await Promise.all(workers);
+  return out;
+}
+
 function fetchText(url) {
   return Promise.race([
     fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then((r) => {
@@ -101,6 +146,39 @@ function cleanUrl(u) {
   return kept.length ? base + '?' + kept.join('&') : base;
 }
 
+/** 媒体 URL 准入：仅 http/https、≤512 字符、不含 ASCII 控制字符。
+ *  与云函数 safeMediaUrl / src/utils/videoNews.ts 同口径 —— 外链图片是**新增请求**，
+ *  脏 URL（javascript:、超长、含控制字符）一律丢弃。 */
+function safeMediaUrl(v) {
+  if (typeof v !== 'string') return undefined;
+  const s = v.trim();
+  if (!s || s.length > 512) return undefined;
+  if (/[\u0000-\u001f\u007f]/.test(s)) return undefined;
+  return /^https?:\/\//i.test(s) ? s : undefined;
+}
+
+/** 抽取条目真实配图：media:content / media:thumbnail / enclosure(image) / 正文首个 <img>。
+ *
+ *  2026-10-30：**与 cloudfunctions/webSearch/index.js 的 pickImage 逐字同口径**。
+ *  此前这条链路（产出线上 api/hotspot.json 的就是它）**完全没有抽图逻辑** ——
+ *  实测线上 412 条里 0 条有图，字段全集里连 image 都没有。
+ *  云函数那边早就有 pickImage（2026-09 就加了），本链路一直没跟上：
+ *  **同一件事两份口径的第四次发作**。
+ *
+ *  入参必须是**原始 item 块**（clean() 之前）—— clean() 会把标签全剥掉，届时什么也抽不到。 */
+function pickImage(block) {
+  const candidates = [
+    (block.match(/<media:content[^>]*url=["']([^"']+)["']/i) || [])[1],
+    (block.match(/<media:thumbnail[^>]*url=["']([^"']+)["']/i) || [])[1],
+    (block.match(/<enclosure[^>]*type=["'][^"']*image[^"']*["'][^>]*url=["']([^"']+)["']/i) || [])[1],
+    (block.match(/<enclosure[^>]*url=["']([^"']+)["'][^>]*type=["'][^"']*image/i) || [])[1],
+    (block.match(/<img[^>]*src=["'](https?:\/\/[^"']+)["']/i) || [])[1]
+  ];
+  const url = candidates.find(Boolean);
+  if (!url || !/^https?:\/\//i.test(url)) return undefined;
+  return safeMediaUrl(url.replace(/&amp;/g, '&'));
+}
+
 /** 极简 RSS 解析（无依赖）。tag / pubDate 口径与 static-server.js 的 parseRss 完全一致：
  *  · tag 落到条目 tags —— 前端「资讯类目筛选」依赖它；本文件此前恒为 []，线上站点因此没有类目
  *  · pubDate 只供新鲜度闸门使用，**不进响应契约**（HotspotNews 无该字段） */
@@ -116,6 +194,8 @@ function parseRss(xml, source, limit, tag) {
     if (!title) continue;
     const pubRaw = clean((b.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1]);
     const pubMs = pubRaw ? Date.parse(pubRaw) : NaN;
+    // 配图必须在**原始块**上抽（clean() 已把标签剥掉）
+    const image = pickImage(b);
     out.push({
       id: 'rss_' + hash(source + title),
       title,
@@ -126,6 +206,7 @@ function parseRss(xml, source, limit, tag) {
       source,
       url: cleanUrl(link),
       tags: tag ? [tag] : [],
+      ...(image ? { image } : {}),
       pubDate: Number.isFinite(pubMs) ? pubMs : null
     });
   }
@@ -214,6 +295,54 @@ const HOTSPOT_SOURCES = [
   }
 ];
 
+// 视频条目上限：线上此前恒为 1 条（云函数 VIDEO_NEWS_LIMIT=1 / 前端 VIDEO_NEWS_MAX=1）。
+// 这里给 5 条 —— 因为它们来自**已经在抓的** B站热榜（真实热点 + 真视频），不是新拉的榜。
+const VIDEO_ITEMS_MAX = 5;
+/** 视频条目的来源板块名（B站热榜）。用 boards-core 的板块 label，不是来源显示名。 */
+const VIDEO_BOARD_SOURCE = 'B站热榜';
+
+/**
+ * 从热榜板块条目里产出「视频」条目。
+ *
+ * 为什么不是单独再拉一次 B站榜（2026-10-30）：
+ *   boards-core 已经在抓 `api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all`
+ *   （**全站榜**，与云函数 getVideoNews 用的是同一个接口）。再拉一次就是同一份数据取两遍：
+ *   多一次网络请求 + 两份数据可能不一致（榜单刷新时刻不同）。
+ *   复用既有采集结果 ⇒ **零新增请求**。
+ *
+ * 为什么 url 用 bilibili.com/video/BV… 规范形态而不是 b23.tv 短链：
+ *   前端 `src/utils/videoNews.ts` 的准入正则只认规范形态；短链会被整条丢弃。
+ *   所以规范 URL 用 bvid 重建。
+ */
+function buildVideos(boardItems) {
+  const out = [];
+  for (const it of boardItems || []) {
+    if (!it || it.source !== VIDEO_BOARD_SOURCE) continue;
+    const bvid = String(it.bvid || '').trim();
+    if (!bvid) continue;
+    const title = String(it.title || '').trim().slice(0, 80);
+    if (!title) continue;
+    const desc = String(it.desc || '').trim();
+    const image = safeMediaUrl(it.image);
+    out.push({
+      id: 'bili-' + bvid,
+      title,
+      summary: clampText(desc || it.summary || title, 120),
+      content: desc ? clampText(desc, 1000) : undefined,
+      source: '哔哩哔哩',
+      url: 'https://www.bilibili.com/video/' + bvid,
+      tags: ['视频'],
+      ...(image ? { image } : {}),
+      ...(it.duration ? { duration: String(it.duration).slice(0, 10) } : {}),
+      ...(it.author ? { author: String(it.author).trim().slice(0, 30) } : {}),
+      ...(it.play ? { play: it.play } : {}),
+      ...(it.publishedAt ? { createTime: it.publishedAt } : {})
+    });
+    if (out.length >= VIDEO_ITEMS_MAX) break;
+  }
+  return out;
+}
+
 /** 聚合全部源 → { items, meta }；跨源轮询交错去重 + 新鲜度闸门 */
 async function fetchHotspot() {
   const groups = [];
@@ -222,8 +351,7 @@ async function fetchHotspot() {
   const staleMaxAge = STALE_ITEM_DAYS * 24 * 60 * 60 * 1000;
   const dropped = { undated: 0, stale: 0, futureSkew: 0 };
 
-  await Promise.all(
-    HOTSPOT_SOURCES.map(async (s) => {
+  await mapWithConcurrency(HOTSPOT_SOURCES, FETCH_CONCURRENCY, async (s) => {
       let ok = false;
       let reason = '';
       for (let attempt = 1; attempt <= CONN_RETRY_TIMES; attempt++) {
@@ -261,24 +389,40 @@ async function fetchHotspot() {
       // 无法归因 —— 同一缺陷早已在 static-server.js 修过，这里漏改。
       if (!ok) console.warn('[fetch-data] 源失败 ' + s.name + '：' + (reason || 'unknown'));
       srcStatus.push({ name: s.name, count: 0, ok, reason: reason || '' });
-    })
-  );
+    });
   // 热榜板块：走仓库自带的零依赖实现（.tools/boards-core.js），**不依赖本机 DailyHotApi 服务** ——
   // 本脚本跑在 GitHub Actions runner 上，够不到 127.0.0.1:6688，这正是线上长期没有热榜的原因。
   // 覆盖 6 个板块（含全部 4 个垂类）；微博/知乎/抖音 需 cookie，服务器环境取不到，仍在注释里记明。
   const boards = { total: 0, ok: 0, items: 0, skipped: [] };
+  let boardItems = [];
   try {
     const r = await fetchAllBoards({ limitPerBoard: RSS_PER_SOURCE });
     boards.total = r.statuses.length;
     boards.ok = r.statuses.filter((s) => s.ok).length;
     boards.items = r.items.length;
+    boardItems = r.items;
     for (const s of r.statuses) {
       srcStatus.push({ name: s.label, count: 0, ok: s.ok, reason: s.reason || '' });
       if (!s.ok) boards.skipped.push(s.label + '(' + (s.reason || 'unknown') + ')');
     }
     // 每个板块作为独立 group 入组 → 沿用跨源轮询交错，避免单一板块霸占前列（与 static-server 同口径）
     for (const label of new Set(r.items.map((it) => it.source))) {
-      const g = r.items.filter((it) => it.source === label);
+      const g = r.items
+        .filter((it) => it.source === label)
+        .map((it) => {
+          // 板块条目的内部字段 → 响应契约：
+          //   desc       → content（源自带描述，与 RSS 条目同语义：站内文章视图显示它，
+          //                而此前只能显示「XX 榜 第 N 位 · 热度 X」这种榜单位置串）
+          //   publishedAt → createTime（B站条目有真实发布时间）
+          // 其余字段（image/duration/author/play/bvid）原样保留 —— 封面正是热点卡片要用的。
+          const { desc, publishedAt, ...rest } = it;
+          const content = typeof desc === 'string' && desc.trim() ? clampText(desc, 1000) : undefined;
+          return {
+            ...rest,
+            ...(content ? { content } : {}),
+            ...(publishedAt ? { createTime: publishedAt } : {})
+          };
+        });
       if (g.length) groups.push(g);
     }
   } catch (e) {
@@ -336,8 +480,13 @@ async function fetchHotspot() {
   const items = trust.kept.map(({ pubDate, ...rest }) =>
     Number.isFinite(pubDate) ? { ...rest, createTime: new Date(pubDate).toISOString() } : rest
   );
+  // 视频条目：与 RSS 条目过**同一份**信任过滤（同一份 rules，不可能发散）。
+  // 2026-10-30 新增 —— 此前视频只存在于微信云函数（getVideoNews），
+  // H5 线上**根本没有视频数据**，而那个云函数在 H5 的 RPC 通路上又必然 404（PGRST202）。
+  const videos = filterNewsItems(buildVideos(boardItems), { label: 'fetch-data-video' }).kept;
   return {
     items,
+    videos,
     meta: { updatedAt: new Date().toISOString(), stale: false, sources: srcStatus, dropped, boards }
   };
 }
@@ -354,8 +503,35 @@ async function fetchHotspot() {
 const REGRESS_RATIO = 0.7;
 const REGRESS_FRESH_MS = 6 * 60 * 60 * 1000;
 
+/** 配图覆盖率（新格式判据）：items 里带 http(s) image 字段的比例。旧格式快照整份为 0。 */
+function imageRatio(items) {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+  const withImg = items.filter((it) => it && typeof it.image === 'string' && /^https?:\/\//.test(it.image)).length;
+  return withImg / items.length;
+}
+
+/**
+ * 纯判定（fs 无关，verify-fetch-guard.mjs 直接断言它）。
+ * @returns null = 允许写入；字符串 = 拒绝原因。
+ */
+function regressDecision(prev, newItems, ageMs, now = Date.now()) {
+  const prevCount = Array.isArray(prev && prev.items) ? prev.items.length : 0;
+  if (prevCount <= 0) return null;
+  if (!(typeof ageMs === 'number') || ageMs < 0 || ageMs >= REGRESS_FRESH_MS) return null; // 上一份已不新鲜
+  const newCount = Array.isArray(newItems) ? newItems.length : 0;
+  // 2026-10-31 格式维度（实测盲区）：gh-pages 旧兜底（417 条**整份无配图**）会在凌晨把
+  // 条数较少但**带配图**的新格式抓取（207-277 条）压住——「条数多」赢了「格式新」，
+  // 而配图覆盖率是发布门禁 D2 的硬要求，旧格式数据进发布目录 = 预检必然红。
+  // 规则：上一份是旧格式（配图率 0）且新快照是新格式（配图率 > 0）→ 放行，不算回退。
+  const prevRatio = imageRatio(prev.items);
+  const newRatio = imageRatio(newItems);
+  if (newRatio > 0 && prevRatio === 0) return null;
+  if (newCount >= prevCount * REGRESS_RATIO) return null;
+  return `新快照 ${newCount} 条 < 上一份 ${prevCount} 条的 ${Math.round(REGRESS_RATIO * 100)}%（上一份仅 ${Math.round(ageMs / 60000)} 分钟前）`;
+}
+
 /** 返回 null 表示允许写入；返回字符串表示拒绝写入的原因 */
-function guardRegression(outPath, newCount) {
+function guardRegression(outPath, newItems) {
   if (!outPath) return null;
   let prevRaw;
   let prevStat;
@@ -365,41 +541,77 @@ function guardRegression(outPath, newCount) {
   } catch {
     return null; // 首次写入 / 文件不存在
   }
-  let prevCount = 0;
+  let prev;
   try {
-    const prev = JSON.parse(prevRaw);
-    prevCount = Array.isArray(prev.items) ? prev.items.length : 0;
+    prev = JSON.parse(prevRaw);
+    if (!prev || typeof prev !== 'object') return null; // 上一份坏了就别拿它当基准
   } catch {
     return null; // 上一份坏了就别拿它当基准
   }
-  if (prevCount <= 0) return null;
-  const ageMs = Date.now() - prevStat.mtimeMs;
-  if (ageMs >= REGRESS_FRESH_MS) return null; // 上一份已不新鲜，接受当前结果
-  if (newCount >= prevCount * REGRESS_RATIO) return null;
-  return `新快照 ${newCount} 条 < 上一份 ${prevCount} 条的 ${Math.round(REGRESS_RATIO * 100)}%（上一份仅 ${Math.round(ageMs / 60000)} 分钟前）`;
+  return regressDecision(prev, newItems, Date.now() - prevStat.mtimeMs);
 }
 
+/**
+ * 主流程。
+ *
+ * ⚠️ 2026-10-31 新增「状态标记」：此前「数据到底更新了没有」**机器不可判定** ——
+ *   ① 被回归闸拒绝时退出码仍是 0（保旧是成功，CI 语义正确）；
+ *   ② 全源失败时退出码是 1。
+ *   于是自动化只能看到「退出码 0」，**分不清「写入了新数据」与「原样保住了旧数据」**。
+ *   后果实测：构建产物里带着 gh-pages 的旧快照（09:31Z）却毫无标记，
+ *   任何人（包括门禁）都无法判断「这次到底刷新了没有」。
+ *
+ *   现在多两个出口：
+ *     --status <file>   写一份机器可读的状态（written / reason / count / updatedAt）。
+ *                       供构建流程与发布预检断言「产物里的数据是不是新写的」。
+ *     --allow-stale     **构建路径专用**：全源失败但既有快照还在时，沿用它并 exit 0，
+ *                       让构建仍能出产物（数据保旧优先）。CI 的 refresh-data **不带**这个开关，
+ *                       行为不变（源全挂仍然红灯）—— 那才是 CI 该有的语义。
+ */
 async function main() {
   const argIdx = process.argv.indexOf('--out');
   const outPath = argIdx > -1 ? process.argv[argIdx + 1] : null;
+  const statusIdx = process.argv.indexOf('--status');
+  const statusPath = statusIdx > -1 ? process.argv[statusIdx + 1] : null;
+  const allowStale = process.argv.includes('--allow-stale');
 
-  const { items, meta } = await fetchHotspot();
+  /** 写状态文件 + 打一行机器可读的状态（stdout 便于日志 grep，文件便于门禁断言） */
+  const emitStatus = (st) => {
+    const s = { at: new Date().toISOString(), ...st };
+    console.log('[fetch-data] STATUS ' + JSON.stringify(s));
+    if (!statusPath) return;
+    try {
+      fs.mkdirSync(path.dirname(path.resolve(statusPath)), { recursive: true });
+      fs.writeFileSync(statusPath, JSON.stringify(s, null, 2));
+    } catch (e) {
+      console.warn('[fetch-data] 状态文件写入失败:', e && e.message);
+    }
+  };
+
+  const { items, videos, meta } = await fetchHotspot();
   if (!items.length) {
+    const hasExisting = !!(outPath && fs.existsSync(outPath) && fs.statSync(outPath).size > 0);
     console.error('[fetch-data] all sources failed - keep existing output untouched');
+    emitStatus({ written: false, reason: 'all-sources-failed', count: 0, keptExisting: hasExisting });
+    if (allowStale && hasExisting) {
+      console.warn('[fetch-data] --allow-stale：沿用既有快照，构建继续（数据未刷新！）');
+      process.exit(0);
+    }
     process.exit(1); // Actions 侧失败退出：不覆盖上一次的好数据
   }
 
-  const rejected = guardRegression(outPath, items.length);
+  const rejected = guardRegression(outPath, items);
   if (rejected) {
     // 不覆盖是**成功**（保住了好数据），故退出码 0：Actions 那步不会变红，
     // 且 gh-pages 的「无变化则跳过提交」逻辑会自然生效。
     console.warn('[fetch-data] 拒绝覆盖：' + rejected + ' → 保留上一份，本次不写入');
     meta.dropped = { ...(meta.dropped || {}), regressionGuard: items.length };
-    if (!outPath) process.stdout.write(JSON.stringify({ items, ...meta }));
+    emitStatus({ written: false, reason: rejected, count: items.length, keptExisting: !!outPath });
+    if (!outPath) process.stdout.write(JSON.stringify({ items, videos, ...meta }));
     return;
   }
 
-  const json = JSON.stringify({ items, ...meta });
+  const json = JSON.stringify({ items, videos, ...meta });
   if (outPath) {
     fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
     fs.writeFileSync(outPath, json);
@@ -407,6 +619,13 @@ async function main() {
   } else {
     process.stdout.write(json);
   }
+  emitStatus({
+    written: true,
+    reason: null,
+    count: items.length,
+    videos: Array.isArray(videos) ? videos.length : 0,
+    updatedAt: meta.updatedAt || null
+  });
 }
 
 main().catch((e) => {

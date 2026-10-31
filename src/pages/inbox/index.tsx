@@ -526,7 +526,7 @@ function InboxPage() {
           用户会看到一份"看起来很合理"的固定示例（产品评审会 / 评审前更新演示文稿），
           完全无法分辨这不是自己粘贴的内容 —— 于是"AI 提取成功"成了假象。
           挂上之后，真实路径成功时提示自动消失（cloud.ts 的 clearDegraded）。 */}
-      <DemoDataHint />
+      <DemoDataHint actions={['extract']} />
 
       <View className={styles.inputCard}>
         <Text className={styles.inputTitle}>{t('inbox.pasteTitle')}</Text>

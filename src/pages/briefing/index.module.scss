@@ -879,6 +879,22 @@
   border-radius: $radius-xl;
 }
 
+/* 没有日程和待办时替代深色四格卡的一行说明（2026-10-30）。
+   全 0 的四格卡会变成「用最重的底色说用户什么都没做」，这里退成一行浅色文字，
+   把版面让给今日情报。 */
+.overviewLean {
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-md;
+}
+
+.overviewLeanText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
 .overviewHead {
   display: flex;
   align-items: center;
@@ -990,8 +1006,27 @@
     width: 200PX;
     position: sticky;
     top: 0;
-    min-height: 72vh;
+    // ⚠️ 必须有确定高度：2026-10-30 把侧栏从 6 项补到 11 项（与全站 DesktopNav 同源）后，
+    // 内容自然高度约 781px —— 1440×900 放得下，但 1440×768 / 1366×700 的笔记本上，
+    // 底部用户区会被挤出视口、直接看不见。钉住一屏高，让列表内部滚动，用户区常驻底部。
+    // 减掉的 64rpx 是 `.page` 的 padding-top：nav 从 padding 内侧起算，不减就会多伸出一截
+    // （实测 1440×768 下 nav 底边 802 > 视口 768，用户区被切 26px）。
+    height: calc(100vh - 64rpx);
+    max-height: calc(100vh - 64rpx);
+    overflow: hidden;
     padding: $spacing-sm 0;
+  }
+
+  // 品牌块不参与收缩，空间不够时只让列表滚
+  .sideBrand {
+    flex-shrink: 0;
+  }
+
+  // 空间不够时只有导航列表滚动（用户区靠 .sideUser 的 margin-top:auto 常驻底部）
+  .sideNavList {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
   }
 
   .rightRail {

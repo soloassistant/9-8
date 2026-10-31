@@ -127,6 +127,16 @@ jobs:
         # 2026-10 的 P0「预算输入被静默清空」正属于这条链路口径被改坏。
         run: npm run verify:ledger-aggregate
 
+      - name: 周报/ics/追踪/保险箱 纯逻辑回归
+        # 2026-10-31 四件新纯逻辑工具：价值周报聚合（口径复用 weeklyReview、无数据不显示）、
+        # ics 导出（RFC5545 转义/脏时间戳跳过）、追踪关键词（解析/匹配）、数据保险箱（信封/导入校验）。
+        run: npm run verify:vault-report
+
+      - name: 热点抓取回归闸判定回归
+        # 守 fetch-data guardRegression 的纯判定：条数回退照拦 + 格式维度放行
+        # （旧格式兜底不得靠条数压住带配图的新格式抓取，D2 发布门禁的前提）。
+        run: npm run verify:fetch-guard
+
       - name: 记账导出回归
         # 守的是导出文件的两类硬伤：CSV 字段转义（RFC4180）与公式注入前置（= + - @ 开头必须转义），
         # 以及空数据短路、文件名口径、H5 下载与小程序剪贴板两条分支不被合并成一条。
@@ -173,6 +183,53 @@ jobs:
         # 有深色/减动效适配、10s 慢加载可操作的兜底、挂载后移除。
         # 真浏览器那组（禁用 JS 仍能看到骨架 / 启用 JS 后必须退场）需要 Chrome，CI 不跑。
         run: npm run verify:boot-skeleton -- --no-browser
+
+      - name: 首屏关键路径门禁
+        # 守「用户等得到界面」：2026-10-30 实测线上首屏最慢挂载 30 秒以上 ——
+        # 网关对单个请求有 20–31 秒首字节长尾，而 defer 链把第三方 SDK 串在主包前面，
+        # SDK 一卡整个应用就卡住。这条门禁要求：SDK 必须 async、SDK 卡住要重试、
+        # chunk 失败不在启动期整页重载、骨架要报真实进度且不许重复 id。
+        run: npm run verify:boot-path
+
+      - name: 线上 H5 通路门禁
+        # 守「H5 端的云功能真的通」：2026-10-30 线上实测 `invoke('webSearch')` 打的是
+        # 应用数据库里**根本不存在**的 PG 函数（404 PGRST202），而它一直在 RPC 白名单里
+        # ⇒ H5 一次带倒 4 个功能（视频精选 / 视频资讯 / 全网搜索 / AI 资讯精选），
+        # 且每次调用都白发一发注定 404 的请求。这条门禁要求：
+        # 白名单里不得有 webSearch、白名单闸在取 rpc 之前、H5 的视频/AI 走真通路、
+        # 机构归一表不漏登记（alsoFrom 不得是「一家机构自己的两个 feed」）、
+        # 降级横幅按页面粒度（不许把真实数据说成演示数据）。
+        run: npm run verify:live-bridge
+
+      - name: H5 功能覆盖面门禁（跨端同步覆盖 / 降级诚实性 / 横幅不串台）
+        # 守「H5 上别的功能有没有像热点那样断在暗处」：
+        #   · 跨端同步：用户数据键（社区动态/成就/习惯/连续天数/屏蔽词/早鸟锁价…）
+        #     漏在 SYNC_KEYS 外 ⇒ 换设备静默失忆；豁免表里的设备级/合规键不许上云。
+        #   · 降级诚实性：回退结果是**真实本地数据**的 action 不登记降级（否则横幅把
+        #     真实数据说成「本地演示数据」）；反过来，它的降级模块必须真读本地存储。
+        #   · 横幅：只显示本页的降级，且区分「没传 actions」与「传了空数组」。
+        run: npm run verify:h5-coverage
+
+      - name: 应用数据库契约门禁（白名单真伪 / 匿名访问面 / 收紧迁移）
+        # 守 2026-10-31 线上实测查出的两件事：
+        #   · 跨运行时：RPC 白名单是「H5 能不能打应用数据库的 rpc」，而微信云函数
+        #     （chat / extract / webSearch…）在应用数据库里**没有同名 PG 函数**
+        #     （探针 404 PGRST202）⇒ 放行=每次白发一发 404。这条门禁要求白名单里
+        #     不得出现这类名字、且同步键读写必须走 cloudDb.ts 的 db.rpc（另一条通道）。
+        #   · 匿名访问面：anon 对 feedback / user_kv / llm_events **有 SELECT 权限**，
+        #     而这三张表装着用户数据（feedback.contact 是联系方式 PII，user_kv.value
+        #     是 AI 记忆/聊天记录/购物清单…）。仓库里备好幂等收紧迁移
+        #     （.tools/sql/v2-db-anon-revoke.sql：REVOKE anon + RLS 兜底），
+        #     并断言客户端**从不 SELECT** 这些表（否则收权会弄坏功能）。
+        run: npm run verify:db-contract
+
+      - name: 应用数据库线上探针（PG 函数存在与否 / 匿名读到的行数）
+        # 必须真的去线上问一次「这个函数到底存不存在」—— 读源码只能证明「有人这么以为」。
+        #   · PGRST202 = 不存在；42501 = 存在但匿名无权（**与不存在相反**，别混）。
+        #   · 探针必须带真实参数名：空 body 会得到「without parameters」，
+        #     那句话不能用来断定不存在。
+        #   · 匿名读用户数据表必须读到 0 行 —— 表里有行且 RLS 失守时立刻红。
+        run: npm run verify:db-live
 
       - name: 键盘可达性门禁（机制与采纳）
         # 守「键盘用户能 Tab 到操作元素」：pressableProps 的 role/tabIndex/aria-label、

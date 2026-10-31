@@ -192,21 +192,67 @@ function readGlobal(): CloudGlobal | null {
 }
 
 /** 等 CDN 脚本就绪：`<script>` 是异步加载的，首屏检查可能早于它完成。
- *  轮询而非事件，因为 IIFE 不提供 load 回调；上限 5s，超时按「SDK 不可用」处理。 */
-export function waitForSdk(timeoutMs = 5000): Promise<CloudGlobal | null> {
+ *  轮询而非事件，因为 IIFE 不提供 load 回调；超时按「SDK 不可用」处理。
+ *
+ *  ⚠️ 2026-10-30 改了上限与重试策略，根因是**发布网关的首字节长尾**：
+ *  真浏览器网络时间线实测，同一批并行请求里**单个**请求的首字节被卡了
+ *  20402ms / 23851ms / 30877ms，而其余请求只要 0.4–3 秒（长尾是**按请求**随机的，
+ *  不是「整个站都慢」）。SDK 那个请求一旦中招，5s 上限就会直接判「SDK 不可用」，
+ *  用户看到的是「登录服务没连上」——而后端其实好好的。
+ *  ⇒ 两处对策：
+ *    ① 超时从 5s 放宽到 8s（别在长尾里过早放弃）；
+ *    ② 过半还没到就**重新注入一次 <script>**（带 cache-busting 的 query）——
+ *       长尾按请求随机，换一个请求往往就快了，实测这是最有效的补救。 */
+export function waitForSdk(timeoutMs = 8000): Promise<CloudGlobal | null> {
   if (!H5) return Promise.resolve(null);
   const found = readGlobal();
   if (found) return Promise.resolve(found);
   return new Promise((resolve) => {
     const started = Date.now();
+    let retried = false;
     const timer = setInterval(() => {
       const g = readGlobal();
-      if (g || Date.now() - started > timeoutMs) {
+      if (g) {
         clearInterval(timer);
-        resolve(g || null);
+        resolve(g);
+        return;
+      }
+      const elapsed = Date.now() - started;
+      if (elapsed > timeoutMs) {
+        clearInterval(timer);
+        resolve(null);
+        return;
+      }
+      // 过半还没到：多半是那个请求被网关卡住了 ⇒ 重试一次（换一个请求）
+      if (!retried && elapsed > Math.min(2500, timeoutMs / 2)) {
+        retried = reinjectSdkScript();
       }
     }, 100);
   });
+}
+
+/** 找到页面上那个 SDK <script> 的**绝对**地址（复用同一份字节，别指到别的文件）。 */
+function findSdkScriptSrc(): string | null {
+  if (typeof document === 'undefined') return null;
+  const els = Array.from(document.querySelectorAll('script[src]')) as HTMLScriptElement[];
+  const hit = els.find((el) => /wb-sdk\.js(\?|$)/.test(el.src));
+  return hit ? hit.src : null;
+}
+
+/**
+ * 重新注入一次 SDK 脚本（2026-10-30）。
+ * 网关首字节长尾是**按请求**随机的 ⇒ 同一个 URL 换个 query 再请求一次通常就快。
+ * 用 cache-busting 的 query 是必须的：否则边缘可能把那一次卡住的响应直接缓存下来。
+ */
+function reinjectSdkScript(): boolean {
+  if (typeof document === 'undefined') return false;
+  const src = findSdkScriptSrc();
+  if (!src) return false;
+  const el = document.createElement('script');
+  el.async = true;
+  el.src = src + (src.includes('?') ? '&' : '?') + 'r=' + Date.now();
+  document.head.appendChild(el);
+  return true;
 }
 
 let client: CloudClient | null = null;
@@ -259,6 +305,27 @@ const GATE_REDIRECT_TTL_MS = 5000;
 
 export function markGateRedirect(): void {
   gateRedirectAt = Date.now();
+}
+
+/**
+ * 本地是否还存着未清掉的**会话凭据**（含 refresh token）——与 `getSession()` 返回 null
+ * 区分两种完全不同的「未登录」：
+ *   ① 本地无凭据（真未登录 / 会话被 SDK abandon 清掉）→ 送登录页是正确行为；
+ *   ② 本地**有**凭据但 ensure() 恢复失败（刷新请求网络抖动，SDK 保留凭据只置 lastFailure）
+ *      → 砸登录页会把还能无缝恢复的会话变成「重新输密码」（用户实测 #3）。
+ * 判据与 SDK 的 SessionStore 对齐：key = `workbuddy-cloud.session.<publishableKey>`，
+ * 值为 JSON 且带非空 refreshToken。**只读不写**，清不清由 SDK 自己决定。
+ */
+export function hasStoredSession(): boolean {
+  if (!H5) return false;
+  try {
+    const raw = window.localStorage.getItem(`workbuddy-cloud.session.${CLOUD_PUBLISHABLE_KEY}`);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { refreshToken?: unknown };
+    return typeof parsed?.refreshToken === 'string' && parsed.refreshToken !== '';
+  } catch {
+    return false;
+  }
 }
 
 /** 取用一次即失效；超过 TTL 视为陈旧（用户可能在登录页停留很久后手动刷新）。 */
@@ -513,7 +580,20 @@ async function cloudAuthPost<T>(
 export async function requestPasswordResetByPhone(
   phone: string
 ): Promise<AuthResp<{ updateUser(input: { nonce: string; password: string }): Promise<AuthResp<CloudSession>> }>> {
-  if (!H5) return { data: NOOP_UPDATE_USER, error: null };
+  if (!H5) {
+    // 微信小程序端**没有短信通道**（身份由微信提供，压根不需要账号密码这套）。
+    // ⚠️ 这里**必须回 error**，不能回 error:null —— 原来回 null 时，登录页的
+    //    `if (res.error) {...}` 判不出来，于是走进「验证码已发送」分支：
+    //    界面显示「重置验证码已发送」，而实际上**一条短信都没发**，用户白等 60 秒。
+    //    这正是本项目一贯反对的「对用户撒谎」（2026-10-29 审计）。
+    return {
+      data: NOOP_UPDATE_USER,
+      error: {
+        kind: 'backend-unavailable',
+        message: '短信找回密码仅在 H5 通道可用（小程序端由微信身份直接登录）'
+      }
+    };
+  }
   const id = toApiPhone(phone);
   const sent = await cloudAuthPost<{ verification_id?: string }>('/v1/verification', {
     phone_number: id,

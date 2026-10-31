@@ -37,6 +37,14 @@ const TAB_LABEL_KEY: Record<Tab, 'auth.tabPassword' | 'auth.tabOtp' | 'auth.tabS
 /** 登录标识通道：邮箱 或 手机号（短信验证码）。默认手机号（产品决策）。 */
 type IdChannel = 'email' | 'phone';
 
+/**
+ * 是否 H5（发布版）通道。
+ * ⚠️ 微信小程序端**没有短信通道**：身份由微信提供（云函数 login 拿 openid），
+ *    压根不需要「账号 + 密码」这套。所以那里**不许**给出「忘记密码」入口 ——
+ *    给一个做不到的入口，用户点下去只会撞上一句「云服务不可用」（2026-10-29 审计）。
+ */
+const IS_H5 = process.env.TARO_ENV === 'h5';
+
 /** 「获取验证码」同一次流程里的凭据。**必须活在事件之外** ——
  *  SDK 约定：获取验证码与提交验证是两个独立动作，提交时**不得再次发送**（否则每个码都作废）。 */
 interface PendingOtp {
@@ -152,8 +160,23 @@ function readRememberLogin(): boolean {
   }
 }
 
-/** 绑定手机号弹窗「稍后再说」的本地留存键。用户主动跳过则本次不再强弹（仅本地偏好，不阻塞登录）。 */
+/** 绑定手机号弹窗「稍后再说」的本地留存键。**存时间戳**：跳过是「稍后」不是永久豁免。 */
 const PHONE_BIND_DISMISSED_KEY = 'sxm-phone-bind-dismissed';
+
+/** 跳过后多久重新要求绑定。产品口径是「强制绑手机」，跳过只是放过一次，
+ *  不能让一次点击变成这台设备的永久豁免（2026-10-30 用户当面指出这个缺口）。 */
+const BIND_DISMISS_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** 读「跳过」标记并判是否仍在有效期内。旧格式（true）按已过期处理。 */
+function readBindDismissed(): boolean {
+  try {
+    const v = Taro.getStorageSync(PHONE_BIND_DISMISSED_KEY) as number | boolean | '';
+    const at = typeof v === 'number' ? v : 0;
+    return at > 0 && Date.now() - at < BIND_DISMISS_TTL_MS;
+  } catch {
+    return false;
+  }
+}
 
 /** 本机「手机号已绑定」的本地留存键。成功绑定 / 成功手机号登录后置 true —— 此后进入不再强弹。
  *
@@ -249,6 +272,10 @@ export default function LoginPage() {
   const [bindBusy, setBindBusy] = useState(false);
   const [bindError, setBindError] = useState('');
   const [bindNotice, setBindNotice] = useState('');
+  /** 发码接口真的失败过（不是本地校验报错）——只有这种"通道坏了"才给逃生口 */
+  const [bindTrouble, setBindTrouble] = useState(false);
+  /** 连续验证失败次数：短信收不到时用户会反复试，试到第 3 次仍失败也给逃生口 */
+  const [bindFailCount, setBindFailCount] = useState(0);
 
   // 挂载校验：已有会话就进应用；否则显示登录表单。微信端身份由微信提供，直接放行。
   useEffect(() => {
@@ -462,6 +489,14 @@ export default function LoginPage() {
       return;
     }
     setPending({ id: currentId(), verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
+    // 2026-10-31（用户实测 #4）：注册页签发现「该手机号已注册」（provider 的 is_user）——
+    // 别让用户填完密码走到最后才撞「只能注册一次」：就地提示并切到验证码登录页签，
+    // 刚收到的验证码直接可用（pending 状态两个页签共用）。
+    if (tab === 'signup' && res.data.isExistingUser) {
+      setTab('otp');
+      setNotice(t('auth.alreadyRegistered'));
+      return;
+    }
     setCountdown(RESEND_SECONDS);
     setNotice(channel === 'phone' ? t('auth.smsSent') : t('auth.otpSent'));
   };
@@ -474,15 +509,15 @@ export default function LoginPage() {
       setError(t('auth.errCodeNeeded'));
       return;
     }
-    // 新账号注册可设密码：邮箱必填；手机号选填 —— SDK 的 signUp/verifyOtp 对两种标识
-    // 都收可选 password（实测 src/assets/wb-sdk.js：`if (e.password) s.password = e.password`）。
-    // 手机号选填是因为短信本就能登；但只要填了就必须 ≥8 位（与邮箱同规则）。老账号登录不传密码。
-    const wantsPassword =
-      withPassword && !pending.isExistingUser && (channel === 'email' || password.length > 0);
-    if (wantsPassword && password.length < 8) {
+    // 新账号注册**必须设密码**（2026-10-30 用户定的口径：邮箱和手机号首次登录都要设）。
+    // 此前手机号通道是选填 —— 理由是"短信本就能登"，但那等于允许账号永远没有密码，
+    // 一旦换号/换设备就只能靠短信，找回路径单一。现在两条通道一视同仁，都 ≥8 位。
+    const isSignup = withPassword && !pending.isExistingUser;
+    if (isSignup && password.length < 8) {
       setError(t('auth.errPassword'));
       return;
     }
+    const wantsPassword = isSignup;
     clearMsg();
     setBusy(true);
     const res = await verifyLoginCode({
@@ -600,7 +635,7 @@ export default function LoginPage() {
     let dismissed = false;
     try {
       boundDone = Taro.getStorageSync(PHONE_BIND_DONE_KEY) === true;
-      dismissed = Taro.getStorageSync(PHONE_BIND_DISMISSED_KEY) === true;
+      dismissed = readBindDismissed();
     } catch {
       /* 存储不可用 → 仍弹窗 */
     }
@@ -650,6 +685,7 @@ export default function LoginPage() {
     setBindBusy(false);
     if (res.error) {
       setBindError(sdkDownText(res.error, t) || t('auth.errGeneric'));
+      setBindTrouble(true); // 通道异常 → 允许逃生，避免"永远发不出去 = 永远进不去"
       return;
     }
     setBindPending({ id: { phone }, verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
@@ -677,6 +713,7 @@ export default function LoginPage() {
     setBindBusy(false);
     if (res.error) {
       setBindError(sdkDownText(res.error, t) || t('auth.errGeneric'));
+      setBindFailCount((n) => n + 1); // 收不到短信的人会反复试；试满 3 次给逃生口
       return;
     }
     setBindPhone(false);
@@ -685,10 +722,11 @@ export default function LoginPage() {
     goToApp();
   };
 
-  /** 仅短信发送失败时才可达：本地留存「已跳过」，下次不再强弹，并放行进应用 */
+  /** 逃生口：只有「发码通道异常」或「连续验证失败 3 次」才可达（见 bindTrouble / bindFailCount）。
+   *  记录**时间戳**而不是 true —— 「稍后再说」是延后，不是永久豁免；过期后重新要求绑定。 */
   const skipBind = () => {
     try {
-      Taro.setStorageSync(PHONE_BIND_DISMISSED_KEY, true);
+      Taro.setStorageSync(PHONE_BIND_DISMISSED_KEY, Date.now());
     } catch {
       /* 存储不可用也不阻塞 */
     }
@@ -719,7 +757,12 @@ export default function LoginPage() {
   // 也都有「忘记密码」：邮箱走 SDK 的 resetPasswordForEmail，手机号走
   // cloudAuth.requestPasswordResetByPhone（2026-10-29 探测服务端后补齐）。
   // 手机号那条没走 SDK 是因为 SDK 把 email/usage 写死在函数体里，没有注入点。
-  const tabs: Tab[] = channel === 'phone' ? ['otp', 'password', 'signup', 'forgot'] : ['password', 'otp', 'signup', 'forgot'];
+  // ⚠️ 但「忘记密码」只在 H5 通道成立（小程序端没有短信通道，见 IS_H5 的说明）。
+  // ⚠️ baseTabs 单独一行：数组字面量直接进 .filter() 会被拓宽成 string[]（TS2322），
+  //    先用 Tab[] 收住类型；同时这段表达式保持**纯 JS 可求值**——
+  //    门禁要把它真跑一遍（IS_H5=false/true 两种），所以里面不能掺 TS 专有语法。
+  const baseTabs: Tab[] = channel === 'phone' ? ['otp', 'password', 'signup', 'forgot'] : ['password', 'otp', 'signup', 'forgot'];
+  const tabs: Tab[] = baseTabs.filter((k) => IS_H5 || k !== 'forgot');
 
   return (
     <View className={styles.screen}>
@@ -814,7 +857,7 @@ export default function LoginPage() {
             {/* 手机号也能重置密码（2026-10-29）：服务端 /v1/verification 支持
                 usage=PASSWORD_RESET + phone_number，SDK 只是没封装。入口切到 forgot tab，
                 走「短信验证码 → 新密码 → 自动登录」，与邮箱流程同一段 UI。 */}
-            {channel === 'phone' ? (
+            {channel === 'phone' && IS_H5 ? (
               <View className={styles.forgotPhoneRow} onClick={() => switchTab('forgot')}>
                 <Text className={styles.forgotPhoneText}>{t('auth.forgotPhoneHint')}</Text>
               </View>
@@ -844,8 +887,8 @@ export default function LoginPage() {
                 </View>
               </View>
             </View>
-            {/* 新账号注册可设密码：邮箱必填；手机号选填（选填说明见 passwordOptionalHint）。
-                手机号设了密码以后就能用「密码登录」页签；不设则始终用验证码登录。 */}
+            {/* 新账号注册**必须设密码**（邮箱/手机号都必填，见 submitOtp 的 isSignup 判定）。
+                设了密码之后还能用「密码登录」页签；也避免账号只剩短信一条找回路径。 */}
             {tab === 'signup' || (pending && !pending.isExistingUser) ? (
               <View className={styles.field}>
                 <Text className={styles.label}>{t('auth.password')}</Text>
@@ -856,9 +899,6 @@ export default function LoginPage() {
                   placeholder={t('auth.passwordPlaceholder')}
                   onInput={(e) => setPassword(String(e.detail.value || ''))}
                 />
-                {channel === 'phone' ? (
-                  <Text className={styles.hint}>{t('auth.passwordOptionalHint')}</Text>
-                ) : null}
               </View>
             ) : null}
           </React.Fragment>
@@ -990,11 +1030,16 @@ export default function LoginPage() {
             <View className={`${styles.submit} ${bindBusy ? styles.btnDisabled : ''}`} onClick={doBindVerify}>
               <Text className={styles.submitText}>{t('auth.bindPhoneConfirm')}</Text>
             </View>
-            {/* 「稍后再说」必须常驻：只在 bindSendFailed 时显示的话，
-                短信码一直输不对（或发码接口持续失败）的用户会被锁死在绑定弹窗里 */}
-            <View style={{ marginTop: '12px', textAlign: 'center' }} onClick={skipBind}>
-              <Text style={{ color: '#888', fontSize: '14px' }}>{t('auth.bindPhoneSkip')}</Text>
-            </View>
+            {/* 逃生口只在**真出问题**时才给：
+                  ① 发码接口报错（bindTrouble）——通道坏了，不能把人锁死；
+                  ② 连续验证失败 3 次 —— 短信收不到的人会反复试，试够了也该放行。
+                产品口径是「强制绑手机」（docs/competitive-analysis-2026-10-19.md:153），
+                常驻「稍后再说」等于一次点击就永久豁免，与强制相反。 */}
+            {bindTrouble || bindFailCount >= 3 ? (
+              <View style={{ marginTop: '12px', textAlign: 'center' }} onClick={skipBind}>
+                <Text style={{ color: '#888', fontSize: '14px' }}>{t('auth.bindPhoneSkip')}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
       ) : null}

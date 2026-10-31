@@ -32,7 +32,7 @@ const ERR_COLLECTION_NOT_EXIST = -502005;
 const ERR_DOC_NOT_EXIST = -1;
 
 /** 可供 `where` / `update` 使用的字段级操作符 */
-const FIELD_OPS = ['gte', 'gt', 'lte', 'lt', 'eq', 'neq', 'in', 'inc', 'remove'];
+const FIELD_OPS = ['gte', 'gt', 'lte', 'lt', 'eq', 'neq', 'in', 'inc', 'remove', 'pull'];
 
 /** get() 的服务端默认条数（真实 SDK 云函数侧默认 100） */
 const DEFAULT_GET_LIMIT = 100;
@@ -144,23 +144,29 @@ function createCommand() {
 
 /** 单字段匹配。cond 可为字面量（隐式 eq）或 {__mockCmd, value}。 */
 function matchField(fieldValue, cond, fieldName) {
-  if (!isCommand(cond)) return deepEqual(fieldValue, cond);
+  if (!isCommand(cond)) {
+    // 隐式 eq 对**数组字段**的语义：数组**包含**该标量即命中（MongoDB/Tencent 云数据库
+    // 的数组相等语义，真实 SDK 如此）—— redeemCodes.usedBy 按 openid 查询依赖这条。
+    if (Array.isArray(fieldValue) && !Array.isArray(cond)) {
+      return fieldValue.some((item) => deepEqual(item, cond));
+    }
+    return deepEqual(fieldValue, cond);
+  }
 
   const op = cond.__mockCmd;
   const target = cond.value;
 
-  if (op === 'inc' || op === 'remove') {
-    // 这两个只允许出现在 update 的 data 里；出现在 where 里是调用方写错了
+  if (op === 'inc' || op === 'remove' || op === 'pull') {
+    // 这三个只允许出现在 update 的 data 里；出现在 where 里是调用方写错了
     throw mockError(-1, `[mock] 操作符 ${op} 不能用于 where(${fieldName})`, 'bad-operator');
   }
-  if (op === 'eq') return deepEqual(fieldValue, target);
-  if (op === 'neq') return !deepEqual(fieldValue, target);
-  if (op === 'in') {
-    if (!Array.isArray(target)) {
-      throw mockError(-1, `[mock] in 操作符需要数组参数：where(${fieldName})`, 'bad-operator');
+  if (op === 'eq') {
+    if (Array.isArray(fieldValue) && !Array.isArray(target)) {
+      return fieldValue.some((item) => deepEqual(item, target));
     }
-    return target.some((item) => deepEqual(fieldValue, item));
+    return deepEqual(fieldValue, target);
   }
+  if (op === 'neq') return !deepEqual(fieldValue, target);
   // gte / gt / lte / lt：比较类，类型必须一致（数字对数字、字符串对字符串）
   if (fieldValue === undefined || fieldValue === null) return false;
   const tv = fieldValue instanceof Date ? fieldValue.getTime() : fieldValue;
@@ -287,6 +293,17 @@ function createMockCloud(options = {}) {
           }
         } else if (op === 'remove') {
           delete doc[key];
+        } else if (op === 'pull') {
+          // MongoDB pull 语义：从数组字段移除**所有**等于 value 的元素；字段缺失 = no-op；
+          // 字段存在但不是数组 = 真实 SDK 报错，绝不静默忽略（redeemCodes.usedBy 清偿依赖它）
+          const current = doc[key];
+          if (current === undefined || current === null) {
+            // no-op：保持缺失
+          } else if (!Array.isArray(current)) {
+            throw mockError(-1, `[mock] pull 只能用于数组字段：${key} 实际 ${typeof current}`, 'type-mismatch');
+          } else {
+            doc[key] = current.filter((item) => !deepEqual(item, value.value));
+          }
         } else {
           throw mockError(-1, `[mock] 操作符 ${op} 不能用于 update 的 data：${key}`, 'bad-operator');
         }

@@ -145,12 +145,26 @@ function readNewsFeedback(): Record<string, 'up' | 'down'> {
 
 /** 资讯反馈云端落库（双端生效，失败静默）
  *
- *  2026-10-05 修复：原先调的是 `invoke('newsFeedback', { id, value })` —— **三重错误**：
+ *  历史（2026-10-05 修复）：原先调的是 `invoke('newsFeedback', { id, value })` —— **三重错误**：
  *  cloudfunctions 下根本没有 newsFeedback 这个函数（只有 webSearch）；
  *  少了 `action` 分派；字段名是 `feedback` 不是 `value`。
- *  所以收藏页的 👍/👎 从未真正落库，**weapp 端同样失效**（不是 H5 独有）。
- *  服务端按 openid 聚合最新一条，见 webSearch/index.js 的 `action === 'feedback'`。 */
+ *
+ *  2026-10-30 更正两处口径：
+ *  ① 「从未真正落库」**只对微信云函数那条路成立**：H5 端 `newsFeedback` 在
+ *     `services/cloudSync.ts` 的 SYNC_KEYS 里，本地写入会被劫持推到应用库 `user_kv`
+ *     （RLS 按 owner 隔离）⇒ **H5 的反馈数据其实一直上云了**。
+ *  ② 但 H5 端每次点赞还会**额外**调一次 webSearch 云函数的 feedback 动作，
+ *     而应用数据库里没有 `webSearch` 这个 PG 函数（线上实测 404 PGRST202）⇒ 这一发**必然失败**：
+ *     白费一个请求，还会把「webSearch」登记进降级表（页级横幅于是亮出
+ *     「云端功能暂不可用，当前为本地演示数据」—— 而热点页显示的是**真实** RSS，
+ *     那是一条**反向谎言**）。
+ *
+ *  ⇒ H5 端直接跳过这次调用（cloudSync 负责上云）；weapp 保留（微信云函数按 openid 聚合）。 */
 async function apiNewsFeedback(id: string, value: 'up' | 'down'): Promise<void> {
+  if (!isWeapp) {
+    // H5：落库由 cloudSync 负责（newsFeedback ∈ SYNC_KEYS），这里不再发注定失败的一发。
+    return;
+  }
   try {
     await invoke('webSearch', { action: 'feedback', id, feedback: value });
   } catch (err) {
@@ -985,7 +999,17 @@ function LibraryPage() {
       <View key={item.id} className={styles.videoCard} onClick={() => handleNewsTap(item)}>
         <View className={styles.videoCoverWrap}>
           {item.image ? (
-            <Image src={item.image} mode='aspectFill' lazyLoad className={styles.videoCover} />
+            <Image
+              src={item.image}
+              mode='aspectFill'
+              lazyLoad
+              className={styles.videoCover}
+              // B 站 CDN（i0/i1.hdslb.com）见到非自家 Referer 直接 403 —— 实测：
+              // 无 Referer 200 / 带本应用域名 403。浏览器默认会带 origin，于是视频封面
+              // 对所有人都是破图。http 侧只能靠 no-referrer 绕开（行情 logo 同理，
+              // 见 utils/quotes.ts 的同一处处理）。
+              nativeProps={isH5 ? { referrerPolicy: 'no-referrer' } : undefined}
+            />
           ) : null}
           {item.duration ? <Text className={styles.videoDuration}>{item.duration}</Text> : null}
         </View>
@@ -1036,7 +1060,13 @@ function LibraryPage() {
           ) : null}
         </View>
         {item.image ? (
-          <Image src={item.image} mode='widthFix' lazyLoad className={styles.articleImage} />
+          <Image
+            src={item.image}
+            mode='widthFix'
+            lazyLoad
+            className={styles.articleImage}
+            nativeProps={isH5 ? { referrerPolicy: 'no-referrer' } : undefined}
+          />
         ) : null}
         <Text className={styles.articleBody}>{item.content || item.summary}</Text>
         <Text className={styles.articleSourceNote}>{t('library.articleSourceNote')}</Text>
@@ -1081,7 +1111,7 @@ function LibraryPage() {
             // Taro 的 Image 没有 alt 属性，H5 端唯一能透传到真实 <img> 的入口是 nativeProps
             // （见 @tarojs/components/dist/esm/image-*.js 的 render：h("img", {...nativeProps})），
             // 且 nativeProps 仅 h5 支持，故只在 H5 端传。取新闻标题作为等价文本。
-            nativeProps={isH5 ? { alt: item.title } : undefined}
+            nativeProps={isH5 ? { alt: item.title, referrerPolicy: 'no-referrer' } : undefined}
             onClick={(e) => {
               e.stopPropagation();
               handleNewsImageTap(item);
@@ -1175,8 +1205,10 @@ function LibraryPage() {
 
   return (
     <View className={styles.page} style={brandVars(theme)}>
-      {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
-      <DemoDataHint />
+      {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded）
+          页面粒度：只关心本页的 webSearch（视频/搜索/AI 精选）与 getHotspot ——
+          别的页面的降级不该串到这里（2026-10-30 实测串过一次，把 412 条真实 RSS 说成演示数据） */}
+      <DemoDataHint actions={['webSearch', 'getHotspot']} />
       {/* 竞品分析 X11：未成年人模式低调横幅 */}
       {minorMode ? (
         <View className={styles.minorBanner}>

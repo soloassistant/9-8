@@ -21,6 +21,7 @@ export default defineAppConfig({
     // 都不是 tabBar（navigateTo 进入，系统返回手势可回「我的」）。
     'pages/membership/index',
     'pages/prefs/index',
+    'pages/report/index',
     // 2026-10-27：全站唯一的 AI 对话入口（原晨报页底部输入条 + 全局悬浮球已移除）
     'pages/assistant/index',
     'pages/search/index',

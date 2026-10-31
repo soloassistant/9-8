@@ -13,7 +13,7 @@ import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiDeleteAccount, apiApplyPlan, apiSubmitFeedback } from '@/services/api';
 import { signOut, resetPasswordForOld } from '@/services/cloudAuth';
-import { kvClear } from '@/services/cloudDb';
+import { kvClear, purgeMyH5Data } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { disabledAttr } from '@/utils/buttonDisabled';
@@ -957,6 +957,22 @@ function MinePage() {
     if (process.env.TARO_ENV === 'h5') {
       // 清云端同步键。失败**不阻断**注销（不能因为云端抖动把用户卡在注销页），
       // 但必须留痕 —— 静默失败会变成又一份「以为删了其实没删」的数据。
+      // 2026-10-31（I3b 客户端半件）：并行发起三表残留清偿（llm_events/feedback/
+      // client_errors）。函数未部署（v3-h5-purge.sql 未在控制台执行）时返回
+      // 'not-deployed' —— 属预期灰度状态，console.info 会被生产构建剔除，无需留痕；
+      // 真失败才 console.error。必须在 signOut 之前把请求发出去（RLS 按 auth.uid()
+      // 收敛，登出后调用会被数据库侧拒绝）。
+      void purgeMyH5Data()
+        .then((status) => {
+          if (status === 'failed' || status === 'no-db') {
+            console.error(`[MinePage] purgeMyH5Data = ${status} — 三表残留未清偿，需人工核查`);
+          } else {
+            console.info('[MinePage] purgeMyH5Data =', status);
+          }
+        })
+        .catch((err) => {
+          console.error('[MinePage] purgeMyH5Data threw:', err);
+        });
       kvClear()
         .then((n) => {
           if (n === null) {
@@ -1129,7 +1145,10 @@ function MinePage() {
   return (
     <View className={styles.page} style={brandVars(theme)}>
       {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
-      <DemoDataHint />
+      {/* 2026-10-30：去掉 'getUsage' —— 它在 cloud.ts 的 REAL_LOCAL_ACTIONS 里
+          （H5 回退读的是**真实本地**用量计数，不是演示数据）⇒ 永不登记降级，
+          写在横幅清单里只是死配置，还会让人误以为「额度会降级」。 */}
+      <DemoDataHint actions={['updateSettings', 'deleteAccount']} />
       {/* 跨设备同步冲突（本机未上传的修改 vs 云端较新版本）：未裁决前挂着，不静默丢数据 */}
       <SyncConflictHint />
       <View className={styles.userCard}>
@@ -1234,6 +1253,10 @@ function MinePage() {
           {profile?.subscribed ? t('mine.manageSub') : t('mine.subscribe')} ›
         </Text>
       </View>
+
+      {/* 分组标题（2026-10-30）：把「常用」和「设置」分开。
+          此前 10 张白卡视觉权重完全一致，用户扫不出主次。 */}
+      <Text className={styles.groupLabel}>{t('mine.groupTools')}</Text>
 
       {/* 习惯守护与近期动态（2026-10-25 折叠 / 2026-10-26 改名）：
           额度、功能记账、连续阅读已移入「会员中心」—— 同类信息只在一个地方出现，
@@ -1343,6 +1366,8 @@ function MinePage() {
           </View>
         </View>
       </View>
+
+      <Text className={styles.groupLabel}>{t('mine.groupSettings')}</Text>
 
       {/* ===== 偏好设置入口（2026-10-26）=====
           原 366px 通用设置卡（称呼 / 推送时间 / 提醒 / 城市 / 语速 / 音色，共 6 行）
@@ -1770,7 +1795,13 @@ function MinePage() {
           独立成条后：登出 = 清会话、留数据；注销 = 清数据、不可逆。
           放在「其他入口」之前、注销区块之后，保持「危险度递减」的阅读顺序。 */}
       <View className={styles.settingCard}>
-        {renderRow(t('mine.signOut'), <Text>{t('mine.signOutHint')}</Text>, handleSignOut)}
+        {/* 说明文字必须弱化（2026-10-30）：原来直接塞了个裸 Text，字号和「退出登录」
+            一样大、并排在右侧，读起来像一句话被劈成两半。用 valueHint（小字次级色）。 */}
+        {renderRow(
+          t('mine.signOut'),
+          <Text className={styles.valueHint}>{t('mine.signOutHint')}</Text>,
+          handleSignOut
+        )}
       </View>
 
       {/* 记账/购物/学习三行已上移至顶部功能宫格（2026-10-25 去重，原「其他入口」底卡整卡移除）。

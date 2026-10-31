@@ -26,11 +26,40 @@
  * 子 feed → 所属机构。
  * ⚠️ 新增「同主体多 feed」源时必须在这里登记，否则互抄会被当成跨机构佐证
  *    （alsoFrom 虚高），且同一通稿会在配额里重复占席。
+ *
+ * 2026-10-30 扩充（线上实测：改之前 7 条 alsoFrom **全部是假信号**）：
+ *   线上 412 条里带 alsoFrom 的只有 7 条，逐条核对后 7/7 都是「同一家机构自己的两个 feed」：
+ *     · NASA 新闻发布 → NASA Science（都是 NASA 官方，10 条 + 4 条）
+ *     · Hollywood Reporter → Variety（同属 Penske Media 集团）
+ *   ⇒ 产品把「一家机构自己的两个 feed」显示成「另有 1 家媒体报道」——
+ *      2026-10-22 那次校准要消灭的「通讯社自抄显示成多家佐证」，换个机构重演。
+ *
+ *   登记口径：
+ *     · NASA 三个 feed（新闻发布 / 快讯 / Science）→ 'NASA'
+ *     · Penske Media 集团 7 个 feed（Variety / Hollywood Reporter / Billboard /
+ *       Rolling Stone / Pitchfork / Stereogum / IndieWire）→ 'PMC'
+ *       （PMC = Penske Media Corporation，2024 年起收购 Stereogum 与 IndieWire）
+ *   同集团 ≠ 独立媒体：集团内互相转载不构成「多家媒体报道」的佐证。
+ *
+ *   ⚠️ 只登记**确定**同主体/同集团的；拿不准的一律不登记 ——
+ *      误登记会把真的跨机构佐证也吃掉（漏报），比虚高更难被发现。
  */
 const FEED_ORG_MAP = {
   '中新网-财经': '中新网',
   '中新网-社会': '中新网',
-  '中新网-即时': '中新网'
+  '中新网-即时': '中新网',
+  // NASA 官方三个 feed
+  'NASA 新闻发布': 'NASA',
+  'NASA 快讯': 'NASA',
+  'NASA Science': 'NASA',
+  // Penske Media 集团
+  'Variety': 'PMC',
+  'Hollywood Reporter': 'PMC',
+  'Billboard': 'PMC',
+  'Rolling Stone': 'PMC',
+  'Pitchfork': 'PMC',
+  'Stereogum': 'PMC',
+  'IndieWire': 'PMC'
 };
 
 /**

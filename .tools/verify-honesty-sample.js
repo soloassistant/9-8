@@ -103,7 +103,11 @@ ok(
 ok("B2 learnCommunity 调用 markDegraded('learnCommunity')", community.includes("markDegraded('learnCommunity')"));
 ok(
   'B3 learnCommunity 导入并渲染 DemoDataHint',
-  /import DemoDataHint from '@\/components\/DemoDataHint'/.test(community) && community.includes('<DemoDataHint />')
+  // 2026-10-30 放宽：DemoDataHint 现在支持**页面粒度**（actions prop），
+  // 判据不该锁死「无参写法」—— 写成 `<DemoDataHint actions={[...]} />` 同样是渲染了它。
+  // 放宽方向是「接受更多形态」，不会掩盖任何真实回归。
+  /import DemoDataHint from '@\/components\/DemoDataHint'/.test(community) &&
+    community.includes('<DemoDataHint')
 );
 
 /* ============ C. H5 语音：不 mock、不扣额度 ============ */

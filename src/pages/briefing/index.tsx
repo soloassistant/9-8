@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Button, Image } from '@tarojs/components';
 import Taro, { usePullDownRefresh, useDidShow, useDidHide, useShareAppMessage } from '@tarojs/taro';
+import { pressableProps } from '@/utils/a11y';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
 import EmptyState from '@/components/EmptyState';
@@ -10,7 +11,11 @@ import HabitGuardBar from '@/components/HabitGuardBar';
 import PlanProposalCard from '@/components/PlanProposalCard';
 import { BriefingSkeleton } from '@/components/Skeleton';
 import BurstBanner from '@/components/BurstBanner';
-import { resolveIntelGroups } from '@/utils/intelGroups';
+import { NAV_MAIN, NAV_MORE, type Item as NavItem } from '@/components/DesktopNav';
+import { recordBriefingArchive } from '@/utils/briefingArchive';
+import { matchWatchItems } from '@/utils/intelWatch';
+import { readWatchKeywords } from '@/utils/intelWatchStore';
+import { resolveIntelGroups, safeMediaUrl } from '@/utils/intelGroups';
 import type { IntelSourceRef } from '@/utils/intelGroups';
 import { formatPlayCount } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
@@ -45,9 +50,7 @@ import {
   tickReadSession,
   getReadStreak,
   isTodayRead,
-  migrateFromLearnStreak,
-  READ_MIN_MS,
-  READ_MIN_SECTIONS
+  migrateFromLearnStreak
 } from '@/utils/readStreak';
 import type { ReadSectionKind, ReadSession } from '@/utils/readStreak';
 import { canPromptSubscribe, promptSubscribe, isSubscriptionStale } from '@/utils/subscribe';
@@ -148,18 +151,24 @@ const TOOL_TILES = [
   { icon: '🔍', label: 'mine.gridSearch', url: '/pages/search/index' }
 ] as const;
 
-/** 桌面端左侧栏导航（2026-10-27 参考稿改版）：五个 tabBar 页的真实路由。
- *  前五项全部是 tabBar 页 → 跳转必须 switchTab（navigateTo 对 tabBar 页会直接抛错）；
- *  第一项是当前页，点击不动作。
- *  2026-10-28 增补：末项「交易」是二级页（非 tabBar），走 navigateTo。 */
-const SIDE_NAV = [
-  { icon: '☀️', label: 'briefing.navToday', url: '/pages/briefing/index' },
-  { icon: '📥', label: 'briefing.navInbox', url: '/pages/inbox/index' },
-  { icon: '🔥', label: 'briefing.navHot', url: '/pages/library/index' },
-  { icon: '📅', label: 'briefing.navCalendar', url: '/pages/calendar/index' },
-  { icon: '🙂', label: 'briefing.navMine', url: '/pages/mine/index' },
-  { icon: '📈', label: 'briefing.navTrade', url: '/pages/trade/index' }
-] as const;
+/** 桌面端左侧栏导航（2026-10-27 参考稿改版）。
+ *
+ *  ⚠️ **不再自己写一份列表**：直接取 `DesktopNav` 的 `NAV_MAIN`/`NAV_MORE`（全站桌面
+ *  左栏的唯一数据源），再插入晨报页专属的「交易」。
+ *  2026-10-29 巡检的根因就是这里有第二份列表、且只有 6 项 —— 桌面用户在晨报页
+ *  找不到学习/运动/省钱/记账，而换到别的页又能看到，同一台机器上两套导航。
+ *
+ *  顺序：主导航 8 项 → 交易（晨报页专属，二级页）→ 设置/我的。
+ *  账号类入口一律收尾（手机 tabBar 与 DesktopNav 也都是「我的」结尾）。
+ *  第一项是当前页（晨报），点击不动作。 */
+const TRADE_ITEM: NavItem = {
+  key: 'trade',
+  icon: '📈',
+  labelKey: 'briefing.navTrade',
+  url: '/pages/trade/index',
+  tab: false
+};
+const SIDE_NAV: NavItem[] = [...NAV_MAIN, TRADE_ITEM, ...NAV_MORE];
 
 function BriefingPage() {
   const t = useT();
@@ -202,6 +211,23 @@ function BriefingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [briefing]);
   const intelCount = briefing?.intel?.intelItems?.length ?? 0;
+
+  // ===== 追踪命中（2026-10-31，产品评估 §7.2 E）=====
+  // 用户在 prefs 里盯的词，在本批资讯里命中的条目。词表进云同步（intel-watchlist），
+  // 解析/匹配口径全在 intelWatch.ts（纯函数）；本页只消费。无词表 → [] → 区块不渲染。
+  const [watchKeywords] = useState(() => readWatchKeywords());
+  const watchMatches = useMemo(
+    () =>
+      matchWatchItems(
+        watchKeywords,
+        (briefing?.intel?.intelItems || []).map((it) => {
+          const rec = it as { text?: string; url?: string };
+          const text = String(rec?.text || '');
+          return { id: text, title: text, url: rec?.url };
+        })
+      ),
+    [watchKeywords, briefing]
+  );
   /** 最近一次算出的账单摘要。仅供 useDidShow 里的日志读 —— React state 在闭包里是stale 的，
    *  直接打ledgerBrief 永远打出 null，排查时会误判成「没算出来」。 */
   const ledgerBriefRef = useRef<TodayBrief | null>(null);
@@ -342,6 +368,8 @@ function BriefingPage() {
           briefingRef.current = cached;
           // 缓存命中同样要做习惯守护惰性结算（幂等）
           runHabitGuard(cached.events || []);
+          // 打开晨报即记存档（同日覆盖；写失败只告警不连累主流程）
+          recordBriefingArchive(cached);
           return;
         }
       }
@@ -356,6 +384,7 @@ function BriefingPage() {
         briefingRef.current = data;
         setLoadError(false);
         writeBriefingCache(data);
+        recordBriefingArchive(data);
         // 取得最新日程后立即守护（幂等，重复调用无副作用）
         if (data) runHabitGuard(data.events || []);
       } catch (err) {
@@ -836,6 +865,13 @@ function BriefingPage() {
   /** 已完成待办（真实数据：服务端 status 回填 + 本地勾选，与 doneIds 同一口径） */
   const doneTodayCount = (briefing?.todos || []).filter((td) => doneIds.has(td.id)).length;
   /**
+   * 今天到底有没有「安排」。全 0 时概览卡要降级（2026-10-30）。
+   * 原来无论有没有内容都画那张深色四格卡：日程 0 / 待办 0 / 已完成 0 —— 用整页最重的
+   * 底色和最大的数字，去告诉用户「你什么都没做」。没有安排的日子应该轻描淡写，
+   * 把版面让给唯一有内容的东西（今日情报）。
+   */
+  const hasAnyPlan = todaySchedule.length + pendingTodayTodos + doneTodayCount > 0;
+  /**
    * 头部称呼：只在昵称「像人名」时才展示。
    * H5 会话链路里 nickname 可能回落到**邮箱**（视觉巡检截图实测：
    * `p***@example.test，中午好 · 今天没有安排`）。上市产品不会用邮箱称呼用户，
@@ -856,7 +892,10 @@ function BriefingPage() {
         ? `${greetingBase} · ${t('greet.allDone')}`
         : pendingTodayTodos > 0
           ? `${greetingBase} · ${t('greet.todoOnly', { n: pendingTodayTodos })}`
-          : `${greetingBase} · ${t('greet.empty')}`;
+          : // 2026-10-30：没有安排时**不再往标题里追加「今天没有安排」**。
+            // 下面那张概览卡（hasAnyPlan 为假时）已经写着「今天没有日程和待办 · 情报 3 条」，
+            // 标题再补一句就是同一件事说两遍，还把标题顶成两行。
+            greetingBase;
   /**
    * 首屏「有没有东西可看」的唯一判据 —— contentFade 只在它为真时挂载。
    * ⚠️ 情报（briefing.intel）必须计入：它渲染在 contentFade 内部（见 sectionIntel），
@@ -1078,10 +1117,6 @@ function BriefingPage() {
     setIsSpeaking(true);
   };
 
-
-  /** 阈值展示用秒数（由毫秒常量换算，避免页面出现魔法数字） */
-  const readMinSeconds = Math.round(READ_MIN_MS / 1000);
-
   return (
     <View className={styles.page} style={brandVars(theme)}>
       {/* 桌面端左侧栏（≥1024px 才显示，移动端 display:none）：真实 tabBar 路由，全部走
@@ -1105,23 +1140,26 @@ function BriefingPage() {
             <View
               key={nav.url}
               className={classnames(styles.sideNavItem, i === 0 && styles.sideNavItemActive)}
+              // 键盘可达：`View` 渲染成自定义元素 `taro-view-core`，React 的 tabIndex 只写
+              // DOM property、不进 HTML 属性，浏览器 Tab 序列读的是属性 —— 故统一走
+              // pressableProps（data-pressable 标记 + aria-label），由 a11y.ensureFocusable
+              // 运行时补 tabindex="0"。2026-10-29 实测：加之前 1440 下 focusables 为空，
+              // 屏幕上 6 行导航键盘一个都到不了。
+              {...pressableProps(`${t(nav.labelKey as never)}（${i === 0 ? '当前页' : '前往'}）`)}
               onClick={() => {
-                // 第一项就是当前页（晨报），点了不动作；
-                // 「交易」是二级页（非 tabBar）→ navigateTo，其余 switchTab
+                // 第一项就是当前页（晨报），点了不动作；其余按 nav.tab 分流 ——
+                // tabBar 页只能 switchTab（navigateTo 会直接抛错），二级页只能 navigateTo。
                 if (i === 0) return;
-                if (nav.url === '/pages/trade/index') {
-                  Taro.navigateTo({ url: nav.url }).catch((err) => {
-                    console.error('[BriefingPage] 侧栏 navigateTo 失败:', err);
-                  });
-                  return;
-                }
-                Taro.switchTab({ url: nav.url }).catch((err) => {
-                  console.error('[BriefingPage] 侧栏 switchTab 失败:', err);
+                const jump = nav.tab
+                  ? Taro.switchTab({ url: nav.url })
+                  : Taro.navigateTo({ url: nav.url });
+                jump.catch((err) => {
+                  console.error('[BriefingPage] 侧栏跳转失败:', nav.url, err);
                 });
               }}
             >
               <Text className={styles.sideNavIcon}>{nav.icon}</Text>
-              <Text className={styles.sideNavLabel}>{t(nav.label)}</Text>
+              <Text className={styles.sideNavLabel}>{t(nav.labelKey as never)}</Text>
             </View>
           ))}
         </View>
@@ -1185,13 +1223,18 @@ function BriefingPage() {
                   ⚡ PRO
                 </Text>
               )}
-              {/* v2.1：晨报连续阅读打卡（主 streak 已改挂晨报；今日未读时以呼吸态提示） */}
-              <View className={classnames(styles.readStreak, todayRead && styles.readStreakDone)}>
-                <Text className={styles.readStreakFlame}>🔥</Text>
-                <Text className={styles.readStreakText}>
-                  {todayRead ? t('readStreak.today') : t('readStreak.days', { n: readStreak })}
-                </Text>
-              </View>
+              {/* v2.1：晨报连续阅读打卡（主 streak 已改挂晨报）
+                  2026-10-30：连续 0 天且今天还没读时**不渲染**。
+                  原来会显示「🔥 0 天连续」—— 0 天是负向状态，却配火焰和橙色，
+                  读起来像在庆祝；而且它和第 4 块那条打卡提示条挨着，两句都在催人做事。 */}
+              {todayRead || readStreak > 0 ? (
+                <View className={classnames(styles.readStreak, todayRead && styles.readStreakDone)}>
+                  <Text className={styles.readStreakFlame}>🔥</Text>
+                  <Text className={styles.readStreakText}>
+                    {todayRead ? t('readStreak.today') : t('readStreak.days', { n: readStreak })}
+                  </Text>
+                </View>
+              ) : null}
               {/* X8 连读徽章：连续打开晨报页 ≥2 天时展示（与有效阅读打卡相互独立） */}
               {briefStreak >= 2 ? (
                 <Text className={styles.streakBadge}>🔥 {t('briefing.streak', { n: briefStreak })}</Text>
@@ -1239,15 +1282,10 @@ function BriefingPage() {
         </View>
       ) : null}
 
-      {/* v2.1：今日尚未达成「有效阅读」时，给出达成门槛提示（避免用户不知为何没打卡） */}
-      {hasContent && !todayRead ? (
-        <View className={styles.readHintBar}>
-          <Text className={styles.readHintIcon}>🔥</Text>
-          <Text className={styles.readHintText}>
-            {t('readStreak.progressHint', { s: readMinSeconds, k: READ_MIN_SECTIONS })}
-          </Text>
-        </View>
-      ) : null}
+      {/* 2026-10-30：撤掉「再停留 30 秒、多看 2 个区块，即可达成今日阅读」提示条。
+          理由：那是产品的打卡指标，不是用户的目标 —— 人早上打开是「看看今天要干嘛」，
+          不是来完成阅读任务。它当时排在概览卡上方（首屏第 4 块），把情报又压低一屏。
+          打卡逻辑本身没动：进入页面停留即累计，达成后日期行会显示「今日已读晨报」。 */}
 
       {/* v2.1 习惯守护提示条：有自动挪动记录时展示，可查看 + 一键还原 */}
       <HabitGuardBar
@@ -1311,7 +1349,9 @@ function BriefingPage() {
         <View className={styles.contentFade}>
           {/* 深色概览卡（参考稿「今日概览」）：四个数字全部来自真实数据 —— 日程数、
               待办数、已完成待办、情报条数；睡眠/专注/省钱无数据源，一律不造假。
-              右上角胶囊：真有「已读完」状态（今日有效阅读打卡）才显示已读完，否则只显示条数。 */}
+              右上角胶囊：真有「已读完」状态（今日有效阅读打卡）才显示已读完，否则只显示条数。
+              2026-10-30：全 0 时不画这张卡（见 hasAnyPlan 注释），改成一行轻量说明。 */}
+          {hasAnyPlan ? (
           <View className={styles.overviewCard}>
             <View className={styles.overviewHead}>
               <Text className={styles.overviewTitle}>{t('briefing.sectionOverview')}</Text>
@@ -1348,6 +1388,13 @@ function BriefingPage() {
               </View>
             ) : null}
           </View>
+          ) : (
+            <View className={styles.overviewLean}>
+              <Text className={styles.overviewLeanText}>
+                {t('briefing.leanOverview', { n: intelCount })}
+              </Text>
+            </View>
+          )}
           {todaySchedule.length > 0 ? (
             <View className={styles.section}>
               <View className={styles.sectionHeader}>
@@ -1551,6 +1598,37 @@ function BriefingPage() {
         </View>
       )}
 
+      {/* ===== 追踪命中（2026-10-31，产品评估 §7.2 E）=====
+          独立于情报区：情报没有内容（天气都没有的降级日）但词表命中历史缓存时，
+          「用户盯的事有动静」仍要可见 —— 这是追踪的全部价值。
+          复用 section/digest 类族，不引入第三套观感；有 url 的条目点击看原文
+          （openExternalPage 与热点页同语义），无 url 的如实标注不可点。 */}
+      {watchMatches.length > 0 ? (
+        <View className={styles.section}>
+          <View className={styles.sectionHeader}>
+            <Text className={styles.sectionIcon}>🎯</Text>
+            <Text className={styles.sectionTitle}>{t('briefing.watchTitle')}</Text>
+            <Text className={styles.sectionCount}>{watchMatches.length}</Text>
+          </View>
+          {watchMatches.map((m, i) => {
+            const url = (m.item as { url?: string }).url;
+            return (
+              <View
+                className={styles.digestItem}
+                key={`${m.item.id}-${i}`}
+                {...(url
+                  ? { ...pressableProps(`${t('briefing.watchOpen')}：${m.item.title}`), onClick: () => void openExternalPage(url) }
+                  : {})}
+              >
+                <Text className={styles.digestText}>
+                  {`[${m.hit}] ${m.item.title}${url ? '' : t('briefing.watchNoLink')}`}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
       {/* 记账卡片：独立于 hasContent 门禁 —— 记账与日程无关，
           用户「今天没安排日程但记了账」时也必须能看到账单。
           早前把它放进 contentFade 内，结果被 hasContent（仅看日程/待办/收藏）挡住，
@@ -1752,6 +1830,10 @@ function BriefingPage() {
           </View>
           {videoNews.map((v) => {
             const play = formatPlayCount(v.play);
+            // 封面取值收紧到「真的是 http(s) 地址」：排障时线上抓到过 src=null 的可见
+            // 视频封面（124×69 的空框，间歇出现 —— 数据刷新时 image 短暂变成非字符串）。
+            // 只判真值挡不住这种值，用与云端同口径的 safeMediaUrl；拿不到就走 🎬 兜底。
+            const cover = safeMediaUrl(v.image);
             return (
               <View
                 key={v.id}
@@ -1768,8 +1850,8 @@ function BriefingPage() {
                 }}
               >
                 <View className={styles.videoCoverWrap}>
-                  {v.image ? (
-                    <Image src={v.image} mode='aspectFill' lazyLoad className={styles.videoCover} />
+                  {cover ? (
+                    <Image src={cover} mode='aspectFill' lazyLoad className={styles.videoCover} />
                   ) : (
                     <View className={styles.videoCoverFallback}>
                       <Text className={styles.videoCoverFallbackIcon}>🎬</Text>

@@ -12,6 +12,10 @@ import { hasKeyboard, requestHotkeyHelp } from '@/hooks/useHotkeys';
 import { resolveCityName } from '@/utils/weather';
 import { getTtsPrefs, saveTtsPrefs, TTS_RATE_OPTIONS } from '@/utils/tts';
 import type { TtsPrefs, TtsVoiceMode } from '@/utils/tts';
+import PromptModal from '@/components/PromptModal';
+import { collectVault, validateVault, buildVaultFilename } from '@/utils/dataVault';
+import { SYNC_KEYS } from '@/services/cloudSync';
+import { readWatchKeywords, saveWatchKeywords } from '@/utils/intelWatchStore';
 import { CITY_TEXT } from '../mine/feedbackText';
 import styles from '../mine/index.module.scss';
 
@@ -183,6 +187,83 @@ function PrefsPage() {
   /** 键盘快捷键面板由 App 持有（全局单例），本页只发一个打开请求 */
   const handleOpenHotkeys = () => requestHotkeyHelp();
 
+  // ===== 数据保险箱（2026-10-31）：全量导出 / 导入（docs 评估 §7.2 F + 设置缺口②）=====
+  // 键清单单一事实源 = cloudSync.SYNC_KEYS；导入校验必须先过 dataVault.validateVault
+  // （结构/版本不对一律拒绝，绝不「尽量恢复」——这是唯一会覆盖用户数据的路径）。
+  const [vaultImportOpen, setVaultImportOpen] = useState(false);
+
+  const handleVaultExport = async () => {
+    const entries: Record<string, unknown> = {};
+    for (const k of SYNC_KEYS) {
+      try {
+        entries[k] = Taro.getStorageSync(k);
+      } catch {
+        entries[k] = null;
+      }
+    }
+    const { payload, dropped } = collectVault(entries);
+    const json = JSON.stringify(payload, null, 2);
+    if (process.env.TARO_ENV === 'h5') {
+      const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = buildVaultFilename();
+      // 必须先挂到 DOM 再 click（与记账导出同款，游离节点个别浏览器不触发下载）
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } else {
+      await Taro.setClipboardData({ data: json });
+    }
+    if (dropped.length) {
+      Taro.showToast({ title: t('prefs.vaultDropped').replace('{n}', String(dropped.length)), icon: 'none', duration: 2400 });
+    }
+  };
+
+  const handleVaultImport = async (raw: string) => {
+    // 体量护栏：正常备份 ~几十 KB，2MB 开外基本是粘错了东西
+    if (raw.length > 2_000_000) {
+      Taro.showToast({ title: t('prefs.vaultImportBad'), icon: 'none' });
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      Taro.showToast({ title: t('prefs.vaultImportBad'), icon: 'none' });
+      return;
+    }
+    const res = validateVault(parsed);
+    if (!res.ok) {
+      Taro.showToast({ title: t('prefs.vaultImportBad'), icon: 'none' });
+      return;
+    }
+    const keys = Object.keys(res.payload.keys);
+    for (const k of keys) {
+      Taro.setStorageSync(k, res.payload.keys[k]);
+    }
+    setVaultImportOpen(false);
+    Taro.showToast({ title: t('prefs.vaultImportOk').replace('{n}', String(keys.length)), icon: 'success', duration: 2200 });
+  };
+
+  // ===== 追踪关键词（2026-10-31，产品评估 §7.2 E）：命中进晨报「追踪」区 =====
+  const [watchWords, setWatchWords] = useState<string[]>(() => readWatchKeywords());
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [watchDraft, setWatchDraft] = useState('');
+
+  const handleWatchSave = async (raw: string) => {
+    const words = saveWatchKeywords(raw);
+    setWatchWords(words);
+    setWatchOpen(false);
+    Taro.showToast({
+      title: words.length ? t('prefs.watchSaved').replace('{n}', String(words.length)) : t('prefs.watchCleared'),
+      icon: 'success',
+      duration: 2000,
+    });
+  };
+
   const renderRow = (label: string, valueNode: React.ReactNode, onClick?: () => void) => (
     <View className={styles.row} onClick={onClick}>
       <Text className={styles.rowLabel}>{label}</Text>
@@ -194,6 +275,16 @@ function PrefsPage() {
     <View className={styles.page} style={brandVars(theme)}>
       <View className={styles.card}>
         <Text className={styles.cardTitle}>{t('mine.settingGeneral')}</Text>
+        {/* 周报与晨报存档入口（2026-10-31，产品评估 §7.2 A/B）：个人数据视图，v1 先挂在设置页，
+            IA 是否独立成「我的」入口留给下一轮（我的页高度已顶满，别硬塞）。 */}
+        {renderRow(
+          t('prefs.reportEntry'),
+          <>
+            <Text className={styles.valueHint}>{t('prefs.reportEntryDesc')}</Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          () => void Taro.navigateTo({ url: '/pages/report/index' })
+        )}
         {renderRow(
           t('mine.nickname'),
           <Input
@@ -221,6 +312,20 @@ function PrefsPage() {
             color={theme.color}
             onChange={(e) => persistCustom({ morningReminderEnabled: e.detail.value })}
           />
+        )}
+        {/* 追踪关键词：命中进晨报「追踪」区；存 intel-watchlist（与自选股 watchlist 是两码事） */}
+        {renderRow(
+          t('prefs.watchTitle'),
+          <>
+            <Text className={styles.valueText}>
+              {watchWords.length ? t('prefs.watchCount').replace('{n}', String(watchWords.length)) : t('prefs.watchOff')}
+            </Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          () => {
+            setWatchDraft(watchWords.join('，'));
+            setWatchOpen(true);
+          }
         )}
         {/* 天气城市：手动兜底，拒绝定位不再等于「永远是北京」。
             文案复用既有的 sync.key.user-city（'所在城市' / 'City'），不新增 i18n 键。 */}
@@ -318,6 +423,51 @@ function PrefsPage() {
           )}
         </View>
       ) : null}
+
+      {/* ===== 数据保险箱（2026-10-31）=====
+          日程/待办/收藏/记忆/学习进度都是用户资产，此前没有任何「带走数据」的入口。
+          放 prefs 不放「我的」：它是配置行为，且我的页高度已顶满（见 hotkeys 卡的注释）。
+          键清单单一事实源 = cloudSync.SYNC_KEYS；导入先过 validateVault，拒绝即拒绝。 */}
+      <View className={styles.card}>
+        <Text className={styles.cardTitle}>{t('prefs.vaultTitle')}</Text>
+        {renderRow(
+          t('prefs.vaultExport'),
+          <>
+            <Text className={styles.valueHint}>{t('prefs.vaultExportHint')}</Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          () => void handleVaultExport()
+        )}
+        {renderRow(
+          t('prefs.vaultImport'),
+          <>
+            <Text className={styles.valueHint}>{t('prefs.vaultImportHint')}</Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          () => setVaultImportOpen(true)
+        )}
+      </View>
+      <PromptModal
+        visible={vaultImportOpen}
+        title={t('prefs.vaultImport')}
+        description={t('prefs.vaultImportDesc')}
+        placeholder={t('prefs.vaultImportPlaceholder')}
+        confirmText={t('prefs.vaultImportGo')}
+        cancelText={t('cancel')}
+        onConfirm={handleVaultImport}
+        onCancel={() => setVaultImportOpen(false)}
+      />
+      <PromptModal
+        visible={watchOpen}
+        title={t('prefs.watchTitle')}
+        description={t('prefs.watchDesc')}
+        placeholder={t('prefs.watchPlaceholder')}
+        initialValue={watchDraft}
+        confirmText={t('prefs.watchSave')}
+        cancelText={t('cancel')}
+        onConfirm={handleWatchSave}
+        onCancel={() => setWatchOpen(false)}
+      />
     </View>
   );
 }

@@ -57,6 +57,7 @@ export function isBad(code, fails) {
 // 需要真 Chrome（起浏览器、慢、且 CI 里另开阶段跑）。
 const BROWSER = new Map([
   ['verify:layout', 'cdp-probe 驱动真 Chrome 量布局'],
+  ['verify:routes', 'cdp-probe 驱动真 Chrome 把 19 个路由 × 3 档视口全渲染一遍'],
   ['verify:visual', 'cdp-probe 驱动真 Chrome 跑视觉巡检'],
   ['verify:compress', 'cdp-probe 驱动真 Chrome 验头像压缩（canvas 位图，jsdom 测不了）'],
   ['verify:hotkeys-live', 'cdp-probe 驱动真 Chrome 在 dist 上按一遍快捷键（合成 keydown + 真实事件路径）'],
@@ -69,7 +70,13 @@ const MUTATING = new Map([['verify:mutation', '临时改写源码跑变异测试
 // 门禁一旦开始"经常红但没事"，人们就会开始忽略红 —— 这比没有门禁更坏。
 // 它仍然该跑，只是该在单独的「线上数据源体检」阶段跑：--with-live。
 const EXTERNAL = new Map([
-  ['verify:boards', '直连 9 个热榜源（微博/知乎/百度/抖音/B站/HelloGitHub/果壳/数字尾巴/豆瓣），单源 6s 超时']
+  ['verify:boards', '直连 9 个热榜源（微博/知乎/百度/抖音/B站/HelloGitHub/果壳/数字尾巴/豆瓣），单源 6s 超时'],
+  // 2026-10-31 新增：直连应用数据库（WorkBuddy 云端点）做**线上探针** ——
+  //   判「某个名字在应用数据库里到底是不是存在的 PG 函数」，只能靠线上返回码：
+  //   PGRST202 = 不存在（放行=每次白发一发 404）；42501 = 存在但匿名无权。
+  //   为什么归到 EXTERNAL 而不是默认套件：外网不通时**判不了**，
+  //   红的含义会从「我改坏了东西」退化成「今天网络不好」—— 那比没有门禁更坏。
+  ['verify:db-live', '直连应用数据库做线上探针（外网不通时判不了，不是代码坏了）']
 ]);
 // 依赖「构建产物比源码新」的门禁：改完 src 还没重建时它**必然**红，
 // 而红的含义是「产物过期」不是「代码坏了」。放进确定性套件会让每次改代码都先红一遍，
@@ -136,6 +143,7 @@ function parseCounts(out) {
 const CI_EXEMPT = new Map([
   ['verify:all', '自身，CI 里没有递归跑的必要'],
   ['verify:layout', '需真 Chrome，CI 不跑浏览器门禁'],
+  ['verify:routes', '同上（真 Chrome 全路由渲染巡检）'],
   ['verify:visual', '同上'],
   ['verify:compress', '同上（真 Chrome 验 canvas 压缩）'],
   ['verify:hotkeys-live', '同上（真 Chrome 在 dist 上按快捷键）'],
