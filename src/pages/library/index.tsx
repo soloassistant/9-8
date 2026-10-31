@@ -999,7 +999,17 @@ function LibraryPage() {
       <View key={item.id} className={styles.videoCard} onClick={() => handleNewsTap(item)}>
         <View className={styles.videoCoverWrap}>
           {item.image ? (
-            <Image src={item.image} mode='aspectFill' lazyLoad className={styles.videoCover} />
+            <Image
+              src={item.image}
+              mode='aspectFill'
+              lazyLoad
+              className={styles.videoCover}
+              // B 站 CDN（i0/i1.hdslb.com）见到非自家 Referer 直接 403 —— 实测：
+              // 无 Referer 200 / 带本应用域名 403。浏览器默认会带 origin，于是视频封面
+              // 对所有人都是破图。http 侧只能靠 no-referrer 绕开（行情 logo 同理，
+              // 见 utils/quotes.ts 的同一处处理）。
+              nativeProps={isH5 ? { referrerPolicy: 'no-referrer' } : undefined}
+            />
           ) : null}
           {item.duration ? <Text className={styles.videoDuration}>{item.duration}</Text> : null}
         </View>
@@ -1050,7 +1060,13 @@ function LibraryPage() {
           ) : null}
         </View>
         {item.image ? (
-          <Image src={item.image} mode='widthFix' lazyLoad className={styles.articleImage} />
+          <Image
+            src={item.image}
+            mode='widthFix'
+            lazyLoad
+            className={styles.articleImage}
+            nativeProps={isH5 ? { referrerPolicy: 'no-referrer' } : undefined}
+          />
         ) : null}
         <Text className={styles.articleBody}>{item.content || item.summary}</Text>
         <Text className={styles.articleSourceNote}>{t('library.articleSourceNote')}</Text>
@@ -1095,7 +1111,7 @@ function LibraryPage() {
             // Taro 的 Image 没有 alt 属性，H5 端唯一能透传到真实 <img> 的入口是 nativeProps
             // （见 @tarojs/components/dist/esm/image-*.js 的 render：h("img", {...nativeProps})），
             // 且 nativeProps 仅 h5 支持，故只在 H5 端传。取新闻标题作为等价文本。
-            nativeProps={isH5 ? { alt: item.title } : undefined}
+            nativeProps={isH5 ? { alt: item.title, referrerPolicy: 'no-referrer' } : undefined}
             onClick={(e) => {
               e.stopPropagation();
               handleNewsImageTap(item);
