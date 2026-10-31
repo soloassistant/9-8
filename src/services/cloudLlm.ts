@@ -288,12 +288,57 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
 }
 
 /** 解析 LLM 的 JSON 回复契约（与 chat 云函数 safeParse 同口径：失败返回 null） */
-export function safeParseReply<T>(raw: string): T | null {
+/** 提取首个**括号配平**的 {...}（跳过字符串字面量与转义）——模型在 JSON 前后加解说散文时救回 */
+export function extractFirstJsonObject(text: string): string | null {
+  const str = String(text || '');
+  const start = str.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr: string | null = null;
+  for (let i = start; i < str.length; i += 1) {
+    const ch = str[i];
+    if (inStr) {
+      if (ch === '\\') { i += 1; continue; }
+      if (ch === inStr) inStr = null;
+      continue;
+    }
+    if (ch === '"') { inStr = '"'; continue; }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return str.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function tryParseJson<T>(text: string): T | null {
   try {
-    return JSON.parse(raw) as T;
+    const v = JSON.parse(text);
+    return v && typeof v === 'object' && v !== null ? (v as T) : null;
   } catch {
     return null;
   }
+}
+
+/** 容错解析三级：直解 → 剥 ``` 围栏 → 首个平衡 {...}。
+ *  为什么必须有：平台下发的模型并不总输出纯 JSON——实测出现 `json 围栏、
+ *  前后解说散文；裸 JSON.parse 一失败，chat/extract 双双降级 mock（用户实测：
+ *  AI 助理「有反馈但不会做事」+ 收件箱「本地演示数据」），且生产构建剔除
+ *  console.warn，线上零痕迹难排查。容错只放宽「包装」不放宽「结构」——
+ *  提取出的仍必须是合法 JSON 对象，解析不了就如实返回 null。 */
+export function safeParseReply<T>(raw: string): T | null {
+  const text = String(raw || '');
+  if (!text.trim()) return null;
+  const direct = tryParseJson<T>(text);
+  if (direct !== null) return direct;
+  const fence = /```(?:json)?\s*([\s\S]*?)```/g;
+  for (let m = fence.exec(text); m; m = fence.exec(text)) {
+    const inner = tryParseJson<T>(m[1].trim());
+    if (inner !== null) return inner;
+  }
+  const obj = extractFirstJsonObject(text);
+  return obj === null ? null : tryParseJson<T>(obj);
 }
 
 /** chat 云函数返回契约里本模块会透传的字段 */
