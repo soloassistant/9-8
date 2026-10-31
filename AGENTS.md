@@ -308,6 +308,16 @@ WorkBuddy 那个要平台侧重发。⇒ 改了 `src/` 只提交/推送，**两�
 发布到 WorkBuddy 前务必同步：`robocopy D:\Agent\晨报\dist D:\Agent\dist /MIR`，
 否则发出去的是上一次的旧产物（平台只认 `D:\Agent\dist` 这个目录，不认仓库路径）。
 
+> ★ **发布回滚预案（2026-10-31 补，配合 docs/上市差距与上线检查单）**：
+> 平台没有版本历史，**唯一回滚手段 = 把旧产物放回 `D:\Agent\dist` 再重发一次**。因此：
+> ① **每次面板重发之前**，把当时的 `D:\Agent\dist` 整目录复制为 `D:\Agent\dist.stale\<日期>/`
+>   （未跟踪目录，别提交进仓——只留最近一代，发新版覆盖它之前先换名）；
+> ② 线上事故回滚 = `robocopy "D:\Agent\dist.stale\<日期>" "D:\Agent\dist" /MIR`（带
+>   `MSYS_NO_PATHCONV=1`，见上）→ 面板重发 → `npm run publish:check` 全绿再收工；
+> ③ 前端回滚**不影响**数据侧（`user_kv` / `llm_events` / 热点数据）——查数据问题别顺着
+>   前端回滚找；反过来，`api/hotspot.json` 是烘焙进发布目录的，回滚会连它一起回退，
+>   如需保留新数据，回滚后单独补一次 `fetch-data --out D:\Agent\dist\api\hotspot.json`。
+
 > `deploy.ps1` / `.deploy-config.json`（SFTP）**不是**当前上线通道，别照它操作。
 > `deploy-gh-pages.ps1` **在仓库里从来不存在**（历史文档提到的那个脚本已不存在，别再去找）。
 
