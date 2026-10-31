@@ -10,7 +10,7 @@ import { HELP_EVENT, focusSearchBox, useGlobalHotkeys } from '@/hooks/useHotkeys
 import { hotkeyRoute } from '@/utils/hotkeys';
 import type { HotkeyId } from '@/utils/hotkeys';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
-import { needsAuthGate, getSession, markGateRedirect, getCloudUserId } from '@/services/cloudAuth';
+import { needsAuthGate, getSession, markGateRedirect, getCloudUserId, hasStoredSession } from '@/services/cloudAuth';
 import { hasAgreedConsent } from '@/data/legal';
 import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/language';
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
@@ -454,8 +454,25 @@ function App(props: PropsWithChildren) {
     // 注意实现方式是**重定向**，而不是在 App 里不渲染 children —— 后者会打断
     // Taro 的页面生命周期（实测抛「没有找到页面实例」并整页白屏，只剩 Tab 栏）。
     if (needsAuthGate && route && !route.includes('login')) {
-      getSession().then((s) => {
-        if (!s) {
+      // 2026-10-31（用户实测 #3）：getSession() 返回 null 有两种完全不同的原因——
+      //   ① 本地无凭据（真未登录 / 会话过期被 SDK 清掉）→ 送登录页正确；
+      //   ② 本地**还存着**凭据但恢复请求网络失败（SDK 保留凭据只置 lastFailure）
+      //      → 送登录页会把能无缝恢复的会话变成「重新输密码」。②先延迟重试
+      //      （2s × 3 次），期间用户停在原页；仍失败才走重定向（网络长尾实测 20-30s，
+      //      3 次重试约 6s，是「抖动」与「真断网」的合理分界）。
+      let gateRetries = 0;
+      const runGateCheck = () => {
+        getSession().then((s) => {
+          if (s) return;
+          if (hasStoredSession() && gateRetries < 3) {
+            gateRetries += 1;
+            console.error(`[App] 会话恢复失败（第 ${gateRetries}/3 次重试）——本地凭据还在，不送登录页`);
+            setTimeout(runGateCheck, 2000);
+            return;
+          }
+          if (hasStoredSession()) {
+            console.error('[App] 会话恢复连续 3 次失败，转登录页让用户重新验证');
+          }
           // ⚠️ 用 reLaunch 而非 redirectTo：前者只 unload 当前页但不清理 tabBar 缓存，
           // 导致 briefing 页一直留在 DOM 里且带 .taro_page_show.taro_page_stationed，
           // CSS 规则 `:not(.taro_tabbar_page)` 又不会隐藏 tabBar 页 → 真实访客跳登录后
@@ -469,8 +486,9 @@ function App(props: PropsWithChildren) {
             // （用 console.error：console.warn 会被生产构建剔除）
             console.error('[App] 门禁重定向登录页失败:', err);
           });
-        }
-      });
+        });
+      };
+      runGateCheck();
     }
   });
 
