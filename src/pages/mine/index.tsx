@@ -13,7 +13,7 @@ import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiDeleteAccount, apiApplyPlan, apiSubmitFeedback } from '@/services/api';
 import { signOut, resetPasswordForOld } from '@/services/cloudAuth';
-import { kvClear } from '@/services/cloudDb';
+import { kvClear, purgeMyH5Data } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { disabledAttr } from '@/utils/buttonDisabled';
@@ -957,6 +957,22 @@ function MinePage() {
     if (process.env.TARO_ENV === 'h5') {
       // 清云端同步键。失败**不阻断**注销（不能因为云端抖动把用户卡在注销页），
       // 但必须留痕 —— 静默失败会变成又一份「以为删了其实没删」的数据。
+      // 2026-10-31（I3b 客户端半件）：并行发起三表残留清偿（llm_events/feedback/
+      // client_errors）。函数未部署（v3-h5-purge.sql 未在控制台执行）时返回
+      // 'not-deployed' —— 属预期灰度状态，console.info 会被生产构建剔除，无需留痕；
+      // 真失败才 console.error。必须在 signOut 之前把请求发出去（RLS 按 auth.uid()
+      // 收敛，登出后调用会被数据库侧拒绝）。
+      void purgeMyH5Data()
+        .then((status) => {
+          if (status === 'failed' || status === 'no-db') {
+            console.error(`[MinePage] purgeMyH5Data = ${status} — 三表残留未清偿，需人工核查`);
+          } else {
+            console.info('[MinePage] purgeMyH5Data =', status);
+          }
+        })
+        .catch((err) => {
+          console.error('[MinePage] purgeMyH5Data threw:', err);
+        });
       kvClear()
         .then((n) => {
           if (n === null) {

@@ -90,6 +90,27 @@ export async function kvClear(): Promise<number | null> {
   return typeof n === 'number' ? n : null;
 }
 
+/**
+ * 清偿当前用户在 H5 自有三表的注销残留（llm_events / feedback / client_errors，I3b）。
+ *
+ * 走 SECURITY DEFINER 的 `purge_my_h5_data`（上线 SQL：.tools/sql/v3-h5-purge.sql，
+ * 由主理人在平台控制台执行后才存在）。**灰度顺序是刻意的**：先发客户端、再执行 SQL——
+ * 函数未部署时 PostgREST 返回 PGRST202，本函数如实返回 'not-deployed'，调用方静默跳过，
+ * 线上行为与未接此函数时完全一致（零破坏）；只有真实错误才 console.error 留痕。
+ * 返回值是状态不是布尔——什么时候都不能把「没删成」说成「已清除」。
+ */
+export async function purgeMyH5Data(): Promise<'ok' | 'not-deployed' | 'failed' | 'no-db'> {
+  const db = await getCloudDatabase();
+  if (!db) return 'no-db';
+  const res = await db.rpc<{ purged?: boolean }>('purge_my_h5_data', {});
+  if (res.error) {
+    if (res.error.code === 'PGRST202') return 'not-deployed';
+    console.error('[cloudDb] purge_my_h5_data failed:', res.error.code || '', res.error.message || '');
+    return 'failed';
+  }
+  return 'ok';
+}
+
 /** 记一条 LLM 用量事件（chat / voice）。只增不改，配额无法被抹掉。 */
 export async function llmEventInsert(kind: LlmEventKind): Promise<boolean> {
   const db = await getCloudDatabase();
