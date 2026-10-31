@@ -12,6 +12,12 @@
  *   storage → 最小占位
  */
 (function () {
+  // 2026-10-31：引导判定升级为账号级（5078fec）——假登录态必须把两级标记都种上，
+  // 否则每页都被引导层盖住（与 visual-patrol/routes 的种子同款修复）。
+  try {
+    localStorage.setItem('onboarded-v2', JSON.stringify({ data: true }));
+    localStorage.setItem('onboarded-v2:probe-user-0001', JSON.stringify({ data: true }));
+  } catch (e) {}
   var USER = { id: 'probe-user-0001', email: 'probe@example.test' };
   var SESSION = { user: USER };
 
