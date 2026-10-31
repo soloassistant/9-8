@@ -10,7 +10,6 @@
 //   · 浮动本地时间（无 Z 后缀的 DATE-TIME）：导入端按本地时区解释，符合「日程本来就是本地时间」
 //   · 行长不折行：主流解析器均接受长行，折行实现错反而更糟
 // ============================================
-import type { ScheduleEvent, TodoItem } from '../types';
 
 /** RFC 5545 §3.3.11 TEXT 转义：反斜杠 → 分号 → 逗号 → 换行（顺序无关紧要，覆盖全即可） */
 export function escapeIcsText(s: string): string {
