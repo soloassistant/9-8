@@ -21,7 +21,7 @@
  */
 
 import Taro from '@tarojs/taro';
-import { getCloudLlm } from './cloudAuth';
+import { getCloudLlm, signOut } from './cloudAuth';
 import type { LlmMessage } from './cloudAuth';
 import { llmEventInsert } from './cloudDb';
 import { readPlan } from '../data/dailyPlan';
@@ -209,6 +209,27 @@ export interface CloudLlmChatOpts {
  *
  * 返回完整文本；任何失败返回 null（内部已 warn，调用方降级）。
  */
+/** 会话失效自愈：把本地那份已死的会话清掉，让后续请求以匿名身份发出。
+ *
+ *  为什么必须有（2026-10-31 用户实测「AI 有反馈但不会做事 / 提示本地演示数据」）：
+ *  4396411 之后，会话恢复失败**不再把人踢回登录页**——用户留在应用里，
+ *  但本地那份过期 token 会被 SDK 一直带上。实测云端对坏 token 的响应是
+ *  `401 {"error":"invalid_grant"}`（无 token 反而是 200），于是**每一个** LLM 请求都失败。
+ *  失败又进了 60s 熔断，表现就是「AI 一直不可用」。不清掉它，重试多少次都一样。 */
+function isAuthError(err: unknown): boolean {
+  const s = String((err as Error)?.message || err || '');
+  return /401|invalid_grant|unauthenticated|session is invalid|session.*expired/i.test(s);
+}
+
+async function repairDeadSession(err: unknown): Promise<void> {
+  console.warn('[cloudLlm] session invalid, dropping it:', String((err as Error)?.message || err).slice(0, 100));
+  try {
+    await signOut();
+  } catch (e) {
+    console.error('[cloudLlm] signOut during repair failed:', e);
+  }
+}
+
 export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | null> {
   const system = (opts.system || '').trim();
   if (!system) {
@@ -279,6 +300,21 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
     return text;
   } catch (err) {
     console.warn('[cloudLlm] stream failed:', err);
+    if (isAuthError(err)) {
+      // 认证失败 ≠ 服务端不稳：清掉死会话后**立刻重试一次**（匿名身份可用），
+      // 不进熔断 —— 否则一次 401 会让 AI 哑 60 秒，用户看到的就是「提示演示数据」。
+      await repairDeadSession(err);
+      cloudLlmCooldownUntil = 0;
+      try {
+        const retried = await collect();
+        if (retried) return retried;
+        console.warn('[cloudLlm] retry after session repair returned empty');
+        return null;
+      } catch (e2) {
+        console.warn('[cloudLlm] retry after session repair failed:', e2);
+        return null;
+      }
+    }
     // 超时与断流都进熔断：二者都意味着「这次云端调用不可靠」，短期内重试大概率同样失败
     cloudLlmCooldownUntil = Date.now() + CLOUD_LLM_COOLDOWN_MS;
     return null;
