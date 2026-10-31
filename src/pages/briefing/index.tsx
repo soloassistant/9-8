@@ -221,8 +221,9 @@ function BriefingPage() {
       matchWatchItems(
         watchKeywords,
         (briefing?.intel?.intelItems || []).map((it) => {
-          const text = String((it as { text?: string })?.text || '');
-          return { id: text, title: text };
+          const rec = it as { text?: string; url?: string };
+          const text = String(rec?.text || '');
+          return { id: text, title: text, url: rec?.url };
         })
       ),
     [watchKeywords, briefing]
@@ -1600,7 +1601,8 @@ function BriefingPage() {
       {/* ===== 追踪命中（2026-10-31，产品评估 §7.2 E）=====
           独立于情报区：情报没有内容（天气都没有的降级日）但词表命中历史缓存时，
           「用户盯的事有动静」仍要可见 —— 这是追踪的全部价值。
-          复用 section/digest 类族，不引入第三套观感；tap 暂不做（v1 只展示，挂账）。 */}
+          复用 section/digest 类族，不引入第三套观感；有 url 的条目点击看原文
+          （openExternalPage 与热点页同语义），无 url 的如实标注不可点。 */}
       {watchMatches.length > 0 ? (
         <View className={styles.section}>
           <View className={styles.sectionHeader}>
@@ -1608,13 +1610,22 @@ function BriefingPage() {
             <Text className={styles.sectionTitle}>{t('briefing.watchTitle')}</Text>
             <Text className={styles.sectionCount}>{watchMatches.length}</Text>
           </View>
-          {watchMatches.map((m, i) => (
-            <View className={styles.digestItem} key={`${m.item.id}-${i}`}>
-              <Text className={styles.digestText}>
-                {`[${m.hit}] ${m.item.title}`}
-              </Text>
-            </View>
-          ))}
+          {watchMatches.map((m, i) => {
+            const url = (m.item as { url?: string }).url;
+            return (
+              <View
+                className={styles.digestItem}
+                key={`${m.item.id}-${i}`}
+                {...(url
+                  ? { ...pressableProps(`${t('briefing.watchOpen')}：${m.item.title}`), onClick: () => void openExternalPage(url) }
+                  : {})}
+              >
+                <Text className={styles.digestText}>
+                  {`[${m.hit}] ${m.item.title}${url ? '' : t('briefing.watchNoLink')}`}
+                </Text>
+              </View>
+            );
+          })}
         </View>
       ) : null}
 
