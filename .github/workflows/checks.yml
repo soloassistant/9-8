@@ -132,6 +132,11 @@ jobs:
         # ics 导出（RFC5545 转义/脏时间戳跳过）、追踪关键词（解析/匹配）、数据保险箱（信封/导入校验）。
         run: npm run verify:vault-report
 
+      - name: 热点抓取回归闸判定回归
+        # 守 fetch-data guardRegression 的纯判定：条数回退照拦 + 格式维度放行
+        # （旧格式兜底不得靠条数压住带配图的新格式抓取，D2 发布门禁的前提）。
+        run: npm run verify:fetch-guard
+
       - name: 记账导出回归
         # 守的是导出文件的两类硬伤：CSV 字段转义（RFC4180）与公式注入前置（= + - @ 开头必须转义），
         # 以及空数据短路、文件名口径、H5 下载与小程序剪贴板两条分支不被合并成一条。
