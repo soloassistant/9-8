@@ -1786,6 +1786,15 @@ function MinePage() {
         )}
       </View>
 
+      {/* 隐私说明收进折叠体（2026-11-01，用户反馈「我的页下面没设计好」）：
+          原先它是页尾一张独立大灰卡，把退出登录和法务区压得头重脚轻。
+          法务正文本来就在本折叠体内可达（合规入口不变），摘要是补充说明，跟着进来语义也顺。 */}
+      <View className={styles.privacyCard}>
+        <Text className={styles.privacyText}>
+          {t('mine.privacyNote')}
+        </Text>
+      </View>
+
         </>
       ) : null}
 
@@ -1806,12 +1815,6 @@ function MinePage() {
 
       {/* 记账/购物/学习三行已上移至顶部功能宫格（2026-10-25 去重，原「其他入口」底卡整卡移除）。
           晨报页记账卡的「查看全部」直达保留，双入口不冲突。 */}
-
-      <View className={styles.privacyCard}>
-        <Text className={styles.privacyText}>
-          {t('mine.privacyNote')}
-        </Text>
-      </View>
 
       {/* 协议/隐私半屏查看层 */}
       {docView ? (
