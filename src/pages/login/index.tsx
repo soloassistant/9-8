@@ -17,6 +17,7 @@ import {
   isPhoneIdentifier,
   type AuthIdentifier
 } from '@/services/cloudAuth';
+import { ensureCaptchaPassed } from '@/utils/captcha';
 import { decidePostLogin } from '@/services/bindPhoneGate';
 import DialCodePicker from '@/components/DialCodePicker';
 import { DEFAULT_DIAL_CODE, isSupportedDialCode } from '@/data/dialCodes';
@@ -480,6 +481,9 @@ export default function LoginPage() {
     if (busy || countdown > 0) return;
     if (!requirePrivacy()) return;
     if (!ensureAccount()) return;
+    // 2026-11-01 人机验证门槛（配置位：utils/captcha.ts 的 CAPTCHA_APPID，空=关闭且行为不变）。
+    // 验证码短信是会被脚本刷的真金白银（探针实测发码接口未登录可调）；返回 false = 用户关掉了滑块。
+    if (!(await ensureCaptchaPassed())) return;
     clearMsg();
     setBusy(true);
     const res = await sendLoginCode(currentId());
@@ -681,6 +685,11 @@ export default function LoginPage() {
     setBindError('');
     setBindNotice('');
     setBindBusy(true);
+    // 绑定手机号同样发短信——同人机验证门槛（配置位关闭时行为不变）
+    if (!(await ensureCaptchaPassed())) {
+      setBindBusy(false);
+      return;
+    }
     const res = await sendLoginCode({ phone });
     setBindBusy(false);
     if (res.error) {
