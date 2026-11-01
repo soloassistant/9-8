@@ -63,6 +63,8 @@ ok('P6', '纯散文无 JSON → 如实 null（不造假）', safeParseReply('抱
 ok('P7', '空串/缺失 → null', safeParseReply('') === null && safeParseReply(undefined) === null);
 ok('P8', '截断损坏 JSON（围栏内）→ 如实 null', safeParseReply('```json\n{"reply":"截断') === null);
 ok('P9', 'extractFirstJsonObject 直接可用', extractFirstJsonObject('前缀 {"a":1} 后缀') === '{"a":1}');
+ok('P11', '散文里先出现 {占位} 再给围栏 JSON → 只有围栏层能救回（平衡提取会先撞占位符）',
+  safeParseReply('备忘 {占位符}\n```json\n{"reply":"F"}\n```\n done')?.reply === 'F');
 ok('P10', 'proposals/memories 数组透传', (() => {
   const r = safeParseReply('{"reply":"r","proposals":[{"title":"x"}],"memories":["m1"]}');
   return r?.proposals?.length === 1 && r?.memories?.[0] === 'm1';
