@@ -5,6 +5,7 @@ import { fetchWeatherDirect } from '../utils/weather'
 import { evaluatePriceAlerts, type PricedItem, type PriceAlert } from '../utils/price'
 import { categoryOf } from '../utils/categoryLabel'
 import { selectByPreference } from '../utils/prefSelect'
+import { filterBySourcePrefs } from '../utils/sourcePrefs'
 import { readProfileSettings } from './localProfile'
 import { invoke, isWeapp } from './dataSource'
 import { chatViaCloudLlm, extractViaCloudLlm, typewriter, cloudLlmChat } from './cloudLlm'
@@ -126,6 +127,21 @@ let hotspotCache: { at: number; payload: HotspotPayload | null } | null = null
 let hotspotInFlight: Promise<HotspotPayload | null> | null = null
 
 /** 取热点载荷（带缓存与 in-flight 去重）。**并发调用只发一轮请求。 */
+/** 清热点缓存：用户改了「资讯来源」开关后必须调，否则 5 分钟内仍拿旧过滤结果。 */
+export function resetHotspotCache(): void {
+  hotspotCache = null
+}
+
+/** 来源开关的**唯一收口点**（2026-11-02）。放在缓存写入之前，这样：
+ *  · 缓存里存的就是「已按用户偏好过滤」的结果，调用方不必各自记得过滤；
+ *  · `sources` 元信息保持完整（UI 要列出全部源给用户开关，不能只列已开的）。
+ *  为什么不放在各个页面：H5 里取热点的入口有 getHotspot / 晨报情报 / 视频三条，
+ *  以前「同一件事两份口径」已经踩过三次（详见 AGENTS.md），必须一处收口。 */
+function applySourcePrefs(payload: HotspotPayload | null): HotspotPayload | null {
+  if (!payload) return payload
+  return { ...payload, items: filterBySourcePrefs(payload.items) }
+}
+
 export function getHotspotPayload(): Promise<HotspotPayload | null> {
   if (hotspotCache && Date.now() - hotspotCache.at < HOTSPOT_CACHE_MS) {
     return Promise.resolve(hotspotCache.payload)
@@ -133,9 +149,10 @@ export function getHotspotPayload(): Promise<HotspotPayload | null> {
   if (!hotspotInFlight) {
     hotspotInFlight = loadHotspotPayload().then(
       (payload) => {
-        hotspotCache = { at: Date.now(), payload }
+        const filtered = applySourcePrefs(payload)
+        hotspotCache = { at: Date.now(), payload: filtered }
         hotspotInFlight = null
-        return payload
+        return filtered
       },
       (err) => {
         hotspotInFlight = null

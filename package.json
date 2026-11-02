@@ -74,6 +74,7 @@
     "verify:db-live": "node .tools/verify-db-contract.mjs --live",
     "verify:a11y-keyboard": "node .tools/verify-a11y-keyboard.mjs",
     "verify:ai-actions": "node .tools/verify-ai-actions.mjs",
+    "verify:source-prefs": "node .tools/verify-source-prefs.mjs",
     "verify:visual": "node .tools/verify-visual-patrol.mjs",
     "verify:compress": "node .tools/verify-compress.mjs",
     "deploy:cloud": "node .tools/deploy-cloud.mjs",

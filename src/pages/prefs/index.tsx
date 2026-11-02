@@ -16,6 +16,8 @@ import PromptModal from '@/components/PromptModal';
 import { collectVault, validateVault, buildVaultFilename } from '@/utils/dataVault';
 import { SYNC_KEYS } from '@/services/cloudSync';
 import { readWatchKeywords, saveWatchKeywords } from '@/utils/intelWatchStore';
+import { getHotspotPayload, resetHotspotCache } from '@/services/cloud';
+import { readDisabledSources, setSourceEnabled } from '@/utils/sourcePrefs';
 import { CITY_TEXT } from '../mine/feedbackText';
 import styles from '../mine/index.module.scss';
 
@@ -248,6 +250,34 @@ function PrefsPage() {
     Taro.showToast({ title: t('prefs.vaultImportOk').replace('{n}', String(keys.length)), icon: 'success', duration: 2200 });
   };
 
+  // ===== 资讯来源开关（2026-11-02，产品评估 §P0-2）=====
+  // 源清单来自热点载荷的 sources 元信息（与服务端同一份，不另维护一份写死的列表）
+  const [hotSources, setHotSources] = useState<{ name: string; count: number }[]>([]);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [disabledSources, setDisabledSources] = useState<string[]>(() => readDisabledSources());
+  useEffect(() => {
+    let cancelled = false;
+    getHotspotPayload()
+      .then((p) => {
+        if (cancelled || !p) return;
+        setHotSources((p.sources || []).filter((s) => s && s.name).map((s) => ({ name: s.name, count: s.count || 0 })));
+      })
+      .catch((err) => console.warn('[prefs] load hotspot sources failed:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const handleToggleSource = (name: string, enabled: boolean) => {
+    const res = setSourceEnabled(name, enabled, hotSources.map((s) => s.name));
+    if (!res.ok) {
+      Taro.showToast({ title: t('prefs.sourcesMin'), icon: 'none' });
+      return;
+    }
+    setDisabledSources(readDisabledSources());
+    // 缓存里存的是「已过滤」结果，改完必须清一次，否则 5 分钟内仍是旧列表
+    resetHotspotCache();
+  };
+
   // ===== 追踪关键词（2026-10-31，产品评估 §7.2 E）：命中进晨报「追踪」区 =====
   const [watchWords, setWatchWords] = useState<string[]>(() => readWatchKeywords());
   const [watchOpen, setWatchOpen] = useState(false);
@@ -327,6 +357,33 @@ function PrefsPage() {
             setWatchOpen(true);
           }
         )}
+        {/* 资讯来源（2026-11-02）：关掉的源整条不进列表。
+            过滤在 services/cloud 的载荷出口一处收口，这里只负责改偏好 + 清缓存。 */}
+        {renderRow(
+          t('prefs.sourcesTitle'),
+          <>
+            <Text className={styles.valueText}>
+              {disabledSources.length
+                ? t('prefs.sourcesOff').replace('{n}', String(disabledSources.length))
+                : t('prefs.sourcesAll')}
+            </Text>
+            <Text className={styles.arrow}>{sourcesOpen ? '⌄' : '›'}</Text>
+          </>,
+          () => setSourcesOpen((v) => !v)
+        )}
+        {sourcesOpen
+          ? hotSources.map((s) => (
+              <View key={s.name} className={styles.row}>
+                <Text className={styles.rowLabel}>{s.name}</Text>
+                <Text className={styles.valueText}>{t('prefs.sourcesCount').replace('{n}', String(s.count))}</Text>
+                <Switch
+                  checked={!disabledSources.includes(s.name)}
+                  color={theme.color}
+                  onChange={(e) => handleToggleSource(s.name, e.detail.value)}
+                />
+              </View>
+            ))
+          : null}
         {/* 天气城市：手动兜底，拒绝定位不再等于「永远是北京」。
             文案复用既有的 sync.key.user-city（'所在城市' / 'City'），不新增 i18n 键。 */}
         {renderRow(
