@@ -631,8 +631,10 @@
 }
 
 .scaleChip {
-  min-width: 72rpx;
-  height: 56rpx;
+  /* 2026-11-03：字号/语言 chip 实测仅 29.1px 高，低于 44px 触控下限。
+     高度与最小宽度都提到 88rpx（390 视口 ≈45.8px）。 */
+  min-width: 88rpx;
+  height: 88rpx;
   padding: 0 $spacing-sm;
   display: flex;
   align-items: center;

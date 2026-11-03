@@ -468,6 +468,8 @@ function LedgerPage() {
           value={amount}
           placeholder={t('ledger.amountPlaceholder')}
           focus={false}
+          // 2026-11-03：金额键盘应带小数点（H5 走 inputmode=decimal；小程序忽略 nativeProps）
+          nativeProps={{ inputMode: 'decimal' }}
           onInput={(e) => setAmount(e.detail.value)}
         />
         <Button className={styles.addBtn} onClick={() => setSheetOpen(true)}>

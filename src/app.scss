@@ -468,3 +468,16 @@ body.is-login-page .taro-tabbar__panel {
     display: none !important;
   }
 }
+
+// ============================================================
+// 输入框触控高度（2026-11-03）
+// ------------------------------------------------------------
+// Taro H5 的 Input 把 className 挂在 taro-input-core 外壳上，真实 <input> 只有
+// `weui-input` 一个类、高度由行高决定 —— 实测全站输入框只有 21–22px 高，手指点不中。
+// 这里一处收口补到 44px；终端页按 44px 底条设计，需在页面内单独压回紧凑尺寸。
+// ============================================================
+input.weui-input,
+textarea.weui-textarea {
+  min-height: 44PX;
+  box-sizing: border-box;
+}

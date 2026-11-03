@@ -1222,6 +1222,8 @@ function LibraryPage() {
           value={keyword}
           placeholder={t('library.searchPlaceholder')}
           confirmType='search'
+          // 2026-11-03：H5 键盘语义 —— 搜索键 + 搜索图标（小程序忽略 nativeProps）
+          nativeProps={{ inputMode: 'search', enterKeyHint: 'search' }}
           onInput={(e) => setKeyword(e.detail.value)}
           onConfirm={() => handleNewsSearch()}
         />

@@ -634,6 +634,15 @@
 /* X9：分享按钮（weapp 用 Button 重置样式，H5 用 Text） */
 .shareBtn {
   margin-left: auto;
+  /* 2026-11-03：分享按钮实测 41.6×18，远低于 44×44 触控区。
+     用 inline-flex + 最小盒尺寸把可点区域撑到 88rpx（390 视口 ≈45.8px），
+     文字仍居中，视觉大小不变。 */
+  min-width: 88rpx;
+  min-height: 88rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   padding: 0 $spacing-sm;
   font-size: $font-size-sm;
   color: $color-text-tertiary;

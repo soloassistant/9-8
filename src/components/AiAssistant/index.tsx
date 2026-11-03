@@ -891,6 +891,8 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
               placeholder={t('ai.placeholder')}
               confirmType='send'
               disabled={sending}
+              // 2026-11-03：H5 软键盘回车键显示「发送」（小程序忽略 nativeProps）
+              nativeProps={{ enterKeyHint: 'send' }}
               onInput={(e) => setInput(e.detail.value)}
               onConfirm={handleSend}
             />

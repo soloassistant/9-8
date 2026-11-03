@@ -159,6 +159,13 @@
   color: var(--brand-strong, #{$color-primary-strong}); // 5.26:1（原 --brand 2.59:1）
   margin-left: $spacing-sm;
   flex-shrink: 0;
+  /* 2026-11-03：导出入口实测 22.9×18.3，点不中。撑到 88rpx（≈45.8px）可点区。 */
+  min-width: 88rpx;
+  min-height: 88rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
 .catItem {
@@ -289,7 +296,8 @@
 
 .addInput {
   flex: 1;
-  height: $button-height-md;
+  /* 2026-11-03：与 44px 触控下限对齐（80rpx=41.6px 会裁掉 44px 的内层 input）。 */
+  height: 88rpx;
   padding: 0 $spacing-sm;
   border-radius: $radius-button;
   background: $color-bg-card;
@@ -301,7 +309,7 @@
 .addBtn {
   @include button-reset;
   width: auto; //覆盖 taro-button-core 默认 width:100%，否则挤掉输入框
-  height: $button-height-md;
+  height: 88rpx;
   padding: 0 $spacing-lg;
   border-radius: $radius-button;
   background: var(--brand-strong, #{$color-primary-strong}); // 白字 4.95:1（原 --brand 白字 2.59:1）

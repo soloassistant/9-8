@@ -278,7 +278,8 @@
 
 .input {
   flex: 1;
-  height: $button-height-md;
+  /* 2026-11-03：与 44px 触控下限对齐（80rpx=41.6px 会裁掉 44px 的内层 input）。 */
+  height: 88rpx;
   background: $color-bg-page;
   border-radius: $radius-button;
   padding: 0 $spacing-lg;
@@ -293,7 +294,7 @@
 .sendBtn {
   flex-shrink: 0;
   width: 140rpx;
-  height: $button-height-md;
+  height: 88rpx;
   display: flex;
   align-items: center;
   justify-content: center;

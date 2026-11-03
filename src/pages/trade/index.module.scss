@@ -352,8 +352,15 @@
   }
 
   .ctBtn {
+    /* 2026-11-03：实测 30.9×23.6，点击区过小。终端条高度 44，按钮撑满 44×44 且字号提到 12。 */
+    min-width: 44PX;
+    min-height: 44PX;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
     padding: 2PX 8PX;
-    font-size: 11PX;
+    font-size: 12PX;
     color: var(--t-text-dim);
     border: 1PX solid var(--t-border);
     border-radius: 3PX;
@@ -820,6 +827,11 @@
   .toolLabel {
     font-size: 10PX;
     color: var(--t-text-dim);
+  }
+
+  /* 2026-11-03：终端是按 44PX 底条设计的紧凑版式，覆盖 app.scss 给全站的 44px 输入框下限。 */
+  input.weui-input {
+    min-height: 26PX;
   }
 
   .toolInput {
