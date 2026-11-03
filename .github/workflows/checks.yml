@@ -152,6 +152,12 @@ jobs:
         # 追加/四舍五入/替换首条三种写法都已被变异验证证明会被抓住。
         run: npm run verify:explore-mix
 
+      - name: 话题聚类回归
+        # 守三件事：96 对基准集 F1 不掉（误合并=用户看不到新闻，比重复严重）、
+        # 两处副本逐字一致（static-server 留有同名旧副本，只改一边就是口径分叉）、
+        # 同机构不算多家佐证 / 跨天不并 / isSameEvent 唯一入口。
+        run: npm run verify:topic-cluster
+
       - name: 热点抓取回归闸判定回归
         # 守 fetch-data guardRegression 的纯判定：条数回退照拦 + 格式维度放行
         # （旧格式兜底不得靠条数压住带配图的新格式抓取，D2 发布门禁的前提）。

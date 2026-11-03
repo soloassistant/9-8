@@ -26,6 +26,9 @@ const fs = require('fs');
 const path = require('path');
 
 const SERVER_JS = path.join(__dirname, 'static-server.js');
+// 2026-11-03：四通道判定已抽出为共享模块（fetch-data.js 与 static-server.js 共用），
+// 抽取优先从共享模块取；稀有实体通道仍在 static-server.js，故两者拼起来找。
+const TOPIC_JS = path.join(__dirname, '../cloudfunctions/webSearch/topic-cluster.js');
 const GOLDEN_JSON = path.join(__dirname, 'dedupe-golden.json');
 
 /** 当前生产规则的 F1 基准线（全量口径）。
@@ -34,7 +37,11 @@ const GOLDEN_JSON = path.join(__dirname, 'dedupe-golden.json');
  *  必须在这里留下可见的证据与理由。 */
 const BASELINE_F1 = 0.346;
 
-const src = fs.readFileSync(SERVER_JS, 'utf8');
+// 共享模块在前：extractFn 取「第一个匹配」，所以四通道判定取到的是共享模块那份，
+// static-server.js 里同名的旧副本不再参与评估（其逐字一致性由 verify-topic-cluster 门禁守）。
+const src =
+  (fs.existsSync(TOPIC_JS) ? fs.readFileSync(TOPIC_JS, 'utf8') + '\n' : '') +
+  fs.readFileSync(SERVER_JS, 'utf8');
 
 // ---------- 从生产文件抽取代码（括号配平，抗行号漂移） ----------
 function extractFn(text, name) {

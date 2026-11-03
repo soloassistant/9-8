@@ -14,6 +14,7 @@ const { clampText } = require('../cloudfunctions/webSearch/text-clamp.js');
 // 机构归一口径：alsoFrom 只记机构 —— 中新网三个子 feed 互抄不是三家媒体佐证
 // （2026-10-22 校准：预配额 181 条同题 5 组，跨机构 0 组，全是中新网自抄）
 const { orgOfSource, ALSO_FROM_MAX } = require('../cloudfunctions/webSearch/cross-source.js');
+const { clusterItems } = require('../cloudfunctions/webSearch/topic-cluster.js');
 
 const FETCH_TIMEOUT = 8000;
 
@@ -434,30 +435,26 @@ async function fetchHotspot() {
     st.count = st.ok ? groups.reduce((n, g) => n + g.filter((it) => it.source === st.name).length, 0) : 0;
   }
 
-  // 同题只留主条目（标题前 24 字符相等判同题，既有口径）；其余来源按**机构**并入
-  // alsoFrom（2026-10-22，与云函数 mergeCrossSource / static-server 同口径）——
-  // 中新网子 feed 互抄按 feed 名计数会把一家通讯社显示成多家媒体佐证。
-  const seen = new Map(); // 标题前缀 → 主条目
-  const merged = [];
+  // 同题聚成一条话题卡（2026-11-03）：用 static-server 同一份四通道判定（共享模块
+  // cloudfunctions/webSearch/topic-cluster.js），替代原「标题前 24 字符相等」的粗匹配 ——
+  // 同事件不同措辞此前会留下两张卡，用户刷到重复。
+  // 其余来源按**机构**并入 alsoFrom（2026-10-22 起的口径）：中新网子 feed 互抄按 feed 名计数
+  // 会把一家通讯社显示成多家媒体佐证。
+  const flat = [];
   const maxLen = Math.max(0, ...groups.map((g) => g.length));
   for (let i = 0; i < maxLen; i++) {
     for (const g of groups) {
       const it = g[i];
-      if (!it) continue;
-      const k = it.title.slice(0, 24);
-      const main = seen.get(k);
-      if (!main) {
-        seen.set(k, it);
-        merged.push(it);
-        continue;
-      }
-      if (it.source && orgOfSource(it.source) !== orgOfSource(main.source)) {
-        const org = orgOfSource(it.source);
-        if (!main.alsoFrom) main.alsoFrom = [];
-        if (main.alsoFrom.length < ALSO_FROM_MAX && !main.alsoFrom.includes(org)) main.alsoFrom.push(org);
-      }
+      if (it) flat.push(it);
     }
   }
+  const topics = clusterItems(flat, { orgOf: orgOfSource, maxAlsoFrom: ALSO_FROM_MAX });
+  const merged = topics.map((t) => {
+    if (t.alsoFrom && t.alsoFrom.length) {
+      return { ...t.main, alsoFrom: t.main.alsoFrom ? t.main.alsoFrom.concat(t.alsoFrom) : t.alsoFrom.slice() };
+    }
+    return t.main;
+  });
 
   // 内容信任过滤（2026-12 修复）：此前本链路**完全没有**信任过滤，而小程序端（走 webSearch 云函数）有。
   // 产出 dist/api/hotspot.json 的是这里 —— 也就是线上 H5/gh-pages 站点真正读的那份数据。
