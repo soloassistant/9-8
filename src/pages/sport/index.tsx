@@ -36,6 +36,11 @@ import {
   writeGoalKm
 } from '@/data/sport';
 import type { RunRecord, RunSample } from '@/data/sport';
+import {
+  confirmWithdrawHealthConsent,
+  ensureHealthConsent,
+  hasHealthConsent
+} from '@/services/healthConsent';
 import styles from './index.module.scss';
 
 type ViewName = 'home' | 'recording' | 'detail' | 'records';
@@ -109,6 +114,8 @@ export default function SportPage() {
   const { theme } = useThemeStore();
   const [view, setView] = useState<ViewName>('home');
   const [runs, setRuns] = useState<RunRecord[]>([]);
+  // 健康数据单独同意状态（敏感个人信息，见 services/healthConsent.ts）
+  const [healthOk, setHealthOk] = useState<boolean>(() => hasHealthConsent());
   const [goalKm, setGoalKm] = useState<number>(DEFAULT_GOAL_KM);
   const [now, setNow] = useState<number>(() => Date.now());
   const [detailId, setDetailId] = useState<string>('');
@@ -157,7 +164,8 @@ export default function SportPage() {
       if (activeRef.current) {
         const dur = Math.max(0, Math.round((Date.now() - startedAtRef.current - pausedTotalRef.current) / 1000));
         const dist = distRef.current;
-        if (dur >= PARTIAL_SAVE_MIN_SEC || dist > 0) {
+        // 健康数据单独同意已被撤回时不落库（撤回即停止新采集）
+        if ((dur >= PARTIAL_SAVE_MIN_SEC || dist > 0) && hasHealthConsent()) {
           saveRun({
             id: `run_${startedAtRef.current}_${Math.random().toString(36).slice(2, 8)}`,
             startedAt: startedAtRef.current,
@@ -197,7 +205,14 @@ export default function SportPage() {
     }
   }, []);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
+    // 敏感个人信息的单独同意闸门：未同意不开始（不能先采集后补同意）
+    const consented = await ensureHealthConsent();
+    setHealthOk(consented);
+    if (!consented) {
+      Taro.showToast({ title: t('health.consentDenied'), icon: 'none' }).catch(() => undefined);
+      return;
+    }
     startedAtRef.current = Date.now();
     pausedTotalRef.current = 0;
     pausedAtRef.current = 0;
@@ -254,7 +269,7 @@ export default function SportPage() {
       () => setGeo('denied'),
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
     );
-  }, []);
+  }, [t]);
 
   const togglePause = useCallback(() => {
     if (!recording) return;
@@ -283,6 +298,16 @@ export default function SportPage() {
       source: distRef.current > 0 ? 'gps' : 'timer'
     };
     activeRef.current = false;
+    // 撤回同意（或同意记录丢失）时不落库：只结束本次记录，不写任何健康数据
+    if (!hasHealthConsent()) {
+      setHealthOk(false);
+      setRecording(false);
+      setPaused(false);
+      pausedAtRef.current = 0;
+      setView('home');
+      Taro.showToast({ title: t('health.consentDenied'), icon: 'none' }).catch(() => undefined);
+      return;
+    }
     const next = saveRun(rec);
     setRuns(next);
     setRecording(false);
@@ -290,7 +315,7 @@ export default function SportPage() {
     pausedAtRef.current = 0;
     setDetailId(rec.id);
     setView('detail');
-  }, [geo, stopTick, stopWatch]);
+  }, [geo, stopTick, stopWatch, t]);
 
   const discard = useCallback(() => {
     Taro.showModal({
@@ -339,6 +364,22 @@ export default function SportPage() {
       })
       .catch(() => undefined);
   }, []);
+
+  /** 撤回健康数据单独同意（只清同意标记，不动已有记录） */
+  const toggleHealthConsent = useCallback(() => {
+    if (!healthOk) {
+      // 未同意时点这行 = 主动去授权（与点「开始」时的弹窗是同一个闸门）
+      void ensureHealthConsent().then((ok) => {
+        if (ok) setHealthOk(true);
+      });
+      return;
+    }
+    void confirmWithdrawHealthConsent().then((done) => {
+      if (!done) return;
+      setHealthOk(false);
+      Taro.showToast({ title: t('health.withdrawn'), icon: 'none' }).catch(() => undefined);
+    });
+  }, [healthOk, t]);
 
   const deleteDetail = useCallback(() => {
     if (!detail) return;
@@ -411,6 +452,15 @@ export default function SportPage() {
           <View className={styles.primaryBtn} onClick={start}>
             <Text className={styles.primaryBtnText}>{t('sport.start')}</Text>
           </View>
+
+          {/* 敏感个人信息的单独同意：已同意时可在此撤回；未同意时只作告知，
+              真正征询发生在点「开始」时（ensureHealthConsent） */}
+          <Text
+            className={healthOk ? `${styles.healthRow} ${styles.healthRowOn}` : styles.healthRow}
+            onClick={toggleHealthConsent}
+          >
+            {healthOk ? t('health.statusGranted') : t('health.statusPrompt')}
+          </Text>
 
           {/* 本周跑量 */}
           <View className={styles.card}>

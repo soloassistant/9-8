@@ -319,6 +319,33 @@ ok('E1 「我的」半屏查看层也渲染三份（同意之后仍需可查）'
 ok('E2 同意记录按 LEGAL_VERSION 比对（改文案不递增 = 对老用户静默改条款）',
   legalSrc.includes('rec.version === LEGAL_VERSION'));
 
+/* ================================================================== */
+/* E3. 敏感个人信息（运动/健康）的单独同意闸门                            */
+/* ================================================================== */
+console.log('\n── E3. 运动/健康数据的单独同意 ──');
+const healthSrc = read('src/services/healthConsent.ts');
+const sportSrc = read('src/pages/sport/index.tsx');
+const startBody = bodyOf(sportSrc, 'const start = useCallback');
+const finishBody = bodyOf(sportSrc, 'const finish = useCallback');
+ok(
+  'E3a 开始记录前先过单独同意闸门（ensureHealthConsent 在 start 函数体里）',
+  !!startBody && startBody.includes('ensureHealthConsent()')
+);
+ok(
+  'E3b 落库前再判一次同意（finish 里 hasHealthConsent 在 saveRun 之前，撤回即不写）',
+  !!finishBody &&
+    finishBody.includes('hasHealthConsent()') &&
+    finishBody.indexOf('hasHealthConsent()') < finishBody.indexOf('saveRun(rec)')
+);
+ok(
+  'E3c 同意版本化（改文案/撤回后旧同意失效）',
+  /HEALTH_CONSENT_VERSION\s*=\s*'v\d+-\d{8}'/.test(healthSrc) &&
+    healthSrc.includes('rec.version === HEALTH_CONSENT_VERSION')
+);
+ok('E3d 撤回只清同意键、不删已有运动记录（撤回 ≠ 删用户数据）',
+  !/withdrawHealthConsent[\s\S]{0,240}removeRun/.test(healthSrc));
+ok('E3e 隐私政策披露了运动/健康数据及其撤回入口', PRIVACY.includes('运动与健康数据') && PRIVACY.includes('撤回'));
+
 console.log('──────────────────────────────────────────────────────────');
 console.log(`PASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);
