@@ -71,7 +71,9 @@
   padding: $spacing-xs $spacing-sm;
   border-radius: $radius-button;
   background: rgba(232, 93, 42, 0.1);
-  color: $color-warning;
+  /* 2026-11-03：$color-warning(#ff7d00) 压在此浅橙底上不足 3:1，超支提示几乎读不清。
+     换 #9a3412，浅橙底对比度 ≈6.4:1。 */
+  color: #9a3412;
   font-size: $font-size-sm;
   font-weight: $font-weight-medium;
 }
@@ -101,7 +103,9 @@
 
 .budgetCap {
   font-size: $font-size-sm;
-  color: $color-text-tertiary;
+  /* 2026-11-03：预算档位名是信息性文字，巡检报对比度不足（1.44:1）。
+     改用次级文字色 #4e5969（白卡 ≈7.4:1，浅橙超支卡 ≈6.8:1）。 */
+  color: $color-text-secondary;
 }
 
 .budgetVal {
