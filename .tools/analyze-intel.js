@@ -116,6 +116,14 @@ let data;
 try {
   data = JSON.parse(fs.readFileSync(file, 'utf8'));
 } catch (e) {
+  // 没给参数时读的是 .tools/cache/hotspot.json —— 那是个 **gitignore 的本地缓存**，
+  // 干净 checkout / worktree 里必然不存在。以前这里 exit 1，于是 verify:all
+  // 在别人的机器上会红一条「verify:intel」，看起来像产品坏了。
+  // 与仓里其它依赖产物的门禁同一口径：**未跑 ≠ 失败**。
+  if (usingCache) {
+    console.log('[analyze-intel] 未跑（缺 .tools/cache/hotspot.json，先跑 npm run boards:fetch 生成缓存，或直接传一个 json 路径）');
+    process.exit(0);
+  }
   console.error('[analyze-intel] 无法读取/解析输入：' + String((e && e.message) || e));
   process.exit(1);
 }

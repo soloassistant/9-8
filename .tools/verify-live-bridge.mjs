@@ -242,6 +242,46 @@ assert(
       fetchData.includes('<img[^>]*src=')
   );
   {
+    // —— C2b 行为层：真的把 pickImage 求值出来，四路各给一个「只有这一路」的块 ——
+    // 为什么必须行为层（2026-10-30 变异实测踩过）：
+    //   C2 判的是 `includes('media:content')`，而变异把正则改成 `media:contentX`
+    //   —— 子串还在 ⇒ C2 照样绿 ⇒ 变异 NOT-CAUGHT。
+    //   「源码里还写着这个字符串」≠「这一路真的还在抽图」。
+    //   真求值 + 每路只给一个只含该路的块 ⇒ 任何一路被删/被改坏，这里立刻红。
+    const srcRaw = read('.tools/fetch-data.js');
+    const iSafe = srcRaw.indexOf('function safeMediaUrl');
+    const iParse = srcRaw.indexOf('function parseRss');
+    let pick = null;
+    try {
+      pick = new Function(`${srcRaw.slice(iSafe, iParse)}\nreturn { safeMediaUrl, pickImage };`)();
+    } catch {
+      pick = null;
+    }
+    assert('C2b pickImage 可被求值（行为层判据的前提）', !!pick && typeof pick.pickImage === 'function');
+    if (pick) {
+      const routes = [
+        ['media:content', '<item><media:content url="https://cdn.example.com/a.jpg"/></item>', 'https://cdn.example.com/a.jpg'],
+        ['media:thumbnail', '<item><media:thumbnail url="https://cdn.example.com/b.jpg"/></item>', 'https://cdn.example.com/b.jpg'],
+        ['enclosure(type 在 url 前)', '<item><enclosure type="image/jpeg" url="https://cdn.example.com/c.jpg"/></item>', 'https://cdn.example.com/c.jpg'],
+        ['enclosure(url 在 type 前)', '<item><enclosure url="https://cdn.example.com/d.jpg" type="image/jpeg"/></item>', 'https://cdn.example.com/d.jpg'],
+        ['正文首个 img', '<item><description><img src="https://cdn.example.com/e.jpg"/></description></item>', 'https://cdn.example.com/e.jpg']
+      ];
+      for (const [route, block, want] of routes) {
+        const got = pick.pickImage(block);
+        assert(`C2b 抽图 ${route} 能抽出自己的 url`, got === want, `got=${got}`);
+      }
+      // 安全网：非 http(s) 与超长 url 都不许过（safeMediaUrl 的职责，不能被绕开）
+      assert(
+        'C2b 抽图拒绝非 http(s) 协议',
+        pick.pickImage('<item><media:content url="javascript:alert(1)"/></item>') === undefined
+      );
+      assert(
+        'C2b 抽图拒绝超长 url',
+        pick.pickImage(`<item><media:content url="https://e.com/${'x'.repeat(600)}"/></item>`) === undefined
+      );
+    }
+  }
+  {
     // 注意窗口方向：safeMediaUrl 的**定义**在 pickImage 之前，
     // 要看的是 pickImage **内部**有没有调用它 ⇒ 从 pickImage 的位置往后找。
     const iPick = fetchData.indexOf('function pickImage');

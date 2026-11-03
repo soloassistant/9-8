@@ -23,7 +23,9 @@ const zh = {
 
   'common.itemCount': '项',
 
-  'mine.avatarEdit': '点头像',
+  // 「点头像」是交互说明写成了标签 —— 用户看到的是「我要做什么」而不是「这里能干嘛」。
+  // 改成动作结果（2026-10-30）。
+  'mine.avatarEdit': '换头像',
   'mine.avatarAlt': '用户头像',
   'mine.avatarSaved': '头像已更新',
   'mine.avatarTempOnly': '头像仅在本次使用期间显示',
@@ -71,7 +73,7 @@ const zh = {
   'mine.nicknameEmpty': '昵称不能为空，已恢复原值',
   'mine.briefingTime': '晨报时间',
   'mine.briefingRemind': '晨报提醒',
-  'mine.settingAi': 'AI 怎么配合你',
+  'mine.settingAi': 'AI 的记忆与权限',
   'mine.prefTags': '想看哪些内容',
   'mine.prefMax': '最多选 5 个',
   'mine.replyStyle': 'AI 回复的详略',
@@ -317,6 +319,8 @@ const zh = {
   'briefing.sectionFav': '昨日收藏精选',
   // 2026-10-27 参考稿改版：深色概览卡 + 桌面三栏（侧栏导航 / 右栏天气与快捷入口）
   'briefing.sectionOverview': '今日概览',
+  // 没有日程/待办时替代深色四格卡的一行说明（2026-10-30）
+  'briefing.leanOverview': '今天没有日程和待办 · 情报 {n} 条',
   'briefing.statDone': '已完成',
   'briefing.todayCountLine': '今天 {n} 条',
   'briefing.navToday': '今日',
@@ -435,11 +439,15 @@ const zh = {
   // 头部问候：时间基调（纯时间，不含内容断言）+ 内容事实（Now/Next）。
   // 拆开的原因：原 getGreeting 把「下午的日程在这」写死在 12–14 点，当天没有日程
   // 就是谎报；且只有中文，英文界面也显示中文。
-  'greet.night': '夜深了，先看看明天的安排',
-  'greet.morning': '早上好，新的一天从晨报开始',
+  // 2026-10-30：问候语只报时间，不喊口号。
+  // 原「早上好，新的一天从晨报开始」「晚上好，为明天做好准备」在手机上撑成 3 行，
+  // 和下面的日期/概览/情报挤在一起，首屏近一半被问候语吃掉 —— 用户这时候要的是
+  // 「今天有什么事」，不是一句标语。
+  'greet.night': '夜深了',
+  'greet.morning': '早上好',
   'greet.noon': '中午好',
   'greet.afternoon': '下午好',
-  'greet.evening': '晚上好，为明天做好准备',
+  'greet.evening': '晚上好',
   'greet.next': '接下来 {time} {title}',
   'greet.allDone': '今天的日程已结束',
   'greet.todoOnly': '还剩 {n} 个待办',
@@ -894,6 +902,10 @@ const zh = {
   'hotkeys.desktopOnly': '仅在电脑端浏览器可用',
   'hotkeys.entryDesc': '用键盘跳转与操作',
   'mine.quotaUnlimited': '语音不限量',
+  // 「我的」页分组标题（2026-10-30）：原来 10 张白卡长得一模一样、没有主次，
+  // 用户扫不出「哪些是常用、哪些是设置」。
+  'mine.groupTools': '常用',
+  'mine.groupSettings': '设置',
   'mine.membershipSubtitle': '订阅与用量',
   'mine.prefsSubtitle': '个性化你的晨报',
   'mine.prefsSaved': '已保存',
@@ -1250,7 +1262,7 @@ const en: Record<keyof typeof zh, string> = {
 
   'common.itemCount': 'items',
 
-  'mine.avatarEdit': 'Tap avatar',
+  'mine.avatarEdit': 'Change photo',
   'mine.avatarAlt': 'User avatar',
   'mine.avatarSaved': 'Avatar updated',
   'mine.avatarTempOnly': 'Avatar shown for this session only',
@@ -1296,7 +1308,7 @@ const en: Record<keyof typeof zh, string> = {
   'mine.nicknameEmpty': "Nickname can't be empty — kept the previous value",
   'mine.briefingTime': 'Briefing time',
   'mine.briefingRemind': 'Briefing Reminder',
-  'mine.settingAi': 'How AI works with you',
+  'mine.settingAi': 'What AI remembers',
   'mine.prefTags': 'What you want to read',
   'mine.prefMax': 'Max 5',
   'mine.replyStyle': 'How much AI says',
@@ -1536,6 +1548,7 @@ const en: Record<keyof typeof zh, string> = {
   'briefing.sectionTodo': 'To-dos',
   'briefing.sectionFav': "Yesterday's Picks",
   'briefing.sectionOverview': 'Today at a Glance',
+  'briefing.leanOverview': 'No events or todos today · {n} brief items',
   'briefing.statDone': 'Done',
   'briefing.todayCountLine': '{n} items today',
   'briefing.navToday': 'Today',
@@ -1640,11 +1653,11 @@ const en: Record<keyof typeof zh, string> = {
   'briefing.streak': '{n}-day reading streak',
   'briefing.weekendBanner': 'Weekend lite · fewer news items',
   'briefing.ttsGreeting': 'Good morning, your daily brief is ready',
-  'greet.night': 'Late night — rest up a bit',
-  'greet.morning': 'Good morning — your brief is ready',
+  'greet.night': 'Late night',
+  'greet.morning': 'Good morning',
   'greet.noon': 'Midday check-in',
   'greet.afternoon': 'Good afternoon',
-  'greet.evening': 'Good evening — prep for tomorrow',
+  'greet.evening': 'Good evening',
   'greet.next': 'Next up {time} {title}',
   'greet.allDone': "Today's schedule is done",
   'greet.todoOnly': '{n} todos left today',
@@ -2093,6 +2106,8 @@ const en: Record<keyof typeof zh, string> = {
   'hotkeys.desktopOnly': 'Desktop browsers only',
   'hotkeys.entryDesc': 'Jump and act from the keyboard',
   'mine.quotaUnlimited': 'Unlimited voice',
+  'mine.groupTools': 'Common',
+  'mine.groupSettings': 'Settings',
   'mine.membershipSubtitle': 'Plan and usage',
   'mine.prefsSubtitle': 'Personalize your briefing',
   'mine.prefsSaved': 'Saved',

@@ -47,9 +47,7 @@ import {
   tickReadSession,
   getReadStreak,
   isTodayRead,
-  migrateFromLearnStreak,
-  READ_MIN_MS,
-  READ_MIN_SECTIONS
+  migrateFromLearnStreak
 } from '@/utils/readStreak';
 import type { ReadSectionKind, ReadSession } from '@/utils/readStreak';
 import { canPromptSubscribe, promptSubscribe, isSubscriptionStale } from '@/utils/subscribe';
@@ -844,6 +842,13 @@ function BriefingPage() {
   /** 已完成待办（真实数据：服务端 status 回填 + 本地勾选，与 doneIds 同一口径） */
   const doneTodayCount = (briefing?.todos || []).filter((td) => doneIds.has(td.id)).length;
   /**
+   * 今天到底有没有「安排」。全 0 时概览卡要降级（2026-10-30）。
+   * 原来无论有没有内容都画那张深色四格卡：日程 0 / 待办 0 / 已完成 0 —— 用整页最重的
+   * 底色和最大的数字，去告诉用户「你什么都没做」。没有安排的日子应该轻描淡写，
+   * 把版面让给唯一有内容的东西（今日情报）。
+   */
+  const hasAnyPlan = todaySchedule.length + pendingTodayTodos + doneTodayCount > 0;
+  /**
    * 头部称呼：只在昵称「像人名」时才展示。
    * H5 会话链路里 nickname 可能回落到**邮箱**（视觉巡检截图实测：
    * `p***@example.test，中午好 · 今天没有安排`）。上市产品不会用邮箱称呼用户，
@@ -864,7 +869,10 @@ function BriefingPage() {
         ? `${greetingBase} · ${t('greet.allDone')}`
         : pendingTodayTodos > 0
           ? `${greetingBase} · ${t('greet.todoOnly', { n: pendingTodayTodos })}`
-          : `${greetingBase} · ${t('greet.empty')}`;
+          : // 2026-10-30：没有安排时**不再往标题里追加「今天没有安排」**。
+            // 下面那张概览卡（hasAnyPlan 为假时）已经写着「今天没有日程和待办 · 情报 3 条」，
+            // 标题再补一句就是同一件事说两遍，还把标题顶成两行。
+            greetingBase;
   /**
    * 首屏「有没有东西可看」的唯一判据 —— contentFade 只在它为真时挂载。
    * ⚠️ 情报（briefing.intel）必须计入：它渲染在 contentFade 内部（见 sectionIntel），
@@ -1086,10 +1094,6 @@ function BriefingPage() {
     setIsSpeaking(true);
   };
 
-
-  /** 阈值展示用秒数（由毫秒常量换算，避免页面出现魔法数字） */
-  const readMinSeconds = Math.round(READ_MIN_MS / 1000);
-
   return (
     <View className={styles.page} style={brandVars(theme)}>
       {/* 桌面端左侧栏（≥1024px 才显示，移动端 display:none）：真实 tabBar 路由，全部走
@@ -1196,13 +1200,18 @@ function BriefingPage() {
                   ⚡ PRO
                 </Text>
               )}
-              {/* v2.1：晨报连续阅读打卡（主 streak 已改挂晨报；今日未读时以呼吸态提示） */}
-              <View className={classnames(styles.readStreak, todayRead && styles.readStreakDone)}>
-                <Text className={styles.readStreakFlame}>🔥</Text>
-                <Text className={styles.readStreakText}>
-                  {todayRead ? t('readStreak.today') : t('readStreak.days', { n: readStreak })}
-                </Text>
-              </View>
+              {/* v2.1：晨报连续阅读打卡（主 streak 已改挂晨报）
+                  2026-10-30：连续 0 天且今天还没读时**不渲染**。
+                  原来会显示「🔥 0 天连续」—— 0 天是负向状态，却配火焰和橙色，
+                  读起来像在庆祝；而且它和第 4 块那条打卡提示条挨着，两句都在催人做事。 */}
+              {todayRead || readStreak > 0 ? (
+                <View className={classnames(styles.readStreak, todayRead && styles.readStreakDone)}>
+                  <Text className={styles.readStreakFlame}>🔥</Text>
+                  <Text className={styles.readStreakText}>
+                    {todayRead ? t('readStreak.today') : t('readStreak.days', { n: readStreak })}
+                  </Text>
+                </View>
+              ) : null}
               {/* X8 连读徽章：连续打开晨报页 ≥2 天时展示（与有效阅读打卡相互独立） */}
               {briefStreak >= 2 ? (
                 <Text className={styles.streakBadge}>🔥 {t('briefing.streak', { n: briefStreak })}</Text>
@@ -1250,15 +1259,10 @@ function BriefingPage() {
         </View>
       ) : null}
 
-      {/* v2.1：今日尚未达成「有效阅读」时，给出达成门槛提示（避免用户不知为何没打卡） */}
-      {hasContent && !todayRead ? (
-        <View className={styles.readHintBar}>
-          <Text className={styles.readHintIcon}>🔥</Text>
-          <Text className={styles.readHintText}>
-            {t('readStreak.progressHint', { s: readMinSeconds, k: READ_MIN_SECTIONS })}
-          </Text>
-        </View>
-      ) : null}
+      {/* 2026-10-30：撤掉「再停留 30 秒、多看 2 个区块，即可达成今日阅读」提示条。
+          理由：那是产品的打卡指标，不是用户的目标 —— 人早上打开是「看看今天要干嘛」，
+          不是来完成阅读任务。它当时排在概览卡上方（首屏第 4 块），把情报又压低一屏。
+          打卡逻辑本身没动：进入页面停留即累计，达成后日期行会显示「今日已读晨报」。 */}
 
       {/* v2.1 习惯守护提示条：有自动挪动记录时展示，可查看 + 一键还原 */}
       <HabitGuardBar
@@ -1322,7 +1326,9 @@ function BriefingPage() {
         <View className={styles.contentFade}>
           {/* 深色概览卡（参考稿「今日概览」）：四个数字全部来自真实数据 —— 日程数、
               待办数、已完成待办、情报条数；睡眠/专注/省钱无数据源，一律不造假。
-              右上角胶囊：真有「已读完」状态（今日有效阅读打卡）才显示已读完，否则只显示条数。 */}
+              右上角胶囊：真有「已读完」状态（今日有效阅读打卡）才显示已读完，否则只显示条数。
+              2026-10-30：全 0 时不画这张卡（见 hasAnyPlan 注释），改成一行轻量说明。 */}
+          {hasAnyPlan ? (
           <View className={styles.overviewCard}>
             <View className={styles.overviewHead}>
               <Text className={styles.overviewTitle}>{t('briefing.sectionOverview')}</Text>
@@ -1359,6 +1365,13 @@ function BriefingPage() {
               </View>
             ) : null}
           </View>
+          ) : (
+            <View className={styles.overviewLean}>
+              <Text className={styles.overviewLeanText}>
+                {t('briefing.leanOverview', { n: intelCount })}
+              </Text>
+            </View>
+          )}
           {todaySchedule.length > 0 ? (
             <View className={styles.section}>
               <View className={styles.sectionHeader}>

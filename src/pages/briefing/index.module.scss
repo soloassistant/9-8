@@ -879,6 +879,22 @@
   border-radius: $radius-xl;
 }
 
+/* 没有日程和待办时替代深色四格卡的一行说明（2026-10-30）。
+   全 0 的四格卡会变成「用最重的底色说用户什么都没做」，这里退成一行浅色文字，
+   把版面让给今日情报。 */
+.overviewLean {
+  margin: 0 $page-padding $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-md;
+}
+
+.overviewLeanText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
 .overviewHead {
   display: flex;
   align-items: center;

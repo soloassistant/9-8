@@ -477,6 +477,21 @@
   margin-bottom: $spacing-md;
 }
 
+/* 分组标题（2026-10-30）：给「常用 / 设置」两块一个可扫的锚点。
+   字号刻意小、颜色用 secondary —— 它只负责分区，不该和卡片标题抢注意力。 */
+.groupLabel {
+  display: block;
+  margin: $spacing-lg $spacing-lg $spacing-sm;
+  font-size: $font-size-sm;
+  font-weight: 600;
+  color: $color-text-secondary;
+  letter-spacing: 0.08em;
+}
+
+.groupLabel:first-of-type {
+  margin-top: $spacing-md;
+}
+
 .cardTitle {
   display: block;
   font-size: $font-size-xs;
