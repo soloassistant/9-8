@@ -239,6 +239,12 @@ export interface ChatStreamResult {
   proposals?: unknown[]
   /** 模型要求写入的长期记忆条目（M-03；此前流式路径丢弃，H5 上记忆永不落库） */
   memories?: string[]
+  /** 动作载荷（2026-10-31）：batch 的 newEvents、done/reschedule 的 targetId、reschedule 的 newTime。
+   *  流式路径此前只回 {reply, action, proposals, memories}，payload 被丢掉 ⇒ 走流式时
+   *  「AI 说已经排好」依然写不进库。 */
+  targetId?: string | null
+  newTime?: string | null
+  newEvents?: unknown[]
 }
 
 /**
@@ -281,7 +287,15 @@ export async function chatCloudStream(
   await typewriter(res.reply, onDelta)
   // proposals/memories 一并透传：调用方（AiAssistant 流式分支）要靠它们
   // 与非流式降级路径汇合（方案卡片 + 记忆写入），此前只回 {reply, action} 等于丢弃。
-  return { reply: res.reply, action: res.action, proposals: res.proposals, memories: res.memories }
+  return {
+    reply: res.reply,
+    action: res.action,
+    proposals: res.proposals,
+    memories: res.memories,
+    targetId: res.targetId,
+    newTime: res.newTime,
+    newEvents: res.newEvents
+  }
 }
 
 /** H5 开发态兜底：本地 llm-proxy（8138）。chat → POST /，extract → POST /extract；

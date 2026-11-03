@@ -203,11 +203,18 @@ async function ev(expr) {
   const wsUrl = await cdp();
   ws = new globalThis.WebSocket(wsUrl);
   await new Promise((r) => (ws.onopen = r));
+  const llmResp = [];
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.id && pending.has(m.id)) { pending.get(m.id).res(m.result); pending.delete(m.id); }
+    if (m.id && pending.has(m.id)) { pending.get(m.id).res(m.result); pending.delete(m.id); return; }
+    // ASSISTANT 模式要抓云端 LLM 的真实状态码：降级提示只说「不可用」，
+    // 到底是 401（会话失效）、429（限额）还是超时，只有响应码能分辨。
+    if (process.env.ASSISTANT === '1' && m.method === 'Network.responseReceived' && /\.cloud\/llm/.test(m.params.response.url)) {
+      llmResp.push({ path: m.params.response.url.replace(BASE, ''), status: m.params.response.status });
+    }
   };
   await send('Page.enable');
+  if (process.env.ASSISTANT === '1') await send('Network.enable');
   await send('Runtime.enable');
 
   // 关键前置：让「这台设备已经看过引导」，但账号记录不存在
@@ -311,6 +318,46 @@ async function ev(expr) {
     fs.writeFileSync(path.join(process.cwd(), '.tmp-verify/onb-login-stuck.png'), Buffer.from(shot.data, 'base64'));
   }
   check('L3 真实登录成功（已离开登录页）', loggedIn.onLogin === false, JSON.stringify(loggedIn));
+
+  // ===== ASSISTANT 模式：登录后直接问 AI，看云端到底通不通 =====
+  if (process.env.ASSISTANT === '1') {
+    await send('Page.navigate', { url: `${BASE}/#/pages/assistant/index` });
+    await sleep(9000);
+    for (let i = 0; i < 5; i++) {
+      const gone = await ev(`(() => { const s = document.querySelector('[class*="__splash"]'); if (!s) return true; s.click(); return false; })()`);
+      if (gone === true) break;
+      await sleep(900);
+    }
+    const filled = await ev(`(() => {
+      const ins = [...document.querySelectorAll('input,textarea')].filter((i) => i.getBoundingClientRect().width > 40);
+      const el = ins[0];
+      if (!el) return 'no-input';
+      const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, '帮我记一条明天下午三点的会议');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return 'ok';
+    })()`);
+    await sleep(700);
+    await ev(`(() => {
+      const btns = [...document.querySelectorAll('taro-view-core,taro-text-core,div,button')]
+        .filter((e) => /发送/.test((e.textContent || '').trim()) && e.getBoundingClientRect().width > 20);
+      if (btns.length) btns[btns.length - 1].click();
+      return btns.length;
+    })()`);
+    await sleep(20000);
+    const aiView = JSON.parse(String(await ev(`(() => {
+      const t = (document.body.innerText || '').replace(/\\s+/g, ' ');
+      return JSON.stringify({
+        degraded: /云端功能暂不可用|本地演示数据/.test(t),
+        tail: t.slice(-150)
+      });
+    })()`)));
+    log('输入框:', filled);
+    log('云端 LLM 响应:', JSON.stringify(llmResp));
+    check('A1 云端 LLM 请求成功（有 2xx 响应，不是全部降级）',
+      llmResp.some((r) => r.status >= 200 && r.status < 300), JSON.stringify(llmResp));
+    check('A2 没有出现「本地演示数据」降级提示', aiView.degraded === false, aiView.tail);
+  }
 
   // 会话形状诊断：只打印**键名**与类型，不打印任何值（凭据/邮箱/uid 都不落日志）
   const shape = await ev(`(() => {

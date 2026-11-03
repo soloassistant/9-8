@@ -6,6 +6,7 @@ import Taro from '@tarojs/taro';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
 import { apiChat, apiChatStream, apiApplyPlan, apiGetBriefing } from '@/services/api';
+import { runAiAction } from '@/services/aiActionExec';
 import { bumpLocalUsage, canChat, getAiQuota } from '@/services/aiQuota';
 import { useT } from '@/store/language';
 import type { LangKey } from '@/store/language';
@@ -189,6 +190,34 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
     }
   }, []);
 
+  /** 执行模型给的动作并如实反馈（2026-10-31）。
+   *  设计取舍：
+   *   · `schedule`（排班建议）与 `shopping`（选购分析）不写库 —— 前者按提示词要求「先建议后确认」，
+   *     后者根本没有可写实体；这里返回 null 就直接跳过，不再补一句多余提示。
+   *   · 写失败必须 toast 出来，不能让用户以为成功了（与 apiTodoSetStatus 的「先写库再改 UI」同口径）。 */
+  const applyAiAction = useCallback(
+    async (res: { action?: string; targetId?: string | null; newTime?: string | null; newEvents?: unknown[] }) => {
+      const outcome = await runAiAction(res);
+      if (!outcome) return;
+      if (outcome.ok) {
+        if (outcome.kind === 'batch') {
+          Taro.showToast({ title: t('ai.act.batchSaved').replace('{n}', String(outcome.saved)), icon: 'success' });
+          void loadExistingEvents();
+        } else if (outcome.kind === 'done') {
+          Taro.showToast({ title: t('ai.act.todoDone'), icon: 'success' });
+        } else {
+          Taro.showToast({ title: t('ai.act.rescheduled'), icon: 'success' });
+        }
+        return;
+      }
+      const failedKey =
+        outcome.kind === 'batch' ? 'ai.act.batchFailed' : outcome.kind === 'done' ? 'ai.act.todoFailed' : 'ai.act.rescheduleFailed';
+      Taro.showToast({ title: t(failedKey), icon: 'none' });
+      console.warn('[AiAssistant] action not applied:', outcome.kind, outcome.reason);
+    },
+    [t, loadExistingEvents]
+  );
+
   /** 记忆写入 toast + 5s 撤销（M-03 / M-04）：撤销后写入抑制列表，本轮不再重复写入 */
   const memoryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showMemoryToast = useCallback((items: MemoryItem[]) => {
@@ -302,6 +331,9 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
             showMemoryToast(writeMemory(res.memories, 'chat', content));
           }
         }
+        // 动作执行（2026-10-31）：模型说「已经排好/已标记完成」时必须真的写进库。
+        // 放在两条回复路径汇合之后执行**一次**，避免流式与非流式各写一遍。
+        await applyAiAction(res);
       } catch (err) {
         console.error('[AiAssistant] chat failed:', err);
         push('assistant', t('ai.fallbackReply'));
@@ -309,7 +341,7 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
         setSending(false);
       }
     },
-    [sending, push, appendMsg, setMsgContent, patchMsg, removeMsg, loadExistingEvents, showMemoryToast, t]
+    [sending, push, appendMsg, setMsgContent, patchMsg, removeMsg, loadExistingEvents, showMemoryToast, applyAiAction, t]
   );
 
   /**
