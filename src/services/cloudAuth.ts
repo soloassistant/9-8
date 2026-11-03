@@ -192,21 +192,67 @@ function readGlobal(): CloudGlobal | null {
 }
 
 /** 等 CDN 脚本就绪：`<script>` 是异步加载的，首屏检查可能早于它完成。
- *  轮询而非事件，因为 IIFE 不提供 load 回调；上限 5s，超时按「SDK 不可用」处理。 */
-export function waitForSdk(timeoutMs = 5000): Promise<CloudGlobal | null> {
+ *  轮询而非事件，因为 IIFE 不提供 load 回调；超时按「SDK 不可用」处理。
+ *
+ *  ⚠️ 2026-10-30 改了上限与重试策略，根因是**发布网关的首字节长尾**：
+ *  真浏览器网络时间线实测，同一批并行请求里**单个**请求的首字节被卡了
+ *  20402ms / 23851ms / 30877ms，而其余请求只要 0.4–3 秒（长尾是**按请求**随机的，
+ *  不是「整个站都慢」）。SDK 那个请求一旦中招，5s 上限就会直接判「SDK 不可用」，
+ *  用户看到的是「登录服务没连上」——而后端其实好好的。
+ *  ⇒ 两处对策：
+ *    ① 超时从 5s 放宽到 8s（别在长尾里过早放弃）；
+ *    ② 过半还没到就**重新注入一次 <script>**（带 cache-busting 的 query）——
+ *       长尾按请求随机，换一个请求往往就快了，实测这是最有效的补救。 */
+export function waitForSdk(timeoutMs = 8000): Promise<CloudGlobal | null> {
   if (!H5) return Promise.resolve(null);
   const found = readGlobal();
   if (found) return Promise.resolve(found);
   return new Promise((resolve) => {
     const started = Date.now();
+    let retried = false;
     const timer = setInterval(() => {
       const g = readGlobal();
-      if (g || Date.now() - started > timeoutMs) {
+      if (g) {
         clearInterval(timer);
-        resolve(g || null);
+        resolve(g);
+        return;
+      }
+      const elapsed = Date.now() - started;
+      if (elapsed > timeoutMs) {
+        clearInterval(timer);
+        resolve(null);
+        return;
+      }
+      // 过半还没到：多半是那个请求被网关卡住了 ⇒ 重试一次（换一个请求）
+      if (!retried && elapsed > Math.min(2500, timeoutMs / 2)) {
+        retried = reinjectSdkScript();
       }
     }, 100);
   });
+}
+
+/** 找到页面上那个 SDK <script> 的**绝对**地址（复用同一份字节，别指到别的文件）。 */
+function findSdkScriptSrc(): string | null {
+  if (typeof document === 'undefined') return null;
+  const els = Array.from(document.querySelectorAll('script[src]')) as HTMLScriptElement[];
+  const hit = els.find((el) => /wb-sdk\.js(\?|$)/.test(el.src));
+  return hit ? hit.src : null;
+}
+
+/**
+ * 重新注入一次 SDK 脚本（2026-10-30）。
+ * 网关首字节长尾是**按请求**随机的 ⇒ 同一个 URL 换个 query 再请求一次通常就快。
+ * 用 cache-busting 的 query 是必须的：否则边缘可能把那一次卡住的响应直接缓存下来。
+ */
+function reinjectSdkScript(): boolean {
+  if (typeof document === 'undefined') return false;
+  const src = findSdkScriptSrc();
+  if (!src) return false;
+  const el = document.createElement('script');
+  el.async = true;
+  el.src = src + (src.includes('?') ? '&' : '?') + 'r=' + Date.now();
+  document.head.appendChild(el);
+  return true;
 }
 
 let client: CloudClient | null = null;

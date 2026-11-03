@@ -41,6 +41,11 @@ const BROWSER = new Map([
   ['verify-ledger-page.mjs', 'CDP 渲染后断言'],
   ['verify-login-consent.mjs', 'CDP 走同意弹窗'],
   ['verify-remember-login.mjs', 'CDP 走登录开关'],
+  // 2026-10-30 新增：发布后的**浏览器级**核验（`npm run publish:check`）。
+  // 它断言的是「线上真浏览器里界面到底挂没挂上、骨架退没退」——
+  // 这类事实**只有真浏览器能造出来**（Node 里没有 DOM、没有渲染、没有 elementFromPoint），
+  // 变异框架改不动它依赖的浏览器行为 ⇒ 归浏览器类豁免，不是"承认缺口"。
+  ['verify-publish-live.mjs', 'CDP 驱动真 Chrome 开线上入口，验 30s 内挂载 / 骨架退场 / 无横向溢出'],
 ]);
 
 // ── 承认的缺口：纯静态、可变异，但还没配。**上限锁死**，只许减不许增 ──
