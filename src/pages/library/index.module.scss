@@ -1053,6 +1053,17 @@
 // 关闭仍走详情里的「取消」按钮；Esc 由全局快捷键层处理。
 // ============================================================
 @media (min-width: 1024px) {
+  // 桌面：热点列表限宽居中（2026-11-03）。
+  // 根因在页面级而非外壳：外壳面板 1440 下已 1136、1920 下封顶 1200，
+  // 单列资讯卡跟着一直拉伸 —— 标题一行过长、封面被拉成宽幅条，比例失衡。
+  // 主内容收到 1100PX（大写 PX 逃过 pxtransform，与 briefing/inbox 同一手法）后
+  // 不再随窗口变宽，更宽时两侧留白。手机/平板两档面板本身 ≤976，max-width 不生效，零回归。
+  .page {
+    max-width: 1100PX;
+    margin: 0 auto;
+    box-sizing: border-box;
+  }
+
   .blockMask {
     background: transparent;
     pointer-events: none;
