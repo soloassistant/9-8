@@ -62,6 +62,8 @@ const TYPE_ICON_FALLBACK = '📄';
 
 const HISTORY_KEY = 'browseHistory';
 const HISTORY_LIMIT = 50;
+/** 最近搜索（设备本地，最多 3 条）。搜索词属于弱隐私，跨设备同步没有收益，故不进 SYNC_KEYS。 */
+const RECENT_SEARCH_KEY = 'library-search-history';
 const NEWS_FEEDBACK_KEY = 'newsFeedback';
 /** U-01 骨架屏延迟：加载超过该时长才显示骨架（防快速命中缓存时闪烁） */
 const SKELETON_DELAY_MS = 300;
@@ -249,6 +251,15 @@ function LibraryPage() {
   const [searching, setSearching] = useState(false);
   const [activeTag, setActiveTag] = useState('全部');
   const [keyword, setKeyword] = useState('');
+  /** 最近搜索（设备本地，最多 3 条）：搜索空态时给用户一个「再点一下就能搜」的起点 */
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try {
+      const v = Taro.getStorageSync(RECENT_SEARCH_KEY);
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()).slice(0, 3) : [];
+    } catch {
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(true);
   // U-01 骨架屏：首屏加载 >300ms 才显示 3 张资讯卡骨架
   const [showSkeleton, setShowSkeleton] = useState(false);
@@ -593,6 +604,17 @@ function LibraryPage() {
     return ['全部', ...[...cnt.entries()].sort((a, b) => b[1] - a[1]).map(([tg]) => tg)];
   }, [minorVisibleNews]);
 
+  /** 搜索空态的热门词：取当前热点里出现频次最高的 6 个标签。
+   *  不写死词表（写死会和当天内容脱节，点进去全是空结果）。 */
+  const hotSearchWords = useMemo(() => {
+    const cnt = new Map<string, number>();
+    for (const n of minorVisibleNews) for (const tg of n.tags) cnt.set(tg, (cnt.get(tg) || 0) + 1);
+    return [...cnt.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([tg]) => tg);
+  }, [minorVisibleNews]);
+
   const newsFiltered = useMemo(
     () =>
       minorVisibleNews.filter(
@@ -694,8 +716,8 @@ function LibraryPage() {
    *  点「清空」也不取消在途请求，旧结果会自己冒回来。 */
   const searchSeqRef = useRef(0);
 
-  const handleNewsSearch = async () => {
-    const kw = keyword.trim();
+  const handleNewsSearch = async (raw?: string) => {
+    const kw = (raw ?? keyword).trim();
     // 先占号：此后任何新搜索或清空都会让本次请求作废
     const seq = ++searchSeqRef.current;
     if (!kw) {
@@ -703,6 +725,16 @@ function LibraryPage() {
       setSearchResults([]);
       return;
     }
+    // 2026-11-03：记住最近 3 次搜索（设备本地，不进云同步），空态时一键复搜。
+    setRecentSearches((prev) => {
+      const next = [kw, ...prev.filter((x) => x !== kw)].slice(0, 3);
+      try {
+        Taro.setStorageSync(RECENT_SEARCH_KEY, next);
+      } catch (err) {
+        console.warn('[library] save recent searches failed:', err);
+      }
+      return next;
+    });
     setSearchMode(true);
     setSearching(true);
     const online = await apiNewsSearch(kw);
@@ -1455,11 +1487,48 @@ function LibraryPage() {
             <Text className={styles.disclaimerText}>{t('common.disclaimer')}</Text>
           </View>
           {searchMode && !searching && searchResults.length === 0 ? (
-            <EmptyState
-              icon='🔎'
-              title={t('library.searchEmpty')}
-              hint={t('library.searchEmptyHint')}
-            />
+            <>
+              <EmptyState
+                icon='🔎'
+                title={t('library.searchEmpty')}
+                hint={t('library.searchEmptyHint')}
+              />
+              {/* 2026-11-03：空态不再只有一行占位文案 —— 给最近搜索与当天热门词，点一下即搜。 */}
+              <View className={styles.searchSuggest}>
+                {recentSearches.length > 0 ? (
+                  <>
+                    <Text className={styles.searchSuggestTitle}>{t('library.recentSearches')}</Text>
+                    <View className={styles.searchSuggestRow}>
+                      {recentSearches.map((kw) => (
+                        <Text
+                          key={`recent-${kw}`}
+                          className={styles.searchSuggestChip}
+                          onClick={() => void handleNewsSearch(kw)}
+                        >
+                          {kw}
+                        </Text>
+                      ))}
+                    </View>
+                  </>
+                ) : null}
+                {hotSearchWords.length > 0 ? (
+                  <>
+                    <Text className={styles.searchSuggestTitle}>{t('library.hotWords')}</Text>
+                    <View className={styles.searchSuggestRow}>
+                      {hotSearchWords.map((kw) => (
+                        <Text
+                          key={`hot-${kw}`}
+                          className={styles.searchSuggestChip}
+                          onClick={() => void handleNewsSearch(kw)}
+                        >
+                          {kw}
+                        </Text>
+                      ))}
+                    </View>
+                  </>
+                ) : null}
+              </View>
+            </>
           ) : null}
         </View>
       ) : null}

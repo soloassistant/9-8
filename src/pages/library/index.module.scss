@@ -619,6 +619,37 @@
 }
 
 /* L3：资讯列表免责页脚（次级色、小号、居中） */
+/* 2026-11-03：搜索空态的建议区（最近搜索 + 热门词）—— 点击即搜 */
+.searchSuggest {
+  padding: 0 $page-padding $spacing-lg;
+}
+
+.searchSuggestTitle {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.searchSuggestRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+}
+
+.searchSuggestChip {
+  min-height: 72rpx;
+  padding: 0 $spacing-md;
+  display: inline-flex;
+  align-items: center;
+  border-radius: $radius-button;
+  background: $color-bg-card;
+  border: 1rpx solid $color-border;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
 .disclaimerFooter {
   margin: $spacing-sm $page-padding $spacing-md;
 }
