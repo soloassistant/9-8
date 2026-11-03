@@ -320,6 +320,26 @@
   z-index: 1000;
 }
 
+/* 2026-11-03：桌面端分类弹层同样要让开自绘左栏。
+   .mask 是 fixed，但壳层左栏 z-index 更高、且不透明 —— 弹层左段被压在导航下，
+   分类按钮的头两个（餐饮/交通，以及用户自建分类）实际看不见也点不到。
+   分档与 .addBar / app.scss 左栏宽度保持一致。 */
+@media (min-width: 600px) {
+  .mask {
+    left: 64PX;
+  }
+}
+@media (min-width: 748px) {
+  .mask {
+    left: 232PX;
+  }
+}
+@media (min-width: 1200px) {
+  .mask {
+    left: 240PX;
+  }
+}
+
 .sheet {
   width: 100%;
   max-height: 76vh;
