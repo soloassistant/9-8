@@ -22,9 +22,15 @@ export function getHotspotMeta(): HotspotMeta | null {
 }
 
 /** ── 降级登记表（诚实性，2026-10-12）─────────────────────────────────────
- *  H5 端多数云函数**没有可用的 RPC 通道**（services/dataSource.ts 的 RPC_ALLOWLIST 只放行
- *  webSearch / chat / extract），拿不到就走 src/data/* 的本地实现；chat/extract 的本地 LLM 代理
- *  也只在本机开发时存在。此前这一步是**静默**的：用户看到的是本地/演示数据，却以为来自云端。
+ *  H5 端多数云函数**没有可用的 RPC 通道**（services/dataSource.ts 的 RPC_ALLOWLIST
+ *  **当前为空** —— 应用数据库里没有任何面向客户端的 PG 函数），拿不到就走 src/data/* 的
+ *  本地实现；chat/extract 的本地 LLM 代理也只在本机开发时存在。此前这一步是**静默**的：
+ *  用户看到的是本地/演示数据，却以为来自云端。
+ *
+ *  ⚠️ 2026-10-31 修正本注释的过时事实：原文写「RPC_ALLOWLIST 只放行 webSearch / chat / extract」——
+ *    `webSearch` 已于 2026-10-30 摘除，`chat` / `extract` 也于 2026-10-31 摘除
+ *    （线上探针：public.chat / public.extract 均 PGRST202「不存在」）。
+ *    注释不是事实，探针才是 —— 写在这里免得下一个人又照着旧注释去加名字。
  *
  *  这里把「哪些 action 发生了降级」登记成模块级状态，供 UI 订阅后如实提示。
  *  ⚠️ 必须**可复位**：真实路径成功时清掉对应条目（clearDegraded），否则一次降级会永久显示提示。 */

@@ -104,8 +104,17 @@ function extractConstExpr(src, name) {
 /* ───────────── A. 跨运行时白名单：PG 函数不存在 ⇒ 不许放行 ───────────── */
 const dataSourceRaw = read('src/services/dataSource.ts');
 const dataSource = stripJsComments(dataSourceRaw);
-const allowlistMatch = dataSource.match(/const RPC_ALLOWLIST = new Set\(\[([^\]]*)\]\)/);
+// ⚠️ 2026-10-31：白名单被清空成 `new Set<string>([])`（TS 泛型带在字面量里），
+//   原来的 `/new Set\(\[([^\]]*)\]\)/` 匹配不上 ⇒ allowlistMatch=null ⇒ A1 直接假红。
+//   现在用容错正则：`[^=]*` 吃掉 `: Set<string>` 这类类型标注，
+//   `(?:<[^>]*>)?` 吃掉 `new Set<...>` 的泛型参数。
+const allowlistMatch = dataSource.match(/const RPC_ALLOWLIST[^=]*=\s*new Set(?:<[^>]*>)?\(\s*\[([\s\S]*?)\]\s*\)/);
 const allowlist = allowlistMatch ? allowlistMatch[1] : '';
+
+/** 这些名字是**微信云函数**（cloudfunctions/ 下有同名目录），应用数据库里**没有**同名 PG 函数。
+ *  线上匿名探针实测（2026-10-31）全部返回 PGRST202「Could not find the function public.X」。
+ *  放进白名单 = 给 H5 开一扇通往不存在函数的门 ⇒ 每次调用白发一发 404。 */
+const WECHAT_ONLY_FN = ['webSearch', 'chat', 'extract', 'newsFeedback', 'feedback', 'getBriefing', 'shopping'];
 
 assert(
   'A1 RPC_ALLOWLIST 里没有 webSearch（应用库无此 PG 函数，放行=每次白发一发 404）',
@@ -113,8 +122,16 @@ assert(
   `allowlist = ${allowlist.trim() || '(解析失败)'}`
 );
 assert(
-  'A2 RPC_ALLOWLIST 仍保留 chat / extract（不得把整张表清空）',
-  /['"]chat['"]/.test(allowlist) && /['"]extract['"]/.test(allowlist)
+  'A2 RPC_ALLOWLIST 里没有任何「只有微信云函数、应用库无同名 PG 函数」的名字（2026-10-31 改判据：' +
+    '改前是「仍保留 chat / extract」，那是错的 —— 它们在应用库里是**不存在**，不是「存在但被拒」；' +
+    '留着不会炸，但会给人「已放行」的假安全感，新调用点就会白发 404）',
+  !!allowlistMatch && WECHAT_ONLY_FN.every((n) => !new RegExp(`['"]${n}['"]`).test(allowlist)),
+  `命中：${WECHAT_ONLY_FN.filter((n) => new RegExp(`['"]${n}['"]`).test(allowlist)).join(',') || '(无)'}`
+);
+assert(
+  'A3 白名单当前为空 —— 应用数据库侧没有任何面向客户端的 PG 函数（H5 的用户数据读写走 cloudDb.ts 的 db.rpc，不经本闸）',
+  !!allowlistMatch && !/['"][^'"]+['"]/.test(allowlist),
+  `allowlist = ${allowlist.trim() || '(空)'}`
 );
 
 const apiTs = stripJsComments(read('src/services/api.ts'));

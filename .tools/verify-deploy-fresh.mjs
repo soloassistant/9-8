@@ -177,6 +177,61 @@ check(
   hot ? `${hot.items.length} 条` : '缺失/不可解析'
 );
 
+// ⚠️ 2026-10-31 新增 D2/D3/D4。D1 只判「有数据」，判不出**数据好不好**：
+//   回归闸（fetch-data 的 guardRegression）只看**条数**，不看配图、不看新鲜度。
+//   实测过这两种形态：
+//     · 条数正常、配图 0/412（0.0%）—— 那种快照当时真的发上过线。
+//     · 条数正常、但整份快照是一周前的 —— 页面上写的是「今日热点」。
+//   ⇒ 发布前必须额外判「配图覆盖率」与「新鲜度」，否则「有数据」会被读成「数据可用」。
+const HOT_IMAGE_MIN_RATIO = 0.2; // 配图覆盖率下限（实测当前 43.5%）
+const HOT_MAX_AGE_MS = 72 * 60 * 60 * 1000; // 快照最大年龄：72 小时（三次连续源全挂才会触发）
+{
+  const items = hot && Array.isArray(hot.items) ? hot.items : [];
+  const withImg = items.filter((it) => it && typeof it.image === 'string' && it.image.startsWith('http')).length;
+  const ratio = items.length ? withImg / items.length : 0;
+  check(
+    'D2 热点数据的配图覆盖率达标（防「条数正常但整页没图」的降级快照被发布）',
+    items.length > 0 && ratio >= HOT_IMAGE_MIN_RATIO,
+    `${withImg}/${items.length} = ${(ratio * 100).toFixed(1)}%（下限 ${(HOT_IMAGE_MIN_RATIO * 100).toFixed(0)}%）`
+  );
+}
+{
+  const ts = hot && typeof hot.updatedAt === 'string' ? Date.parse(hot.updatedAt) : NaN;
+  const ageMs = Number.isFinite(ts) ? Date.now() - ts : NaN;
+  check(
+    'D3 热点数据不陈旧（updatedAt 在 72 小时内；页面上写的是「今日热点」，一周前的快照是谎话）',
+    Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= HOT_MAX_AGE_MS,
+    Number.isFinite(ts)
+      ? `updatedAt=${hot.updatedAt}（${(ageMs / 3600000).toFixed(1)} 小时前）`
+      : '缺 updatedAt 或不可解析'
+  );
+}
+{
+  // 状态标记：构建流程用 `fetch-data --status` 写下「本次到底写没写」。
+  // 写了=false 是**正常且正确**的（回归闸拒绝覆盖 = 保住了好数据），
+  // 但那时产物里是**旧快照** ⇒ 必须仍在新鲜窗内，否则就是「拿旧数据冒充新数据」。
+  let st = null;
+  try {
+    st = JSON.parse(fs.readFileSync(path.join(DIST, 'api', 'hotspot.status.json'), 'utf8'));
+  } catch {
+    st = null;
+  }
+  const ts = hot && typeof hot.updatedAt === 'string' ? Date.parse(hot.updatedAt) : NaN;
+  const ageMs = Number.isFinite(ts) ? Date.now() - ts : NaN;
+  const freshEnough = Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= HOT_MAX_AGE_MS;
+  if (!st) {
+    check('D4 热点数据的状态标记（无标记文件 = 本次构建没走 --status 流程）', true, '未提供状态文件，跳过');
+  } else if (st.written === true) {
+    check('D4 热点数据的状态标记（本次已写入新数据）', true, `written=true count=${st.count} at=${st.at || '?'}`);
+  } else {
+    check(
+      'D4 未写入新数据时，沿用的旧快照必须仍在 72 小时新鲜窗内（否则等于拿旧数据冒充新数据）',
+      freshEnough,
+      `reason=${st.reason || '(未记录)'} count=${st.count ?? '?'}；沿用快照 ${Number.isFinite(ageMs) ? (ageMs / 3600000).toFixed(1) + ' 小时前' : '年龄未知'}`
+    );
+  }
+}
+
 // —— E. 发布目录专属（--publish 模式）——
 // 这一组存在的理由：上面 A–D 验的是**仓库 dist**，而用户拿到的是**发布目录**那份。
 // 实测事故：产物里两个 `id="app"` ⇒ Taro 取第一个、真正的挂载点留在 body 当一屏高空壳

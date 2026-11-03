@@ -1129,7 +1129,10 @@ function MinePage() {
   return (
     <View className={styles.page} style={brandVars(theme)}>
       {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
-      <DemoDataHint actions={['updateSettings', 'getUsage', 'deleteAccount']} />
+      {/* 2026-10-30：去掉 'getUsage' —— 它在 cloud.ts 的 REAL_LOCAL_ACTIONS 里
+          （H5 回退读的是**真实本地**用量计数，不是演示数据）⇒ 永不登记降级，
+          写在横幅清单里只是死配置，还会让人误以为「额度会降级」。 */}
+      <DemoDataHint actions={['updateSettings', 'deleteAccount']} />
       {/* 跨设备同步冲突（本机未上传的修改 vs 云端较新版本）：未裁决前挂着，不静默丢数据 */}
       <SyncConflictHint />
       <View className={styles.userCard}>
