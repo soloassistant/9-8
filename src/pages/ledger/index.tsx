@@ -331,6 +331,25 @@ function LedgerPage() {
         <Text className={styles.backIcon}>‹</Text>
         <Text className={styles.backText}>{t('common.back')}</Text>
       </View>
+      {/* 2026-11-03：首屏第一眼必须是「能记账」。
+          原顺序把 198px 高的 AI 月度点评放在最上面，录入区固定在底部，
+          用户打开记账页看到的第一屏是点评而不是输入框。
+          现在把「金额输入 + 分类」提到点评卡之前，记账按钮固定在右下拇指区。 */}
+      <View className={styles.entryCard}>
+        <Input
+          className={styles.entryInput}
+          type='digit'
+          value={amount}
+          placeholder={t('ledger.amountPlaceholder')}
+          focus={false}
+          nativeProps={{ inputMode: 'decimal' }}
+          onInput={(e) => setAmount(e.detail.value)}
+        />
+        <Button className={styles.entryCatBtn} onClick={() => setSheetOpen(true)}>
+          {pickedCategory ? resolveCategory(categories, pickedCategory).name : t('ledger.pickCategory')}
+        </Button>
+      </View>
+
       {/* AI 月度消费点评（2026-10-31，产品评估 §7.2 D）：自包含组件，吃当前 entries */}
       <MonthReview entries={entries} />
       <View className={styles.head}>
@@ -460,25 +479,11 @@ function LedgerPage() {
         </View>
       )}
 
-      {/* 录入区：金额输入 + 分类选择 + 记账 */}
-      <View className={styles.addBar}>
-        <Input
-          className={styles.addInput}
-          type='digit'
-          value={amount}
-          placeholder={t('ledger.amountPlaceholder')}
-          focus={false}
-          // 2026-11-03：金额键盘应带小数点（H5 走 inputmode=decimal；小程序忽略 nativeProps）
-          nativeProps={{ inputMode: 'decimal' }}
-          onInput={(e) => setAmount(e.detail.value)}
-        />
-        <Button className={styles.addBtn} onClick={() => setSheetOpen(true)}>
-          {pickedCategory ? resolveCategory(categories, pickedCategory).name : t('ledger.pickCategory')}
-        </Button>
-        <Button className={styles.addBtn} onClick={() => void submit()}>
-          {t('ledger.record')}
-        </Button>
-      </View>
+      {/* 记账主按钮：固定在右下拇指区（距底 96px、直径 56px），滚动时不隐藏。
+          金额与分类在页面顶部，按钮始终可达，不必滚回底部再提交。 */}
+      <Button className={styles.fab} onClick={() => void submit()}>
+        {t('ledger.record')}
+      </Button>
 
       {sheetOpen ? (
         <View className={styles.mask} onClick={() => setSheetOpen(false)}>

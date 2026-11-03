@@ -31,7 +31,9 @@
 .page {
   min-height: 100vh;
   background: $color-bg-page;
-  padding-bottom: calc(#{180rpx} + env(safe-area-inset-bottom));
+  /* 2026-11-03：记账主按钮改为固定右下 FAB（距底 96px、直径 56px），
+     页面底部留白需 ≥152px，否则最后一行会滚进按钮下面。 */
+  padding-bottom: calc(173PX + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -259,44 +261,21 @@
   color: var(--brand-deep, #{$color-primary-dark});
 }
 
-/* 录入区 */
-.addBar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+/* 首屏录入区（2026-11-03）：金额 + 分类在页面顶部，不再固定在底部。
+   原来固定底条把首屏让给 AI 点评，用户必须先看点评才够得着输入框。 */
+.entryCard {
   display: flex;
   gap: $spacing-sm;
   align-items: center;
-  padding: $spacing-sm $page-padding calc(#{$spacing-sm} + env(safe-area-inset-bottom));
-  background: rgba(255, 255, 255, 0.96);
-  border-top: 1rpx solid $color-border;
-  backdrop-filter: blur(12rpx);
+  padding: $spacing-md;
+  margin-bottom: $spacing-md;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
 }
 
-/* 2026-10-30：桌面端把底条让开自绘左栏。
-   它原来写 left:0 + right:0 横跨整个视口，在 ≥600px 会伸到左栏下面
-   （1440 巡检长期报「addBar 压 nav 17%」）—— 左栏 z-index 更高所以没穿帮，
-   但底条的左段其实被压在导航底下，属实地错位。分档与 app.scss 的壳层一致。 */
-@media (min-width: 600px) {
-  .addBar {
-    left: 64PX;
-  }
-}
-@media (min-width: 748px) {
-  .addBar {
-    left: 232PX;
-  }
-}
-@media (min-width: 1200px) {
-  .addBar {
-    left: 240PX;
-  }
-}
-
-.addInput {
+.entryInput {
   flex: 1;
-  /* 2026-11-03：与 44px 触控下限对齐（80rpx=41.6px 会裁掉 44px 的内层 input）。 */
   height: 88rpx;
   padding: 0 $spacing-sm;
   border-radius: $radius-button;
@@ -306,17 +285,41 @@
   box-sizing: border-box;
 }
 
-.addBtn {
+.entryCatBtn {
   @include button-reset;
   width: auto; //覆盖 taro-button-core 默认 width:100%，否则挤掉输入框
   height: 88rpx;
   padding: 0 $spacing-lg;
   border-radius: $radius-button;
-  background: var(--brand-strong, #{$color-primary-strong}); // 白字 4.95:1（原 --brand 白字 2.59:1）
-  color: #fff;
+  /* 浅橙底 #fff1e9 + 品牌深色文字 = 4.69:1（--brand-soft 的 #ffa06b 只有 2.6:1）。 */
+  background: #fff1e9;
+  color: var(--brand-strong, #{$color-primary-strong});
   font-size: $font-size-md;
   font-weight: $font-weight-medium;
   flex-shrink: 0;
+}
+
+/* 记账主按钮：固定右下拇指区，距底 96px、直径 56px，滚动时不隐藏。
+   z-index 高于内容、低于分类弹层（1000）。 */
+.fab {
+  @include button-reset;
+  position: fixed;
+  right: 32rpx;
+  bottom: calc(96PX + env(safe-area-inset-bottom));
+  width: 56PX;
+  height: 56PX;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-strong, #{$color-primary-strong}); // 白字 4.95:1
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: $font-weight-semibold;
+  line-height: 1.2;
+  box-shadow: 0 8PX 20PX rgba(199, 55, 26, 0.28);
+  z-index: 60;
 }
 
 /* 分类选择弹层 */
