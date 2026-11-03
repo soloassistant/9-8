@@ -15,7 +15,8 @@ import {
   apiLedgerInit,
   apiLedgerRemove,
   apiLedgerRemoveCategory,
-  apiLedgerSaveBudget
+  apiLedgerSaveBudget,
+  apiLedgerUpdate
 } from '@/services/api';
 import type { LedgerBudget, LedgerCategory, LedgerEntry, LedgerKind } from '@/types';
 import {
@@ -68,6 +69,8 @@ function LedgerPage() {
   const [exportBusy, setExportBusy] = useState(false);
   /** 预算编辑弹窗：记录正在编辑哪一档，null = 关闭 */
   const [budgetEdit, setBudgetEdit] = useState<'daily' | 'monthly' | null>(null);
+  /** 2026-11-03：正在编辑的账目 id。点行进入编辑，金额/分类回填到首屏录入区，FAB 变成「保存」。 */
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     apiLedgerInit();
@@ -109,6 +112,20 @@ function LedgerPage() {
     []
   );
 
+  /** 点行进入编辑：回填金额/分类/方向到首屏录入区；删除改由行尾独立按钮触发。 */
+  const beginEdit = useCallback((e: LedgerEntry) => {
+    setEditingId(e.id);
+    setAmount(String(e.amount));
+    setTab(e.kind);
+    setPickedCategory(e.categoryId);
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingId(null);
+    setAmount('');
+    setPickedCategory('');
+  }, []);
+
   const submit = useCallback(async () => {
     const n = Number(amount);
     if (!Number.isFinite(n) || n <= 0) {
@@ -117,6 +134,19 @@ function LedgerPage() {
     }
     if (!pickedCategory) {
       Taro.showToast({ title: t('ledger.pickCategory'), icon: 'none' });
+      return;
+    }
+    if (editingId) {
+      const updated = await apiLedgerUpdate(editingId, { amount: n, categoryId: pickedCategory });
+      if (!updated) {
+        Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+        return;
+      }
+      setEditingId(null);
+      setAmount('');
+      setPickedCategory('');
+      await reload();
+      Taro.showToast({ title: t('ledger.edited'), icon: 'success' });
       return;
     }
     const created = await apiLedgerAdd({ amount: n, kind: tab, categoryId: pickedCategory });
@@ -134,7 +164,7 @@ function LedgerPage() {
     } else {
       Taro.showToast({ title: t('ledger.added'), icon: 'success' });
     }
-  }, [amount, pickedCategory, tab, today, reload, t]);
+  }, [amount, pickedCategory, tab, today, reload, t, editingId]);
 
   const remove = useCallback(
     (id: string) => {
@@ -348,6 +378,11 @@ function LedgerPage() {
         <Button className={styles.entryCatBtn} onClick={() => setSheetOpen(true)}>
           {pickedCategory ? resolveCategory(categories, pickedCategory).name : t('ledger.pickCategory')}
         </Button>
+        {editingId ? (
+          <Text className={styles.editCancel} onClick={cancelEdit}>
+            {t('ledger.editCancel')}
+          </Text>
+        ) : null}
       </View>
 
       {/* AI 月度消费点评（2026-10-31，产品评估 §7.2 D）：自包含组件，吃当前 entries */}
@@ -461,7 +496,11 @@ function LedgerPage() {
               {list.map((e) => {
                 const cat = resolveCategory(categories, e.categoryId);
                 return (
-                  <View key={e.id} className={styles.row} onClick={() => remove(e.id)}>
+                  <View
+                    key={e.id}
+                    className={editingId === e.id ? `${styles.row} ${styles.rowEditing}` : styles.row}
+                    onClick={() => beginEdit(e)}
+                  >
                     <Text className={styles.rowIcon}>{cat.icon}</Text>
                     <View className={styles.rowMain}>
                       <Text className={styles.rowTitle}>{cat.name}</Text>
@@ -470,6 +509,16 @@ function LedgerPage() {
                     <Text className={e.kind === 'income' ? `${styles.rowAmount} ${styles.rowAmountIncome}` : styles.rowAmount}>
                       {e.kind === 'income' ? '+' : '-'}
                       {formatMoney(e.amount)}
+                    </Text>
+                    {/* 2026-11-03：点行改为编辑，删除保留在行尾独立按钮（仍走二次确认），避免误触丢账。 */}
+                    <Text
+                      className={styles.rowDelete}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        remove(e.id);
+                      }}
+                    >
+                      {t('common.delete')}
                     </Text>
                   </View>
                 );
@@ -482,7 +531,7 @@ function LedgerPage() {
       {/* 记账主按钮：固定在右下拇指区（距底 96px、直径 56px），滚动时不隐藏。
           金额与分类在页面顶部，按钮始终可达，不必滚回底部再提交。 */}
       <Button className={styles.fab} onClick={() => void submit()}>
-        {t('ledger.record')}
+        {editingId ? t('ledger.editSave') : t('ledger.record')}
       </Button>
 
       {sheetOpen ? (
