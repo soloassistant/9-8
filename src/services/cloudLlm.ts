@@ -189,6 +189,28 @@ const CLOUD_LLM_TIMEOUT_MS = 60_000;
 const CLOUD_LLM_COOLDOWN_MS = 30_000;
 let cloudLlmCooldownUntil = 0;
 
+/** 最近一次 chat 失败的类型（供 UI 给出「断网/超时/鉴权/服务端」可读文案）。
+ *  2026-11-03：此前所有失败都只 console.warn + 返回 null，UI 拿不到原因，
+ *  只能统一回一句模板话术 —— 这正是「静默降级、假装作答」的入口之一。 */
+export type ChatFailureKind = 'timeout' | 'auth' | 'server' | 'network' | 'empty' | 'unknown';
+let lastChatFailure: ChatFailureKind | null = null;
+export function getLastChatFailure(): ChatFailureKind | null {
+  return lastChatFailure;
+}
+/** 发送前清空：一次旧失败不能污染下一次请求的文案 */
+export function clearLastChatFailure(): void {
+  lastChatFailure = null;
+}
+
+/** 错误串 → 可解释的失败类型（只做保守匹配，不猜 HTTP 细节） */
+function classifyChatError(err: unknown): ChatFailureKind {
+  const s = String((err as Error)?.message || err || '').toLowerCase();
+  if (/timeout|timed out|abort/.test(s)) return 'timeout';
+  if (/401|403|invalid_grant|unauthenticated|session.*expired/.test(s)) return 'auth';
+  if (/\b5\d\d\b|server error|bad gateway|gateway|unavailable/.test(s)) return 'server';
+  return 'network';
+}
+
 export interface CloudLlmChatOpts {
   /** 系统提示（调用方用 pickSystemPrompt 选；空值直接拒绝 —— system 必须在 messages[0]） */
   system: string;
@@ -240,13 +262,18 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
   if (Date.now() < cloudLlmCooldownUntil) {
     // 熔断期内：不重复打一个刚卡死过的服务端。兜底链照常走，用户侧有降级提示。
     console.warn('[cloudLlm] cooldown after recent failure, skip cloud call');
+    if (!lastChatFailure) lastChatFailure = 'network';
     return null;
   }
   const llm = await getCloudLlm();
-  if (!llm) return null;
+  if (!llm) {
+    lastChatFailure = 'unknown';
+    return null;
+  }
   const model = await pickModel();
   if (!model) {
     console.warn('[cloudLlm] no selectable model (empty or all-disabled directory)');
+    lastChatFailure = 'server';
     return null;
   }
   const messages: LlmMessage[] = [
@@ -289,7 +316,11 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
         timer = setTimeout(() => reject(new Error(`cloud.llm stream timeout after ${CLOUD_LLM_TIMEOUT_MS}ms`)), CLOUD_LLM_TIMEOUT_MS);
       })
     ]);
-    if (!text) return null;
+    if (!text) {
+      lastChatFailure = 'empty';
+      return null;
+    }
+    lastChatFailure = null;
     // 记账只计**成功完成**的调用：失败attempt不耗用户免费额度（网络抖动不该扣配额）
     // ⚠️ catch 里必须 console.error 留痕：原先 `.catch(() => {})` 完全吞掉，而
     // llmEventInsert 内部的痕迹只有 console.warn（生产构建会被剔除）——记账失败
@@ -300,6 +331,7 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
     return text;
   } catch (err) {
     console.warn('[cloudLlm] stream failed:', err);
+    lastChatFailure = classifyChatError(err);
     if (isAuthError(err)) {
       // 认证失败 ≠ 服务端不稳：清掉死会话后**立刻重试一次**（匿名身份可用），
       // 不进熔断 —— 否则一次 401 会让 AI 哑 60 秒，用户看到的就是「提示演示数据」。
@@ -307,11 +339,16 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
       cloudLlmCooldownUntil = 0;
       try {
         const retried = await collect();
-        if (retried) return retried;
+        if (retried) {
+          lastChatFailure = null;
+          return retried;
+        }
         console.warn('[cloudLlm] retry after session repair returned empty');
+        lastChatFailure = 'empty';
         return null;
       } catch (e2) {
         console.warn('[cloudLlm] retry after session repair failed:', e2);
+        lastChatFailure = 'auth';
         return null;
       }
     }

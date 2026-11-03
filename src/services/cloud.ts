@@ -77,6 +77,11 @@ export function getDegradedActions(): string[] {
   return Array.from(degradedActions)
 }
 
+/** 单个 action 是否处于降级（如 H5 chat 落到本地模板） */
+export function isDegraded(name: string): boolean {
+  return degradedActions.has(name)
+}
+
 /** 订阅降级变化：订阅时**立即回调一次当前快照**，返回取消订阅函数（可直接作为 useEffect 的 cleanup） */
 export function subscribeDegraded(cb: (actions: string[]) => void): () => void {
   degradedListeners.add(cb)

@@ -234,6 +234,39 @@
   color: $color-text-tertiary;
 }
 
+/* 诚实性标识（2026-11-03）：本地模板回复 / 失败原因 + 重试。
+   用 warn 色而不是禁用灰 —— 必须让用户一眼看到「这不是正常 AI 回答」。 */
+.msgNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  margin-top: $spacing-xs;
+  padding-top: $spacing-xs;
+  border-top: 1rpx dashed $color-border;
+}
+
+.msgNoticeText {
+  flex: 1;
+  font-size: $font-size-xs;
+  color: #b45309;
+  line-height: $line-height-normal;
+}
+
+.msgRetry {
+  flex-shrink: 0;
+  padding: 4rpx $spacing-md;
+  border-radius: $radius-round;
+  border: 1rpx solid #b45309;
+  background: $color-bg-card;
+}
+
+.msgRetryText {
+  font-size: $font-size-xs;
+  color: #b45309;
+  font-weight: $font-weight-medium;
+}
+
 .inputRow {
   display: flex;
   align-items: center;
