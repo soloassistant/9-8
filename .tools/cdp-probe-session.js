@@ -46,6 +46,30 @@
     },
   };
 
+  // ⚠️ 查询构造器必须是**可链式且可 await 的 thenable**，而且要能扛住任意链式方法。
+  //    历史：第一版 `select: () => Promise.resolve(...)` → `.select().order()` 直接抛
+  //    "order is not a function"；补了 order/eq 之后又冒出 `.abortSignal()`、`.gte()`。
+  //    这类洞是**无穷的**（SDK 每加一个过滤方法就再红一次），所以改用 Proxy：
+  //    除了显式列出的终态方法，任何未知方法名都返回 api 自身，链式调用永远成立。
+  //    桩造的假红比没有测试更糟 —— 它会让人去改本来没坏的代码。
+  function makeQuery() {
+    var payload = Promise.resolve({ data: [], error: null, count: 0 });
+    var api = new Proxy({}, {
+      get: function (_, prop) {
+        if (prop === 'then') return function (a, b) { return payload.then(a, b); };
+        if (prop === 'catch') return function (b) { return payload.catch(b); };
+        if (prop === 'finally') return function (f) { return payload.finally(f); };
+        // 终态：返回结果本身
+        if (prop === 'single' || prop === 'maybeSingle') return function () { return payload; };
+        if (prop === 'insert' || prop === 'upsert') return function () { return payload; };
+        if (prop === 'abortSignal') return function () { return api; };
+        // 其余任何方法：继续可链式
+        return function () { return api; };
+      }
+    });
+    return api;
+  }
+
   var database = {
     rpc: function (fn) {
       window.__PROBE_RPC__ = (window.__PROBE_RPC__ || []);
@@ -53,9 +77,7 @@
       return Promise.resolve([]);
     },
     from: function () {
-      return {
-        select: function () { return Promise.resolve({ data: [], error: null }); },
-      };
+      return makeQuery();
     },
   };
 

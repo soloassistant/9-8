@@ -57,6 +57,7 @@ export function isBad(code, fails) {
 // 需要真 Chrome（起浏览器、慢、且 CI 里另开阶段跑）。
 const BROWSER = new Map([
   ['verify:layout', 'cdp-probe 驱动真 Chrome 量布局'],
+  ['verify:routes', 'cdp-probe 驱动真 Chrome 把 19 个路由 × 3 档视口全渲染一遍'],
   ['verify:visual', 'cdp-probe 驱动真 Chrome 跑视觉巡检'],
   ['verify:compress', 'cdp-probe 驱动真 Chrome 验头像压缩（canvas 位图，jsdom 测不了）'],
   ['verify:hotkeys-live', 'cdp-probe 驱动真 Chrome 在 dist 上按一遍快捷键（合成 keydown + 真实事件路径）'],
@@ -136,6 +137,7 @@ function parseCounts(out) {
 const CI_EXEMPT = new Map([
   ['verify:all', '自身，CI 里没有递归跑的必要'],
   ['verify:layout', '需真 Chrome，CI 不跑浏览器门禁'],
+  ['verify:routes', '同上（真 Chrome 全路由渲染巡检）'],
   ['verify:visual', '同上'],
   ['verify:compress', '同上（真 Chrome 验 canvas 压缩）'],
   ['verify:hotkeys-live', '同上（真 Chrome 在 dist 上按快捷键）'],

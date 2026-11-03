@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import Splash from '@/components/Splash';
-import Onboarding, { hasOnboarded } from '@/components/Onboarding';
+import Onboarding, { hasOnboarded, hasOnboardedFor, markOnboardedFor } from '@/components/Onboarding';
 import DesktopNav from '@/components/DesktopNav';
 import ConsentGate from '@/components/ConsentGate';
 import HotkeyHelp from '@/components/HotkeyHelp';
@@ -10,7 +10,7 @@ import { HELP_EVENT, focusSearchBox, useGlobalHotkeys } from '@/hooks/useHotkeys
 import { hotkeyRoute } from '@/utils/hotkeys';
 import type { HotkeyId } from '@/utils/hotkeys';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
-import { needsAuthGate, getSession, markGateRedirect } from '@/services/cloudAuth';
+import { needsAuthGate, getSession, markGateRedirect, getCloudUserId } from '@/services/cloudAuth';
 import { hasAgreedConsent } from '@/data/legal';
 import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/language';
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
@@ -18,6 +18,7 @@ import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
 import { initCloudSync } from '@/services/cloudSync';
 import { restoreSubscriptionFromOrders } from '@/services/subscription';
 import { dismissBootSkeletonAfterPaint } from '@/utils/bootSkeleton';
+import { showBootFailure } from '@/utils/bootFailure';
 import { activatePressable, observePressables } from '@/utils/a11y';
 import { reportCrash, installH5CrashHandlers } from '@/services/crashReport';
 import type { CrashPayload } from '@/services/crashReport';
@@ -141,6 +142,36 @@ function App(props: PropsWithChildren) {
   // 首次启动引导（设计稿 p19/p20）：只在 H5 且有真实账号体系时才有意义，
   // 看过一次就落库，不再骚扰（微信端直接视为已看过）。
   const [onboarded, setOnboarded] = useState(() => process.env.TARO_ENV !== 'h5' || hasOnboarded());
+  // 当前会话的 uid：引导完成时按账号落库（见下方 effect 与 Onboarding 的 accountKey）
+  const [onboardUid, setOnboardUid] = useState<string | null>(null);
+  /**
+   * 登录后补一次用户指导（2026-10-30，用户反馈「只有注册有、登录没有」）。
+   *
+   * 上面 useState 只在应用挂载时求值一次，读的是**设备级**标记 —— 于是：
+   *   · 老用户换设备登录 → 本地没标记，但那次挂载可能发生在登录页（不渲染引导），
+   *     登录成功切进来后 state 已定，不会重新判断 → 一次指导都看不到；
+   *   · 同设备换账号登录 → 设备标记还在 → 新账号也永远看不到。
+   * 这里在「离开登录页」时按**账号**再判一次，没看过就补上。
+   * 会话取不到时保持原判断（宁可少弹一次，也不要因为异常把人挡在门外）。
+   */
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5' || isLoginPage) return;
+    let alive = true;
+    // 用项目现成的 getCloudUserId：它已处理「未登录/会话异常返回 null」，
+    // 别在这里再手解 s.user.id（重复实现容易和 SDK 形状漂移）。
+    getCloudUserId()
+      .then((uid) => {
+        if (!alive) return;
+        setOnboardUid(uid);
+        setOnboarded(hasOnboardedFor(uid));
+      })
+      .catch((err) => {
+        console.warn('[App] 引导的账号级判定失败，沿用设备级标记:', err);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isLoginPage]);
   // 外壳左栏导航：H5 + ≥600px 挂载（手机继续用 Taro 底部 tabBar）。
   // 同时给 body 打类，让 app.scss 把 Taro tabBar 关掉并把内容列按断点右移（64/232/240）。
   // 断点从 1200 降到 600 的原因：Taro tabBar 最多 5 项，768 的 iPad 上记账/运动/省钱
@@ -202,22 +233,36 @@ function App(props: PropsWithChildren) {
         }
       })();
       if (inBoot) {
-        // 启动期：把骨架切到失败态，让用户看到「没加载出来」+ 能重试，而不是无限刷新
-        console.error('[App] 启动期资源加载失败（不整页重载，交由骨架的失败态处理）:', scriptFailed ? 'script' : msg);
+        // 启动期：优先交给骨架的失败态（它带进度与重试），骨架不在就直接插兜底层。
+        // ⚠️ 骨架在**应用挂载成功那一刻就被撤掉了**，而最常见的失败恰恰发生在挂载之后
+        //    （外壳起来了、切页的分包挂了）—— 那时 `skel` 为 null，原来这里静默无效：
+        //    实测掐掉 js/855.*.js 后用户看到的是一个没有内容、没有提示、没有重试的页面。
+        console.error('[App] 启动期资源加载失败:', scriptFailed ? 'script' : msg);
+        let handedToSkeleton = false;
         try {
           const skel = document.getElementById('boot-skeleton');
-          if (skel) skel.classList.add('is-fail');
+          if (skel) {
+            skel.classList.add('is-fail');
+            handedToSkeleton = true;
+          }
         } catch {
-          /* DOM 不可用就只记日志 */
+          /* DOM 不可用就走兜底层 */
         }
+        if (!handedToSkeleton) showBootFailure(scriptFailed ? 'script onerror' : msg);
         return;
       }
       try {
         const last = Number(window.sessionStorage.getItem(KEY) || 0);
-        if (Date.now() - last < 15000) return;
+        if (Date.now() - last < 15000) {
+          // 已经在 15s 内救过一次还失败 = 不是版本漂移，再刷就是刷屏死循环。
+          // 以前这里直接 return（用户面对一个空白页无路可走），改成给一个能点的重试。
+          showBootFailure(`二次失败，放弃自动重载：${msg}`);
+          return;
+        }
         window.sessionStorage.setItem(KEY, String(Date.now()));
       } catch {
-        return; // sessionStorage 被禁（隐私模式）：不重载，避免无记录的死循环
+        showBootFailure('sessionStorage 不可用，无法安全自动重载');
+        return;
       }
       console.error('[App] chunk 加载失败，重载一次以获取最新版本:', scriptFailed ? 'script' : msg);
       window.location.reload();
@@ -416,7 +461,12 @@ function App(props: PropsWithChildren) {
           {/* 首启引导：必须等隐私同意之后再挂（两个全屏层叠在一起，用户会点不到下面那层），
               也必须等开屏退场（shellReady），否则引导藏在开屏下面等于没出现。 */}
           {consentAgreed && shellReady && !onboarded ? (
-            <Onboarding onDone={() => setOnboarded(true)} />
+            <Onboarding
+              onDone={() => {
+                markOnboardedFor(onboardUid);
+                setOnboarded(true);
+              }}
+            />
           ) : null}
           {/* 键盘快捷键面板：`?` 或「我的 → 键盘快捷键」打开（H5 桌面端） */}
           <HotkeyHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
