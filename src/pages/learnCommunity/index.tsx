@@ -193,7 +193,7 @@ function LearnCommunityPage() {
       </View>
 
       {/* 页级诚实性提示：社区数据全在本地 storage，没有云同步 */}
-      <DemoDataHint />
+      <DemoDataHint actions={['learnCommunity']} />
 
       {/* 成就徽章墙 */}
       <View className={styles.sectionCard}>

@@ -283,8 +283,18 @@ const KNOWN_GAPS = new Map([
 
 ok('I1a', 'I1 注销清单非空（解析没失效）', deleteCollections.length >= 10);
 ok('I1b', `I1 注销清单覆盖了所有非豁免集合（漏: ${leakedForWeapp.join(',') || '无'}）`, leakedForWeapp.length === 0);
-ok('I2a', 'I2 H5 放行白名单只有 webSearch/chat/extract（身份分歧的结构性根因）',
-  rpcAllow.length === 3 && ['webSearch', 'chat', 'extract'].every((x) => rpcAllow.includes(x)));
+ok('I2a', 'I2 H5 放行白名单只有 chat/extract（webSearch 已证实无对应 PG 函数，必须摘除）',
+  // 2026-10-30 **判据更新**（线上探针推翻原假设）：
+  //   原判据要求白名单恰好是 webSearch/chat/extract。2026-10-30 线上匿名探针实测：
+  //     POST /.cloud/database/rest/rpc/webSearch → 404 DATABASE_PGRST202
+  //     "Could not find the function public.webSearch(action, feedback, id) in the schema cache"
+  //   ⇒ 应用数据库里**根本没有** webSearch 这个 PG 函数（微信云开发里的同名云函数与
+  //     应用数据库是两套运行时）。它留在白名单里 ⇒ H5 每次调它都白发一发注定 404 的请求，
+  //     并把「webSearch」登记进降级表 ⇒ 页级横幅把 412 条**真实** RSS 说成「本地演示数据」。
+  //   ⇒ 已从白名单摘除（src/services/dataSource.ts），任何残留调用**立即抛错**、不发网络请求。
+  //   本条判据随之改为「白名单只有 chat/extract，且 webSearch 必须在外面」。
+  rpcAllow.length === 2 && ['chat', 'extract'].every((x) => rpcAllow.includes(x)) &&
+  !rpcAllow.includes('webSearch'));
 ok('I2b', 'I2 deleteAccount / getUsage / login / queryOrder / createOrder / pay-callback 都不在 H5 白名单',
   ['deleteAccount', 'getUsage', 'login', 'queryOrder', 'createOrder', 'pay-callback'].every((x) => !rpcAllow.includes(x)));
 ok('I3a', 'I3 H5 的云端写入面完全不含任何 openid 集合（两端数据在物理上不同的表）',

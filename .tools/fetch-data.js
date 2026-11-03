@@ -101,6 +101,39 @@ function cleanUrl(u) {
   return kept.length ? base + '?' + kept.join('&') : base;
 }
 
+/** 媒体 URL 准入：仅 http/https、≤512 字符、不含 ASCII 控制字符。
+ *  与云函数 safeMediaUrl / src/utils/videoNews.ts 同口径 —— 外链图片是**新增请求**，
+ *  脏 URL（javascript:、超长、含控制字符）一律丢弃。 */
+function safeMediaUrl(v) {
+  if (typeof v !== 'string') return undefined;
+  const s = v.trim();
+  if (!s || s.length > 512) return undefined;
+  if (/[\u0000-\u001f\u007f]/.test(s)) return undefined;
+  return /^https?:\/\//i.test(s) ? s : undefined;
+}
+
+/** 抽取条目真实配图：media:content / media:thumbnail / enclosure(image) / 正文首个 <img>。
+ *
+ *  2026-10-30：**与 cloudfunctions/webSearch/index.js 的 pickImage 逐字同口径**。
+ *  此前这条链路（产出线上 api/hotspot.json 的就是它）**完全没有抽图逻辑** ——
+ *  实测线上 412 条里 0 条有图，字段全集里连 image 都没有。
+ *  云函数那边早就有 pickImage（2026-09 就加了），本链路一直没跟上：
+ *  **同一件事两份口径的第四次发作**。
+ *
+ *  入参必须是**原始 item 块**（clean() 之前）—— clean() 会把标签全剥掉，届时什么也抽不到。 */
+function pickImage(block) {
+  const candidates = [
+    (block.match(/<media:content[^>]*url=["']([^"']+)["']/i) || [])[1],
+    (block.match(/<media:thumbnail[^>]*url=["']([^"']+)["']/i) || [])[1],
+    (block.match(/<enclosure[^>]*type=["'][^"']*image[^"']*["'][^>]*url=["']([^"']+)["']/i) || [])[1],
+    (block.match(/<enclosure[^>]*url=["']([^"']+)["'][^>]*type=["'][^"']*image/i) || [])[1],
+    (block.match(/<img[^>]*src=["'](https?:\/\/[^"']+)["']/i) || [])[1]
+  ];
+  const url = candidates.find(Boolean);
+  if (!url || !/^https?:\/\//i.test(url)) return undefined;
+  return safeMediaUrl(url.replace(/&amp;/g, '&'));
+}
+
 /** 极简 RSS 解析（无依赖）。tag / pubDate 口径与 static-server.js 的 parseRss 完全一致：
  *  · tag 落到条目 tags —— 前端「资讯类目筛选」依赖它；本文件此前恒为 []，线上站点因此没有类目
  *  · pubDate 只供新鲜度闸门使用，**不进响应契约**（HotspotNews 无该字段） */
@@ -116,6 +149,8 @@ function parseRss(xml, source, limit, tag) {
     if (!title) continue;
     const pubRaw = clean((b.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1]);
     const pubMs = pubRaw ? Date.parse(pubRaw) : NaN;
+    // 配图必须在**原始块**上抽（clean() 已把标签剥掉）
+    const image = pickImage(b);
     out.push({
       id: 'rss_' + hash(source + title),
       title,
@@ -126,6 +161,7 @@ function parseRss(xml, source, limit, tag) {
       source,
       url: cleanUrl(link),
       tags: tag ? [tag] : [],
+      ...(image ? { image } : {}),
       pubDate: Number.isFinite(pubMs) ? pubMs : null
     });
   }
@@ -214,6 +250,54 @@ const HOTSPOT_SOURCES = [
   }
 ];
 
+// 视频条目上限：线上此前恒为 1 条（云函数 VIDEO_NEWS_LIMIT=1 / 前端 VIDEO_NEWS_MAX=1）。
+// 这里给 5 条 —— 因为它们来自**已经在抓的** B站热榜（真实热点 + 真视频），不是新拉的榜。
+const VIDEO_ITEMS_MAX = 5;
+/** 视频条目的来源板块名（B站热榜）。用 boards-core 的板块 label，不是来源显示名。 */
+const VIDEO_BOARD_SOURCE = 'B站热榜';
+
+/**
+ * 从热榜板块条目里产出「视频」条目。
+ *
+ * 为什么不是单独再拉一次 B站榜（2026-10-30）：
+ *   boards-core 已经在抓 `api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all`
+ *   （**全站榜**，与云函数 getVideoNews 用的是同一个接口）。再拉一次就是同一份数据取两遍：
+ *   多一次网络请求 + 两份数据可能不一致（榜单刷新时刻不同）。
+ *   复用既有采集结果 ⇒ **零新增请求**。
+ *
+ * 为什么 url 用 bilibili.com/video/BV… 规范形态而不是 b23.tv 短链：
+ *   前端 `src/utils/videoNews.ts` 的准入正则只认规范形态；短链会被整条丢弃。
+ *   所以规范 URL 用 bvid 重建。
+ */
+function buildVideos(boardItems) {
+  const out = [];
+  for (const it of boardItems || []) {
+    if (!it || it.source !== VIDEO_BOARD_SOURCE) continue;
+    const bvid = String(it.bvid || '').trim();
+    if (!bvid) continue;
+    const title = String(it.title || '').trim().slice(0, 80);
+    if (!title) continue;
+    const desc = String(it.desc || '').trim();
+    const image = safeMediaUrl(it.image);
+    out.push({
+      id: 'bili-' + bvid,
+      title,
+      summary: clampText(desc || it.summary || title, 120),
+      content: desc ? clampText(desc, 1000) : undefined,
+      source: '哔哩哔哩',
+      url: 'https://www.bilibili.com/video/' + bvid,
+      tags: ['视频'],
+      ...(image ? { image } : {}),
+      ...(it.duration ? { duration: String(it.duration).slice(0, 10) } : {}),
+      ...(it.author ? { author: String(it.author).trim().slice(0, 30) } : {}),
+      ...(it.play ? { play: it.play } : {}),
+      ...(it.publishedAt ? { createTime: it.publishedAt } : {})
+    });
+    if (out.length >= VIDEO_ITEMS_MAX) break;
+  }
+  return out;
+}
+
 /** 聚合全部源 → { items, meta }；跨源轮询交错去重 + 新鲜度闸门 */
 async function fetchHotspot() {
   const groups = [];
@@ -267,18 +351,35 @@ async function fetchHotspot() {
   // 本脚本跑在 GitHub Actions runner 上，够不到 127.0.0.1:6688，这正是线上长期没有热榜的原因。
   // 覆盖 6 个板块（含全部 4 个垂类）；微博/知乎/抖音 需 cookie，服务器环境取不到，仍在注释里记明。
   const boards = { total: 0, ok: 0, items: 0, skipped: [] };
+  let boardItems = [];
   try {
     const r = await fetchAllBoards({ limitPerBoard: RSS_PER_SOURCE });
     boards.total = r.statuses.length;
     boards.ok = r.statuses.filter((s) => s.ok).length;
     boards.items = r.items.length;
+    boardItems = r.items;
     for (const s of r.statuses) {
       srcStatus.push({ name: s.label, count: 0, ok: s.ok, reason: s.reason || '' });
       if (!s.ok) boards.skipped.push(s.label + '(' + (s.reason || 'unknown') + ')');
     }
     // 每个板块作为独立 group 入组 → 沿用跨源轮询交错，避免单一板块霸占前列（与 static-server 同口径）
     for (const label of new Set(r.items.map((it) => it.source))) {
-      const g = r.items.filter((it) => it.source === label);
+      const g = r.items
+        .filter((it) => it.source === label)
+        .map((it) => {
+          // 板块条目的内部字段 → 响应契约：
+          //   desc       → content（源自带描述，与 RSS 条目同语义：站内文章视图显示它，
+          //                而此前只能显示「XX 榜 第 N 位 · 热度 X」这种榜单位置串）
+          //   publishedAt → createTime（B站条目有真实发布时间）
+          // 其余字段（image/duration/author/play/bvid）原样保留 —— 封面正是热点卡片要用的。
+          const { desc, publishedAt, ...rest } = it;
+          const content = typeof desc === 'string' && desc.trim() ? clampText(desc, 1000) : undefined;
+          return {
+            ...rest,
+            ...(content ? { content } : {}),
+            ...(publishedAt ? { createTime: publishedAt } : {})
+          };
+        });
       if (g.length) groups.push(g);
     }
   } catch (e) {
@@ -336,8 +437,13 @@ async function fetchHotspot() {
   const items = trust.kept.map(({ pubDate, ...rest }) =>
     Number.isFinite(pubDate) ? { ...rest, createTime: new Date(pubDate).toISOString() } : rest
   );
+  // 视频条目：与 RSS 条目过**同一份**信任过滤（同一份 rules，不可能发散）。
+  // 2026-10-30 新增 —— 此前视频只存在于微信云函数（getVideoNews），
+  // H5 线上**根本没有视频数据**，而那个云函数在 H5 的 RPC 通路上又必然 404（PGRST202）。
+  const videos = filterNewsItems(buildVideos(boardItems), { label: 'fetch-data-video' }).kept;
   return {
     items,
+    videos,
     meta: { updatedAt: new Date().toISOString(), stale: false, sources: srcStatus, dropped, boards }
   };
 }
@@ -383,7 +489,7 @@ async function main() {
   const argIdx = process.argv.indexOf('--out');
   const outPath = argIdx > -1 ? process.argv[argIdx + 1] : null;
 
-  const { items, meta } = await fetchHotspot();
+  const { items, videos, meta } = await fetchHotspot();
   if (!items.length) {
     console.error('[fetch-data] all sources failed - keep existing output untouched');
     process.exit(1); // Actions 侧失败退出：不覆盖上一次的好数据
@@ -395,11 +501,11 @@ async function main() {
     // 且 gh-pages 的「无变化则跳过提交」逻辑会自然生效。
     console.warn('[fetch-data] 拒绝覆盖：' + rejected + ' → 保留上一份，本次不写入');
     meta.dropped = { ...(meta.dropped || {}), regressionGuard: items.length };
-    if (!outPath) process.stdout.write(JSON.stringify({ items, ...meta }));
+    if (!outPath) process.stdout.write(JSON.stringify({ items, videos, ...meta }));
     return;
   }
 
-  const json = JSON.stringify({ items, ...meta });
+  const json = JSON.stringify({ items, videos, ...meta });
   if (outPath) {
     fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
     fs.writeFileSync(outPath, json);

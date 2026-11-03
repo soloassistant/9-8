@@ -270,7 +270,7 @@ function ShoppingPage() {
         <Text className={styles.backText}>{t('common.back')}</Text>
       </View>
       {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
-      <DemoDataHint />
+      <DemoDataHint actions={['shopping', 'createOrder']} />
       <View className={styles.addBar}>
         <Input
           className={styles.nameInput}

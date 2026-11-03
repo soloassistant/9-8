@@ -160,8 +160,23 @@ function readRememberLogin(): boolean {
   }
 }
 
-/** 绑定手机号弹窗「稍后再说」的本地留存键。用户主动跳过则本次不再强弹（仅本地偏好，不阻塞登录）。 */
+/** 绑定手机号弹窗「稍后再说」的本地留存键。**存时间戳**：跳过是「稍后」不是永久豁免。 */
 const PHONE_BIND_DISMISSED_KEY = 'sxm-phone-bind-dismissed';
+
+/** 跳过后多久重新要求绑定。产品口径是「强制绑手机」，跳过只是放过一次，
+ *  不能让一次点击变成这台设备的永久豁免（2026-10-30 用户当面指出这个缺口）。 */
+const BIND_DISMISS_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** 读「跳过」标记并判是否仍在有效期内。旧格式（true）按已过期处理。 */
+function readBindDismissed(): boolean {
+  try {
+    const v = Taro.getStorageSync(PHONE_BIND_DISMISSED_KEY) as number | boolean | '';
+    const at = typeof v === 'number' ? v : 0;
+    return at > 0 && Date.now() - at < BIND_DISMISS_TTL_MS;
+  } catch {
+    return false;
+  }
+}
 
 /** 本机「手机号已绑定」的本地留存键。成功绑定 / 成功手机号登录后置 true —— 此后进入不再强弹。
  *
@@ -257,6 +272,10 @@ export default function LoginPage() {
   const [bindBusy, setBindBusy] = useState(false);
   const [bindError, setBindError] = useState('');
   const [bindNotice, setBindNotice] = useState('');
+  /** 发码接口真的失败过（不是本地校验报错）——只有这种"通道坏了"才给逃生口 */
+  const [bindTrouble, setBindTrouble] = useState(false);
+  /** 连续验证失败次数：短信收不到时用户会反复试，试到第 3 次仍失败也给逃生口 */
+  const [bindFailCount, setBindFailCount] = useState(0);
 
   // 挂载校验：已有会话就进应用；否则显示登录表单。微信端身份由微信提供，直接放行。
   useEffect(() => {
@@ -482,15 +501,15 @@ export default function LoginPage() {
       setError(t('auth.errCodeNeeded'));
       return;
     }
-    // 新账号注册可设密码：邮箱必填；手机号选填 —— SDK 的 signUp/verifyOtp 对两种标识
-    // 都收可选 password（实测 src/assets/wb-sdk.js：`if (e.password) s.password = e.password`）。
-    // 手机号选填是因为短信本就能登；但只要填了就必须 ≥8 位（与邮箱同规则）。老账号登录不传密码。
-    const wantsPassword =
-      withPassword && !pending.isExistingUser && (channel === 'email' || password.length > 0);
-    if (wantsPassword && password.length < 8) {
+    // 新账号注册**必须设密码**（2026-10-30 用户定的口径：邮箱和手机号首次登录都要设）。
+    // 此前手机号通道是选填 —— 理由是"短信本就能登"，但那等于允许账号永远没有密码，
+    // 一旦换号/换设备就只能靠短信，找回路径单一。现在两条通道一视同仁，都 ≥8 位。
+    const isSignup = withPassword && !pending.isExistingUser;
+    if (isSignup && password.length < 8) {
       setError(t('auth.errPassword'));
       return;
     }
+    const wantsPassword = isSignup;
     clearMsg();
     setBusy(true);
     const res = await verifyLoginCode({
@@ -608,7 +627,7 @@ export default function LoginPage() {
     let dismissed = false;
     try {
       boundDone = Taro.getStorageSync(PHONE_BIND_DONE_KEY) === true;
-      dismissed = Taro.getStorageSync(PHONE_BIND_DISMISSED_KEY) === true;
+      dismissed = readBindDismissed();
     } catch {
       /* 存储不可用 → 仍弹窗 */
     }
@@ -658,6 +677,7 @@ export default function LoginPage() {
     setBindBusy(false);
     if (res.error) {
       setBindError(sdkDownText(res.error, t) || t('auth.errGeneric'));
+      setBindTrouble(true); // 通道异常 → 允许逃生，避免"永远发不出去 = 永远进不去"
       return;
     }
     setBindPending({ id: { phone }, verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
@@ -685,6 +705,7 @@ export default function LoginPage() {
     setBindBusy(false);
     if (res.error) {
       setBindError(sdkDownText(res.error, t) || t('auth.errGeneric'));
+      setBindFailCount((n) => n + 1); // 收不到短信的人会反复试；试满 3 次给逃生口
       return;
     }
     setBindPhone(false);
@@ -693,10 +714,11 @@ export default function LoginPage() {
     goToApp();
   };
 
-  /** 仅短信发送失败时才可达：本地留存「已跳过」，下次不再强弹，并放行进应用 */
+  /** 逃生口：只有「发码通道异常」或「连续验证失败 3 次」才可达（见 bindTrouble / bindFailCount）。
+   *  记录**时间戳**而不是 true —— 「稍后再说」是延后，不是永久豁免；过期后重新要求绑定。 */
   const skipBind = () => {
     try {
-      Taro.setStorageSync(PHONE_BIND_DISMISSED_KEY, true);
+      Taro.setStorageSync(PHONE_BIND_DISMISSED_KEY, Date.now());
     } catch {
       /* 存储不可用也不阻塞 */
     }
@@ -857,8 +879,8 @@ export default function LoginPage() {
                 </View>
               </View>
             </View>
-            {/* 新账号注册可设密码：邮箱必填；手机号选填（选填说明见 passwordOptionalHint）。
-                手机号设了密码以后就能用「密码登录」页签；不设则始终用验证码登录。 */}
+            {/* 新账号注册**必须设密码**（邮箱/手机号都必填，见 submitOtp 的 isSignup 判定）。
+                设了密码之后还能用「密码登录」页签；也避免账号只剩短信一条找回路径。 */}
             {tab === 'signup' || (pending && !pending.isExistingUser) ? (
               <View className={styles.field}>
                 <Text className={styles.label}>{t('auth.password')}</Text>
@@ -869,9 +891,6 @@ export default function LoginPage() {
                   placeholder={t('auth.passwordPlaceholder')}
                   onInput={(e) => setPassword(String(e.detail.value || ''))}
                 />
-                {channel === 'phone' ? (
-                  <Text className={styles.hint}>{t('auth.passwordOptionalHint')}</Text>
-                ) : null}
               </View>
             ) : null}
           </React.Fragment>
@@ -1003,11 +1022,16 @@ export default function LoginPage() {
             <View className={`${styles.submit} ${bindBusy ? styles.btnDisabled : ''}`} onClick={doBindVerify}>
               <Text className={styles.submitText}>{t('auth.bindPhoneConfirm')}</Text>
             </View>
-            {/* 「稍后再说」必须常驻：只在 bindSendFailed 时显示的话，
-                短信码一直输不对（或发码接口持续失败）的用户会被锁死在绑定弹窗里 */}
-            <View style={{ marginTop: '12px', textAlign: 'center' }} onClick={skipBind}>
-              <Text style={{ color: '#888', fontSize: '14px' }}>{t('auth.bindPhoneSkip')}</Text>
-            </View>
+            {/* 逃生口只在**真出问题**时才给：
+                  ① 发码接口报错（bindTrouble）——通道坏了，不能把人锁死；
+                  ② 连续验证失败 3 次 —— 短信收不到的人会反复试，试够了也该放行。
+                产品口径是「强制绑手机」（docs/competitive-analysis-2026-10-19.md:153），
+                常驻「稍后再说」等于一次点击就永久豁免，与强制相反。 */}
+            {bindTrouble || bindFailCount >= 3 ? (
+              <View style={{ marginTop: '12px', textAlign: 'center' }} onClick={skipBind}>
+                <Text style={{ color: '#888', fontSize: '14px' }}>{t('auth.bindPhoneSkip')}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
       ) : null}

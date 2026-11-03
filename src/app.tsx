@@ -157,19 +157,33 @@ function App(props: PropsWithChildren) {
   useEffect(() => {
     if (process.env.TARO_ENV !== 'h5' || isLoginPage) return;
     let alive = true;
-    // 用项目现成的 getCloudUserId：它已处理「未登录/会话异常返回 null」，
-    // 别在这里再手解 s.user.id（重复实现容易和 SDK 形状漂移）。
-    getCloudUserId()
-      .then((uid) => {
-        if (!alive) return;
-        setOnboardUid(uid);
-        setOnboarded(hasOnboardedFor(uid));
-      })
-      .catch((err) => {
-        console.warn('[App] 引导的账号级判定失败，沿用设备级标记:', err);
-      });
+    let tries = 0;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    // ⚠️ 2026-10-30 线上实测：这条判定**只跑一次**，而 getSession() 在「刚登录 / 刚刷新」
+    //    那一刻经常还是 null（SDK 的会话恢复有竞态）。一次拿不到就退化成设备级判断
+    //    （hasOnboardedFor(null) → 退回设备标记 true）→ 「登录后补引导」**永远不会弹**，
+    //    真账号 E2E 里 L4/L4b 都是 false 就是这个原因。
+    //    改成最多重试 10 次（约 7 秒）：拿到 uid 再决定，拿不到才沿用设备级。
+    const decide = () => {
+      getCloudUserId()
+        .then((uid) => {
+          if (!alive) return;
+          if (!uid && tries < 10) {
+            tries += 1;
+            timers.push(setTimeout(decide, 700));
+            return;
+          }
+          setOnboardUid(uid);
+          setOnboarded(hasOnboardedFor(uid));
+        })
+        .catch((err) => {
+          console.warn('[App] 引导的账号级判定失败，沿用设备级标记:', err);
+        });
+    };
+    decide();
     return () => {
       alive = false;
+      timers.forEach((t) => clearTimeout(t));
     };
   }, [isLoginPage]);
   // 外壳左栏导航：H5 + ≥600px 挂载（手机继续用 Taro 底部 tabBar）。
@@ -248,7 +262,26 @@ function App(props: PropsWithChildren) {
         } catch {
           /* DOM 不可用就走兜底层 */
         }
-        if (!handedToSkeleton) showBootFailure(scriptFailed ? 'script onerror' : msg);
+        // ⚠️ 不能一有 script 失败就盖全屏：`<script onerror>` 也包含 wb-sdk.js。
+        //    SDK 挂了但应用本身照常能渲染简报，这时盖一层「页面没有加载出来」
+        //    会把**本来能用**的界面挡掉 —— 比不处理更糟。
+        // ⚠️ 也不能只靠 message 判：分包失败在浏览器里是 script 元素的 onerror，
+        //    message 是空串（没有 ChunkLoadError 文本），按 message 判会把真正的
+        //    页面打不开漏掉（实测 B8–B10 就是这么红的）。必须看失败脚本的 src。
+        // 判「应用是否已经在渲染界面」不能只数节点：登录页只有 45 个节点，会被误判成"没挂载"。
+        // Taro 一旦产出 .taro_page 就说明路由已经在渲染（哪怕渲染的是登录页）。
+        const failSrc = (target as HTMLScriptElement | null)?.src || '';
+        const mounted = !!document.querySelector('.taro_page') && document.querySelectorAll('taro-view-core').length > 10;
+        const failedPageChunk = /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(failSrc);
+        // SDK 是**可缺**的：它挂了只是云能力降级（登录/同步不可用），应用本身照常能跑。
+        // 而且它在渲染之前就加载，失败时页面还没挂载，用 mounted 判会误盖全屏。
+        // 所以这一条按文件直接排除，不看时机。
+        const sdkFailed = /\/assets\/wb-sdk\.js/.test(failSrc);
+        if (!handedToSkeleton && !sdkFailed && (chunkFailed || failedPageChunk || !mounted)) {
+          showBootFailure(scriptFailed ? `script onerror: ${failSrc.split('/').pop() || '?'}` : msg);
+        } else if (!handedToSkeleton) {
+          console.error('[App] 非致命脚本失败，不盖全屏（交由功能降级处理）:', failSrc.split('/').pop() || msg);
+        }
         return;
       }
       try {
