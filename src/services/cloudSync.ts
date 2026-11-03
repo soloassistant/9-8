@@ -325,7 +325,7 @@ export function subscribeSyncConflicts(cb: (list: SyncConflict[]) => void): () =
 }
 
 /** 收集本地需推送的 key → [{ key, value, ts }]；ts 取本地记录时间（无记录用 1 兜底，输给远端真实版本） */
-function collectLocal(): Array<{ key: string; value: unknown; ts: number }> {
+function collectLocal(forceEmptyKeys: string[] = []): Array<{ key: string; value: unknown; ts: number }> {
   const meta = readMeta();
   const items: Array<{ key: string; value: unknown; ts: number }> = [];
   // 未裁决的冲突键**不推**：它的 ts 必然旧于远端（否则不会被判成冲突），推上去也是 0 行，
@@ -340,7 +340,9 @@ function collectLocal(): Array<{ key: string; value: unknown; ts: number }> {
     // 2026-11-03（自选股 P0）：**空数组不上推**。
     // 事故链：远端较新的 [] 覆盖本地 → 本地变空 → 30s 后把 [] 回写云端，全端一起清空。
     // 这条规则让「空」永远不能覆盖「有」，宁可牺牲「跨设备同步清空」，也不再丢用户数据。
-    if (Array.isArray(v) && v.length === 0) continue;
+    // 例外：用户**明确删除**（forceEmptyKeys）时必须推空 —— 否则删掉最后一条自选
+    // 就只剩本地生效，云端旧列表下次登录会把它整体拉回来（2026-11-03 实测缺口）。
+    if (Array.isArray(v) && v.length === 0 && !forceEmptyKeys.includes(k)) continue;
     items.push({ key: k, value: v, ts: Math.max(Number(meta[k]) || 1, 1) });
   }
   return items;
@@ -370,10 +372,10 @@ function disableSync(reason: string) {
  *
  *  未登录 → 直接跳过：这不是故障，是「还没到能同步的时候」。
  *  登录后由 onAuthStateChange 补一次「先拉后推」，本地积累的写入不会丢。 */
-async function pushNow(): Promise<void> {
+async function pushNow(forceEmptyKeys: string[] = []): Promise<void> {
   if (syncDisabled) return;
   if (!(await getSession())) return; // 未登录：跳过（不计失败）
-  const items = collectLocal();
+  const items = collectLocal(forceEmptyKeys);
   if (items.length === 0) return;
   try {
     const written = await kvSetMany(items);
@@ -411,9 +413,12 @@ async function pushNow(): Promise<void> {
  * 表现为「删了又复活」。删除这类**用户明确表达删除意图**的写入必须当场推。
  *
  * 失败语义与 pushNow 完全一致：未登录直接跳过（不是故障）；网络失败下轮再试，不抛错。
+ *
+ * `forceEmptyKeys`：用户明确删除后需要把空值推上去的 key（如删掉最后一条自选）。
+ * 默认空数组仍不推（见 collectLocal 的说明）。
  */
-export async function syncNow(): Promise<void> {
-  await pushNow();
+export async function syncNow(forceEmptyKeys: string[] = []): Promise<void> {
+  await pushNow(forceEmptyKeys);
 }
 
 /**

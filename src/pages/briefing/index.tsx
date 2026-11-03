@@ -761,8 +761,10 @@ function BriefingPage() {
     setQuotes((prev) => prev.filter((q) => q.code !== code));
     /* 2026-11-03：删除必须当场推到云端。
        hookStorage 的写入只是排进防抖队列，若用户删完立刻退出/换设备，
-       user_kv 里还是旧列表，下次拉取会把删掉的股票「复活」回来。 */
-    void syncNow();
+       user_kv 里还是旧列表，下次拉取会把删掉的股票「复活」回来。
+       删到空时必须显式允许推空数组 —— 默认的空数组不推（防误覆盖），
+       否则「删掉最后一条」只清本地，云端旧值会原样拉回。 */
+    void syncNow(next.length === 0 ? ['watchlist'] : []);
   };
 
   /** 待办勾选完成：走确定性写库接口，不经过 LLM 对话通道。 */
