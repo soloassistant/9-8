@@ -15,7 +15,7 @@ import { NAV_MAIN, NAV_MORE, type Item as NavItem } from '@/components/DesktopNa
 import { recordBriefingArchive } from '@/utils/briefingArchive';
 import { matchWatchItems } from '@/utils/intelWatch';
 import { readWatchKeywords } from '@/utils/intelWatchStore';
-import { resolveIntelGroups } from '@/utils/intelGroups';
+import { resolveIntelGroups, safeMediaUrl } from '@/utils/intelGroups';
 import type { IntelSourceRef } from '@/utils/intelGroups';
 import { formatPlayCount } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
@@ -1830,6 +1830,10 @@ function BriefingPage() {
           </View>
           {videoNews.map((v) => {
             const play = formatPlayCount(v.play);
+            // 封面取值收紧到「真的是 http(s) 地址」：排障时线上抓到过 src=null 的可见
+            // 视频封面（124×69 的空框，间歇出现 —— 数据刷新时 image 短暂变成非字符串）。
+            // 只判真值挡不住这种值，用与云端同口径的 safeMediaUrl；拿不到就走 🎬 兜底。
+            const cover = safeMediaUrl(v.image);
             return (
               <View
                 key={v.id}
@@ -1846,8 +1850,8 @@ function BriefingPage() {
                 }}
               >
                 <View className={styles.videoCoverWrap}>
-                  {v.image ? (
-                    <Image src={v.image} mode='aspectFill' lazyLoad className={styles.videoCover} />
+                  {cover ? (
+                    <Image src={cover} mode='aspectFill' lazyLoad className={styles.videoCover} />
                   ) : (
                     <View className={styles.videoCoverFallback}>
                       <Text className={styles.videoCoverFallbackIcon}>🎬</Text>

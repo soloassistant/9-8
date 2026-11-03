@@ -307,6 +307,27 @@ export function markGateRedirect(): void {
   gateRedirectAt = Date.now();
 }
 
+/**
+ * 本地是否还存着未清掉的**会话凭据**（含 refresh token）——与 `getSession()` 返回 null
+ * 区分两种完全不同的「未登录」：
+ *   ① 本地无凭据（真未登录 / 会话被 SDK abandon 清掉）→ 送登录页是正确行为；
+ *   ② 本地**有**凭据但 ensure() 恢复失败（刷新请求网络抖动，SDK 保留凭据只置 lastFailure）
+ *      → 砸登录页会把还能无缝恢复的会话变成「重新输密码」（用户实测 #3）。
+ * 判据与 SDK 的 SessionStore 对齐：key = `workbuddy-cloud.session.<publishableKey>`，
+ * 值为 JSON 且带非空 refreshToken。**只读不写**，清不清由 SDK 自己决定。
+ */
+export function hasStoredSession(): boolean {
+  if (!H5) return false;
+  try {
+    const raw = window.localStorage.getItem(`workbuddy-cloud.session.${CLOUD_PUBLISHABLE_KEY}`);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { refreshToken?: unknown };
+    return typeof parsed?.refreshToken === 'string' && parsed.refreshToken !== '';
+  } catch {
+    return false;
+  }
+}
+
 /** 取用一次即失效；超过 TTL 视为陈旧（用户可能在登录页停留很久后手动刷新）。 */
 export function consumeGateRedirect(): boolean {
   if (!gateRedirectAt) return false;

@@ -130,7 +130,7 @@ function clampText(v: unknown, max: number): string {
  *  控制字符；缺失/非法一律 undefined。配图与原文链接都走它 —— 脏数据（javascript:、
  *  控制字符注入等）进不了 UI。控制字符防线依据同 src/utils/externalLink.ts 的
  *  isSafeExternalUrl（2026-10-12 安全审计口径）：合法 URL 从不含它们。 */
-function safeMediaUrl(v: unknown): string | undefined {
+export function safeMediaUrl(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
   const s = v.trim();
   if (!s || s.length > 512) return undefined;

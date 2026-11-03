@@ -503,8 +503,35 @@ async function fetchHotspot() {
 const REGRESS_RATIO = 0.7;
 const REGRESS_FRESH_MS = 6 * 60 * 60 * 1000;
 
+/** 配图覆盖率（新格式判据）：items 里带 http(s) image 字段的比例。旧格式快照整份为 0。 */
+function imageRatio(items) {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+  const withImg = items.filter((it) => it && typeof it.image === 'string' && /^https?:\/\//.test(it.image)).length;
+  return withImg / items.length;
+}
+
+/**
+ * 纯判定（fs 无关，verify-fetch-guard.mjs 直接断言它）。
+ * @returns null = 允许写入；字符串 = 拒绝原因。
+ */
+function regressDecision(prev, newItems, ageMs, now = Date.now()) {
+  const prevCount = Array.isArray(prev && prev.items) ? prev.items.length : 0;
+  if (prevCount <= 0) return null;
+  if (!(typeof ageMs === 'number') || ageMs < 0 || ageMs >= REGRESS_FRESH_MS) return null; // 上一份已不新鲜
+  const newCount = Array.isArray(newItems) ? newItems.length : 0;
+  // 2026-10-31 格式维度（实测盲区）：gh-pages 旧兜底（417 条**整份无配图**）会在凌晨把
+  // 条数较少但**带配图**的新格式抓取（207-277 条）压住——「条数多」赢了「格式新」，
+  // 而配图覆盖率是发布门禁 D2 的硬要求，旧格式数据进发布目录 = 预检必然红。
+  // 规则：上一份是旧格式（配图率 0）且新快照是新格式（配图率 > 0）→ 放行，不算回退。
+  const prevRatio = imageRatio(prev.items);
+  const newRatio = imageRatio(newItems);
+  if (newRatio > 0 && prevRatio === 0) return null;
+  if (newCount >= prevCount * REGRESS_RATIO) return null;
+  return `新快照 ${newCount} 条 < 上一份 ${prevCount} 条的 ${Math.round(REGRESS_RATIO * 100)}%（上一份仅 ${Math.round(ageMs / 60000)} 分钟前）`;
+}
+
 /** 返回 null 表示允许写入；返回字符串表示拒绝写入的原因 */
-function guardRegression(outPath, newCount) {
+function guardRegression(outPath, newItems) {
   if (!outPath) return null;
   let prevRaw;
   let prevStat;
@@ -514,18 +541,14 @@ function guardRegression(outPath, newCount) {
   } catch {
     return null; // 首次写入 / 文件不存在
   }
-  let prevCount = 0;
+  let prev;
   try {
-    const prev = JSON.parse(prevRaw);
-    prevCount = Array.isArray(prev.items) ? prev.items.length : 0;
+    prev = JSON.parse(prevRaw);
+    if (!prev || typeof prev !== 'object') return null; // 上一份坏了就别拿它当基准
   } catch {
     return null; // 上一份坏了就别拿它当基准
   }
-  if (prevCount <= 0) return null;
-  const ageMs = Date.now() - prevStat.mtimeMs;
-  if (ageMs >= REGRESS_FRESH_MS) return null; // 上一份已不新鲜，接受当前结果
-  if (newCount >= prevCount * REGRESS_RATIO) return null;
-  return `新快照 ${newCount} 条 < 上一份 ${prevCount} 条的 ${Math.round(REGRESS_RATIO * 100)}%（上一份仅 ${Math.round(ageMs / 60000)} 分钟前）`;
+  return regressDecision(prev, newItems, Date.now() - prevStat.mtimeMs);
 }
 
 /**
@@ -577,7 +600,7 @@ async function main() {
     process.exit(1); // Actions 侧失败退出：不覆盖上一次的好数据
   }
 
-  const rejected = guardRegression(outPath, items.length);
+  const rejected = guardRegression(outPath, items);
   if (rejected) {
     // 不覆盖是**成功**（保住了好数据），故退出码 0：Actions 那步不会变红，
     // 且 gh-pages 的「无变化则跳过提交」逻辑会自然生效。

@@ -489,6 +489,14 @@ export default function LoginPage() {
       return;
     }
     setPending({ id: currentId(), verificationId: res.data.verificationId, isExistingUser: !!res.data.isExistingUser });
+    // 2026-10-31（用户实测 #4）：注册页签发现「该手机号已注册」（provider 的 is_user）——
+    // 别让用户填完密码走到最后才撞「只能注册一次」：就地提示并切到验证码登录页签，
+    // 刚收到的验证码直接可用（pending 状态两个页签共用）。
+    if (tab === 'signup' && res.data.isExistingUser) {
+      setTab('otp');
+      setNotice(t('auth.alreadyRegistered'));
+      return;
+    }
     setCountdown(RESEND_SECONDS);
     setNotice(channel === 'phone' ? t('auth.smsSent') : t('auth.otpSent'));
   };
