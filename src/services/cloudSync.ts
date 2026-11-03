@@ -98,6 +98,7 @@ export const SYNC_KEYS = [
   'ai_chat_usage',        // AI 对话本地用量计数（配额显示要一致）
   'notify-log',           // 通知历史
   'mb_tts_voice',         // 语音音色偏好
+  'hotspot-disabled-sources', // 资讯来源开关（用户关掉了哪些源；换设备后不该"复活"）
   'mb_renew_remind',      // 续费提醒开关（权益相关提醒）
   'mb_renew_remind_day',  // 续费提醒节流日期
   'mb_locked_price'       // 早鸟终身锁价（2026-10-30 补：**权益**，不派生自 orders 表 ⇒ 不会自动恢复；
@@ -177,6 +178,9 @@ const REMOVE_PLACEHOLDER: Record<string, unknown> = {
   'learnNickname': '',
   'mb_tts_voice': '',
   'mb_renew_remind_day': '',
+  // 资讯来源开关：存储形态是数组（关掉的源名），占位必须是空数组 ——
+  // 写成 '' 会让云端把它当"未设置"，用户清空开关后另一端不会跟着恢复成全部开启
+  'hotspot-disabled-sources': [],
   // 布尔类（开关）：占位必须是布尔，写成 '' 会被读取端当成「未设置」
   'mb_renew_remind': false
 };

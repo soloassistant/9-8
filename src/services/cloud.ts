@@ -4,7 +4,9 @@ import type { UserPrefs } from '../utils/prefs'
 import { fetchWeatherDirect } from '../utils/weather'
 import { evaluatePriceAlerts, type PricedItem, type PriceAlert } from '../utils/price'
 import { categoryOf } from '../utils/categoryLabel'
-import { selectByPreference } from '../utils/prefSelect'
+import { selectByPreference, type PrefSelectItem } from '../utils/prefSelect'
+import { mixExploration } from '../utils/exploreMix'
+import { filterBySourcePrefs } from '../utils/sourcePrefs'
 import { readProfileSettings } from './localProfile'
 import { invoke, isWeapp } from './dataSource'
 import { chatViaCloudLlm, extractViaCloudLlm, typewriter, cloudLlmChat } from './cloudLlm'
@@ -126,6 +128,33 @@ let hotspotCache: { at: number; payload: HotspotPayload | null } | null = null
 let hotspotInFlight: Promise<HotspotPayload | null> | null = null
 
 /** 取热点载荷（带缓存与 in-flight 去重）。**并发调用只发一轮请求。 */
+/** 清热点缓存：用户改了「资讯来源」开关后必须调，否则 5 分钟内仍拿旧过滤结果。 */
+export function resetHotspotCache(): void {
+  hotspotCache = null
+}
+
+/** 来源开关的**唯一收口点**（2026-11-02）。放在缓存写入之前，这样：
+ *  · 缓存里存的就是「已按用户偏好过滤」的结果，调用方不必各自记得过滤；
+ *  · `sources` 元信息保持完整（UI 要列出全部源给用户开关，不能只列已开的）。
+ *  为什么不放在各个页面：H5 里取热点的入口有 getHotspot / 晨报情报 / 视频三条，
+ *  以前「同一件事两份口径」已经踩过三次（详见 AGENTS.md），必须一处收口。 */
+function applySourcePrefs(payload: HotspotPayload | null): HotspotPayload | null {
+  if (!payload) return payload
+  return { ...payload, items: filterBySourcePrefs(payload.items) }
+}
+
+/** 展示层选位唯一入口 = 偏好排序 + 探索位（2026-11-02）。
+ *  两个调用点（热点页 / 晨报情报）都走它 —— 探索比例、替换位置只有一处定义，
+ *  否则又会出现"同一批数据两个页面掺得不一样"。 */
+function selectForDisplay<T extends PrefSelectItem & { id?: string; tags?: string[] }>(
+  items: T[],
+  prefs: string[] | undefined,
+  limit: number
+): T[] {
+  const ranked = selectByPreference(items, prefs, limit)
+  return mixExploration(ranked, items, prefs)
+}
+
 export function getHotspotPayload(): Promise<HotspotPayload | null> {
   if (hotspotCache && Date.now() - hotspotCache.at < HOTSPOT_CACHE_MS) {
     return Promise.resolve(hotspotCache.payload)
@@ -133,9 +162,10 @@ export function getHotspotPayload(): Promise<HotspotPayload | null> {
   if (!hotspotInFlight) {
     hotspotInFlight = loadHotspotPayload().then(
       (payload) => {
-        hotspotCache = { at: Date.now(), payload }
+        const filtered = applySourcePrefs(payload)
+        hotspotCache = { at: Date.now(), payload: filtered }
         hotspotInFlight = null
-        return payload
+        return filtered
       },
       (err) => {
         hotspotInFlight = null
@@ -437,7 +467,7 @@ export async function callFunction<T = unknown>(
         // 不改条数、不截断 —— 只让用户选了「科学/文化/健康」时这些条目排前面。
         // 不这样做，H5 上这两个偏好标签就是"能点但没有任何效果"。
         const prefs = readProfileSettings().preferences
-        return selectByPreference(payload.items, prefs, payload.items.length) as T
+        return selectForDisplay(payload.items, prefs, payload.items.length) as T
       }
       hotspotMeta = null
       markDegraded('getHotspot')
@@ -464,7 +494,7 @@ export async function callFunction<T = unknown>(
           // 用户在「我的」里选的科学/文化/健康偏好**完全不参与**。
           // 改用与云函数 selectForUser 同算法的客户端选位（src/utils/prefSelect.ts）。
           const prefs = readProfileSettings().preferences
-          const picked = selectByPreference(hotspot.items, prefs, 3)
+          const picked = selectForDisplay(hotspot.items, prefs, 3)
           // 2026-10-24 补 url/image：原映射只留 {text,source}，与云端 fallback 路径
           // （briefing/index.tsx:1459 注释：实际带 image/url）不一致 —— 后果是
           // H5 兜底态条目不可点开原文、不可分享、无缩略图，2026-10-22 的

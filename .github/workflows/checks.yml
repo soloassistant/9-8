@@ -137,6 +137,27 @@ jobs:
         # 真失败留痕不谎报成功。上线 SQL 未执行前 PG1 是唯一保证注销不报错的闸。
         run: npm run verify:h5-purge
 
+      - name: AI 动作执行回归
+        # 守「模型说已做 ≠ 真的写进去」：载荷不合法必须 ok:false 且不调写入、
+        # 改期失败原日程原样不动、schedule/shopping 一律不写库、载荷真的透传。
+        run: npm run verify:ai-actions
+
+      - name: 资讯来源开关回归
+        # 守三件事：存储容错（缺键返空串）、过滤保持原顺序、下限保护（不能把源全关光）。
+        # 收口点在 services/cloud 的载荷出口，删掉它等于开关点了没效果。
+        run: npm run verify:source-prefs
+
+      - name: 防茧房探索位回归
+        # 守四件事：只换席位不加长（否则撑破版式）、比例锁在 5-8%、确定性（不抖动）、首条不动。
+        # 追加/四舍五入/替换首条三种写法都已被变异验证证明会被抓住。
+        run: npm run verify:explore-mix
+
+      - name: 话题聚类回归
+        # 守三件事：96 对基准集 F1 不掉（误合并=用户看不到新闻，比重复严重）、
+        # 两处副本逐字一致（static-server 留有同名旧副本，只改一边就是口径分叉）、
+        # 同机构不算多家佐证 / 跨天不并 / isSameEvent 唯一入口。
+        run: npm run verify:topic-cluster
+
       - name: 热点抓取回归闸判定回归
         # 守 fetch-data guardRegression 的纯判定：条数回退照拦 + 格式维度放行
         # （旧格式兜底不得靠条数压住带配图的新格式抓取，D2 发布门禁的前提）。
