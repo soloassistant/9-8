@@ -324,7 +324,7 @@ WorkBuddy 那个要平台侧重发。⇒ 改了 `src/` 只提交/推送，**两�
 ## 5. 云函数
 
 `cloudfunctions/` 下的函数按功能分组（**数量用 `ls -d cloudfunctions/*/ | wc -l` 现查，别背数字**；
-本文档曾写"24 个"，实际已是 25）：
+本文档曾写"24 个"、后又写成 25，实际已是 26）：
 
 | 分组 | 函数 |
 |---|---|
@@ -338,7 +338,7 @@ WorkBuddy 那个要平台侧重发。⇒ 改了 `src/` 只提交/推送，**两�
   （`.env.local` 里没有；`project.config.json` 的 appid 还是 `touristappid`）
   → **云函数改动目前只能在本地验证，线上跑的是旧版本**
 - **无凭据也能守的底线**：`npm run verify:cloudfunctions`（148 条断言）。
-  用 vm + 伪造 `require` 在**没有 wx-server-sdk、不联网**的情况下加载全部 24 个函数，
+  用 vm + 伪造 `require` 在**没有 wx-server-sdk、不联网**的情况下加载全部 26 个函数，
   守住结构（`exports.main` / 依赖声明 / 相对 require 目标 / timer 必须 7 段 cron）、
   可加载性、权限边界（缺 OPENID 必须明确拒绝 / `where` 查询不得用 `_openid` / 无硬编码 AppID）。
   **新增云函数必须同步登记到脚本里的 `OPENID_GUARDED` / `OPENID_OPTIONAL` 表**，
@@ -360,7 +360,7 @@ WorkBuddy 那个要平台侧重发。⇒ 改了 `src/` 只提交/推送，**两�
 - 云函数里调用 `cloud.openapi.*` 需要在**同名目录**放 `config.json` 声明权限，
   例如 `security.msgSecCheck`（参考 `cloudfunctions/extract/config.json`）
 
-### 5.1 云数据库（H5 数据面，与上面 24 个云函数是两套东西）
+### 5.1 云数据库（H5 数据面，与上面 26 个云函数是两套东西）
 
 H5 不走微信云开发，走 WorkBuddy 云库（3 张表）：
 
