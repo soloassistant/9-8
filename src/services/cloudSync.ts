@@ -230,19 +230,53 @@ function rawGetJSON<T>(key: string, fallback: T): T {
   try { return JSON.parse(s) as T; } catch { return fallback; }
 }
 
+/**
+ * 同步元数据按 **owner（账号 uid）隔离**（2026-11-03，自选股 P0 修复）。
+ *
+ * 事故：`cloud-sync-meta/confirm` 原来不带 uid，A 账号确认过 `watchlist` 后，
+ * 换到 B 账号登录，B 的远端较新「空数组」被当成 clean 覆盖本地，且空数组又被回推云端 ——
+ * 用户看到的现象就是「自选股突然没了」。
+ * 现在：每个 uid 一份 meta/confirm；升级时把旧全局键**原样备份**再复制进首个 owner，
+ * 不删除旧键（兼容读），任何账号都不会因迁移丢数据。
+ */
+let activeOwner: string | null = null;
+
+function ownerKey(base: string): string {
+  return activeOwner ? `${base}:${activeOwner}` : base;
+}
+
+/** 登录态变化时调用：切 owner 前先把旧全局元数据备份并复制到新 owner（只做一次） */
+export function setSyncOwner(uid: string | null | undefined): void {
+  const next = uid || null;
+  if (!next || next === activeOwner) {
+    if (!next) activeOwner = null;
+    return;
+  }
+  activeOwner = next;
+  for (const base of [META_KEY, CONFIRM_KEY]) {
+    const scoped = `${base}:${next}`;
+    if (rawGet(scoped)) continue; // 该账号已有自己的元数据，不覆盖
+    const legacy = rawGet(base);
+    if (!legacy) continue;
+    const backup = `${base}-backup-${next}`;
+    if (!rawGet(backup)) rawSet(backup, legacy); // 迁移前备份，只留一份最早的
+    rawSet(scoped, legacy); // 兼容读：旧全局数据继续生效，但之后只写 owner 键
+  }
+}
+
 function readMeta(): Record<string, number> {
-  return rawGetJSON<Record<string, number>>(META_KEY, {});
+  return rawGetJSON<Record<string, number>>(ownerKey(META_KEY), {});
 }
 function writeMeta(meta: Record<string, number>) {
-  rawSet(META_KEY, JSON.stringify(meta));
+  rawSet(ownerKey(META_KEY), JSON.stringify(meta));
 }
 
 /** 读「上次成功推送的值哈希」表（2026-10-19 新增，旧版本没有此键 → 空表） */
 function readConfirm(): Record<string, string> {
-  return rawGetJSON<Record<string, string>>(CONFIRM_KEY, {});
+  return rawGetJSON<Record<string, string>>(ownerKey(CONFIRM_KEY), {});
 }
 function writeConfirm(confirm: Record<string, string>) {
-  rawSet(CONFIRM_KEY, JSON.stringify(confirm));
+  rawSet(ownerKey(CONFIRM_KEY), JSON.stringify(confirm));
 }
 
 /**
@@ -303,6 +337,10 @@ function collectLocal(): Array<{ key: string; value: unknown; ts: number }> {
     if (!s) continue;
     const v = taroUnwrap(s);
     if (v === '' || v === null || v === undefined) continue;
+    // 2026-11-03（自选股 P0）：**空数组不上推**。
+    // 事故链：远端较新的 [] 覆盖本地 → 本地变空 → 30s 后把 [] 回写云端，全端一起清空。
+    // 这条规则让「空」永远不能覆盖「有」，宁可牺牲「跨设备同步清空」，也不再丢用户数据。
+    if (Array.isArray(v) && v.length === 0) continue;
     items.push({ key: k, value: v, ts: Math.max(Number(meta[k]) || 1, 1) });
   }
   return items;
@@ -387,6 +425,12 @@ function applyRemoteData(remote: KvRow[]): number {
     if (remoteTs <= metaTs) continue; // 远端不比本地已确认的新：廉价先行判断，省掉后面的本地值读取
     const localRaw = rawGet(row.key);
     const localValue = localRaw ? taroUnwrap(localRaw) : undefined;
+    // 2026-11-03（自选股 P0）：远端「空数组」永远不覆盖本地「有内容」。
+    // 空值只可能是别的设备被清空/回推的残影，宁可保留本地，也不让用户看到数据消失。
+    if (Array.isArray(row.value) && row.value.length === 0 && Array.isArray(localValue) && localValue.length > 0) {
+      console.warn('[cloudSync] 远端为空数组，拒绝覆盖本地非空数据:', row.key);
+      continue;
+    }
     const outcome = classifyPull({ remoteTs, metaTs, localValue, confirmedHash: confirm[row.key] });
     if (outcome === 'skip') continue;
     if (outcome === 'conflict') {
@@ -541,7 +585,11 @@ export function initCloudSync(): Promise<void> {
   hookStorage();
   // 启动恢复：已登录就拉（未登录立即 resolve；登录后的拉取走下面的订阅）
   readyPromise = getSession()
-    .then((s) => (s ? pullRemote() : undefined))
+    .then((s) => {
+      // 2026-11-03（自选股 P0）：拉取前先绑定 owner，元数据按账号隔离并做迁移备份。
+      setSyncOwner(s?.user?.id);
+      return s ? pullRemote() : undefined;
+    })
     .catch((err) => {
       console.warn('[cloudSync] bootstrap session check failed:', err);
     });
@@ -549,6 +597,9 @@ export function initCloudSync(): Promise<void> {
   // 不挑事件名（SIGNED_IN / INITIAL_SESSION 都以「带会话」为准）——SDK 的事件名字面
   // 没有在文档里承诺，按「有没有会话」判最稳。
   onAuthStateChange((session) => {
+    // 2026-11-03（自选股 P0）：每次登录态变化都切 owner（含登出置空），
+    // 不同账号的 meta/confirm 互不污染。
+    setSyncOwner(session?.user?.id);
     if (!session) return;
     void pullRemote().then(() => pushNow());
   });

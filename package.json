@@ -27,6 +27,7 @@
     "verify:login-bind": "node .tools/verify-login-bind-gate.mjs",
     "verify:sxm": "node .tools/verify-sxm-decision.mjs",
     "verify:sync": "node .tools/verify-sync-conflict.mjs",
+    "verify:watchlist-sync": "node .tools/verify-watchlist-sync.mjs",
     "verify:auth": "node .tools/verify-auth-wiring.js",
     "verify:paid": "node .tools/verify-paid-entitlement.js",
     "verify:prelaunch": "node .tools/verify-prelaunch-fixes.js",
@@ -101,6 +102,9 @@
     "dev:quickapp": "npm run build:quickapp -- --watch",
     "verify:explore-mix": "node .tools/verify-explore-mix.mjs",
     "verify:topic-cluster": "node .tools/verify-topic-cluster.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   },
   "browserslist": [
     "last 3 versions",

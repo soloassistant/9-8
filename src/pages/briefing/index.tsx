@@ -22,6 +22,7 @@ import type { VideoNewsItem } from '@/utils/videoNews';
 import { apiGetBriefing, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews, apiTodoSetStatus, apiGetLibrary } from '@/services/api';
 import { buildTodayBrief, resolveCategory, type TodayBrief } from '@/utils/ledgerAggregate';
 import { fetchQuotes, getWatchlist, addToWatchlist, removeFromWatchlist, normalizeStockCode, WATCHLIST_MAX, type StockQuote } from '@/utils/quotes';
+import { cloudSyncReady } from '@/services/cloudSync';
 import { buildPlanProposal, DEFAULT_DURATION_MINUTES } from '@/utils/schedule';
 import type { PlanProposal, PlanApplyEvent } from '@/utils/schedule';
 import { guardHabitsOnOpen, commitHabitGuards, listRestorableRecords, undoHabitGuard, createHabit } from '@/utils/habit';
@@ -529,6 +530,16 @@ function BriefingPage() {
           .then((qs) => setQuotes(qs))
           .catch((err) => console.warn('[BriefingPage] quotes load failed:', err));
       }
+      // 2026-11-03（自选股 P0 次因）：云端恢复晚于首屏，挂载时读到的可能是旧/空值。
+      // 等 cloudSyncReady 后再读一次，避免「明明有自选股，首屏却显示空」。
+      void cloudSyncReady().then(() => {
+        const restored = getWatchlist();
+        if (restored.length === 0) return;
+        setWatchCodes((prev) => (prev.length === restored.length && prev.every((c, i) => c === restored[i]) ? prev : restored));
+        fetchQuotes(restored)
+          .then((qs) => setQuotes(qs))
+          .catch((err) => console.warn('[BriefingPage] quotes reload failed:', err));
+      });
     }
     // 每日回顾（竞品倒推 2026-10-25，flomo/Readwise 模式）：拉收藏，挑一条 ≥30 天前的做
     // 「与过去的收藏不期而遇」。失败静默（无回顾卡，不打扰）；不足 30 天的收藏不算 ——
@@ -562,6 +573,16 @@ function BriefingPage() {
    */
   useDidShow(() => {
     stopSpeak();
+    // 2026-11-03（自选股 P0 次因）：从自选股管理页返回时重读，而不是只在挂载时读一次。
+    {
+      const codes = getWatchlist();
+      if (codes.length > 0) {
+        setWatchCodes(codes);
+        fetchQuotes(codes)
+          .then((qs) => setQuotes(qs))
+          .catch((err) => console.warn('[BriefingPage] quotes refresh on show failed:', err));
+      }
+    }
     // 桌面三栏：从别的 tab 回到晨报页时恢复面板限宽豁免（卸载不发生，必须在 show 里补挂）
     if (isH5 && desktopMqRef.current?.matches && isPageForeground('pages/briefing/index')) {
       document.body.classList.add('briefing-desktop');
