@@ -403,15 +403,12 @@ function MinePage() {
         fail: (err) => console.info('[MinePage] chooseMedia cancelled:', err && err.errMsg)
       });
     } else {
-      // H5：第一项是「上传照片」（存 WorkBuddy 云存储，跨设备可用），其余仍是预设 emoji。
-      // 菜单项前移一位，故 emoji 的 tapIndex 要 -1。
-      Taro.showActionSheet({ itemList: [t('mine.avatarUpload'), ...AVATAR_PRESETS] })
+      // H5：这里只放预设 emoji。**Taro H5 的 showActionSheet 最多 6 项**，
+      // 之前「上传照片 + 6 个 emoji」= 7 项会被 API 直接 fail，再被 catch 静默吞掉，
+      // 表现就是「点更换头像毫无反应」。上传照片因此移到第一层菜单（见 handleAvatarTap）。
+      Taro.showActionSheet({ itemList: AVATAR_PRESETS })
         .then((res) => {
-          if (res.tapIndex === 0) {
-            pickAndUploadAvatar();
-            return;
-          }
-          const next = AVATAR_PRESETS[res.tapIndex - 1];
+          const next = AVATAR_PRESETS[res.tapIndex];
           if (!next) return;
           // 换成 emoji：云上那张图不再被引用 —— 删掉，避免孤儿对象；删失败只留痕
           if (avatarObjectKey) void deleteAvatar(avatarObjectKey);
@@ -481,9 +478,12 @@ function MinePage() {
   /** 点头像：更换头像 或 查看浏览历史（v2.0 F26；2026-10-25 历史页并入热点页 ——
    *  switchTab 过去并置展开标记，热点页 useDidShow 读标记自动展开「最近浏览」） */
   const handleAvatarTap = () => {
-    Taro.showActionSheet({ itemList: ['更换头像', '浏览历史'] })
+    // 第三项「上传照片」单独放在这一层：Taro H5 的 showActionSheet 上限 6 项，
+    // 塞进预设 emoji 那一层会变成 7 项而被 API 拒绝（历史 bug：点更换头像无反应）。
+    Taro.showActionSheet({ itemList: ['更换头像', '浏览历史', t('mine.avatarUpload')] })
       .then((res) => {
         if (res.tapIndex === 0) doChangeAvatar();
+        else if (res.tapIndex === 2) pickAndUploadAvatar();
         else if (res.tapIndex === 1) {
           try {
             Taro.setStorageSync('library-open-history', 1);
@@ -495,8 +495,10 @@ function MinePage() {
           });
         }
       })
-      .catch(() => {
-        /* 静默：showActionSheet 被用户取消时 reject，是正常操作而非错误 */
+      .catch((err) => {
+        // 取消是正常操作，不刷日志；其它失败（如参数超限）以前被静默吞掉，这里留痕便于排查
+        const msg = String((err && (err as { errMsg?: string }).errMsg) || '');
+        if (!/cancel/i.test(msg)) console.warn('[MinePage] avatar sheet failed:', msg || err);
       });
   };
 
