@@ -64,6 +64,16 @@ const HISTORY_KEY = 'browseHistory';
 const HISTORY_LIMIT = 50;
 /** 最近搜索（设备本地，最多 3 条）。搜索词属于弱隐私，跨设备同步没有收益，故不进 SYNC_KEYS。 */
 const RECENT_SEARCH_KEY = 'library-search-history';
+
+/** 摘要在同一份文本上分档（不二次抓取）：30 秒 ≈180 字，3 分钟 ≈700 字，全文原样。 */
+type DigestMode = 'quick' | 'brief' | 'full';
+const DIGEST_LIMITS: Record<Exclude<DigestMode, 'full'>, number> = { quick: 180, brief: 700 };
+function digestText(text: string, mode: DigestMode): string {
+  if (mode === 'full') return text;
+  const s = text.trim();
+  const limit = DIGEST_LIMITS[mode];
+  return s.length > limit ? `${s.slice(0, limit).trimEnd()}…` : s;
+}
 const NEWS_FEEDBACK_KEY = 'newsFeedback';
 /** U-01 骨架屏延迟：加载超过该时长才显示骨架（防快速命中缓存时闪烁） */
 const SKELETON_DELAY_MS = 300;
@@ -198,6 +208,8 @@ function LibraryPage() {
   const [videos, setVideos] = useState<HotspotNews[]>([]);
   /** 站内文章视图（2026-10-25）：点卡片先进来读，正文 = 源 feed 自带摘要（不抓正文页） */
   const [article, setArticle] = useState<HotspotNews | null>(null);
+  /** 摘要分档（2026-11-03）：同一份 content/summary 切不同长度，不重复抓取 */
+  const [digestMode, setDigestMode] = useState<DigestMode>('quick');
   /** 最近浏览（2026-10-25，IA 瘦身）：浏览历史从独立页并入热点页 —— 在哪看的就在哪回看。
    *  默认折叠；清空走 showModal 二次确认。pages/history 已删（-1 页）。 */
   const [recent, setRecent] = useState<HistoryEntry[]>([]);
@@ -651,6 +663,7 @@ function LibraryPage() {
     // ★ 2026-10-25 演进：先开**站内文章视图**（读源 feed 自带的摘要，合规口径「不转载正文」
     // 不变——不另行抓原文页），想看全文再点「阅读原文」→ openExternalPage（见 handleReadOriginal）。
     // 2026-10-24 修的「点了没反应」问题由本视图承接：卡片点击必有下文。
+    setDigestMode('quick');
     setArticle(item);
   };
 
@@ -1100,7 +1113,23 @@ function LibraryPage() {
             nativeProps={isH5 ? { referrerPolicy: 'no-referrer' } : undefined}
           />
         ) : null}
-        <Text className={styles.articleBody}>{item.content || item.summary}</Text>
+        {/* 2026-11-03：30 秒 / 3 分钟 / 全文三档，只是同一份文本的不同截断长度。 */}
+        <View className={styles.articleDigest}>
+          {([
+            ['quick', 'library.digest30s'],
+            ['brief', 'library.digest3min'],
+            ['full', 'library.digestFull']
+          ] as const).map(([mode, key]) => (
+            <Text
+              key={mode}
+              className={`${styles.articleDigestTab} ${digestMode === mode ? styles.articleDigestTabActive : ''}`}
+              onClick={() => setDigestMode(mode)}
+            >
+              {t(key)}
+            </Text>
+          ))}
+        </View>
+        <Text className={styles.articleBody}>{digestText(item.content || item.summary, digestMode)}</Text>
         <Text className={styles.articleSourceNote}>{t('library.articleSourceNote')}</Text>
         <View className={styles.articleCta}>
           {item.url ? (

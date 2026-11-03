@@ -1125,6 +1125,30 @@
   background: $color-bg-page;
 }
 
+/* 摘要分档 tab（30 秒 / 3 分钟 / 全文） */
+.articleDigest {
+  display: flex;
+  gap: $spacing-sm;
+  padding: $spacing-sm $page-padding 0;
+}
+
+.articleDigestTab {
+  min-height: 72rpx;
+  padding: 0 $spacing-md;
+  display: inline-flex;
+  align-items: center;
+  border-radius: $radius-button;
+  background: $color-bg-page;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.articleDigestTabActive {
+  background: #fff1e9;
+  color: var(--brand-strong, #{$color-primary-strong});
+  font-weight: $font-weight-medium;
+}
+
 .articleBody {
   display: block;
   margin-top: $spacing-md;
