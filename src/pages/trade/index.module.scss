@@ -913,8 +913,18 @@
       flex: 0 0 auto;
     }
 
+    /* 2026-11-03：768 视口（≤900 堆叠布局）下自选行会被底部工具条压住。
+       原因：左栏仍是 overflow:hidden + 列表 max-height:220，内容被裁在栏内，
+       而底部工具条在同一屏内紧跟其后。改为让列表随内容展开、由页面统一滚动，
+       底条回到正常文档流之后，二者不再重叠。 */
+    .leftPanel {
+      overflow: visible;
+      padding-bottom: 8PX;
+    }
+
     .wlList {
-      max-height: 220PX;
+      max-height: none;
+      overflow-y: visible;
     }
 
     .bottomBar {

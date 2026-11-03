@@ -1,7 +1,10 @@
 @use '@/styles/variables.scss' as *;
 
 .page {
-  @include page-root;
+  /* 2026-11-03：移动端底部 TabBar 高 50px，原 page-root 的 120rpx 在 390 视口只有 62.4px，
+     「退出登录」行贴到栏底（巡检报被 tabbar 覆盖）。加到 128rpx（≈66.6px）+ 安全区，
+     保证最后一行与 TabBar 之间始终留出可点间隙。 */
+  @include page-root(calc(#{128rpx} + env(safe-area-inset-bottom)));
 }
 
 .userCard {
