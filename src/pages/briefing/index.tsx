@@ -22,7 +22,7 @@ import type { VideoNewsItem } from '@/utils/videoNews';
 import { apiGetBriefing, apiApplyPlan, apiLedgerBudget, apiLedgerCategories, apiLedgerEntries, apiGetVideoNews, apiTodoSetStatus, apiGetLibrary } from '@/services/api';
 import { buildTodayBrief, resolveCategory, type TodayBrief } from '@/utils/ledgerAggregate';
 import { fetchQuotes, getWatchlist, addToWatchlist, removeFromWatchlist, normalizeStockCode, WATCHLIST_MAX, type StockQuote } from '@/utils/quotes';
-import { cloudSyncReady } from '@/services/cloudSync';
+import { cloudSyncReady, syncNow } from '@/services/cloudSync';
 import { buildPlanProposal, DEFAULT_DURATION_MINUTES } from '@/utils/schedule';
 import type { PlanProposal, PlanApplyEvent } from '@/utils/schedule';
 import { guardHabitsOnOpen, commitHabitGuards, listRestorableRecords, undoHabitGuard, createHabit } from '@/utils/habit';
@@ -759,6 +759,10 @@ function BriefingPage() {
     const next = removeFromWatchlist(code);
     setWatchCodes(next);
     setQuotes((prev) => prev.filter((q) => q.code !== code));
+    /* 2026-11-03：删除必须当场推到云端。
+       hookStorage 的写入只是排进防抖队列，若用户删完立刻退出/换设备，
+       user_kv 里还是旧列表，下次拉取会把删掉的股票「复活」回来。 */
+    void syncNow();
   };
 
   /** 待办勾选完成：走确定性写库接口，不经过 LLM 对话通道。 */
@@ -1777,7 +1781,11 @@ function BriefingPage() {
                   {q.changePct >= 0 ? '+' : ''}{q.changePct.toFixed(2)}%
                 </Text>
                 {quoteOpen ? (
-                  <Text style={{ fontSize: r2r(26), color: '#657080' }} onClick={() => void handleRemoveStock(q.code)}>
+                  <Text
+                    data-testid='watchlist-remove'
+                    style={{ fontSize: r2r(26), color: '#657080', padding: `${r2r(8)} ${r2r(12)}` }}
+                    onClick={() => void handleRemoveStock(q.code)}
+                  >
                     ✕
                   </Text>
                 ) : null}

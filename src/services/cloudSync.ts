@@ -404,6 +404,19 @@ async function pushNow(): Promise<void> {
 }
 
 /**
+ * 立即推送一次（2026-11-03，自选股删除「真同步」修复）。
+ *
+ * 为什么需要：`hookStorage()` 会把本地写入排进 1.5s 防抖 + 30s 轮询才推，
+ * 删除自选后用户若立刻退出/换设备，云端旧值还留着 —— 下次拉取「云端较新」又把它拉回来，
+ * 表现为「删了又复活」。删除这类**用户明确表达删除意图**的写入必须当场推。
+ *
+ * 失败语义与 pushNow 完全一致：未登录直接跳过（不是故障）；网络失败下轮再试，不抛错。
+ */
+export async function syncNow(): Promise<void> {
+  await pushNow();
+}
+
+/**
  * 纯函数：把远端数据合并进本地（只认 SYNC_KEYS，且只覆盖 clientTs 比本地已确认值更新的 key）。
  * 按 Taro 信封格式写入本地，页面 getStorageSync 才能读到。返回本次恢复的 key 数。
  *
