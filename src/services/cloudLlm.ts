@@ -26,6 +26,7 @@ import type { LlmMessage } from './cloudAuth';
 import { llmEventInsert } from './cloudDb';
 import { readPlan } from '../data/dailyPlan';
 import type { ExtractResult } from '../types';
+import { sanitizeShoppingReply } from '../utils/replyGuard';
 
 /* ---------------- 系统提示（与 cloudfunctions/chat 同口径） ---------------- */
 
@@ -306,7 +307,8 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
       // content 正常累积；reasoning_content 是思考过程，与可见回复分开，不混入 text
       if (delta && typeof delta.content === 'string' && delta.content) text += delta.content;
     }
-    return text;
+    // 2026-11-03（I-4）：H5 直连不经过 chat 云函数的禁语后处理，这里补同一口径。
+    return sanitizeShoppingReply(text, opts.userContent);
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -328,7 +330,7 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
     void llmEventInsert('chat').catch((err) => {
       console.error('[cloudLlm] llm_event insert failed:', err);
     });
-    return text;
+    return sanitizeShoppingReply(text, opts.userContent);
   } catch (err) {
     console.warn('[cloudLlm] stream failed:', err);
     lastChatFailure = classifyChatError(err);
@@ -341,7 +343,7 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
         const retried = await collect();
         if (retried) {
           lastChatFailure = null;
-          return retried;
+          return sanitizeShoppingReply(retried, opts.userContent);
         }
         console.warn('[cloudLlm] retry after session repair returned empty');
         lastChatFailure = 'empty';

@@ -464,8 +464,14 @@ export async function callFunction<T = unknown>(
       // 真实数据优先：同源聚合接口（本地预览）/ Pages 静态聚合（Actions 定时刷新），失败降级本地 mock
       const payload = await getHotspotPayload()
       if (payload) {
+        // 2026-11-03（I-2）：stale 不能只信烘焙时的 false。
+        // 快照生成时当然「新鲜」，但消费端可能是几小时后/几天后；超过 6h 就按离线数据标识，
+        // 否则页面会拿一份隔夜缓存冒充实时。
+        const HOTSPOT_STALE_MS = 6 * 60 * 60 * 1000;
+        const ageStale =
+          !payload.updatedAt || Date.now() - Date.parse(payload.updatedAt) > HOTSPOT_STALE_MS;
         hotspotMeta = payload.updatedAt
-          ? { updatedAt: payload.updatedAt, stale: payload.stale, sources: payload.sources }
+          ? { updatedAt: payload.updatedAt, stale: !!payload.stale || ageStale, sources: payload.sources }
           : null
         clearDegraded('getHotspot')
         // 2026-10-23：按用户偏好重排（云函数 selectForUser 的客户端镜像），
