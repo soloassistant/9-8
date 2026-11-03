@@ -1271,14 +1271,19 @@ function LibraryPage() {
         ) : null}
       </View>
 
-      {/* U-01：加载 >300ms 时显示热点流骨架（3 张资讯卡），快速命中缓存不显示 */}
-      {loading && showSkeleton ? (
-        <View className={styles.hotspot}>
-          {[0, 1, 2].map((i) => (
-            <NewsCardSkeleton key={i} />
-          ))}
-        </View>
-      ) : null}
+      {/* 2026-11-03（J3）：桌面版的阅读列必须是「文本列」，不是整个容器。
+          原来 max-width 放在 .page（1100）上，正文仍被拉到 1066px、首图成 6.9:1 横条。
+          现在把骨架与热点流一起放进 .columnMain（桌面 720px），右侧 280px 放热榜/筛选。 */}
+      <View className={styles.contentRow}>
+        <View className={styles.columnMain}>
+          {/* U-01：加载 >300ms 时显示热点流骨架（3 张资讯卡），快速命中缓存不显示 */}
+          {loading && showSkeleton ? (
+            <View className={styles.hotspot}>
+              {[0, 1, 2].map((i) => (
+                <NewsCardSkeleton key={i} />
+              ))}
+            </View>
+          ) : null}
 
       {searchMode || newsFiltered.length > 0 ? (
         <View className={classnames(styles.hotspot, styles.contentFade)}>
@@ -1474,6 +1479,14 @@ function LibraryPage() {
                   />
                 ))}
               </ScrollView>
+              {/* 2026-11-03（J9）：换热点源原来要走 4 次点击/3 层（我的 → 偏好 → 展开来源）。
+                  这里给一个一键入口，直接打开偏好页的来源面板；偏好页保留完整版。 */}
+              <Text
+                className={styles.sourceEntry}
+                onClick={() => Taro.navigateTo({ url: '/pages/prefs/index?focus=sources' })}
+              >
+                {t('library.sourceEntry')}
+              </Text>
             </View>
           ) : null}
           {searchMode && searching ? (
@@ -1531,7 +1544,30 @@ function LibraryPage() {
             </>
           ) : null}
         </View>
-      ) : null}
+        ) : null}
+        </View>
+        {/* 桌面右侧辅助栏（2026-11-03 J3）：只放热榜与频道筛选，手机端 display:none。 */}
+        <View className={styles.sideRail}>
+          <View className={styles.railCard}>
+            <Text className={styles.railTitle}>{t('library.sideHotTitle')}</Text>
+            {(searchMode ? searchResults : newsFiltered).slice(0, 5).map((n) => (
+              <Text key={n.id} className={styles.railItem} onClick={() => handleNewsTap(n)}>
+                {n.title}
+              </Text>
+            ))}
+          </View>
+          <View className={styles.railCard}>
+            <Text className={styles.railTitle}>{t('library.sideFilterTitle')}</Text>
+            <View className={styles.railTags}>
+              {newsTags.slice(1, 7).map((tag) => (
+                <Text key={tag} className={styles.railTag} onClick={() => setActiveNewsTag(tag)}>
+                  {tag}
+                </Text>
+              ))}
+            </View>
+          </View>
+        </View>
+      </View>
 
       <View className={styles.sectionBar}>
         <Text className={styles.sectionBarIcon}>🔖</Text>

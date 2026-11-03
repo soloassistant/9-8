@@ -257,6 +257,8 @@ function PrefsPage() {
   const [disabledSources, setDisabledSources] = useState<string[]>(() => readDisabledSources());
   useEffect(() => {
     let cancelled = false;
+    // 2026-11-03（J9）：热点页筛选条的「来源 ⚙」带 ?focus=sources 进来时，直接展开来源面板。
+    if (Taro.getCurrentInstance()?.router?.params?.focus === 'sources') setSourcesOpen(true);
     getHotspotPayload()
       .then((p) => {
         if (cancelled || !p) return;

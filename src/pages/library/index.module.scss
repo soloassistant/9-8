@@ -113,6 +113,20 @@
   color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.5:1）
 }
 
+/* 2026-11-03（J3）：桌面阅读列与右侧辅助栏。
+   手机/平板（<1024）保持单列原样，辅助栏不渲染（display:none）。 */
+.contentRow {
+  display: block;
+}
+
+.columnMain {
+  min-width: 0;
+}
+
+.sideRail {
+  display: none;
+}
+
 .hotspot {
   margin-bottom: $spacing-sm;
 }
@@ -359,10 +373,29 @@
 .filterBar {
   padding: 0 $page-padding $spacing-md;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
 }
 
 .chipScroll {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+/* J9：筛选条右侧的「来源 ⚙」一键入口 */
+.sourceEntry {
+  flex-shrink: 0;
+  min-height: 72rpx;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 $spacing-sm;
+  border-radius: $radius-button;
+  background: $color-bg-card;
+  border: 1rpx solid $color-border;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
 }
 
 .list {
@@ -648,6 +681,46 @@
   border: 1rpx solid $color-border;
   font-size: $font-size-sm;
   color: $color-text-secondary;
+}
+
+/* 桌面右侧辅助栏：热榜 + 频道筛选 */
+.railCard {
+  @include card-surface;
+  margin-bottom: $spacing-md;
+  padding: $spacing-md;
+}
+
+.railTitle {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.railItem {
+  display: block;
+  padding: $spacing-xs 0;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+  color: $color-text-secondary;
+  @include text-ellipsis-multi(2);
+  cursor: pointer;
+}
+
+.railTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
+.railTag {
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $radius-button;
+  background: $color-bg-page;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  cursor: pointer;
 }
 
 .disclaimerFooter {
@@ -1102,6 +1175,38 @@
     max-width: 1100PX;
     margin: 0 auto;
     box-sizing: border-box;
+  }
+
+  /* 2026-11-03（J3 回归修正）：限宽必须放在**正文文本列**上，而不是只包住整页。
+     1440 下 .page=1100 但正文仍 1066、首图 6.9:1 —— 说明限制没落到卡片流。
+     这里：阅读列 720 + 间距 24 + 右栏 280 = 1024，整体在 1100 的页内居中。 */
+  .contentRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 280PX;
+    column-gap: 24PX;
+    align-items: start;
+    max-width: 1024PX;
+    margin: 0 auto;
+  }
+
+  .columnMain {
+    width: 100%;
+    max-width: 720PX;
+  }
+
+  .sideRail {
+    display: block;
+    position: sticky;
+    top: 16PX;
+  }
+
+  /* 首图从固定 280rpx 的横条改成 16:9，且宽度不超过阅读列（上限 720×405）。 */
+  .newsImage {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    height: auto;
+    max-height: 405PX;
+    object-fit: cover;
   }
 
   .blockMask {
