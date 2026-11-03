@@ -95,7 +95,11 @@ function normalizeRecord(raw: unknown): RunRecord | null {
     startedAt: Number(r.startedAt),
     durationSec: Math.round(durationSec),
     distanceM: Number.isFinite(distanceM) && distanceM > 0 ? distanceM : 0,
-    distanceKnown: source === 'gps',
+    // 2026-11-03（L 隐患 1）：原来强制 `distanceKnown = source === 'gps'`，
+    // 导入的 GPX/TCX（source 不是 gps）即使带距离也会被降级成「距离未知」。
+    // 现在信任已校验的布尔值；缺失时才回落到「gps 才有距离」的旧规则。
+    distanceKnown:
+      typeof r.distanceKnown === 'boolean' ? r.distanceKnown : source === 'gps',
     samples,
     source
   };
