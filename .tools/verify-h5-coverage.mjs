@@ -57,7 +57,9 @@ const CROSS_DEVICE_KEYS = [
   'learnCommunityStore', 'learnAchievements', 'learnNickname', 'habitStore',
   'readStreakStore', 'mb-brief-streak', 'mb_news_blocklist', 'mb-cat-affinity',
   'mb-prefs', 'mb_personalization', 'ai_chat_usage', 'notify-log', 'mb_tts_voice',
-  'mb_renew_remind', 'mb_renew_remind_day', 'mb_locked_price'
+  'mb_renew_remind', 'mb_renew_remind_day', 'mb_locked_price',
+  // 2026-10-31：追踪关键词（用户盯的词，跨设备一致）
+  'intel-watchlist'
 ];
 
 /** **不该**上云的键：合规同意 / 设备级引导 / 实验分流 / 缓存 / 派生值。逐个都有理由。 */
@@ -73,6 +75,7 @@ const DEVICE_ONLY_KEYS = {
   'sxm-dial-code': '拨号区号偏好（设备级）',
   'llm-conversation-id': '对话会话 id（会话级）',
   'mb-cat-affinity-ab': 'A/B 分流计数器（代码注释已写明不上云）',
+  'briefing-archive': '晨报定版存档，近 7 天回看（端上体验；整包体积大，跨端收益低——用户核心数据已由各自的 SYNC 键同步）',
   'mb_ai_audio_trace': '音频链路追踪计数器（不含内容）',
   'mb-sub-auth-at': '授权时间戳（统计用）',
   'subscribeStat': '订阅统计计数器',

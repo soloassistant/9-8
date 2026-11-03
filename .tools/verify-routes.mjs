@@ -168,7 +168,7 @@ async function main() {
   await send('Network.enable');
   await send('Page.addScriptToEvaluateOnNewDocument', { source: fs.readFileSync(path.resolve(ROOT, '.tools/cdp-probe-session.js'), 'utf8') });
   await send('Page.addScriptToEvaluateOnNewDocument', {
-    source: `try{localStorage.setItem('onboarded-v2', JSON.stringify({data:true}));localStorage.setItem('privacy-consent', JSON.stringify({data:true}));}catch(e){}`
+    source: `try{localStorage.setItem('onboarded-v2', JSON.stringify({data:true}));localStorage.setItem('onboarded-v2:probe-user-0001', JSON.stringify({data:true}));localStorage.setItem('privacy-consent', JSON.stringify({data:true}));}catch(e){}`
   });
 
   const rows = [];

@@ -111,6 +111,10 @@ for (const fn of fnNames) {
 const delSrc = read('cloudfunctions/deleteAccount/index.js');
 const delListRaw = /const collections = \[([\s\S]*?)\];/.exec(delSrc)?.[1] ?? '';
 const deleteCollections = [...delListRaw.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+// 2026-10-31（I1b 清偿）：deleteAccount 对 redeemCodes 走的是「数组字段 pull」的
+// **非文档删除**分支 —— 它不在上面的文档清单里，但同样是注销覆盖。识别依据：
+// collection('redeemCodes') 与 _.pull 在同一源文件内同时出现，缺一个即视为未覆盖。
+const pullCovered = /collection\('redeemCodes'\)[\s\S]*?_\.pull\(/.test(delSrc) ? ['redeemCodes'] : [];
 
 // H5 传输层白名单
 const dsSrc = read('src/services/dataSource.ts');
@@ -213,12 +217,13 @@ const rows = [...collections.keys()].sort().map((c) => {
   const rec = collections.get(c);
   const identity = rec.ownerId && rec.openid ? 'openid+owner_id' : rec.ownerId ? 'owner_id' : rec.openid ? 'openid' : '(按 _id)';
   const inDel = deleteCollections.includes(c);
+  const pullHit = pullCovered.includes(c);
   const h5Reachable = rec.writers.size > 0 && [...rec.writers].some((w) => rpcAllow.includes(w));
   return {
     collection: c,
     identity,
     writers: [...rec.writers].sort().join(','),
-    weappDelete: inDel ? 'yes' : 'NO',
+    weappDelete: inDel ? 'yes' : pullHit ? 'pull' : 'NO',
     h5Reachable: h5Reachable ? 'yes' : 'NO'
   };
 });
@@ -233,7 +238,7 @@ for (const r of rows) {
 // 只有**含个人身份字段**的集合才属于「该不该删」的范围；
 // 判据是「非豁免就必须在注销清单里」——宁可多删，不许默默漏人。
 const leakedForWeapp = [...collections.keys()]
-  .filter((c) => !PERSONAL_EXEMPT.has(c) && !deleteCollections.includes(c))
+  .filter((c) => !PERSONAL_EXEMPT.has(c) && !deleteCollections.includes(c) && !pullCovered.includes(c))
   .sort();
 const nonPersonal = [...PERSONAL_EXEMPT.keys()].filter((c) => collections.has(c));
 const h5OwnTables = h5Tables.filter((t) => t !== 'kv_clear');
@@ -259,14 +264,6 @@ out('── 断言 ──');
  *    这张表的长度只应该变短。
  */
 const KNOWN_GAPS = new Map([
-  [
-    'I1b',
-    'redeemCodes 的 usedBy 是**数组内成员**，不是每用户一条文档。' +
-      '直接塞进 deleteAccount 的 collections 会走 where({openid}).remove() —— 那会删掉整个码池文档' +
-      '（运营活动的码全废），而实际上一条也匹配不到（文档里没有 openid 字段），' +
-      '于是删除数为 0、界面还报"已删除"。正确做法是 update({ usedBy: _.pull(OPENID) })，' +
-      '需要给 deleteAccount 加一条"非文档删除"的分支，且云函数当前无法部署验证（主体未注册）。'
-  ],
   [
     'I3a',
     'H5 与 weapp 共用 feedback 表：云函数按 openid 写，H5 侧按 owner_id 写。' +

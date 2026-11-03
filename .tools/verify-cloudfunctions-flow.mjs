@@ -724,6 +724,12 @@ async function caseDeleteAccount() {
       errors: [
         { _id: 'e-a', openid: OWNER, message: '我的崩溃', page: 'pages/home/index' },
         { _id: 'e-b', openid: OTHER, message: '别人的崩溃', page: 'pages/mine/index' }
+      ],
+      // redeemCodes 是码池文档：usedBy 是**数组内成员**（redeemCode `_.push([OPENID])` 写入）。
+      // 2026-10-31（I1b）修复前按 openid remove 一条也匹配不到，注销后兑换记录仍留在池里。
+      redeemCodes: [
+        { _id: 'rc-shared', code: 'PRO-SHARED', planDays: 30, maxUses: 50, usedBy: [OWNER, OTHER] },
+        { _id: 'rc-other', code: 'PRO-OTHER', planDays: 30, maxUses: 50, usedBy: [OTHER] }
       ]
     }
   });
@@ -731,12 +737,19 @@ async function caseDeleteAccount() {
   const r = await capture(() => main({}));
   const res = noThrow('deleteAccount 正常调用不抛错', r);
   eq('返回 {code:0, data.deleted:true}', [res.code, res.data.deleted], [0, true]);
-  eq('removed 计数覆盖本人 5 条记录（含 errors）', res.data.removed, 5);
+  eq('removed 计数覆盖本人 6 处（5 条文档 + 共享码池 usedBy 的 1 次 pull）', res.data.removed, 6);
   ok('本人 users/orders/todos/items/errors 全部清空', scoped.every((c) => cloud.__docs(c).every((d) => d.openid !== OWNER)), json(cloud.__dump()));
   ok('别人的数据一条都不能少（含 errors）', scoped.every((c) => cloud.__docs(c).filter((d) => d.openid === OTHER).length === 1), json(cloud.__dump()));
   eq('注销后 errors 里该 openid 的记录为 0（F18：崩溃上报也算个人数据）', cloud.__docs('errors').filter((d) => d.openid === OWNER).length, 0);
   eq('别人的 errors 仍然保留（不能误删）', cloud.__docs('errors').filter((d) => d.openid === OTHER).map((d) => d._id), ['e-b']);
   ok('未创建的遗留集合（history 等）被跳过而不是判失败', res.data.failed === undefined, json(res.data));
+  // 2026-10-31（I1b）：usedBy 数组内成员的清偿——本人被 pull、别人保留、池文档本身不删
+  const shared = cloud.__docs('redeemCodes').find((d) => d._id === 'rc-shared');
+  const otherOnly = cloud.__docs('redeemCodes').find((d) => d._id === 'rc-other');
+  ok('码池文档本身还在（pull 不是 remove，运营资产不可误删）',
+    Boolean(shared) && Boolean(otherOnly), json(cloud.__docs('redeemCodes')));
+  eq('共享码的 usedBy 只剩别人（本人被原子拉除）', shared.usedBy, [OTHER]);
+  eq('只属于别人的码原样未动', otherOnly.usedBy, [OTHER]);
 }
 
 /* ================================================================== *
@@ -1700,7 +1713,14 @@ async function caseStaticAlignment() {
   ok('扫描器能看到 errors（否则它对本次缺陷是瞎的）', found.has('errors'), json([...found]));
   ok('扫描器能看到 users / orders / items', ['users', 'orders', 'items'].every((c) => found.has(c)), json([...found]));
 
-  const missing = [...found].filter((c) => !listed.includes(c) && !GLOBAL_COLLECTIONS.has(c));
+  // 2026-10-31（I1b）：redeemCodes 走「数组字段 pull」的非文档删除分支 ——
+  // 不在文档清单里但同样覆盖。识别依据与 audit-identity 保持同款（两处判据必须同步改）：
+  // collection('redeemCodes') 与 _.pull 在 deleteAccount 源码内同时出现。
+  const pullCovered = /collection\('redeemCodes'\)[\s\S]*?_\.pull\(/.test(src) ? ['redeemCodes'] : [];
+  ok('redeemCodes 的 pull 分支存在且被识别为已覆盖（usedBy 是数组成员，remove 语义够不着）',
+    pullCovered.length === 1 && found.has('redeemCodes'), json({ pullCovered, found: [...found] }));
+
+  const missing = [...found].filter((c) => !listed.includes(c) && !GLOBAL_COLLECTIONS.has(c) && !pullCovered.includes(c));
   ok(
     '所有按 openid 写入的集合都已登记进注销清单',
     missing.length === 0,

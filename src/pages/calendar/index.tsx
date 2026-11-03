@@ -12,6 +12,7 @@ import { logActivity } from '@/utils/activityLog';
 import { isOverlap, hasGapBuffer, buildPlanProposal, DEFAULT_DURATION_MINUTES, SCHED_GAP_BUFFER_MINUTES } from '@/utils/schedule';
 import type { PlanProposal, PlanApplyEvent } from '@/utils/schedule';
 import type { Briefing, TodoItem } from '@/types';
+import { buildIcs } from '@/utils/icsExport';
 import { useT, useLanguageStore } from '@/store/language';
 import styles from './index.module.scss';
 
@@ -186,6 +187,27 @@ function CalendarPage() {
       console.error('[CalendarPage] quick add failed:', err);
       Taro.showToast({ title: t('calendar.addFailed'), icon: 'none' });
     }
+  };
+
+  // ===== .ics 导出（2026-10-31，产品评估 §7.2 C）=====
+  // 只在 H5 显示：weapp 已有 addPhoneCalendar 单向写入；H5 没有系统日历通道，ics 是唯一出口。
+  // 导的是当前 briefing 里的全部日程+待办（一次性文件，不是订阅链接 —— 评估文档写明的诚实边界）。
+  const handleExportIcs = () => {
+    if (!briefing || ((!briefing.events || !briefing.events.length) && (!briefing.todos || !briefing.todos.length))) {
+      Taro.showToast({ title: t('calendar.icsNothing'), icon: 'none' });
+      return;
+    }
+    const text = buildIcs({ events: briefing.events, todos: briefing.todos });
+    const blob = new Blob([text], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `晨报日程-${briefing.date.replace(/-/g, '')}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    Taro.showToast({ title: t('calendar.icsSaved'), icon: 'success', duration: 1800 });
   };
 
   /** 单向写入手机系统日历（小程序支持写入、不支持读取） */
@@ -419,6 +441,11 @@ function CalendarPage() {
             {t('calendar.dateFormat', { m: selectedDate.month() + 1, d: selectedDate.date() })}{' '}
             {t('calendar.weekdays').split('|')[selectedDate.day()]}
           </Text>
+          {!isWeapp && (
+            <Button className={styles.syncButton} onClick={handleExportIcs}>
+              {t('calendar.icsExport')}
+            </Button>
+          )}
           <Button className={styles.syncButton} onClick={handleWriteSystemCalendar}>
             {t('calendar.writeToPhone')}
           </Button>

@@ -26,6 +26,7 @@ import {
   summarize,
   todayStr
 } from '@/utils/ledgerAggregate';
+import MonthReview from './MonthReview';
 import styles from './index.module.scss';
 
 /** 金额展示：整数部分带千分位，小数只在有值时显示（¥80 而不是 ¥80.00）。 */
@@ -296,12 +297,12 @@ function LedgerPage() {
     }
     const total = [...byCat.values()].reduce((a, b) => a + b, 0);
     const sorted = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
-    const top = sorted.slice(0, 3).map(([id, amount]) => ({
+    const top = sorted.slice(0, 3).map(([id, catAmount]) => ({
       id,
       name: resolveCategory(categories, id).name,
       icon: resolveCategory(categories, id).icon,
-      amount,
-      share: total > 0 ? Math.round((amount / total) * 100) : 0
+      amount: catAmount,
+      share: total > 0 ? Math.round((catAmount / total) * 100) : 0
     }));
     // 只列前 3 名时，占比加起来必然不足 100%（第 4 名起没地方去）。
     // 补一行「其他」把剩下的钱和百分点收口 —— 否则用户看到 96% 会以为数字算错了。
@@ -330,6 +331,8 @@ function LedgerPage() {
         <Text className={styles.backIcon}>‹</Text>
         <Text className={styles.backText}>{t('common.back')}</Text>
       </View>
+      {/* AI 月度消费点评（2026-10-31，产品评估 §7.2 D）：自包含组件，吃当前 entries */}
+      <MonthReview entries={entries} />
       <View className={styles.head}>
         <View className={styles.monthRow}>
           <Text className={styles.monthLabel}>

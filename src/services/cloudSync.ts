@@ -33,8 +33,9 @@ const SYNC_INTERVAL = 30_000; // 兜底轮询：每 30 秒推一次变更
 const DEBOUNCE = 1500; // 写入后防抖 1.5 秒再推，合并连续写入
 const PULL_TIMEOUT_MS = 8000; // 启动拉取超时（SDK 请求自行 abort，避免悬挂）
 
-/** 需要上云的 key（与 src 内实际使用一一对应；设备级隐私同意不上云） */
-const SYNC_KEYS = [
+/** 需要上云的 key（与 src 内实际使用一一对应；设备级隐私同意不上云）。
+ * 2026-10-31 起导出：数据保险箱（prefs 页全量导出/导入）按这份清单收集，别再写第二份。 */
+export const SYNC_KEYS = [
   'shoppingList',     // 购物清单
   'dailyPlanStore',   // 日程/待办
   'browseHistory',    // 浏览历史
@@ -65,6 +66,9 @@ const SYNC_KEYS = [
   // 自选股（2026-10-25）：跨设备同步 —— 手机上加了茅台，平板打开就该看到。
   // 字符串数组（≤8 项腾讯代码），体积可忽略； quotes.ts 的 WATCHLIST_KEY 是唯一写入方。
   'watchlist',
+  // 追踪关键词（2026-10-31）：用户盯的词，跨设备一致（与自选股 watchlist 是两码事，键名刻意区分）。
+  // briefing-archive 刻意不同步：7 天整包晨报太重，且存档是端上体验，不是要带着走的数据。
+  'intel-watchlist',
   // 运动（2026-10-28）：跑步记录 + 周目标。与记账同款拆两个 key ——
   // 记录写入频繁、周目标几乎不改，分开才不会互相覆盖。
   'sportRuns',
@@ -144,6 +148,7 @@ const REMOVE_PLACEHOLDER: Record<string, unknown> = {
   'ledger-categories': [],
   'ledgerBudget': {},
   'watchlist': [],
+  'intel-watchlist': [],
   'user-avatar': '',
   // 对象类
   'user-settings': {},
