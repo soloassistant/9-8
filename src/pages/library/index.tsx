@@ -1269,7 +1269,11 @@ function LibraryPage() {
                   把首屏的资讯全挤走了（2026-10-12）。这里只列前 3 个 + 总数，
                   完整清单在「我的」页与 AI 标识说明里可查。 */}
               <Text className={styles.dataMetaText}>
-                {t('library.dataUpdated')} {dayjs(hotMeta.updatedAt || Date.now()).format('MM-DD HH:mm')}
+                {/* 2026-11-03：updatedAt 缺失时不再回填 Date.now()（那会把「不知道」显示成「刚刚」）。
+                    宁可如实说未知，也不伪造新鲜度。 */}
+                {hotMeta.updatedAt
+                  ? `${t('library.dataUpdated')} ${dayjs(hotMeta.updatedAt).format('MM-DD HH:mm')}`
+                  : t('library.dataUpdatedUnknown')}
                 {hotMeta.stale ? ` · ${t('library.dataStale')}` : ''}
                 {(() => {
                   const okNames = hotMeta.sources.filter((s) => s.ok).map((s) => s.name);
