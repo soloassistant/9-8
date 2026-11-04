@@ -16,6 +16,7 @@ import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/languag
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
 import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
 import { initCloudSync } from '@/services/cloudSync';
+import { syncHealthSyncExclusion } from '@/services/healthConsent';
 import { restoreSubscriptionFromOrders } from '@/services/subscription';
 import { dismissBootSkeletonAfterPaint } from '@/utils/bootSkeleton';
 import { showBootFailure } from '@/utils/bootFailure';
@@ -61,6 +62,10 @@ try {
 // 用户数据轻云同步（仅 H5）：必须在任何页面读取 storage 之前完成云端恢复，故模块加载即执行。
 // 返回的 Promise 在**启动拉取结束后** resolve —— 重放必须挂在它后面（.then），
 // 否则重放读到的是「恢复前」的 storage，跨设备改过的语言/主题/字号在首刷不生效。
+// 2026-11-04（P0）：排除表是运行期状态，刷新后要按**已持久化**的同意状态重建。
+// 必须在 initCloudSync 之前跑：否则撤回过的用户一刷新，sportRuns 又回到同步范围、
+// 30s 轮询继续把 GPS 轨迹外传 —— 撤回就成了「只在当次会话有效」。
+syncHealthSyncExclusion();
 void initCloudSync().then(() => {
   rehydrateStoresAfterCloudPull();
   // 订阅回放（2026-10-29 审计 P1）：原本只在会员中心页触发，于是**付费用户换设备/清缓存后

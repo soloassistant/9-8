@@ -81,6 +81,30 @@ export async function kvSetMany(items: Array<{ key: string; value: unknown; ts: 
   return typeof n === 'number' ? n : null;
 }
 
+/**
+ * 删除当前用户的指定同步键（2026-11-04，P0：撤回健康同意后删除已上传的运动轨迹）。
+ *
+ * 为什么可以直接删表而不用新增 RPC：`user_kv` 对 authenticated 授了 DELETE，
+ * RLS 还要求 `owner_id = auth.uid()`（见 .tools/sql/v1-h5-cloud.sql）——
+ * 「删自己的行」不需要任何迁移。
+ *
+ * 返回值：行数；0 = 本来就没有副本（也算成功）；null = 真故障。
+ * ⚠️ PostgREST 的 DELETE 默认不返回 representation（成功时 data 可能为 null），
+ *    所以这里**不能用 unwrap**（它把 data=null 当成失败），只看 error。
+ */
+export async function kvDeleteKeys(keys: string[]): Promise<number | null> {
+  if (keys.length === 0) return 0;
+  const db = await getCloudDatabase();
+  if (!db) return null;
+  const res = await db.from('user_kv').delete().in('key', keys);
+  if (res.error) {
+    // console.error 而非 warn：warn 会被生产构建剔除，线上零痕迹
+    console.error('[cloudDb] kvDeleteKeys failed:', res.error.code || '', res.error.message || '');
+    return null;
+  }
+  return Array.isArray(res.data) ? res.data.length : 0;
+}
+
 /** 清空当前用户全部同步键（注销账号 / 清除云端数据）。返回删除行数。 */
 export async function kvClear(): Promise<number | null> {
   const db = await getCloudDatabase();
