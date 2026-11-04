@@ -928,7 +928,9 @@ async function caseOrders() {
   }
   {
     const seedOrders = [
-      { _id: 'o2', orderId: 'ord_2', openid: OWNER, channel: 'wechat', planId: 'monthly', price: 990, months: 1, status: 'paid', channelTradeNo: 'wx_trade_1' }
+      // 缺陷 B2 后，幂等早退条件从「status=paid」收紧为「paid 且权益 applied」；
+      // 已完成对账的订单必然带着 entitlementStatus=applied。
+      { _id: 'o2', orderId: 'ord_2', openid: OWNER, channel: 'wechat', planId: 'monthly', price: 990, months: 1, status: 'paid', entitlementStatus: 'applied', channelTradeNo: 'wx_trade_1' }
     ];
     const { cloud, main } = boot('queryOrder', { seed: { orders: seedOrders, users: [{ _id: 'u-a', openid: OWNER }] } });
     const r = await capture(() => main({ orderId: 'ord_2' }));
