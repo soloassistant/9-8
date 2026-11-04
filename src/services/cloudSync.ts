@@ -245,23 +245,232 @@ function ownerKey(base: string): string {
   return activeOwner ? `${base}:${activeOwner}` : base;
 }
 
+/* ---------------- 换账号隔离（2026-11-04，缺陷 B1：隐私） ----------------
+ *
+ * 事故链：H5 退出登录只清了登录键，**业务同步键全部留在本机**；
+ * 下一位用户登录后 initCloudSync 的「先拉后推」直接 collectLocal → kvSetMany，
+ * 把上一位用户的数据（记账/收藏/运动/聊天记录…）推进新账号，属于跨账号数据串号。
+ *
+ * 修复原则：
+ *   1. 本机业务数据有**明确的归属标记** `cloud-sync-owner`（谁登录时写下的）；
+ *   2. 登录账号与标记不一致 → 先把旧数据整体搬进 `pii-quarantine-<旧owner>`，
+ *      再允许新账号 pull/push（绝不静默）；
+ *   3. push 前后各校验一次 owner，期间账号被切换 → 直接 abort，不写 confirm/meta。
+ *
+ * 隔离是**移动**（原 key 删除），不是复制：否则 collectLocal 仍会把旧数据推上去。
+ * 归档键不在 SYNC_KEYS 里，后续同步不会再碰它。
+ */
+const OWNER_KEY = 'cloud-sync-owner'; // { owner, at } —— 本机业务数据归谁
+const OWNER_NOTICE_KEY = 'cloud-sync-owner-notice'; // 最近一次换账号隔离提示（持久化，刷新不丢）
+const QUARANTINE_PREFIX = 'pii-quarantine-';
+
+export interface SyncOwnerNotice {
+  kind: 'owner-switch';
+  from: string;
+  to: string;
+  keys: number;
+  quarantineKey: string;
+  at: number;
+}
+
+const ownerNoticeListeners = new Set<(notice: SyncOwnerNotice | null) => void>();
+let ownerNoticeCache: SyncOwnerNotice | null = rawGetJSON<SyncOwnerNotice | null>(OWNER_NOTICE_KEY, null);
+
+function emitOwnerNotice(): void {
+  const snapshot = ownerNoticeCache;
+  ownerNoticeListeners.forEach((cb) => {
+    try {
+      cb(snapshot);
+    } catch (err) {
+      console.warn('[cloudSync] owner notice listener failed:', err);
+    }
+  });
+}
+
+/** 当前待展示的「已换账号、旧数据已归档」提示（供 UI 订阅前读取） */
+export function getSyncOwnerNotice(): SyncOwnerNotice | null {
+  return ownerNoticeCache;
+}
+
+/** 用户确认看到提示后清掉（不删隔离数据；隔离数据留给用户人工找回） */
+export function dismissSyncOwnerNotice(): void {
+  ownerNoticeCache = null;
+  rawSet(OWNER_NOTICE_KEY, '');
+  emitOwnerNotice();
+}
+
+/** 订阅换账号提示：订阅时立即回调一次当前值，返回取消订阅函数 */
+export function subscribeSyncOwnerNotice(cb: (notice: SyncOwnerNotice | null) => void): () => void {
+  ownerNoticeListeners.add(cb);
+  cb(ownerNoticeCache);
+  return () => {
+    ownerNoticeListeners.delete(cb);
+  };
+}
+
+function readOwnerMarker(): string | null {
+  const raw = rawGetJSON<{ owner?: unknown }>(OWNER_KEY, {});
+  return typeof raw.owner === 'string' && raw.owner ? raw.owner : null;
+}
+
+function writeOwnerMarker(owner: string): void {
+  rawSet(OWNER_KEY, JSON.stringify({ owner, at: Date.now() }));
+}
+
+function scopedKey(base: string, owner: string): string {
+  return `${base}:${owner}`;
+}
+
+/**
+ * 把本机所有业务同步键**移动**到 `pii-quarantine-<fromOwner>`（含未裁决冲突快照与同步元数据）。
+ *
+ * 同时清空该账号在本机的 meta/confirm：数据已经不在本机了，这些「已确认同步」时间戳若留着，
+ * 下次切回该账号时 `remoteTs <= metaTs` 会让云端数据被跳过 —— 用户会以为数据丢了。
+ * 元数据随隔离快照一起保存，切回时按原样恢复（含「有未推送修改」的信息，避免误判 clean）。
+ */
+function quarantineLocalPii(fromOwner: string): { quarantineKey: string; keys: number } {
+  const quarantineKey = `${QUARANTINE_PREFIX}${fromOwner}`;
+  const snapshot = rawGetJSON<Record<string, string>>(quarantineKey, {});
+  let keys = 0;
+  for (const k of SYNC_KEYS) {
+    const raw = rawGet(k);
+    if (!raw) continue;
+    snapshot[k] = raw; // 保留原始信封，可原样还原
+    keys++;
+    try {
+      window.localStorage.removeItem(k);
+    } catch {}
+  }
+  // 冲突快照里含**远端明文**（旧账号数据），同样属于隐私数据，一并隔离
+  const conflicts = rawGet(CONFLICT_KEY);
+  if (conflicts) {
+    snapshot[CONFLICT_KEY] = conflicts;
+    try {
+      window.localStorage.removeItem(CONFLICT_KEY);
+    } catch {}
+  }
+  const oldMeta = rawGet(scopedKey(META_KEY, fromOwner));
+  const oldConfirm = rawGet(scopedKey(CONFIRM_KEY, fromOwner));
+  if (oldMeta) {
+    snapshot['__meta'] = oldMeta;
+    rawSet(scopedKey(META_KEY, fromOwner), '{}');
+  }
+  if (oldConfirm) {
+    snapshot['__confirm'] = oldConfirm;
+    rawSet(scopedKey(CONFIRM_KEY, fromOwner), '{}');
+  }
+  if (keys > 0 || conflicts || oldMeta || oldConfirm) rawSet(quarantineKey, JSON.stringify(snapshot));
+  // 内存态也要清：否则冲突提示仍展示旧账号的数据
+  conflictCache = [];
+  emitConflicts();
+  // 旧账号的防抖推送必须取消，避免隔离后又被抢跑推一次
+  if (pushTimer) {
+    clearTimeout(pushTimer);
+    pushTimer = null;
+  }
+  return { quarantineKey, keys };
+}
+
+/** 切到某账号时，把它上次离开本机时归档的数据放回来（本机已有同名 key 时不覆盖） */
+function restoreQuarantineFor(owner: string): number {
+  const quarantineKey = `${QUARANTINE_PREFIX}${owner}`;
+  const snapshot = rawGetJSON<Record<string, string>>(quarantineKey, {});
+  if (Object.keys(snapshot).length === 0) return 0;
+  let restored = 0;
+  for (const k of SYNC_KEYS) {
+    const raw = snapshot[k];
+    if (!raw || rawGet(k)) continue; // 本机已有当前数据：以现值为准，归档留作备份
+    rawSet(k, raw);
+    delete snapshot[k];
+    restored++;
+  }
+  const metaPath = scopedKey(META_KEY, owner);
+  const confirmPath = scopedKey(CONFIRM_KEY, owner);
+  const meta = rawGetJSON<Record<string, number>>(metaPath, {});
+  const confirm = rawGetJSON<Record<string, string>>(confirmPath, {});
+  const archivedMeta = snapshot['__meta'];
+  if (archivedMeta) {
+    // 有意静默：归档数据损坏时保留空表即可，不能因此阻断登录
+    try {
+      Object.assign(meta, JSON.parse(archivedMeta) as Record<string, number>);
+    } catch {}
+    delete snapshot['__meta'];
+  }
+  const archivedConfirm = snapshot['__confirm'];
+  if (archivedConfirm) {
+    try {
+      Object.assign(confirm, JSON.parse(archivedConfirm) as Record<string, string>);
+    } catch {}
+    delete snapshot['__confirm'];
+  }
+  rawSet(metaPath, JSON.stringify(meta));
+  rawSet(confirmPath, JSON.stringify(confirm));
+  if (Object.keys(snapshot).length === 0) {
+    try {
+      window.localStorage.removeItem(quarantineKey);
+    } catch {}
+  } else {
+    rawSet(quarantineKey, JSON.stringify(snapshot));
+  }
+  return restored;
+}
+
 /** 登录态变化时调用：切 owner 前先把旧全局元数据备份并复制到新 owner（只做一次） */
 export function setSyncOwner(uid: string | null | undefined): void {
   const next = uid || null;
-  if (!next || next === activeOwner) {
-    if (!next) activeOwner = null;
+  if (!next) {
+    activeOwner = null;
+    return; // 登出只解绑，不动数据：再次登录同一账号仍能看到自己的数据
+  }
+  if (next === activeOwner) {
+    writeOwnerMarker(next);
     return;
   }
-  activeOwner = next;
-  for (const base of [META_KEY, CONFIRM_KEY]) {
-    const scoped = `${base}:${next}`;
-    if (rawGet(scoped)) continue; // 该账号已有自己的元数据，不覆盖
-    const legacy = rawGet(base);
-    if (!legacy) continue;
-    const backup = `${base}-backup-${next}`;
-    if (!rawGet(backup)) rawSet(backup, legacy); // 迁移前备份，只留一份最早的
-    rawSet(scoped, legacy); // 兼容读：旧全局数据继续生效，但之后只写 owner 键
+
+  const prevOwner = readOwnerMarker();
+  activeOwner = next; // 先切命名空间：后续 meta/confirm 都写新账号的
+
+  if (prevOwner && prevOwner !== next) {
+    const q = quarantineLocalPii(prevOwner);
+    // 若该账号上次在本机也留下过归档，先放回来：切回自己的账号应当能看到自己的数据
+    const back = restoreQuarantineFor(next);
+    if (back > 0) console.info('[cloudSync] 恢复本账号归档数据:', back, 'keys');
+    const notice: SyncOwnerNotice = {
+      kind: 'owner-switch',
+      from: prevOwner,
+      to: next,
+      keys: q.keys,
+      quarantineKey: q.quarantineKey,
+      at: Date.now()
+    };
+    ownerNoticeCache = notice;
+    rawSet(OWNER_NOTICE_KEY, JSON.stringify(notice));
+    emitOwnerNotice();
+    // 明确提示，不能静默：隔离发生在登录瞬间，toast 之外「我的」页还会常驻一条可关闭的提示
+    try {
+      Taro.showToast({ title: '已切换账号，本机旧数据已归档', icon: 'none', duration: 3000 });
+    } catch {}
+    console.warn('[cloudSync] 账号切换，已隔离本机旧数据:', q.keys, 'keys ->', q.quarantineKey);
+  } else if (!prevOwner) {
+    // 首次启用归属标记：迁移旧全局 meta/confirm 进首个 owner（只做一次）
+    for (const base of [META_KEY, CONFIRM_KEY]) {
+      const scoped = `${base}:${next}`;
+      if (rawGet(scoped)) continue; // 该账号已有自己的元数据，不覆盖
+      const legacy = rawGet(base);
+      if (!legacy) continue;
+      const backup = `${base}-backup-${next}`;
+      if (!rawGet(backup)) rawSet(backup, legacy); // 迁移前备份，只留一份最早的
+      rawSet(scoped, legacy); // 兼容读：旧全局数据继续生效，但之后只写 owner 键
+    }
   }
+
+  writeOwnerMarker(next);
+}
+
+/** 会话账号与本机数据归属是否不一致（不一致 = 绝不允许该会话读写本机业务数据） */
+function ownerMismatch(sessionOwner: string | null): boolean {
+  const localOwner = readOwnerMarker();
+  return !!sessionOwner && !!localOwner && localOwner !== sessionOwner;
 }
 
 function readMeta(): Record<string, number> {
@@ -374,7 +583,25 @@ function disableSync(reason: string) {
  *  登录后由 onAuthStateChange 补一次「先拉后推」，本地积累的写入不会丢。 */
 async function pushNow(forceEmptyKeys: string[] = []): Promise<void> {
   if (syncDisabled) return;
-  if (!(await getSession())) return; // 未登录：跳过（不计失败）
+  const session = await getSession();
+  const sessionOwner = session?.user?.id || null;
+  if (!sessionOwner) return; // 未登录：跳过（不计失败）
+
+  // 缺陷 B1：推之前先校验「会话账号 == 本机数据归属」。
+  // 首次登录（还没有标记）时补记；不一致说明 setSyncOwner 尚未完成隔离（或账号在推送排队期间被切换），
+  // 此时**直接 abort**，绝不让本机旧账号数据进新账号的 user_kv。
+  if (!readOwnerMarker()) writeOwnerMarker(sessionOwner);
+  if (ownerMismatch(sessionOwner)) {
+    console.error(
+      '[cloudSync] push aborted: 本机数据归属',
+      readOwnerMarker(),
+      '但当前会话是',
+      sessionOwner,
+      '（账号切换未完成隔离）'
+    );
+    return;
+  }
+
   const items = collectLocal(forceEmptyKeys);
   if (items.length === 0) return;
   try {
@@ -384,6 +611,19 @@ async function pushNow(forceEmptyKeys: string[] = []): Promise<void> {
       // 后者返回 0 是正常的（旧设备推送陈旧版本），不计失败。
       hardFailures += 1;
       if (hardFailures >= DB_FAIL_LIMIT) disableSync('kv_set_many 返回 null（详见上方 warn）');
+      return;
+    }
+    // 缺陷 B1：推完再校验一次。账号在请求飞行期间被切换 → 数据可能已经落到旧会话的
+    // 云端命名空间，但**绝不能**把这次结果记成新账号的已确认状态（否则后续拉取判断全错）。
+    const afterOwner = (await getSession())?.user?.id || null;
+    if (afterOwner !== sessionOwner) {
+      console.error(
+        '[cloudSync] push aborted: 会话账号在上传过程中变化（',
+        sessionOwner,
+        '→',
+        afterOwner,
+        '），本次不写本地确认记录'
+      );
       return;
     }
     hardFailures = 0;
@@ -548,9 +788,21 @@ async function pullRemote(): Promise<void> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PULL_TIMEOUT_MS);
   try {
-    if (!(await getSession())) return; // 未登录：无云端数据可拉
+    const sessionOwner = (await getSession())?.user?.id || null;
+    if (!sessionOwner) return; // 未登录：无云端数据可拉
+    // 缺陷 B1：拉取前校验归属；若本机还挂着旧账号数据（隔离未完成），绝不能把新账号的
+    // 远端数据写进同一个本地命名空间，否则旧数据会被「新数据」混着展示、甚至反推回新账号。
+    if (ownerMismatch(sessionOwner)) {
+      console.error('[cloudSync] pull aborted: 本机数据归属与当前会话不一致');
+      return;
+    }
     const rows = await kvGetAll(controller.signal);
     if (rows === null) return; // 真故障，kvGetAll 内已 warn
+    const afterOwner = (await getSession())?.user?.id || null;
+    if (afterOwner !== sessionOwner) {
+      console.error('[cloudSync] pull aborted: 会话账号在拉取过程中变化（', sessionOwner, '→', afterOwner, '）');
+      return;
+    }
     const restored = applyRemoteData(rows);
     if (restored) console.info('[cloudSync] restored', restored, 'keys from cloud');
   } catch (err) {

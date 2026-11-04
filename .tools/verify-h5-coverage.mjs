@@ -85,7 +85,10 @@ const DEVICE_ONLY_KEYS = {
   'mb_shopping_notified': '已提醒标记（设备级节流）',
   'briefingDailyCache': '当日晨报缓存（可重新拉取）',
   'library-open-history': '打开历史（次要，已有 browseHistory 覆盖）',
-  'h5-subscription': '派生缓存（真值在 orders 表，由订阅回放修复）'
+  'h5-subscription': '派生缓存（真值在 orders 表，由订阅回放修复）',
+  // 2026-11-04：界面搜索历史与健康数据单独同意（合规数据，绝不上云）
+  'library-search-history': '检索历史（设备级缓存，换设备无意义）',
+  'health-data-consent': '健康数据单独同意（合规，设备级，不可上云）'
 };
 
 const syncSrc = read('src/services/cloudSync.ts');

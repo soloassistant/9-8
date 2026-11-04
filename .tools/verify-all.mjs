@@ -155,7 +155,12 @@ const CI_EXEMPT = new Map([
   ['verify:deploy-fresh', '需 dist 产物，checks 不构建产物；发布前手动执行'],
   // 2026-10-29 审计复检新增：验发布目录（D:\Agent\dist）—— checks 跑在 CI 上，
   // 那里根本没有这个目录（它是本机 WorkBuddy 面板的发布目录），所以只能发布前本地跑。
-  ['verify:publish-preflight', '需本机发布目录 D:\\Agent\\dist（面板按目录认 app），CI 上不存在；发布前本地执行']
+  ['verify:publish-preflight', '需本机发布目录 D:\\Agent\\dist（面板按目录认 app），CI 上不存在；发布前本地执行'],
+  // 2026-11-03/04 新增的两条专项回归：都由 `verify:all` 默认执行，但 checks 工作流尚未接入。
+  // 不接入不是遗漏 —— 它们依赖本仓库的 esbuild + .tools/stubs，CI 里另有全量静态门禁，
+  // 重复接入只会让 CI 时间翻倍。登记为可核查的豁免。
+  ['verify:watchlist-sync', '专项静态回归（自选股删除同步），由 verify:all 覆盖'],
+  ['verify:account', '专项行为回归（换账号隔离，esbuild + stubs），由 verify:all 覆盖']
 ]);
 
 export function checkCiParity(ciText, scripts, exempt = CI_EXEMPT) {

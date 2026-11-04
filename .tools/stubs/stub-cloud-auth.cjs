@@ -11,17 +11,38 @@
  *     —— 这正是被测 bug 的来源，桩必须复刻「抛」而不是「返回 error」。
  *
  * 用法：测试侧 `__setMode('path-throw')` → 调被测函数 → 断言 `__calls`。
+ *
+ * 2026-11-04 追加：verify-account-isolation.mjs（缺陷 B1）需要 onAuthStateChange /
+ * __setSession，才验证「登录切换 → 先隔离再 push」。默认会话仍是 user-A，不影响原有用例。
  */
 'use strict';
 
 let mode = 'ok';
 const calls = { userPath: 0, upload: 0, createSignedUrl: 0, remove: 0 };
-const session = { user: { id: 'user-A' } };
+let session = { user: { id: 'user-A' } };
+// 与 cloudSync 的模块实例共享（esbuild 内联时也读同一个 globalThis）
+const listeners = (globalThis.__AUTH_LISTENERS__ = globalThis.__AUTH_LISTENERS__ || new Set());
 
 function pathError(msg) {
   const e = new Error(msg);
   e.name = 'CloudStoragePathError';
   return e;
+}
+
+function getCurrentSessionSync() {
+  if (globalThis.__CLOUD_SESSION__ !== undefined) return globalThis.__CLOUD_SESSION__;
+  return mode === 'no-session' ? null : session;
+}
+
+function emit() {
+  const current = getCurrentSessionSync();
+  listeners.forEach(function (cb) {
+    try {
+      cb(current);
+    } catch (e) {
+      /* 监听器失败不应中断其它监听器 */
+    }
+  });
 }
 
 const storage = {
@@ -70,6 +91,25 @@ module.exports = {
     calls.createSignedUrl = 0;
     calls.remove = 0;
   },
-  getSession: async () => (mode === 'no-session' ? null : session),
-  getCloudClient: async () => (mode === 'no-storage' ? { auth: {}, database: {} } : client())
+  // 缺陷 B1 用例用：直接切会话（null = 登出），并通知所有 onAuthStateChange 订阅者
+  __setSession(uid) {
+    globalThis.__CLOUD_SESSION__ = uid ? { user: { id: uid } } : null;
+    session = uid ? { user: { id: uid } } : null;
+    emit();
+  },
+  __emit: emit,
+  getSession: async () => {
+    if (mode === 'no-session') return null;
+    // 若测试显式 __setSession 过，以全局会话为准（B1 harness 会直接写 globalThis）
+    if (globalThis.__CLOUD_SESSION__ !== undefined) return globalThis.__CLOUD_SESSION__;
+    return session;
+  },
+  getCloudClient: async () => (mode === 'no-storage' ? { auth: {}, database: {} } : client()),
+  onAuthStateChange: (cb) => {
+    listeners.add(cb);
+    cb(getCurrentSessionSync());
+    return () => {
+      listeners.delete(cb);
+    };
+  }
 };

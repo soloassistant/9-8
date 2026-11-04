@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react';
 import { Text, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import {
+  dismissSyncOwnerNotice,
   getSyncConflicts,
+  getSyncOwnerNotice,
   resolveSyncConflicts,
-  subscribeSyncConflicts
+  subscribeSyncConflicts,
+  subscribeSyncOwnerNotice
 } from '@/services/cloudSync';
+import type { SyncOwnerNotice } from '@/services/cloudSync';
 import { useT } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import type { SyncConflict } from '@/utils/syncConflict';
@@ -26,11 +30,14 @@ import styles from './index.module.scss';
 function SyncConflictHint() {
   const t = useT();
   const [conflicts, setConflicts] = useState<SyncConflict[]>(() => getSyncConflicts());
+  const [ownerNotice, setOwnerNotice] = useState<SyncOwnerNotice | null>(() => getSyncOwnerNotice());
 
   // subscribeSyncConflicts 订阅时立即回调一次当前快照，并返回取消订阅函数
   useEffect(() => subscribeSyncConflicts(setConflicts), []);
+  // 换账号隔离提示：必须让用户看见（缺陷 B1 明确要求，不能静默）
+  useEffect(() => subscribeSyncOwnerNotice(setOwnerNotice), []);
 
-  if (conflicts.length === 0) return null;
+  if (conflicts.length === 0 && !ownerNotice) return null;
 
   const handleResolve = async (key: string, choice: 'local' | 'remote') => {
     try {
@@ -48,8 +55,21 @@ function SyncConflictHint() {
 
   return (
     <View className={styles.hint}>
-      <Text className={styles.title}>{t('syncConflict.title')}</Text>
-      <Text className={styles.desc}>{t('syncConflict.desc')}</Text>
+      {ownerNotice && (
+        <View className={styles.ownerNotice}>
+          <Text className={styles.title}>{t('syncConflict.ownerTitle')}</Text>
+          <Text className={styles.desc}>{t('syncConflict.ownerDesc', { from: ownerNotice.from })}</Text>
+          <Text className={styles.ownerDismiss} onClick={dismissSyncOwnerNotice}>
+            {t('syncConflict.ownerDismiss')}
+          </Text>
+        </View>
+      )}
+      {conflicts.length > 0 && (
+        <>
+          <Text className={styles.title}>{t('syncConflict.title')}</Text>
+          <Text className={styles.desc}>{t('syncConflict.desc')}</Text>
+        </>
+      )}
       {conflicts.map((c) => (
         <View className={styles.item} key={c.key}>
           <Text className={styles.itemLabel}>{t(`sync.key.${c.key}` as LangKey)}</Text>

@@ -53,13 +53,26 @@ const fnSrc = sliceFn(src, 'cloudLlmChat');
 // 2026-11-01：cloudLlmChat 新增认证失败自愈（1345c33）——isAuthError / repairDeadSession
 // 是它的模块级依赖，切片必须一并带上（否则 harness 作用域 ReferenceError，两条用例假红）；
 // signOut 已在下方 mock。切片跟随源码演进，别让 harness 停在过去。
-const depSrc = [sliceFn(src, 'isAuthError'), sliceFn(src, 'repairDeadSession')].join('\n');
+// 2026-11-04：cloudLlmChat 增加 classifyChatError（把错误归类给 UI 文案），
+// 以及模块级 lastChatFailure 状态；切片继续跟随源码，别让 harness 停在过去。
+// 2026-11-04：cloudLlmChat 还依赖 sanitizeShoppingReply（H5 直连的禁语兜底），
+// 它来自 src/utils/replyGuard.ts —— 直接带上整份源码（无外部依赖）。
+const guardSrc = fs
+  .readFileSync(path.join(ROOT, 'src', 'utils', 'replyGuard.ts'), 'utf8')
+  .replace(/^export\s+/gm, '');
+const depSrc = [
+  sliceFn(src, 'isAuthError'),
+  sliceFn(src, 'repairDeadSession'),
+  sliceFn(src, 'classifyChatError'),
+  guardSrc
+].join('\n');
 
 /* ── 抽模块级常量（旧代码没有这三行 = 空，正好让 RED 成立） ── */
 const constLines = [
   /const CLOUD_LLM_TIMEOUT_MS[^;]*;/,
   /const CLOUD_LLM_COOLDOWN_MS[^;]*;/,
   /let cloudLlmCooldownUntil[^;]*;/,
+  /let lastChatFailure[^;]*;/,
 ].map((re) => { const m = re.exec(src); return m ? m[0] : ''; }).filter(Boolean).join('\n');
 
 /* ── 拼装可测模块：mock 依赖 + 常量 + 真函数 ── */

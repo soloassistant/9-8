@@ -79,6 +79,10 @@ const DEBT = new Map([
   // 「产物过期」「半成品镜像」这两种它要抓的故障，所以登记为缺口。
   // 将来要补覆盖，走 fixture 目录（给 .tools/fixtures/ 造一个坏产物，变异改 fixture 的引用关系）。
   ['verify-deploy-fresh.mjs', '依赖真实产物与 git 历史，变异框架无法制造「产物过期/半成品」'],
+  // 2026-11-03 新增的自选股删除同步专项（verify:watchlist-sync）：纯静态断言
+  // （扫「删除最后一条时 forceEmptyKeys 是否被调用」「meta/confirm 是否按 owner 隔离」），
+  // 可变异但尚未配 mutations-watchlist；先登记缺口，避免全量门禁假红。
+  ['verify-watchlist-sync.mjs', '静态接线断言（删除最后一条自选是否真推空）'],
 ]);
 
 const BROWSER_SIG = /cdp-probe|chrome|http\.server|puppeteer|playwright|--remote-debugging/i;

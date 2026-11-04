@@ -1155,6 +1155,10 @@ const zh = {
   'syncConflict.toastLocal': '已保留本机版本，正在上传',
   'syncConflict.toastRemote': '已采用云端版本',
   'syncConflict.failed': '操作失败，请稍后再试',
+  // 换账号隔离（缺陷 B1）：旧账号的本机数据已移到隔离区，必须明确告知，不能静默
+  'syncConflict.ownerTitle': '已切换账号，本机旧数据已归档',
+  'syncConflict.ownerDesc': '检测到当前登录账号与原账号 {from} 不同。为避免数据串号，本机属于原账号的数据已移入隔离区（pii-quarantine-{from}），不会上传到当前账号。',
+  'syncConflict.ownerDismiss': '知道了',
   // 21 个 SYNC_KEYS 的可读名（冲突提示逐条列出）；新增同步键时必须同步补这里，
   // 否则列表里会露出 storageKey 原文。
   'sync.key.shoppingList': '购物清单',
@@ -2452,6 +2456,10 @@ const en: Record<keyof typeof zh, string> = {
   'syncConflict.toastLocal': 'Kept local copy — uploading now',
   'syncConflict.toastRemote': 'Cloud copy applied',
   'syncConflict.failed': 'Action failed, please try again later',
+  // Account switch quarantine (defect B1): local data from the previous account is archived
+  'syncConflict.ownerTitle': 'Account switched — previous local data archived',
+  'syncConflict.ownerDesc': 'The signed-in account differs from the previous account {from}. To prevent data leakage, local data belonging to {from} was moved to the quarantine area (pii-quarantine-{from}) and will not be uploaded to the current account.',
+  'syncConflict.ownerDismiss': 'Got it',
   // Readable names for the 21 SYNC_KEYS (listed per item in the conflict notice). When adding
   // a new sync key, add its label here too — otherwise the raw storageKey leaks into the UI.
   'sync.key.shoppingList': 'Shopping list',
