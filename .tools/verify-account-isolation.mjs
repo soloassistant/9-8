@@ -260,5 +260,38 @@ assert('仍失败时重试如实返回 false 并保持熔断', ok2 === false && 
 unsubDisabled();
 sandbox.__KV_FAIL__ = false;
 
+/* 8. 日历云端不落库（2026-11-04）：meta 遗留哨兵 1 + 云端已有 client_ts=1 的空壳时，
+ *    本地写入必须抬时间戳、推送必须是真实毫秒且非空内容（否则服务端按「同 ts 判旧」写 0 行）。 */
+section('8. dailyPlanStore：本地写入必须记真实时间戳，推送必须真正落库');
+await mod.retrySync(); // 先解除上一节的熔断
+sandbox.__CLOUD_SESSION__ = { user: { id: 'A' } };
+store.set(OWNER, JSON.stringify({ owner: 'A', at: Date.now() }));
+// 复现线上现状：云端已有一行 client_ts=1 的空壳（旧版本写的），本地 meta 也残留哨兵 1
+DB.rows.A.dailyPlanStore = { key: 'dailyPlanStore', value: { events: [] }, clientTs: 1 };
+const metaA = JSON.parse(store.get('cloud-sync-meta:A') || '{}');
+metaA.dailyPlanStore = 1;
+store.set('cloud-sync-meta:A', JSON.stringify(metaA));
+const plan = {
+  events: [{ id: 'evt-1', title: 'TEST-云端落库', startTime: '2026-11-04 09:00', status: 'confirmed' }],
+  todos: []
+};
+// 走 Taro H5 的最终落点（与真机一致：Taro.setStorageSync → localStorage.setItem，信封格式）
+sandbox.window.localStorage.setItem('dailyPlanStore', JSON.stringify({ data: plan }));
+const metaAfterWrite = JSON.parse(store.get('cloud-sync-meta:A') || '{}');
+assert('本地写入即抬时间戳（storage 钩子生效，meta 不再是哨兵 1）', metaAfterWrite.dailyPlanStore > 1e12);
+// 再压回哨兵 1：覆盖「历史遗留 meta=1」的用户 —— 推送也必须用真实时刻，而不是继续发 1
+metaA.dailyPlanStore = 1;
+store.set('cloud-sync-meta:A', JSON.stringify(metaA));
+await mod.syncNow();
+await tick(10);
+const row = (DB.rows.A || {}).dailyPlanStore;
+assert('推送的 client_ts 是真实毫秒（不再是 1）', !!row && row.clientTs > 1e12);
+assert(
+  '云端行内容包含刚写入的日程（不是空壳）',
+  !!row && Array.isArray(row.value.events) && row.value.events.length === 1 && row.value.events[0].title === 'TEST-云端落库'
+);
+const cMeta = JSON.parse(store.get('cloud-sync-meta:A') || '{}');
+assert('推送确认后本地 meta 已被修复为真实毫秒', cMeta.dailyPlanStore > 1e12);
+
 console.log(`\n结果: ${pass} PASS / ${fail} FAIL`);
 process.exit(fail === 0 ? 0 : 1);

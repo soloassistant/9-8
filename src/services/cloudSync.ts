@@ -293,10 +293,21 @@ function rawGet(key: string): string {
   // 该函数在每次存储读写时都会命中，warn 只会刷屏，且调用方对「要用到的数据缺失」另有兜底。
   try { return window.localStorage.getItem(key) || ''; } catch { return ''; }
 }
+/** 内部写盘标记：pull / 推送确认 / 隔离搬迁写的不是「用户改动」，
+ *  不能被下面的 storage 钩子当成新写入去抬时间戳（否则 pull 完立刻又推一遍）。 */
+let internalStorageWrite = false;
 function rawSet(key: string, value: string) {
   // 有意静默：与 rawGet 对称的写兜底。localStorage 不可用（被禁用 / 配额满）时，
   // 同步能力本身已失效；而「应用远端数据」这条关键路径另有 console.warn 兜底（见 applyRemoteData）。
+  internalStorageWrite = true;
   try { window.localStorage.setItem(key, value); } catch {}
+  finally { internalStorageWrite = false; }
+}
+/** 内部删除：隔离/还原动作不是「用户删除」，不能触发删除占位值与推送。 */
+function rawRemove(key: string) {
+  internalStorageWrite = true;
+  try { window.localStorage.removeItem(key); } catch {}
+  finally { internalStorageWrite = false; }
 }
 /** 按 Taro 语义读值：信封 { data } 解包返回，裸值原样返回 */
 function taroUnwrap(raw: string): unknown {
@@ -537,17 +548,13 @@ function quarantineLocalPii(fromOwner: string): { quarantineKey: string; keys: n
     if (!raw) continue;
     snapshot[k] = raw; // 保留原始信封，可原样还原
     keys++;
-    try {
-      window.localStorage.removeItem(k);
-    } catch {}
+    rawRemove(k);
   }
   // 冲突快照里含**远端明文**（旧账号数据），同样属于隐私数据，一并隔离
   const conflicts = rawGet(CONFLICT_KEY);
   if (conflicts) {
     snapshot[CONFLICT_KEY] = conflicts;
-    try {
-      window.localStorage.removeItem(CONFLICT_KEY);
-    } catch {}
+    rawRemove(CONFLICT_KEY);
   }
   const oldMeta = rawGet(scopedKey(META_KEY, fromOwner));
   const oldConfirm = rawGet(scopedKey(CONFIRM_KEY, fromOwner));
@@ -606,9 +613,7 @@ function restoreQuarantineFor(owner: string): number {
   rawSet(metaPath, JSON.stringify(meta));
   rawSet(confirmPath, JSON.stringify(confirm));
   if (Object.keys(snapshot).length === 0) {
-    try {
-      window.localStorage.removeItem(quarantineKey);
-    } catch {}
+    rawRemove(quarantineKey);
   } else {
     rawSet(quarantineKey, JSON.stringify(snapshot));
   }
@@ -749,7 +754,15 @@ function collectLocal(forceEmptyKeys: string[] = []): Array<{ key: string; value
     if (!s) continue;
     const v = taroUnwrap(s);
     if (v === '' || v === null || v === undefined) continue;
-    const ts = Math.max(Number(meta[k]) || 1, 1);
+    // 2026-11-04（缺陷：日历云端不落库）：`1` 是旧版「没有可信时间戳」的哨兵。
+    // 继续拿它推 = 服务端按 ts 判旧（远端行本来就是 client_ts=1 或更大），**永远写 0 行**，
+    // 云端值被永久冻结（实测 user_kv.dailyPlanStore 恒 {"events":[]} / client_ts=1，
+    // 而同期 kv_set_many 请求体里确实带着改后的标题）。
+    // initCloudSync 是「先拉后推」，拉取会把每个现存远端 key 的 meta 对齐成真实 remoteTs；
+    // 未裁决冲突键也不会进到这里。因此「没有本地计时」时按当前时刻推是安全的：
+    // 它只让真正的本地改动成功落地，不会覆盖刚从云端拉下来的更新值。
+    const recorded = Number(meta[k]);
+    const ts = recorded > 1 ? recorded : Date.now();
     // 2026-11-03（自选股 P0）：**空数组不上推**。
     // 事故链：远端较新的 [] 覆盖本地 → 本地变空 → 30s 后把 [] 回写云端，全端一起清空。
     // 这条规则让「空」永远不能覆盖「有」，宁可牺牲「跨设备同步清空」，也不再丢用户数据。
@@ -1063,30 +1076,42 @@ async function pullRemote(): Promise<void> {
   }
 }
 
-/** 劫持 Taro 写入：本地任何 SYNC_KEYS 的写/删都触发防抖推送（不改动任何业务代码） */
+/** 劫持本地写入：任何 SYNC_KEYS 的写/删都触发防抖推送（不改动任何业务代码）。
+ *
+ *  2026-11-04（缺陷：日历云端不落库）—— 原实现是把 `Taro.setStorageSync` 整个替换掉。
+ *  实测该赋值**并不生效**（真机日志里改完日程后 `cloud-sync-meta:<uid>.dailyPlanStore`
+ *  仍是旧值 1，且写入探针显示只有 `dailyPlanStore` 被 setItem、meta 没有跟着写），
+ *  于是所有本地写入都不记时间戳 ⇒ collectLocal 取到哨兵 1 ⇒ 推送永远 0 行 ⇒ 云端永久冻结。
+ *
+ *  现在改挂 `window.localStorage.setItem/removeItem`：这是 Taro H5 存储的**最终落点**
+ *  （实测确认），与模块加载顺序无关，也不依赖 Taro 对象是否可写。
+ *  内部写盘（pull 对齐 / 推送确认 / 隔离搬迁）走 rawSet 的标记，不会触发自己。
+ */
 function hookStorage(): void {
   try {
-    const origSet = Taro.setStorageSync.bind(Taro);
-    const origRemove = Taro.removeStorageSync.bind(Taro);
-    (Taro as unknown as { setStorageSync: typeof Taro.setStorageSync }).setStorageSync = (key: string, value: unknown) => {
-      origSet(key, value);
-      if ((SYNC_KEYS as readonly string[]).includes(key)) {
-        const meta = readMeta();
-        meta[key] = Date.now(); // 本地写入即计时；推送确认后更新为确认时间
-        writeMeta(meta);
-        schedulePush();
-      }
+    const ls = window.localStorage;
+    const origSet = ls.setItem.bind(ls);
+    const origRemove = ls.removeItem.bind(ls);
+    const markDirty = (key: string) => {
+      if (!(SYNC_KEYS as readonly string[]).includes(key)) return;
+      const meta = readMeta();
+      meta[key] = Date.now(); // 本地写入即计时；推送确认后更新为确认时间
+      writeMeta(meta);
+      schedulePush();
     };
-    (Taro as unknown as { removeStorageSync: typeof Taro.removeStorageSync }).removeStorageSync = (key: string) => {
+    ls.setItem = (key: string, value: string) => {
+      origSet(key, value);
+      if (!internalStorageWrite) markDirty(key);
+    };
+    ls.removeItem = (key: string) => {
       origRemove(key);
-      if ((SYNC_KEYS as readonly string[]).includes(key)) {
-        // 删除后写入与该 key 类型一致的占位值（见 REMOVE_PLACEHOLDER），保证删除动作同步到云端
-        origSet(key, REMOVE_PLACEHOLDER[key]);
-        const meta = readMeta();
-        meta[key] = Date.now();
-        writeMeta(meta);
-        schedulePush();
-      }
+      if (internalStorageWrite || !(SYNC_KEYS as readonly string[]).includes(key)) return;
+      // 删除后写入与该 key 类型一致的占位值（见 REMOVE_PLACEHOLDER），保证删除动作同步到云端
+      rawSet(key, JSON.stringify({ data: REMOVE_PLACEHOLDER[key] }));
+      const meta = readMeta();
+      meta[key] = Date.now();
+      writeMeta(meta);
+      schedulePush();
     };
   } catch (err) {
     console.warn('[cloudSync] hook failed:', err);
