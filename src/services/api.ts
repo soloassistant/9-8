@@ -621,7 +621,7 @@ export function apiLedgerUpdate(
 export function apiLedgerRemove(id: string): Promise<boolean> {
   return Promise.resolve(ledgerRemoveEntry(id));
 }
-export function apiLedgerSaveBudget(budget: LedgerBudget): Promise<LedgerBudget> {
+export function apiLedgerSaveBudget(budget: LedgerBudget): Promise<LedgerBudget | null> {
   return Promise.resolve(ledgerSaveBudget(budget));
 }
 export function apiLedgerAddCategory(

@@ -657,6 +657,11 @@ function LibraryPage() {
       success: (res) => {
         if (!res.confirm) return;
         const next = removeCollection(item.id);
+        if (!next) {
+          // X8：写盘失败不能提示「已取消收藏」（旧实现用内存结果，刷新后收藏复活）
+          Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+          return;
+        }
         setItems(next);
         hasDataRef.current = next.length > 0;
         void syncNow(['collectionStore']);

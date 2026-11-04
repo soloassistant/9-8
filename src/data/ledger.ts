@@ -182,7 +182,7 @@ export function addEntry(payload: AddEntryPayload): LedgerEntry | null {
     createdAt: new Date().toISOString()
   };
   const list = loadEntries();
-  writeRaw(LEDGER_KEYS.entries, [entry, ...list]);
+  if (!writeRaw(LEDGER_KEYS.entries, [entry, ...list])) return null;
   return entry;
 }
 
@@ -214,18 +214,18 @@ export function updateEntry(
   };
   const out = [...list];
   out[idx] = next;
-  writeRaw(LEDGER_KEYS.entries, out);
+  if (!writeRaw(LEDGER_KEYS.entries, out)) return null;
   return next;
 }
 
 export function removeEntry(id: string): boolean {
   const list = loadEntries();
   if (!list.some((e) => e.id === id)) return false;
-  writeRaw(LEDGER_KEYS.entries, list.filter((e) => e.id !== id));
-  return true;
+  return writeRaw(LEDGER_KEYS.entries, list.filter((e) => e.id !== id));
 }
 
-export function saveBudget(budget: LedgerBudget): LedgerBudget {
+/** 保存预算；storage 写失败返回 null（调用方必须提示，不能假装已保存）。 */
+export function saveBudget(budget: LedgerBudget): LedgerBudget | null {
   const out: LedgerBudget = {};
   if (typeof budget.monthly === 'number' && Number.isFinite(budget.monthly) && budget.monthly > 0) {
     out.monthly = Math.round(budget.monthly * 100) / 100;
@@ -233,7 +233,7 @@ export function saveBudget(budget: LedgerBudget): LedgerBudget {
   if (typeof budget.daily === 'number' && Number.isFinite(budget.daily) && budget.daily > 0) {
     out.daily = Math.round(budget.daily * 100) / 100;
   }
-  writeRaw(LEDGER_KEYS.budget, out);
+  if (!writeRaw(LEDGER_KEYS.budget, out)) return null;
   return out;
 }
 
@@ -251,7 +251,7 @@ export function addCategory(name: string, kind: LedgerKind, icon?: string): Ledg
     icon: String(icon || (kind === 'expense' ? '📦' : '📥')).trim().slice(0, 4) || '📦',
     kind
   };
-  writeRaw(LEDGER_KEYS.categories, [...list, cat]);
+  if (!writeRaw(LEDGER_KEYS.categories, [...list, cat])) return null;
   return cat;
 }
 
@@ -262,8 +262,7 @@ export function removeCategory(id: string): boolean {
   // 有条目在用就不让删：删掉会让历史账目挂在一个不存在的分类上，
   // 统计时按「其他」兜底会让用户以为金额算错了。
   if (used) return false;
-  writeRaw(LEDGER_KEYS.categories, list.filter((c) => c.id !== id));
-  return true;
+  return writeRaw(LEDGER_KEYS.categories, list.filter((c) => c.id !== id));
 }
 
 /* ---------------- 导出（CSV / JSON） ----------------

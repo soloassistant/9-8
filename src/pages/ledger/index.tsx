@@ -216,7 +216,12 @@ function LedgerPage() {
         Taro.showToast({ title: t('ledger.invalidAmount'), icon: 'none' });
         return;
       }
-      setBudget(await apiLedgerSaveBudget({ ...budget, [budgetEdit]: n }));
+      const saved = await apiLedgerSaveBudget({ ...budget, [budgetEdit]: n });
+      if (!saved) {
+        Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+        return;
+      }
+      setBudget(saved);
       setBudgetEdit(null);
     },
     [budgetEdit, budget, t]
@@ -227,9 +232,14 @@ function LedgerPage() {
     if (!budgetEdit) return;
     const next: LedgerBudget = { ...budget };
     delete next[budgetEdit];
-    setBudget(await apiLedgerSaveBudget(next));
+    const saved = await apiLedgerSaveBudget(next);
+    if (!saved) {
+      Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+      return;
+    }
+    setBudget(saved);
     setBudgetEdit(null);
-  }, [budgetEdit, budget]);
+  }, [budgetEdit, budget, t]);
 
   const addCat = useCallback(async () => {
     const name = newCatName.trim();
