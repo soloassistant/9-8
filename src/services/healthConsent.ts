@@ -8,11 +8,19 @@
  * 与 location.ts 的坐标出境同意同一套口径：
  *   · 版本化（条款变化 → 旧同意失效，重新征求）；
  *   · 取不到文案 / 弹窗失败 → 按「不同意」处理（宁可不记录，也不静默采集）；
- *   · 撤回 = 不再写入新数据；**已生成的记录保留**（不静默删除用户数据），
- *     用户可在运动页记录列表里逐条删除。
+ *   · 撤回 = 不再写入新数据 + **不再上传**（2026-11-04 修复：sportRuns 曾留在同步白名单，
+ *     撤回后仍被 30s 轮询把 GPS 轨迹整包外传，与告知不符）；
+ *     **已生成的本地记录保留**（不静默删除用户数据），云端副本默认删除（失败自动重试）。
  */
 import Taro from '@tarojs/taro';
 import { dict, useLanguageStore } from '@/store/language';
+import {
+  cancelPendingPush,
+  isSyncKeyExcluded,
+  purgeSyncKeysFromCloud,
+  setSyncKeyExcluded,
+  waitForPushIdle
+} from './cloudSync';
 
 /** 健康数据同意的 storage key（设备级，与云端同步白名单无关） */
 export const HEALTH_CONSENT_KEY = 'health-data-consent';
@@ -97,23 +105,43 @@ export async function ensureHealthConsent(): Promise<boolean> {
     // 记录失败不阻断本次（用户已明确同意），但下次会重新征求
     console.warn('[healthConsent] 同意记录写入失败（下次会重新征求）:', err);
   }
+  // 重新授权 → 恢复跨设备备份（撤回期间被排除的运动记录重新进入同步范围）
+  setSyncKeyExcluded('sportRuns', false);
   return true;
 }
 
+/** 同步范围里的运动记录键（与 cloudSync 的 SYNC_KEYS 同名；由 verify:health-consent 钉住） */
+const SPORT_SYNC_KEY = 'sportRuns';
+
+/** 撤回结果：删成功 / 删失败（已排队重试）/ 未登录（本机就没有云端副本） */
+export type HealthWithdrawResult = 'deleted' | 'failed' | 'no-session';
+
 /**
- * 撤回单独同意：只清同意标记，**不删任何已有运动记录**。
- * 撤回后 hasHealthConsent() 为 false → 所有写入路径重新拦截。
+ * 撤回单独同意：清同意标记 + **把运动记录摘出同步范围** + 删除云端副本。
+ *
+ * 顺序是刻意的，每一步都对应一个真实的出网路径（顺序错了就等于没修）：
+ *   ① 先摘同步范围：这是同步执行的，之后的任何 push 都不会再打包 sportRuns；
+ *   ② 取消尚未发出的防抖推送：否则 1.5s 后还会按旧计划发一次带轨迹的请求；
+ *   ③ 等在途推送落地：不能在「正在上传」时去删云端（删完又被追加一行）；
+ *   ④ 再清同意标记：标记是「不再记录」的依据，不影响上面的上传闸；
+ *   ⑤ 最后删云端副本：失败不清场，排队给下一轮推送重试（30s 一次）。
+ *
+ * **不删任何本机记录**（撤回 ≠ 删用户数据），用户可在记录列表里逐条删除。
  */
-export function withdrawHealthConsent(): void {
+export async function withdrawHealthConsent(): Promise<HealthWithdrawResult> {
+  setSyncKeyExcluded(SPORT_SYNC_KEY, true);
+  cancelPendingPush();
+  await waitForPushIdle();
   try {
     Taro.removeStorageSync(HEALTH_CONSENT_KEY);
   } catch (err) {
     console.warn('[healthConsent] 撤回写入失败:', err);
   }
+  return purgeSyncKeysFromCloud([SPORT_SYNC_KEY]);
 }
 
-/** 撤回确认弹窗（统一文案，避免各页面自己抄一份） */
-export async function confirmWithdrawHealthConsent(): Promise<boolean> {
+/** 撤回确认弹窗（统一文案，避免各页面自己抄一份）。返回 'cancelled' = 用户取消 */
+export async function confirmWithdrawHealthConsent(): Promise<'cancelled' | HealthWithdrawResult> {
   try {
     const res = await Taro.showModal({
       title: t('health.withdrawTitle'),
@@ -121,10 +149,20 @@ export async function confirmWithdrawHealthConsent(): Promise<boolean> {
       confirmText: t('health.withdrawConfirm'),
       cancelText: t('common.cancel')
     });
-    if (!res.confirm) return false;
+    if (!res.confirm) return 'cancelled';
   } catch {
-    return false;
+    return 'cancelled';
   }
-  withdrawHealthConsent();
-  return true;
+  return withdrawHealthConsent();
+}
+
+/** 启动时按已持久化的同意状态恢复排除表（刷新后仍生效，避免「一刷新又开始传」） */
+export function syncHealthSyncExclusion(): void {
+  // 没同意（含从未同意/已撤回/版本过期）→ 运动记录不参与同步
+  setSyncKeyExcluded(SPORT_SYNC_KEY, !hasHealthConsent());
+}
+
+/** 供 UI / 门禁只读：运动记录当前是否被排除出同步 */
+export function isSportRunsSyncExcluded(): boolean {
+  return isSyncKeyExcluded(SPORT_SYNC_KEY);
 }

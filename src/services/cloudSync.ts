@@ -22,7 +22,7 @@
  */
 import Taro from '@tarojs/taro';
 import { getSession, onAuthStateChange } from './cloudAuth';
-import { kvGetAll, kvSetMany } from './cloudDb';
+import { kvDeleteKeys, kvGetAll, kvSetMany } from './cloudDb';
 import type { KvRow } from './cloudDb';
 import { classifyPull, mergeConflicts, withoutConflicts, valueHash, type SyncConflict } from '../utils/syncConflict';
 
@@ -196,6 +196,59 @@ let readyPromise: Promise<void> | null = null;
  *  既查不到重点也耗流量。连续 DB_FAIL_LIMIT 次就停掉轮询并 console.error 一次说清楚。 */
 let hardFailures = 0;
 let syncDisabled = false;
+
+/* ---------------- 运行期同步排除（2026-11-04，P0：撤回健康同意被架空） ----------------
+ *
+ * 事故：`sportRuns`（含 GPS 轨迹）在 SYNC_KEYS 里，pushNow 每 30s 把本地所有同步键
+ * 整包上传；而撤回健康数据同意只删了本地同意标记 ⇒ 撤回后轨迹继续外传，
+ * 与「撤回后不再记录新数据」的告知不一致（敏感个人信息）。
+ *
+ * 为什么不是直接把 `sportRuns` 从 SYNC_KEYS 删掉：用户**重新授权**后仍应恢复跨设备备份。
+ * 所以排除是**运行期状态**：撤回时置位、重新同意时清除，并要求跨刷新生效
+ * （由 app 入口在 initCloudSync 之前按当前同意状态调用 setSyncKeyExcluded）。
+ *
+ * 排除表命中时四处都要短路，缺一处就还有一条出网路径：
+ *   collectLocal（不打包）→ markDirty（不排推送）→ applyRemoteData（不把云端副本拉回本机）
+ */
+const runtimeExcludedKeys = new Set<string>();
+
+/** 设置某同步键是否排除出同步（撤回/重新授权时调用；立即生效） */
+export function setSyncKeyExcluded(key: string, excluded: boolean): void {
+  if (excluded) {
+    runtimeExcludedKeys.add(key);
+    // 撤回瞬间取消**尚未发出**的防抖推送，否则 1.5s 后还会按旧计划发一次带轨迹的请求
+    cancelPendingPush();
+  } else {
+    runtimeExcludedKeys.delete(key);
+  }
+}
+
+/** 某同步键当前是否被排除（供 UI/门禁读取） */
+export function isSyncKeyExcluded(key: string): boolean {
+  return runtimeExcludedKeys.has(key);
+}
+
+/** 串行化推送：撤回同意要求「在途推送要么等完、要么丢弃」，不允许两次 push 并发跑。
+ *  同时保证排队的那一次读到的是**最新**排除表，而不是过期快照。 */
+let pushInFlight: Promise<void> | null = null;
+
+/** 取消尚未发出的防抖推送（撤回同意时用：别让撤回后还有一次出网） */
+export function cancelPendingPush(): void {
+  if (pushTimer) {
+    clearTimeout(pushTimer);
+    pushTimer = null;
+  }
+}
+
+/** 等待当前在途推送结束（撤回同意时先等它落地，再删云端副本） */
+export async function waitForPushIdle(): Promise<void> {
+  if (!pushInFlight) return;
+  try {
+    await pushInFlight;
+  } catch {
+    // doPush 内部已按失败语义处理，这里只等它收尾
+  }
+}
 
 /* ---------------- 熔断可见化（2026-11-04，缺陷 X6） ----------------
  *
@@ -749,6 +802,9 @@ function collectLocal(forceEmptyKeys: string[] = []): Array<{ key: string; value
   // 白耗一次 RPC；且用户明确选「保留本机」时会抬 ts 再推，选「采用云端」则本机就该被覆盖。
   const conflicted = new Set(conflictCache.map((c) => c.key));
   for (const k of SYNC_KEYS) {
+    // 2026-11-04（P0）：已撤回同意/被排除的键**不打包**。这是「不再上传」的第一道闸，
+    // 后面的空数组/超限逻辑都到不了这里，因此不会因 forceEmptyKeys 绕过。
+    if (runtimeExcludedKeys.has(k)) continue;
     if (conflicted.has(k)) continue;
     const s = rawGet(k);
     if (!s) continue;
@@ -788,15 +844,110 @@ function schedulePush(delay = DEBOUNCE) {
   }, delay);
 }
 
+/* ---------------- 云端副本删除（撤回敏感授权用，2026-11-04 P0） ---------------- */
+
+const PURGE_PENDING_KEY = 'cloud-sync-purge-pending'; // 待删的云端键（删除失败后排队重试）
+
+function readPendingPurges(): string[] {
+  const list = rawGetJSON<string[]>(PURGE_PENDING_KEY, []);
+  return Array.isArray(list) ? list.filter((k) => typeof k === 'string') : [];
+}
+
+function writePendingPurges(keys: string[]): void {
+  if (keys.length === 0) rawRemove(PURGE_PENDING_KEY);
+  else rawSet(PURGE_PENDING_KEY, JSON.stringify(keys));
+}
+
+function queuePurge(keys: string[]): void {
+  const next = new Set(readPendingPurges());
+  for (const k of keys) next.add(k);
+  writePendingPurges([...next]);
+}
+
+function dequeuePurge(keys: string[]): void {
+  writePendingPurges(readPendingPurges().filter((k) => !keys.includes(k)));
+}
+
+/**
+ * 删除云端指定同步键，并**回读校验**。
+ *
+ * 为什么不把「调用过删除」当成功：DELETE 成功也可能被 RLS / 触发器拦下（返回 200 但 0 行），
+ * 明确告知用户「已从云端删除」之前必须再拉一次、确认行真的没了。
+ * 返回：deleted 成功 / failed 失败（已排队重试）/ no-session 未登录（本机就没有云端副本）。
+ */
+export async function purgeSyncKeysFromCloud(keys: string[]): Promise<'deleted' | 'failed' | 'no-session'> {
+  if (keys.length === 0) return 'deleted';
+  const session = await getSession();
+  if (!session?.user?.id) return 'no-session';
+  const removed = await kvDeleteKeys(keys);
+  if (removed === null) {
+    queuePurge(keys);
+    return 'failed';
+  }
+  const rows = await kvGetAll();
+  if (rows === null) {
+    queuePurge(keys);
+    return 'failed';
+  }
+  // console.error 而非 warn：生产构建会剔除 warn，删除失败必须留痕
+  const leftover = rows.filter((r) => keys.includes(r.key));
+  if (leftover.length > 0) {
+    console.error('[cloudSync] 云端副本删除未生效，已排队重试:', leftover.map((r) => r.key).join(','));
+    queuePurge(keys);
+    return 'failed';
+  }
+  dequeuePurge(keys);
+  return 'deleted';
+}
+
+/** 推送周期里补删上次失败的云端副本（30s 一次，成功后出队） */
+async function flushPendingPurges(): Promise<void> {
+  const pending = readPendingPurges();
+  if (pending.length === 0) return;
+  const removed = await kvDeleteKeys(pending);
+  if (removed === null) return; // 下轮再试
+  const rows = await kvGetAll();
+  if (rows === null) return;
+  if (rows.some((r) => pending.includes(r.key))) return; // 还在，继续排队
+  writePendingPurges([]);
+  console.info('[cloudSync] 云端副本补删成功:', pending.join(','));
+}
+
 /** 推送本地数据到云端（云数据库 kv_set_many，服务端新者赢）。
  *
  *  未登录 → 直接跳过：这不是故障，是「还没到能同步的时候」。
  *  登录后由 onAuthStateChange 补一次「先拉后推」，本地积累的写入不会丢。 */
 async function pushNow(forceEmptyKeys: string[] = []): Promise<void> {
   if (syncDisabled) return;
+  // 串行化：等待上一轮结束（含「撤回同意时正在飞行的那一次」），再按**最新**排除表收集。
+  // 这样撤回后排队的推送不会带着撤回前的快照把轨迹再发一次。
+  const previous = pushInFlight;
+  const run: Promise<void> = (async () => {
+    if (previous) {
+      try {
+        await previous;
+      } catch {
+        // 上一轮的失败已在 doPush 内部处理，与本次无关
+      }
+    }
+    await doPush(forceEmptyKeys);
+  })();
+  pushInFlight = run;
+  try {
+    await run;
+  } finally {
+    if (pushInFlight === run) pushInFlight = null;
+  }
+}
+
+async function doPush(forceEmptyKeys: string[] = []): Promise<void> {
   const session = await getSession();
   const sessionOwner = session?.user?.id || null;
   if (!sessionOwner) return; // 未登录：跳过（不计失败）
+
+  // 撤回敏感授权后若云端删除失败，会排进待删队列；每次推送先尝试补删（30s 一次，
+  // 满足「云端删除失败，稍后会重试」的告知）。删成功即出队，不再重复打。
+  await flushPendingPurges();
 
   // 缺陷 B1：推之前先校验「会话账号 == 本机数据归属」。
   // 首次登录（还没有标记）时补记；不一致说明 setSyncOwner 尚未完成隔离（或账号在推送排队期间被切换），
@@ -909,6 +1060,9 @@ function applyRemoteData(remote: KvRow[]): number {
     if (row.key.endsWith(TOMBSTONE_SUFFIX)) {
       const base = row.key.slice(0, -TOMBSTONE_SUFFIX.length);
       if (!(SYNC_KEYS as readonly string[]).includes(base)) continue;
+      // 2026-11-04（P0）：被排除键的墓碑也不落地 —— 撤回后云端副本正在删除，
+      // 不能因为一条旧墓碑把本机记录改成占位值（本机记录按告知是「保留」）。
+      if (runtimeExcludedKeys.has(base)) continue;
       const remoteTs = Number(row.clientTs) || 0;
       const metaTs = Number(meta[base]) || 0;
       if (remoteTs <= metaTs) continue;
@@ -940,6 +1094,9 @@ function applyRemoteData(remote: KvRow[]): number {
       continue;
     }
     if (!(SYNC_KEYS as readonly string[]).includes(row.key)) continue;
+    // 2026-11-04（P0）：被排除键**不从云端拉回本机**。撤回后云端副本会被删除，
+    // 若仍按远端较新覆盖本地，删除动作反而会「复活」一份轨迹数据。
+    if (runtimeExcludedKeys.has(row.key)) continue;
     const remoteTs = Number(row.clientTs) || 0;
     const metaTs = Number(meta[row.key]) || 0;
     if (remoteTs <= metaTs) continue; // 远端不比本地已确认的新：廉价先行判断，省掉后面的本地值读取
@@ -1094,6 +1251,9 @@ function hookStorage(): void {
     const origRemove = ls.removeItem.bind(ls);
     const markDirty = (key: string) => {
       if (!(SYNC_KEYS as readonly string[]).includes(key)) return;
+      // 2026-11-04（P0）：被排除的键**不抬时间戳、不排推送**。
+      // 即使有别的代码路径在撤回后仍写了一次 sportRuns，也不会触发一次出网。
+      if (runtimeExcludedKeys.has(key)) return;
       const meta = readMeta();
       meta[key] = Date.now(); // 本地写入即计时；推送确认后更新为确认时间
       writeMeta(meta);
@@ -1106,6 +1266,8 @@ function hookStorage(): void {
     ls.removeItem = (key: string) => {
       origRemove(key);
       if (internalStorageWrite || !(SYNC_KEYS as readonly string[]).includes(key)) return;
+      // 被排除的键（撤回健康同意后的 sportRuns）：本地删除只在本机生效，不写占位、不排推送
+      if (runtimeExcludedKeys.has(key)) return;
       // 删除后写入与该 key 类型一致的占位值（见 REMOVE_PLACEHOLDER），保证删除动作同步到云端
       rawSet(key, JSON.stringify({ data: REMOVE_PLACEHOLDER[key] }));
       const meta = readMeta();

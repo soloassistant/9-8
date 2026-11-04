@@ -366,7 +366,7 @@ export default function SportPage() {
       .catch(() => undefined);
   }, []);
 
-  /** 撤回健康数据单独同意（只清同意标记，不动已有记录） */
+  /** 撤回健康数据单独同意：停止记录 + 退出同步 + 删云端副本（本机记录保留） */
   const toggleHealthConsent = useCallback(() => {
     if (!healthOk) {
       // 未同意时点这行 = 主动去授权（与点「开始」时的弹窗是同一个闸门）
@@ -375,10 +375,17 @@ export default function SportPage() {
       });
       return;
     }
-    void confirmWithdrawHealthConsent().then((done) => {
-      if (!done) return;
+    void confirmWithdrawHealthConsent().then((result) => {
+      if (result === 'cancelled') return;
       setHealthOk(false);
-      Taro.showToast({ title: t('health.withdrawn'), icon: 'none' }).catch(() => undefined);
+      // 三种结果都要明确告知（尤其是删除失败，不能让用户以为云端副本已经没了）
+      const msg =
+        result === 'deleted'
+          ? t('health.withdrawnCloudDeleted')
+          : result === 'failed'
+            ? t('health.withdrawnPurgeFailed')
+            : t('health.withdrawnLocalOnly');
+      Taro.showToast({ title: msg, icon: 'none' }).catch(() => undefined);
     });
   }, [healthOk, t]);
 
