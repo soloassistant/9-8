@@ -310,13 +310,13 @@
 .loadTrack {
   height: 8rpx;
   background: rgba(0, 0, 0, 0.06);
-  border-radius: 4rpx;
+  border-radius: $radius-tier-sm;
   overflow: hidden;
 }
 
 .loadFill {
   height: 100%;
-  border-radius: 4rpx;
+  border-radius: $radius-tier-sm;
 }
 
 .loadFillLow {
@@ -376,7 +376,7 @@
 }
 
 .weekChip {
-  padding: 4rpx 16rpx;
+  padding: 4rpx $spacing-sm;
   font-size: $font-size-xs;
   color: var(--brand, $color-primary);
   background: rgba(255, 122, 69, 0.12);
@@ -530,7 +530,7 @@
 
 .locateBtn {
   flex-shrink: 0;
-  padding: 6rpx 16rpx;
+  padding: $spacing-xs $spacing-sm;
   font-size: $font-size-xs;
   color: $color-primary-strong; // 白底 5.26:1（原 $color-primary 仅 2.59:1）
   background: rgba(255, 122, 69, 0.12); // 品牌色 12% 底（主题色为 CSS 变量，scss 用固定近似值）
@@ -544,7 +544,7 @@
   justify-content: space-between;
   gap: $spacing-sm;
   margin-top: $spacing-xs;
-  padding: 8rpx 16rpx;
+  padding: $spacing-xs $spacing-sm;
   background: rgba(255, 122, 69, 0.08);
   border-radius: $radius-sm;
 }
@@ -577,7 +577,7 @@
    本文件不再保留 .digestSource —— 死样式会误导后来者以为这里还渲染来源行 */
 .intelNote {
   display: block;
-  margin-top: 8rpx;
+  margin-top: $spacing-xs;
   font-size: $font-size-xs;
   color: $color-text-tertiary; // 白底 5.02:1（原硬编码 #999 仅 2.85:1）
 }
@@ -600,7 +600,7 @@
 .proBadge {
   display: inline-flex;
   align-items: center;
-  padding: 0 16rpx;
+  padding: 0 $spacing-sm;
   height: 36rpx;
   font-size: $font-size-xs;
   font-weight: $font-weight-semibold;
@@ -911,7 +911,7 @@
 
 /* 浅色胶囊：有真实「已读完」状态时显示（白底深字），否则显示条数（白色薄雾底） */
 .overviewPillDone {
-  padding: 4rpx 16rpx;
+  padding: 4rpx $spacing-sm;
   font-size: $font-size-xs;
   color: $color-ink-dark;
   background: $color-on-dark;
@@ -920,7 +920,7 @@
 }
 
 .overviewPill {
-  padding: 4rpx 16rpx;
+  padding: 4rpx $spacing-sm;
   font-size: $font-size-xs;
   color: $color-on-dark-muted;
   background: $color-on-dark-wash;
@@ -1090,7 +1090,7 @@
 .sideNavList {
   display: flex;
   flex-direction: column;
-  gap: 8rpx;
+  gap: $spacing-xs;
 }
 
 .sideNavItem {

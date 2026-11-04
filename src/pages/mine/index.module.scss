@@ -574,7 +574,7 @@
 }
 
 .tag {
-  padding: 8rpx 24rpx;
+  padding: $spacing-xs $spacing-md;
   border-radius: $radius-round;
   background: $color-bg-page;
   border: 1rpx solid transparent;
@@ -759,7 +759,7 @@
 }
 
 .fbChip {
-  padding: 10rpx 24rpx;
+  padding: $spacing-xs $spacing-md;
   border: 1rpx solid $color-divider;
   border-radius: $radius-round;
   background: $color-bg-hover;
@@ -1053,7 +1053,7 @@
   font-size: $font-size-sm;
   // 92% 白在深膜底上只有 4.67:1 的余量，12.5px 正文没有缓冲；纯白 = 5.5:1，留出主题差异
   color: $color-text-white;
-  margin-bottom: 8rpx;
+  margin-bottom: $spacing-xs;
 }
 
 .planPrice {
@@ -1075,7 +1075,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6rpx;
-  padding: 6rpx 16rpx;
+  padding: $spacing-xs $spacing-sm;
   background: rgba(255, 255, 255, 0.22);
   border-radius: $radius-button;
 }
@@ -1377,7 +1377,7 @@
 .orderRetry {
   @include button-reset;
   width: auto; // 覆盖 taro-button-core 默认 width:100%
-  padding: 8rpx 32rpx;
+  padding: $spacing-xs $spacing-lg;
   border-radius: $radius-round;
   background: var(--brand-strong, #{$color-primary-strong}); // 白字 5.26:1
   color: $color-text-white;
@@ -1452,7 +1452,7 @@
 .orderRefundBtn {
   font-size: $font-size-sm;
   color: #E85D2A;
-  padding: 4rpx 16rpx;
+  padding: 4rpx $spacing-sm;
   border-radius: $radius-sm;
   transition: background $transition-fast;
 

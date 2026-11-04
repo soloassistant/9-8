@@ -347,7 +347,7 @@ const zh = {
   'briefing.navTrade': '交易',
   'briefing.helpers': '快捷入口',
   'briefing.freePlan': '免费版',
-  'briefing.chatHint': '和助理说点什么，或按住麦克风说话',
+  'briefing.chatHint': '和 AI 助理说点什么，或按住麦克风说话',
   'briefing.aiTag': '— AI 生成内容，仅供参考 —',
   'briefing.inputPlaceholder': '说点什么…', // D2：原长文案在 414px 手机宽度下被截断（2026-10-21 视觉巡检复现），按问题总表解法改短
   'briefing.deepPlaceholder': '深思中：说说你在纠结什么',
@@ -360,7 +360,7 @@ const zh = {
   'briefing.quickNote': '记一条',
   'briefing.quickDone': '完成待办',
   'briefing.quickHot': '今日热点',
-  'briefing.emptyTitle': '今天还空着',
+  'briefing.emptyTitle': '今天还没有安排',
   'briefing.emptyHint': '把微信里的会议、约定贴到收件箱，它们就变成今天的日程和待办。',
   // 空态主行动：文案指挥了动作就必须能点（2026-10-12 增长审计）
   'briefing.emptyCta': '去收件箱贴一条 →',
@@ -498,7 +498,7 @@ const zh = {
   'inbox.resultMeta': '每一行都能改，确认无误再写进去',
   'inbox.conflictTitle': '⚠️ 排班冲突检测',
   'inbox.historyTitle': '最近处理',
-  'inbox.emptyTitle': '收件箱还空着',
+  'inbox.emptyTitle': '收件箱还没有内容',
   'inbox.emptyHint': '微信里的会议、快递、作业，贴一条进来，我拆成日程和待办让你过目。',
   'inbox.timePlaceholder': '时间，如 2026-09-09 10:00',
 
@@ -952,7 +952,7 @@ const zh = {
   'mine.membershipDesc': '订阅方案、额度与订阅记录',
   'mine.prefsTitle': '偏好设置',
   'mine.prefsDesc': '称呼、晨报时间、城市、播报语速',
-  'mine.assistantTitle': 'AI 助手',
+  'mine.assistantTitle': 'AI 助理',
   'mine.assistantDesc': '对话、排程、语音与记忆',
   'mine.manageSub': '管理订阅',
   'mine.foldHabit': '习惯守护与最近动态',
@@ -1339,9 +1339,9 @@ const zh = {
   'trade.changePct': '涨跌幅',
   // 真实/模拟分层必须说清：只有黄金现价来自腾讯真实报价，K线与外汇仍是模拟推演
   'trade.feedRealBadge': '实时价：黄金真实（腾讯行情）· K线与外汇为模拟',
-  'trade.feedLabelReal': '真实价 feed',
+  'trade.feedLabelReal': '真实金价（腾讯行情）',
   'trade.simWatermark': '历史K线：模拟推演',
-  'trade.feedLabel': '模拟 feed',
+  'trade.feedLabel': '模拟行情',
   'trade.watchlist': '自选行情',
   'trade.cat.all': '全部',
   'trade.cat.gold': '黄金',

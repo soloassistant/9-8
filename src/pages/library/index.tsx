@@ -13,7 +13,7 @@ import { getHotspotMeta, apiAiNewsFilter, apiGetAffinity, apiSaveAffinity } from
 import { invoke } from '@/services/dataSource';
 import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore } from '@/store/theme';
-import { fromNow } from '@/utils/date';
+import { formatDate, fromNow } from '@/utils/date';
 import { openExternalPage } from '@/utils/externalLink';
 import { logActivity } from '@/utils/activityLog';
 import type { CollectionItem, HistoryEntry, HotspotNews } from '@/types';
@@ -1340,7 +1340,7 @@ function LibraryPage() {
                 {/* 2026-11-03：updatedAt 缺失时不再回填 Date.now()（那会把「不知道」显示成「刚刚」）。
                     宁可如实说未知，也不伪造新鲜度。 */}
                 {hotMeta.updatedAt
-                  ? `${t('library.dataUpdated')} ${dayjs(hotMeta.updatedAt).format('MM-DD HH:mm')}`
+                  ? `${t('library.dataUpdated')} ${formatDate(hotMeta.updatedAt, true)}`
                   : t('library.dataUpdatedUnknown')}
                 {hotMeta.stale ? ` · ${t('library.dataStale')}` : ''}
                 {(() => {

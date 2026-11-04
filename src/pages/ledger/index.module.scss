@@ -118,7 +118,7 @@
 
 .bar {
   height: 12rpx;
-  border-radius: 6rpx;
+  border-radius: $radius-tier-sm;
   background: $color-bg-hover;
   overflow: hidden;
   margin-top: $spacing-xs;
@@ -126,7 +126,7 @@
 
 .barFill {
   height: 100%;
-  border-radius: 6rpx;
+  border-radius: $radius-tier-sm;
   background: var(--brand, #{$color-primary});
 }
 
@@ -174,7 +174,7 @@
   display: flex;
   align-items: center;
   gap: $spacing-sm;
-  padding: 8rpx 0;
+  padding: $spacing-xs 0;
 }
 
 .catIcon {

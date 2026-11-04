@@ -538,6 +538,46 @@
   color: $color-text-tertiary;
 }
 
+/* ============ 课程不存在空态：推荐 3 门课（2026-11-04） ============ */
+.recBlock {
+  margin: 0 $page-padding $spacing-xl;
+}
+
+.recBlockTitle {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-secondary;
+}
+
+.recItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 88rpx; /* ≥44px 点击区（390 视口 45.8px） */
+  padding: $spacing-sm $spacing-md;
+  margin-bottom: $spacing-sm;
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+}
+
+.recItemTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  @include text-ellipsis;
+}
+
+.recItemMeta {
+  flex-shrink: 0;
+  margin-left: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
 .drillActions {
   display: flex;
   gap: $spacing-lg;

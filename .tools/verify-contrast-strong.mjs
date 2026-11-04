@@ -157,7 +157,7 @@ const STRONG_POINTS = [
   ['src/pages/mine/index.module.scss', 'subButton', '--brand-strong'],
   ['src/pages/mine/index.module.scss', 'linkText', '--brand-strong'],
   ['src/pages/ledger/index.module.scss', 'catExport', '--brand-strong'],
-  ['src/pages/ledger/index.module.scss', 'addBtn', '--brand-strong'],
+  ['src/pages/ledger/index.module.scss', 'fab', '--brand-strong'],
   ['src/pages/shopping/index.module.scss', 'addBtn', '--brand-strong'],
   ['src/pages/shopping/index.module.scss', 'actionBtn', '--brand-strong'],
   ['src/pages/shopping/index.module.scss', 'cheapest', '--brand-strong'],

@@ -244,7 +244,7 @@
 
 .aiEditBtn {
   flex-shrink: 0;
-  padding: 4rpx 18rpx;
+  padding: 4rpx $spacing-sm;
   border-radius: $radius-round;
   background: $color-bg-card;
   color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand 2.59:1）
@@ -340,7 +340,7 @@
   display: block;
   margin: $spacing-sm auto 0;
   width: fit-content;
-  padding: 8rpx 30rpx;
+  padding: $spacing-xs $spacing-lg;
   border-radius: $radius-round;
   background: $color-bg-card;
   color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand 2.59:1）

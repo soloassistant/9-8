@@ -3,10 +3,11 @@ import { View, Text } from '@tarojs/components';
 import Taro, { useRouter } from '@tarojs/taro';
 import classnames from 'classnames';
 import EmptyState from '@/components/EmptyState';
-import { findCourse } from '@/data/learn';
+import { LEARN_LANGS, findCourse } from '@/data/learn';
 import { getCourseProgress, markWords, setCourseCompleted, getDrillScore, LearnLangId } from '@/utils/learn';
 import { langToTts } from '@/utils/learnDrills';
 import { isTtsLangSupported, stopSpeak } from '@/utils/tts';
+import { pressableProps } from '@/utils/a11y';
 import { useT } from '@/store/language';
 import GrammarDrill from './GrammarDrill';
 import ListeningDrill from './ListeningDrill';
@@ -34,10 +35,53 @@ function LearnDetailPage() {
   const ttsLang = useMemo(() => langToTts(langId), [langId]);
   const audioSupported = useMemo(() => isTtsLangSupported(ttsLang), [ttsLang]);
 
+  /** 空态的两个可执行动作（2026-11-04 空态评审）：
+   *  原来只有一行「回到课程列表重新选择」的不可点文案，用户被指挥却无处可去。
+   *  这里给「返回课程」按钮 + 3 门可直接点开的推荐课。 */
+  const backToList = () => {
+    if (Taro.getCurrentPages().length > 1) {
+      Taro.navigateBack().catch(() => {
+        Taro.redirectTo({ url: '/pages/learn/index' });
+      });
+      return;
+    }
+    Taro.redirectTo({ url: '/pages/learn/index' });
+  };
+
+  const fallbackCourses = useMemo(
+    () =>
+      LEARN_LANGS.flatMap((l) =>
+        l.levels.flatMap((lv) =>
+          lv.courses.map((c) => ({ id: c.id, title: c.title, lang: l.name }))
+        )
+      ).slice(0, 3),
+    []
+  );
+
   if (!found) {
     return (
       <View className={styles.page}>
-        <EmptyState icon='📖' title={t('learn.courseMissing')} hint={t('learn.backToPick')} />
+        <EmptyState
+          icon='📖'
+          title={t('learn.courseMissing')}
+          hint={t('learn.backToPick')}
+          action={t('learn.backCourses')}
+          onAction={backToList}
+        />
+        <View className={styles.recBlock}>
+          <Text className={styles.recBlockTitle}>✨ {t('learn.recommendTitle')}</Text>
+          {fallbackCourses.map((c) => (
+            <View
+              key={c.id}
+              className={styles.recItem}
+              onClick={() => Taro.redirectTo({ url: `/pages/learnDetail/index?courseId=${c.id}` })}
+              {...pressableProps(`${c.lang} · ${c.title}`)}
+            >
+              <Text className={styles.recItemTitle}>{c.title}</Text>
+              <Text className={styles.recItemMeta}>{c.lang}</Text>
+            </View>
+          ))}
+        </View>
       </View>
     );
   }

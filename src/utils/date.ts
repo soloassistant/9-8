@@ -49,6 +49,22 @@ export function currentMonth(now?: Date): string {
   return dayjs(now).format('YYYY-MM');
 }
 
+/**
+ * 统一日期显示（2026-11-04 UI 批次）：**非当年必须补年份**。
+ *
+ * 之前各处自己 format：资讯库写 `MM-DD HH:mm`（跨年时 11-04 与去年 11-04 长得一样）、
+ * 收藏列表回落 `YYYY-MM-DD`，同一个日期在不同页面三种写法。这里收口成一个函数。
+ *
+ * @param time      ISO 串 / Date
+ * @param withTime  是否追加 `HH:mm`
+ */
+export function formatDate(time: string | Date, withTime = false): string {
+  const d = dayjs(time);
+  if (!d.isValid()) return String(time);
+  const date = d.year() === dayjs().year() ? d.format('M月D日') : d.format('YYYY年M月D日');
+  return withTime ? `${date} ${d.format('HH:mm')}` : date;
+}
+
 /** 相对时间显示：收藏列表用 */
 export function fromNow(time: string): string {
   const d = dayjs(time);
@@ -60,7 +76,7 @@ export function fromNow(time: string): string {
   if (diffHours < 24) return `${diffHours} 小时前`;
   const diffDays = dayjs().diff(d, 'day');
   if (diffDays < 30) return `${diffDays} 天前`;
-  return d.format('YYYY-MM-DD');
+  return formatDate(d.toDate());
 }
 
 /* ------------------------------------------------------------------ *
