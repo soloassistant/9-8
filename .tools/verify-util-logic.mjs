@@ -295,5 +295,12 @@ authStub.__setMode('ok');
 assert('D7 无会话时 reason=no-session 且未发起上传', d7.reason === 'no-session' && authStub.__calls.upload === 0);
 assert('D8 无 storage 时 reason=no-storage', d8.reason === 'no-storage');
 
+/* ================================================================== */
+/* F. 运动最短时长门槛（SP-03）                                          */
+/* ================================================================== */
+const sportMinMod = (await loadModule('src/data/sport.ts')).mod;
+assert('F1 11 秒的垃圾记录不落库', sportMinMod.isRunWorthSaving(11) === false);
+assert('F2 30 秒整算达标（边界包含）', sportMinMod.isRunWorthSaving(30) === true && sportMinMod.MIN_SAVE_SEC === 30);
+
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);

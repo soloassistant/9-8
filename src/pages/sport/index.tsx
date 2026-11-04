@@ -23,6 +23,7 @@ import {
   formatKm,
   formatPace,
   haversineM,
+  isRunWorthSaving,
   paceDeltaSec,
   paceSecPerKm,
   readGoalKm,
@@ -107,9 +108,6 @@ function paceCurveSvgUrl(samples: RunSample[]): string | null {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-/** 未主动结束时，至少跑够这么久才把残段存下来（避免误点开始就留下垃圾记录） */
-const PARTIAL_SAVE_MIN_SEC = 30;
-
 export default function SportPage() {
   const t = useT();
   const { theme } = useThemeStore();
@@ -166,7 +164,8 @@ export default function SportPage() {
         const dur = Math.max(0, Math.round((Date.now() - startedAtRef.current - pausedTotalRef.current) / 1000));
         const dist = distRef.current;
         // 健康数据单独同意已被撤回时不落库（撤回即停止新采集）
-        if ((dur >= PARTIAL_SAVE_MIN_SEC || dist > 0) && hasHealthConsent()) {
+        // SP-03：与显式结束同一门槛（纯时长 30 秒），不再用「有距离就存」绕过
+        if (isRunWorthSaving(dur) && hasHealthConsent()) {
           saveRun({
             id: `run_${startedAtRef.current}_${Math.random().toString(36).slice(2, 8)}`,
             startedAt: startedAtRef.current,
@@ -286,13 +285,24 @@ export default function SportPage() {
 
   const finish = useCallback(() => {
     const startedAt = startedAtRef.current;
-    const total = Date.now() - startedAt - pausedTotalRef.current;
+    const durSec = Math.max(0, Math.round((Date.now() - startedAt - pausedTotalRef.current) / 1000));
     stopTick();
     stopWatch();
+    // SP-03：显式结束此前无最短门槛，11 秒 / 0.2km 的记录会直接入账并让周跑量 +1；
+    // 与「离开页面」路径统一为 30 秒门槛。
+    if (!isRunWorthSaving(durSec)) {
+      activeRef.current = false;
+      setRecording(false);
+      setPaused(false);
+      pausedAtRef.current = 0;
+      setView('home');
+      Taro.showToast({ title: t('sport.tooShort'), icon: 'none' }).catch(() => undefined);
+      return;
+    }
     const rec: RunRecord = {
       id: `run_${startedAt}_${Math.random().toString(36).slice(2, 8)}`,
       startedAt,
-      durationSec: Math.max(0, Math.round(total / 1000)),
+      durationSec: durSec,
       distanceM: distRef.current,
       distanceKnown: geo === 'ok' || distRef.current > 0,
       samples: samplesRef.current,

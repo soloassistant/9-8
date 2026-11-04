@@ -114,6 +114,13 @@ export function readRuns(): RunRecord[] {
     .sort((a, b) => b.startedAt - a.startedAt);
 }
 
+/** SP-03：一次跑步至少 30 秒才值得落库（显式结束与离开页面同一门槛） */
+export const MIN_SAVE_SEC = 30;
+
+export function isRunWorthSaving(durationSec: number): boolean {
+  return durationSec >= MIN_SAVE_SEC;
+}
+
 export function saveRun(rec: RunRecord): RunRecord[] {
   const all = readRuns().filter((r) => r.id !== rec.id);
   all.push(rec);
