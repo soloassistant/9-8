@@ -77,5 +77,13 @@ export default [
     from: "    if (type === 'click') {",
     to: '    if (true) {',
     cmd: 'node .tools/verify-a11y-keyboard.mjs --no-browser'
+  },
+  {
+    // 2026-11-04：翻月按钮回退到 32×32（又低于 44px）。A14 必须判红。
+    label: '日历翻月去掉透明外扩（热区退回 32×32）',
+    file: 'src/pages/calendar/index.module.scss',
+    from: '  @include hit-expand(12rpx, 12rpx);',
+    to: '  /* mutation: no hit-expand */',
+    cmd: 'node .tools/verify-a11y-keyboard.mjs --no-browser'
   }
 ];

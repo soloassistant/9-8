@@ -50,6 +50,9 @@
 }
 
 .avatarEdit {
+  // 2026-11-04：实测 33×16（375）远低于 44px；视觉不变，透明外扩到 44×44
+  // 点击仍冒泡到外层 .avatarBtn（同一动作），外扩只是把热区补齐
+  @include hit-expand(22rpx, 56rpx);
   font-size: $font-size-xs;
   color: $color-text-tertiary;
 }
