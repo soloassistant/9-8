@@ -18,7 +18,7 @@ import {
 import type { LedgerExportResult } from '@/data/ledger';
 /** 仅取类型：schedule.ts 反向依赖 api.ts，用 import type 避免运行时循环依赖 */
 import type { PlanProposalRaw } from '@/utils/schedule';
-import { setTodoStatus } from '@/data/dailyPlan';
+import { setTodoStatus, updateEvent } from '@/data/dailyPlan';
 import { normalizeVideoItems } from '@/utils/videoNews';
 import type { VideoNewsItem } from '@/utils/videoNews';
 import { recordUsage } from '@/utils/usageLog';
@@ -87,9 +87,77 @@ export async function apiTodoSetStatus(input: {
   }
 }
 
-/** 获取今日晨报 */
+/** 编辑已有日程（标题/日期时间/地点/备注）。
+ *
+ *  · H5：直接写 `dailyPlanStore`（本地真实数据 + 回读校验），该键在 SYNC_KEYS 内，
+ *    写盘即触发云同步推送；刷新/重登后仍在。
+ *  · 小程序：走 `chat` 云函数的 `action='applyPlan'` 更新分支（服务端按 _id + openid 收敛），
+ *    与一键重排同一条持久化通道，不新开旁路存储。
+ *  失败一律返回 ok:false，调用方**不得**据此刷新成「已保存」。
+ */
+export interface EventUpdatePayload {
+  id: string;
+  title: string;
+  /** 'YYYY-MM-DD HH:mm' */
+  startTime: string;
+  endTime?: string;
+  location?: string;
+  note?: string;
+}
+export async function apiUpdateEvent(payload: EventUpdatePayload): Promise<{ ok: boolean; reason?: string }> {
+  if (!isWeapp) {
+    return updateEvent(payload.id, {
+      title: payload.title,
+      startTime: payload.startTime,
+      endTime: payload.endTime || null,
+      location: payload.location || null,
+      note: payload.note || null
+    });
+  }
+  try {
+    const res = await callFunction<{ saved?: number; ids?: string[] } | null>('chat', {
+      action: 'applyPlan',
+      events: [
+        {
+          eventId: payload.id,
+          title: payload.title,
+          startTime: payload.startTime,
+          endTime: payload.endTime || '',
+          location: payload.location || '',
+          note: payload.note || ''
+        }
+      ]
+    });
+    const saved = res && typeof res.saved === 'number' ? res.saved : 0;
+    return saved > 0 ? { ok: true } : { ok: false, reason: 'cloud_rejected' };
+  } catch (err) {
+    console.warn('[API] updateEvent cloud call failed:', err);
+    return { ok: false, reason: 'call_failed' };
+  }
+}
+
+/** 获取今日晨报。
+ *
+ *  2026-11-04（fix(calendar-edit)）：小程序云函数 `getBriefing` 直接返回数据库原始文档，
+ *  日程/待办的唯一标识是 `_id`，而前端类型与所有写入接口（todoStatus / applyPlan）用的是 `id`。
+ *  此前两端形状不一致 —— 小程序端日历渲染 key 为 undefined、编辑/勾选找不到条目。
+ *  这里统一补 `id`（H5 本地 mock 本来就有 id，不受影响）。
+ */
 export function apiGetBriefing(): Promise<Briefing> {
-  return callFunction<Briefing>('getBriefing');
+  return callFunction<Briefing>('getBriefing').then(normalizeBriefingIds);
+}
+
+/** 把云端原始文档的 `_id` 归一成前端契约里的 `id`（只补缺失，不覆盖已有值） */
+function normalizeBriefingIds(briefing: Briefing): Briefing {
+  const withId = <T extends { id?: string; _id?: string }>(row: T): T => {
+    if (!row || row.id) return row;
+    return row._id ? { ...row, id: row._id } : row;
+  };
+  return {
+    ...briefing,
+    events: Array.isArray(briefing.events) ? briefing.events.map(withId) : [],
+    todos: Array.isArray(briefing.todos) ? briefing.todos.map(withId) : []
+  };
 }
 
 /** 视频新闻（B站热榜，公开内容免登录）。

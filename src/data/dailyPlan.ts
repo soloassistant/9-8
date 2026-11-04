@@ -44,6 +44,50 @@ export function writePlan(plan: DailyPlan) {
   }
 }
 
+/** 可编辑字段（undefined = 不改；空串/null = 清空该可选字段） */
+export interface EventPatch {
+  title?: string;
+  startTime?: string;
+  endTime?: string | null;
+  location?: string | null;
+  note?: string | null;
+}
+
+/**
+ * 更新单条日程并**回读校验**是否真的落盘（与 setTodoStatus 同一理由：
+ * writePlan 刻意吞掉 storage 异常，「写成功」和「写失败」返回值一样）。
+ * 页面据此决定是否刷新视图：ok:false 时不得宣称「已保存」。
+ */
+export function updateEvent(id: string, patch: EventPatch): { ok: boolean; reason?: string } {
+  const plan = readPlan();
+  const hit = plan.events.find((e) => e.id === id);
+  if (!hit) return { ok: false, reason: 'not_found' };
+
+  if (patch.title !== undefined) hit.title = patch.title;
+  if (patch.startTime !== undefined) hit.startTime = patch.startTime;
+  if (patch.endTime !== undefined) {
+    if (patch.endTime) hit.endTime = patch.endTime;
+    else delete hit.endTime;
+  }
+  if (patch.location !== undefined) {
+    if (patch.location) hit.location = patch.location;
+    else delete hit.location;
+  }
+  if (patch.note !== undefined) {
+    if (patch.note) hit.note = patch.note;
+    else delete hit.note;
+  }
+  writePlan(plan);
+
+  const check = readPlan().events.find((e) => e.id === id);
+  if (!check) return { ok: false, reason: 'not_persisted' };
+  if (check.title !== hit.title || check.startTime !== hit.startTime) return { ok: false, reason: 'not_persisted' };
+  if (patch.endTime !== undefined && (check.endTime || '') !== (hit.endTime || '')) {
+    return { ok: false, reason: 'not_persisted' };
+  }
+  return { ok: true };
+}
+
 /**
  * 确定性写入单条待办状态，并**回读校验**是否真的落盘。
  *

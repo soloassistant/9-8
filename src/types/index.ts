@@ -10,6 +10,8 @@ export interface ScheduleEvent {
   startTime: string;
   endTime?: string;
   location?: string;
+  /** 用户备注（手动编辑可改） */
+  note?: string;
   /** 来源消息摘要 */
   source?: string;
   /** confirmed: 已确认入库 / pending: 待确认 */

@@ -5,13 +5,13 @@ import dayjs, { Dayjs } from 'dayjs';
 import classnames from 'classnames';
 import EmptyState from '@/components/EmptyState';
 import PlanProposalCard from '@/components/PlanProposalCard';
-import { apiGetBriefing, apiConfirmItem, apiApplyPlan, apiTodoSetStatus } from '@/services/api';
+import { apiGetBriefing, apiConfirmItem, apiApplyPlan, apiTodoSetStatus, apiUpdateEvent } from '@/services/api';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { formatEventTime } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
 import { isOverlap, hasGapBuffer, buildPlanProposal, DEFAULT_DURATION_MINUTES, SCHED_GAP_BUFFER_MINUTES } from '@/utils/schedule';
 import type { PlanProposal, PlanApplyEvent } from '@/utils/schedule';
-import type { Briefing, TodoItem } from '@/types';
+import type { Briefing, ScheduleEvent, TodoItem } from '@/types';
 import { buildIcs } from '@/utils/icsExport';
 import { useT, useLanguageStore } from '@/store/language';
 import styles from './index.module.scss';
@@ -41,6 +41,15 @@ function CalendarPage() {
   const [rescheduleProposal, setRescheduleProposal] = useState<PlanProposal | null>(null);
   /** 最近一次**成功**加载完成时间：useDidShow 据此做 60s 新鲜窗口判断 */
   const lastBriefingAt = useRef(0);
+  /** 日程编辑（fix(calendar-edit)）：此前只有新增/删除，事件行没有任何编辑入口 */
+  const [editing, setEditing] = useState<ScheduleEvent | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editStart, setEditStart] = useState('');
+  const [editEnd, setEditEnd] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editNote, setEditNote] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   const loadBriefing = useCallback(async () => {
     try {
@@ -143,9 +152,10 @@ function CalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [briefing, selected]);
 
-  /** 切换日期时收起重排提案（提案只属于选中那天） */
+  /** 切换日期时收起提案与编辑态（编辑只属于当前选中日） */
   useEffect(() => {
     setRescheduleProposal(null);
+    setEditing(null);
   }, [selected]);
 
   const handleToggleTodo = async (todo: TodoItem) => {
@@ -186,6 +196,56 @@ function CalendarPage() {
     } catch (err) {
       console.error('[CalendarPage] quick add failed:', err);
       Taro.showToast({ title: t('calendar.addFailed'), icon: 'none' });
+    }
+  };
+
+  /** 进入编辑态：用当前事件值预填（日期与时间从 startTime 拆出） */
+  const startEdit = (evt: ScheduleEvent) => {
+    const start = dayjs(evt.startTime);
+    setEditing(evt);
+    setEditTitle(evt.title);
+    setEditDate(start.isValid() ? start.format('YYYY-MM-DD') : selected);
+    setEditStart(start.isValid() ? start.format('HH:mm') : '09:00');
+    setEditEnd(evt.endTime && dayjs(evt.endTime).isValid() ? dayjs(evt.endTime).format('HH:mm') : '');
+    setEditLocation(evt.location || '');
+    setEditNote(evt.note || '');
+  };
+
+  /** 保存编辑：走正常持久化通道（H5 dailyPlan / 小程序 chat.applyPlan），成功才刷新视图 */
+  const handleSaveEdit = async () => {
+    if (!editing || editSaving) return;
+    const title = editTitle.trim();
+    const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(editDate) && dayjs(editDate).isValid() && dayjs(editDate).format('YYYY-MM-DD') === editDate;
+    if (!title || !dateOk || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(editStart.trim())) {
+      Taro.showToast({ title: t('calendar.editInvalid'), icon: 'none' });
+      return;
+    }
+    const startTime = `${editDate} ${editStart.trim()}`;
+    const endTime = editEnd.trim() && /^([01]?\d|2[0-3]):[0-5]\d$/.test(editEnd.trim()) ? `${editDate} ${editEnd.trim()}` : '';
+    setEditSaving(true);
+    try {
+      const res = await apiUpdateEvent({
+        id: editing.id,
+        title: title.slice(0, 30),
+        startTime,
+        endTime,
+        location: editLocation.trim(),
+        note: editNote.trim()
+      });
+      if (!res.ok) {
+        Taro.showToast({ title: res.reason === 'not_found' ? t('calendar.editNotFound') : t('calendar.editFailed'), icon: 'none' });
+        return;
+      }
+      setEditing(null);
+      setSelected(editDate); // 改到别的日期时，让用户直接看到新位置
+      await loadBriefing();
+      Taro.showToast({ title: t('calendar.editSaved'), icon: 'success' });
+      logActivity('✏️', `编辑日程：${title.slice(0, 14)}`);
+    } catch (err) {
+      console.error('[CalendarPage] edit failed:', err);
+      Taro.showToast({ title: t('calendar.editFailed'), icon: 'none' });
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -473,6 +533,41 @@ function CalendarPage() {
           </View>
         </View>
 
+        {/* 编辑日程（fix(calendar-edit)）：标题/日期/时间/地点/备注，保存走正常持久化通道 */}
+        {editing ? (
+          <View className={styles.editPanel}>
+            <Text className={styles.editHeading}>{t('calendar.editTitle')}</Text>
+            <View className={styles.editField}>
+              <Text className={styles.editLabel}>{t('calendar.eventTitleLabel')}</Text>
+              <Input className={styles.editInput} value={editTitle} maxlength={30} onInput={(e) => setEditTitle(e.detail.value)} />
+            </View>
+            <View className={styles.editField}>
+              <Text className={styles.editLabel}>{t('calendar.eventDateLabel')}</Text>
+              <Input className={styles.editInput} value={editDate} maxlength={10} onInput={(e) => setEditDate(e.detail.value)} />
+            </View>
+            <View className={styles.editField}>
+              <Text className={styles.editLabel}>{t('calendar.eventStartLabel')}</Text>
+              <Input className={styles.editInput} value={editStart} maxlength={5} onInput={(e) => setEditStart(e.detail.value)} />
+            </View>
+            <View className={styles.editField}>
+              <Text className={styles.editLabel}>{t('calendar.eventEndLabel')}</Text>
+              <Input className={styles.editInput} value={editEnd} maxlength={5} onInput={(e) => setEditEnd(e.detail.value)} />
+            </View>
+            <View className={styles.editField}>
+              <Text className={styles.editLabel}>{t('calendar.eventLocationLabel')}</Text>
+              <Input className={styles.editInput} value={editLocation} maxlength={30} onInput={(e) => setEditLocation(e.detail.value)} />
+            </View>
+            <View className={styles.editField}>
+              <Text className={styles.editLabel}>{t('calendar.eventNoteLabel')}</Text>
+              <Input className={styles.editInput} value={editNote} maxlength={60} onInput={(e) => setEditNote(e.detail.value)} />
+            </View>
+            <View className={styles.editActions}>
+              <View className={styles.editCancel} onClick={() => setEditing(null)}>{t('calendar.eventCancel')}</View>
+              <View className={styles.editSave} onClick={handleSaveEdit}>{t('calendar.eventSave')}</View>
+            </View>
+          </View>
+        ) : null}
+
         {/* 冲突条 + 一键重排（S-01：有冲突才渲染，无冲突不留空壳；提案预览替换冲突条） */}
         {rescheduleProposal ? (
           <View className={styles.rescheduleWrap}>
@@ -504,6 +599,11 @@ function CalendarPage() {
                 <View className={styles.eventBody}>
                   <Text className={styles.eventTitle}>{evt.title}</Text>
                   {evt.location ? <Text className={styles.eventLoc}>📍 {evt.location}</Text> : null}
+                  {evt.note ? <Text className={styles.eventLoc}>{evt.note}</Text> : null}
+                </View>
+                {/* 编辑入口：稳定 className 供自动化选择（Taro Text 不透传 data-testid，见 AGENTS §6.3） */}
+                <View className={classnames(styles.eventEditBtn, 'event-edit-btn')} onClick={() => startEdit(evt)}>
+                  <Text className={styles.eventEditText}>{t('calendar.edit')}</Text>
                 </View>
               </View>
             ))}

@@ -367,6 +367,86 @@
   color: $color-text-secondary;
 }
 
+/* 日程编辑（fix(calendar-edit)） */
+.eventEditBtn {
+  @include button-reset;
+  flex-shrink: 0;
+  align-self: center;
+  padding: 6rpx 16rpx;
+  border-radius: $radius-round;
+  background: $color-bg-page;
+
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+.eventEditText {
+  font-size: $font-size-xs;
+  color: var(--brand-deep);
+}
+
+.editPanel {
+  margin-bottom: $spacing-md;
+  padding: $spacing-md;
+  border-radius: $radius-md;
+  background: $color-bg-page;
+}
+
+.editHeading {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.editField {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-sm;
+}
+
+.editLabel {
+  width: 160rpx;
+  flex-shrink: 0;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+}
+
+.editInput {
+  flex: 1;
+  min-width: 0;
+  background: $color-bg-card;
+  border-radius: $radius-sm;
+  padding: 8rpx 16rpx;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-sm;
+  margin-top: $spacing-sm;
+}
+
+.editCancel {
+  @include button-reset;
+  padding: 8rpx 24rpx;
+  border-radius: $radius-sm;
+  background: $color-bg-card;
+}
+
+.editSave {
+  @include button-reset;
+  padding: 8rpx 24rpx;
+  border-radius: $radius-sm;
+  background: var(--brand-strong);
+  color: $color-text-white;
+}
+
 .todoRow {
   display: flex;
   align-items: center;
