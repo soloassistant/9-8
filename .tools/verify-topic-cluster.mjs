@@ -24,8 +24,11 @@ const t = (name, fn) => {
   results.push({ name, pass: r === true, why: r === true ? '' : String(r) });
 };
 
-const topicSrc = fs.readFileSync(path.join(ROOT, 'cloudfunctions/webSearch/topic-cluster.js'), 'utf8');
-const serverSrc = fs.readFileSync(path.join(ROOT, '.tools/static-server.js'), 'utf8');
+// 读入即归一换行：仓库索引里两处都是 LF，但 Windows core.autocrlf=true 会在 checkout 时
+// 只把其中一处转成 CRLF（磁盘 eol 因文件被改写的时机而异），逐字比较会因此假红。
+const readSrc = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+const topicSrc = readSrc('cloudfunctions/webSearch/topic-cluster.js');
+const serverSrc = readSrc('.tools/static-server.js');
 
 /** 从源码里抠出函数体（括号配平，抗行号漂移） */
 function extractFn(text, name) {
