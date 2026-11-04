@@ -9,6 +9,8 @@ import EmptyState from '@/components/EmptyState';
 import DemoDataHint from '@/components/DemoDataHint';
 import { NewsCardSkeleton } from '@/components/Skeleton';
 import { apiGetLibrary, apiGetHotspot, apiNewsSearch, apiVideoNews } from '@/services/api';
+import { removeCollection } from '@/data/collectionStore';
+import { syncNow } from '@/services/cloudSync';
 import { getHotspotMeta, apiAiNewsFilter, apiGetAffinity, apiSaveAffinity } from '@/services/cloud';
 import { invoke } from '@/services/dataSource';
 import { useUserStore } from '@/store/user';
@@ -642,6 +644,25 @@ function LibraryPage() {
       data: `${item.title}\n${item.summary}`,
       success: () => Taro.showToast({ title: '摘要已复制', icon: 'success' })
     }).catch((err) => console.error('[LibraryPage] copy failed:', err));
+  };
+
+  /** 删除收藏：必须二次确认 + 显式推空（缺陷 B3，删最后一条时跨端生效） */
+  const handleRemoveCollection = (item: CollectionItem) => {
+    Taro.showModal({
+      title: t('library.removeFavTitle'),
+      content: t('library.removeFavConfirm'),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      confirmColor: '#ee5a29',
+      success: (res) => {
+        if (!res.confirm) return;
+        const next = removeCollection(item.id);
+        setItems(next);
+        hasDataRef.current = next.length > 0;
+        void syncNow(['collectionStore']);
+        Taro.showToast({ title: t('library.removeFavDone'), icon: 'none' });
+      }
+    }).catch(() => undefined);
   };
 
   const handleNewsTap = (item: HotspotNews) => {
@@ -1628,6 +1649,18 @@ function LibraryPage() {
               <Text className={styles.typeIcon}>{TYPE_ICONS[item.sourceType] || TYPE_ICON_FALLBACK}</Text>
               <Text className={styles.title}>{item.title}</Text>
               <Text className={styles.time}>{fromNow(item.createTime)}</Text>
+              {/* 删除入口：Text 不透传 data-testid，用稳定 className 供自动化选择（见 AGENTS.md） */}
+              {!keyword && (
+                <Text
+                  className={styles.removeFavBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemoveCollection(item);
+                  }}
+                >
+                  ✕
+                </Text>
+              )}
             </View>
             <Text className={styles.summary}>{item.summary}</Text>
             <View className={styles.tagRow}>

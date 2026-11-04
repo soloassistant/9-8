@@ -759,6 +759,9 @@ function BriefingPage() {
     const next = removeFromWatchlist(code);
     setWatchCodes(next);
     setQuotes((prev) => prev.filter((q) => q.code !== code));
+    /* ✕ 只在「管理」编辑态出现；删掉一条后自动退出编辑态（避免误删下一条）。
+       自动化因此必须「进管理态 → 删一条 → 重新进管理态」，见 AGENTS.md §6.3。 */
+    setQuoteOpen(false);
     /* 2026-11-03：删除必须当场推到云端。
        hookStorage 的写入只是排进防抖队列，若用户删完立刻退出/换设备，
        user_kv 里还是旧列表，下次拉取会把删掉的股票「复活」回来。
@@ -1783,13 +1786,17 @@ function BriefingPage() {
                   {q.changePct >= 0 ? '+' : ''}{q.changePct.toFixed(2)}%
                 </Text>
                 {quoteOpen ? (
-                  <Text
-                    data-testid='watchlist-remove'
-                    style={{ fontSize: r2r(26), color: '#657080', padding: `${r2r(8)} ${r2r(12)}` }}
-                    onClick={() => void handleRemoveStock(q.code)}
-                  >
-                    ✕
-                  </Text>
+                  <>
+                    {/* Taro 的 Text 不透传未知 props（与 tabIndex 同族问题）：
+                        data-testid 在真实 DOM 里不落地，自动化一律按稳定 className 选。 */}
+                    <Text
+                      className='watch-remove-btn'
+                      style={{ fontSize: r2r(26), color: '#657080', padding: `${r2r(8)} ${r2r(12)}` }}
+                      onClick={() => void handleRemoveStock(q.code)}
+                    >
+                      ✕
+                    </Text>
+                  </>
                 ) : null}
               </View>
             ))

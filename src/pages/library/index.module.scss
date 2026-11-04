@@ -440,6 +440,19 @@
   color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
 }
 
+// 收藏删除入口（缺陷 B3）：44px 热区，大写 PX 逃过 pxtransform（小程序端保持 44px）。
+.removeFavBtn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44PX;
+  min-height: 44PX;
+  margin-left: $spacing-xs;
+  color: $color-text-tertiary;
+  font-size: 32rpx;
+}
+
 .summary {
   font-size: $font-size-sm;
   color: $color-text-secondary;

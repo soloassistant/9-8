@@ -533,6 +533,9 @@ export function subscribeSyncConflicts(cb: (list: SyncConflict[]) => void): () =
   };
 }
 
+/** 墓碑行后缀：`<业务键>#deletedAt`，value 存删除时的 ts。用于「删除最后一条」跨端生效。 */
+const TOMBSTONE_SUFFIX = '#deletedAt';
+
 /** 收集本地需推送的 key → [{ key, value, ts }]；ts 取本地记录时间（无记录用 1 兜底，输给远端真实版本） */
 function collectLocal(forceEmptyKeys: string[] = []): Array<{ key: string; value: unknown; ts: number }> {
   const meta = readMeta();
@@ -546,13 +549,20 @@ function collectLocal(forceEmptyKeys: string[] = []): Array<{ key: string; value
     if (!s) continue;
     const v = taroUnwrap(s);
     if (v === '' || v === null || v === undefined) continue;
+    const ts = Math.max(Number(meta[k]) || 1, 1);
     // 2026-11-03（自选股 P0）：**空数组不上推**。
     // 事故链：远端较新的 [] 覆盖本地 → 本地变空 → 30s 后把 [] 回写云端，全端一起清空。
     // 这条规则让「空」永远不能覆盖「有」，宁可牺牲「跨设备同步清空」，也不再丢用户数据。
     // 例外：用户**明确删除**（forceEmptyKeys）时必须推空 —— 否则删掉最后一条自选
     // 就只剩本地生效，云端旧列表下次登录会把它整体拉回来（2026-11-03 实测缺口）。
-    if (Array.isArray(v) && v.length === 0 && !forceEmptyKeys.includes(k)) continue;
-    items.push({ key: k, value: v, ts: Math.max(Number(meta[k]) || 1, 1) });
+    if (Array.isArray(v) && v.length === 0) {
+      if (!forceEmptyKeys.includes(k)) continue;
+      // 缺陷 B3：**显式墓碑**。空数组本身要推（云端存成空），但另一端的「空数组保护」
+      // 会拒绝它；墓碑行是独立 key，携带同一个 ts，接收端据此确认「这是删除，不是残影」。
+      // 只有走 forced 路径才产生墓碑 ⇒ 非删除场景（空数组不回推）的保护仍然有效。
+      items.push({ key: `${k}${TOMBSTONE_SUFFIX}`, value: ts, ts });
+    }
+    items.push({ key: k, value: v, ts });
   }
   return items;
 }
@@ -630,11 +640,16 @@ async function pushNow(forceEmptyKeys: string[] = []): Promise<void> {
     // 确认时间落本地 meta：后续只推比这个时间更新的写入。
     // 注意「写入 0 行」也要落 —— 那意味着云端已有更新版本，拉取会对齐，不会把旧值推回去。
     // 同时落确认哈希：这条 key 现在相对「已推送状态」是干净的，下次拉取若远端更新可直接覆盖。
-    const now = Date.now();
+    //
+    // 缺陷 B3：**只记「本次实际发出的 ts」，不要记 Date.now()**。
+    // 旧写法把 meta 抬到当前时间，而云端可能只到本次发出的 ts（写入 0 行 = 被同 ts/更新版本挡住）。
+    // 于是另一端随后产生的删除墓碑（ts 介于两者之间）会被 `remoteTs <= metaTs` 判成过旧、
+    // 直接跳过 —— 删除永远不生效。取 max(现有 meta, it.ts) 同时兼容「推送飞行中又有本地写入」
+    // （那次写入已经把 meta 抬得更高，不能被回退）。
     const meta = readMeta();
     const confirm = readConfirm();
     for (const it of items) {
-      meta[it.key] = now;
+      meta[it.key] = Math.max(Number(meta[it.key]) || 0, it.ts);
       confirm[it.key] = valueHash(it.value);
     }
     writeMeta(meta);
@@ -676,8 +691,43 @@ function applyRemoteData(remote: KvRow[]): number {
   const newConflicts: SyncConflict[] = [];
   let restored = 0;
   for (const row of remote) {
+    if (!row || typeof row.key !== 'string' || !('value' in row)) continue;
+    // 缺陷 B3：墓碑行（`<key>#deletedAt`）——显式删除的唯一可信来源。
+    // 只有用户走 forced 路径删除时才会产生；普通「空数组回推」没有墓碑，仍被下面的保护拦下。
+    if (row.key.endsWith(TOMBSTONE_SUFFIX)) {
+      const base = row.key.slice(0, -TOMBSTONE_SUFFIX.length);
+      if (!(SYNC_KEYS as readonly string[]).includes(base)) continue;
+      const remoteTs = Number(row.clientTs) || 0;
+      const metaTs = Number(meta[base]) || 0;
+      if (remoteTs <= metaTs) continue;
+      const localRaw = rawGet(base);
+      const localValue = localRaw ? taroUnwrap(localRaw) : undefined;
+      const placeholder = REMOVE_PLACEHOLDER[base] ?? [];
+      const outcome = classifyPull({ remoteTs, metaTs, localValue, confirmedHash: confirm[base] });
+      if (outcome === 'skip') continue;
+      if (outcome === 'conflict') {
+        newConflicts.push({
+          key: base,
+          remoteTs,
+          remoteValue: placeholder,
+          localTs: metaTs,
+          at: Date.now()
+        });
+        continue;
+      }
+      // 删除落地：写占位值（数组 → []），并与墓碑时间对齐，避免下轮把旧值推回去
+      try {
+        rawSet(base, JSON.stringify({ data: placeholder }));
+        meta[base] = remoteTs;
+        confirm[base] = valueHash(placeholder);
+        restored++;
+        console.warn('[cloudSync] 已应用远端删除标记:', base);
+      } catch (err) {
+        console.warn('[cloudSync] apply tombstone failed for', base, err);
+      }
+      continue;
+    }
     if (!(SYNC_KEYS as readonly string[]).includes(row.key)) continue;
-    if (!row || !('value' in row)) continue;
     const remoteTs = Number(row.clientTs) || 0;
     const metaTs = Number(meta[row.key]) || 0;
     if (remoteTs <= metaTs) continue; // 远端不比本地已确认的新：廉价先行判断，省掉后面的本地值读取

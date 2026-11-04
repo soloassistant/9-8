@@ -160,7 +160,8 @@ const CI_EXEMPT = new Map([
   // 不接入不是遗漏 —— 它们依赖本仓库的 esbuild + .tools/stubs，CI 里另有全量静态门禁，
   // 重复接入只会让 CI 时间翻倍。登记为可核查的豁免。
   ['verify:watchlist-sync', '专项静态回归（自选股删除同步），由 verify:all 覆盖'],
-  ['verify:account', '专项行为回归（换账号隔离，esbuild + stubs），由 verify:all 覆盖']
+  ['verify:account', '专项行为回归（换账号隔离，esbuild + stubs），由 verify:all 覆盖'],
+  ['verify:sync-delete', '专项行为回归（删除墓碑跨端生效，esbuild + stubs），由 verify:all 覆盖']
 ]);
 
 export function checkCiParity(ciText, scripts, exempt = CI_EXEMPT) {

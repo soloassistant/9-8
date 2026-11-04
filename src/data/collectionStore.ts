@@ -20,6 +20,19 @@ export function listCollections(): CollectionItem[] {
   return load();
 }
 
+/** 删除一条收藏；返回删除后的完整列表（调用方负责 syncNow 与 UI 刷新）。
+ *  缺陷 B3：删掉最后一条会让 collectionStore 变成 []，必须由页面显式 syncNow(['collectionStore'])，
+ *  否则空数组默认不上推，换设备后收藏会「复活」。 */
+export function removeCollection(id: string): CollectionItem[] {
+  const next = load().filter((item) => item.id !== id);
+  try {
+    Taro.setStorageSync(STORE_KEY, next);
+  } catch (err) {
+    console.warn('[collectionStore] remove failed:', err);
+  }
+  return next;
+}
+
 /** 新增收藏（时间倒序，最新在前）
  *
  * ⚠️ `opts.quota` 是**付费墙的唯一硬边界**（2026-10-12 增长审计）：

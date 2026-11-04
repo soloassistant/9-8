@@ -36,6 +36,7 @@ import {
   writeGoalKm
 } from '@/data/sport';
 import type { RunRecord, RunSample } from '@/data/sport';
+import { syncNow } from '@/services/cloudSync';
 import {
   confirmWithdrawHealthConsent,
   ensureHealthConsent,
@@ -391,6 +392,8 @@ export default function SportPage() {
       success: (res) => {
         if (!res.confirm) return;
         setRuns(removeRun(detail.id));
+        // 缺陷 B3（含健康轨迹）：删掉最后一条运动记录后显式推空，避免换设备复活
+        void syncNow(['sportRuns']);
         setDetailId('');
         setView('home');
       }

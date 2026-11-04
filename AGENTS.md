@@ -483,6 +483,26 @@ SPA fallback 把 `index.html` 当 JS 返回，报 `Unexpected token '<'`）。
 不是"读得太多"。把一轮能跑完的门禁拆成 6 轮跑，每一轮的输出都会被后续轮次重发 ——
 这才是 `verify:all` 存在的理由。
 
+### 6.3 自动化选择器约定：Taro `Text` 不透传 `data-testid`（2026-11-04 实测）
+
+**事实**：`<Text data-testid='watchlist-remove'>` 在真实 H5 DOM 里**不落地** —— 全页
+`querySelectorAll('[data-testid]').length === 0`。原因与 `Text` 不透传未知属性（`tabIndex` 同族）
+一致：Taro 组件只转发它认识的 props。
+
+**约定**：自动化一律按**稳定 className** 选，不要用 `data-testid`。
+
+- 自选股删除按钮：`.watch-remove-btn`（`src/pages/briefing/index.tsx`），断言在
+  `npm run verify:watchlist-sync`（防有人改回 `data-testid` 变成死选择器）。
+- 真实构建验收（需 Chrome + `dist/`）：
+  1. `npm run build:h5`；本地起静态服务；
+  2. 预置 localStorage `watchlist`（至少 1 个代码，如 `sh600519`）后打开晨报页；
+  3. 点「管理」进入编辑态 → `document.querySelectorAll('.watch-remove-btn').length >= 1`；
+  4. 删一条后编辑态自动退出，必须**重新点「管理」**才能删下一条。
+
+**交互事实（写自动化前必读）**：✕ **只在点「管理」进入编辑态后才出现**；删掉一条后
+**自动退出编辑态**（`handleRemoveStock` 末尾 `setQuoteOpen(false)`）。所以脚本必须
+「进管理态 → 删一条 → 重新进管理态」，不能连续查询 ✕。
+
 ## 7. 合规硬约束（微信小程序发布前必读）
 
 - 本产品含**文本深度合成**（AI 提炼 + AI 对话）→ 微信要求【**深度合成-AI 问答**】服务类目

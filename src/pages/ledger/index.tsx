@@ -19,6 +19,7 @@ import {
   apiLedgerUpdate
 } from '@/services/api';
 import type { LedgerBudget, LedgerCategory, LedgerEntry, LedgerKind } from '@/types';
+import { syncNow } from '@/services/cloudSync';
 import {
   currentMonthStr,
   filterByRange,
@@ -181,6 +182,9 @@ function LedgerPage() {
           const ok = await apiLedgerRemove(id);
           if (ok) {
             await reload();
+            // 缺陷 B3：删掉最后一条时账目变成 []，默认的空数组策略不会上推；
+            // 这里显式声明「这是删除」，让远端拿到墓碑标记（否则换端会复活）。
+            void syncNow(['ledgerEntries']);
             Taro.showToast({ title: t('ledger.deleted'), icon: 'success' });
           } else {
             Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
