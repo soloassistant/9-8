@@ -98,3 +98,28 @@ export function buildVaultFilename(now: Date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `晨报数据备份-${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}.json`;
 }
+
+/**
+ * 导入白名单过滤（2026-11-04，缺陷 X4）。
+ *
+ * 事故：`validateVault` 只校验信封结构，调用页随后 `Object.keys(payload.keys)` **全量写入**
+ * Taro storage。于是手工编辑过的备份可以写任意键：`cloud-sync-owner`（伪造本机数据归属）、
+ * `cloud-sync-meta:<uid>`（伪造同步确认时间）、`sxm-privacy-consent`（伪造合规同意）、
+ * `h5-subscription`（伪造订阅缓存）…… 这是唯一会覆盖用户数据的路径，必须按白名单收口。
+ *
+ * 白名单 = 导出时收集的键集合（调用方传 `SYNC_KEYS`）：正常备份只可能包含这些键；
+ * 其余一律**跳过并在 UI 如实计数**（不静默吞）。
+ */
+export function pickVaultKeys(
+  keys: Record<string, unknown>,
+  allowed: readonly string[]
+): { accepted: Record<string, unknown>; skipped: string[] } {
+  const allow = new Set(allowed);
+  const accepted: Record<string, unknown> = {};
+  const skipped: string[] = [];
+  for (const [k, v] of Object.entries(keys || {})) {
+    if (allow.has(k)) accepted[k] = v;
+    else skipped.push(k);
+  }
+  return { accepted, skipped };
+}

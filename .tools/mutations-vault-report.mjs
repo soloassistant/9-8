@@ -54,4 +54,20 @@ export default [
     to: '',
     cmd: 'node .tools/verify-vault-report.mjs'
   },
+  {
+    // DV7：白名单失效 = 手改备份可写 cloud-sync-owner / 合规同意 / 订阅缓存等业务外键
+    label: '导入白名单失效（恢复全量写入）',
+    file: 'src/utils/dataVault.ts',
+    from: '    if (allow.has(k)) accepted[k] = v;',
+    to: '    if (true) accepted[k] = v; /* MUT: no whitelist */',
+    cmd: 'node .tools/verify-vault-report.mjs'
+  },
+  {
+    // DV9：调用点绕过白名单（函数再对也挡不住「调用页全量写」）
+    label: '导入调用点绕过 pickVaultKeys',
+    file: 'src/pages/prefs/index.tsx',
+    from: '    const { accepted, skipped } = pickVaultKeys(res.payload.keys, SYNC_KEYS);',
+    to: '    const accepted: Record<string, unknown> = res.payload.keys; const skipped: string[] = []; /* MUT */',
+    cmd: 'node .tools/verify-vault-report.mjs'
+  },
 ];

@@ -13,7 +13,7 @@ import { resolveCityName } from '@/utils/weather';
 import { getTtsPrefs, saveTtsPrefs, TTS_RATE_OPTIONS } from '@/utils/tts';
 import type { TtsPrefs, TtsVoiceMode } from '@/utils/tts';
 import PromptModal from '@/components/PromptModal';
-import { collectVault, validateVault, buildVaultFilename } from '@/utils/dataVault';
+import { collectVault, validateVault, buildVaultFilename, pickVaultKeys } from '@/utils/dataVault';
 import { SYNC_KEYS } from '@/services/cloudSync';
 import { readWatchKeywords, saveWatchKeywords } from '@/utils/intelWatchStore';
 import { getHotspotPayload, resetHotspotCache } from '@/services/cloud';
@@ -242,12 +242,31 @@ function PrefsPage() {
       Taro.showToast({ title: t('prefs.vaultImportBad'), icon: 'none' });
       return;
     }
-    const keys = Object.keys(res.payload.keys);
+    /* 缺陷 X4：只写白名单（SYNC_KEYS）。备份是唯一会覆盖用户数据的入口，
+       手工编辑过的 JSON 不得借此写入 `cloud-sync-owner` / `cloud-sync-meta` /
+       合规同意 / 订阅缓存等业务外键。跳过多少条必须如实告诉用户。 */
+    const { accepted, skipped } = pickVaultKeys(res.payload.keys, SYNC_KEYS);
+    if (Object.keys(accepted).length === 0) {
+      setVaultImportOpen(false);
+      Taro.showToast({
+        title: t('prefs.vaultImportNothing').replace('{m}', String(skipped.length)),
+        icon: 'none',
+        duration: 2600
+      });
+      return;
+    }
+    const keys = Object.keys(accepted);
     for (const k of keys) {
-      Taro.setStorageSync(k, res.payload.keys[k]);
+      Taro.setStorageSync(k, accepted[k]);
     }
     setVaultImportOpen(false);
-    Taro.showToast({ title: t('prefs.vaultImportOk').replace('{n}', String(keys.length)), icon: 'success', duration: 2200 });
+    Taro.showToast({
+      title: skipped.length
+        ? t('prefs.vaultImportOkSkipped').replace('{n}', String(keys.length)).replace('{m}', String(skipped.length))
+        : t('prefs.vaultImportOk').replace('{n}', String(keys.length)),
+      icon: skipped.length ? 'none' : 'success',
+      duration: skipped.length ? 2800 : 2200
+    });
   };
 
   // ===== 资讯来源开关（2026-11-02，产品评估 §P0-2）=====

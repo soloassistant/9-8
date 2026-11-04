@@ -175,7 +175,7 @@ const iw = await loadUtil('intelWatch.ts', ['parseIntelWatchKeywords', 'matchWat
 }
 
 // ---------- dataVault ----------
-const dv = await loadUtil('dataVault.ts', ['collectVault', 'validateVault', 'buildVaultFilename', 'VAULT_VERSION']);
+const dv = await loadUtil('dataVault.ts', ['collectVault', 'validateVault', 'buildVaultFilename', 'VAULT_VERSION', 'pickVaultKeys']);
 {
   const circ = { a: 1 };
   circ.self = circ;
@@ -210,6 +210,25 @@ const dv = await loadUtil('dataVault.ts', ['collectVault', 'validateVault', 'bui
     dv.collectVault({}, new Date()).payload.keys && Object.keys(dv.collectVault({}, new Date()).payload.keys).length === 0);
   check('DV6', '文件名：晨报数据备份-YYYYMMDD-HHmm.json',
     dv.buildVaultFilename(new Date(2026, 9, 31, 9, 5)) === '晨报数据备份-20261031-0905.json');
+
+  // 2026-11-04 缺陷 X4：导入白名单。恶意/手改备份不得借导入写入业务外键。
+  const hostile = JSON.parse('{"__proto__":{"polluted":true},"cloud-sync-owner":"A","cloud-sync-meta:A":{"x":1},"sxm-privacy-consent":true,"h5-subscription":{},"watchlist#deletedAt":1,"shoppingList":[1],"ledgerEntries":[]}');
+  const f = dv.pickVaultKeys(hostile, ['shoppingList', 'ledgerEntries']);
+  check('DV7', '白名单只收 SYNC_KEYS 内的键；业务外键/原型污染/墓碑键全部跳过',
+    Object.keys(f.accepted).length === 2 && Array.isArray(f.accepted.shoppingList) && Array.isArray(f.accepted.ledgerEntries) &&
+    f.skipped.length === 6 && f.skipped.includes('cloud-sync-owner') && f.skipped.includes('cloud-sync-meta:A') &&
+    f.skipped.includes('sxm-privacy-consent') && f.skipped.includes('h5-subscription') &&
+    f.skipped.includes('__proto__') && f.skipped.includes('watchlist#deletedAt') &&
+    Object.prototype.polluted === undefined);
+  check('DV8', '空输入 → accepted/skipped 都为空（不抛错）',
+    Object.keys(dv.pickVaultKeys({}, ['shoppingList']).accepted).length === 0 &&
+    dv.pickVaultKeys({}, ['shoppingList']).skipped.length === 0);
+
+  // 调用点必须真的用白名单，而不是又回到 Object.keys(payload.keys) 全量写。
+  const prefsSrc = readFileSync(path.join(ROOT, 'src', 'pages', 'prefs', 'index.tsx'), 'utf8');
+  check('DV9', '保存入口调用 pickVaultKeys(res.payload.keys, SYNC_KEYS)，禁止全量写回',
+    /pickVaultKeys\(res\.payload\.keys,\s*SYNC_KEYS\)/.test(prefsSrc) &&
+    !/Object\.keys\(res\.payload\.keys\)/.test(prefsSrc));
 }
 
 // ---------- 汇总 ----------
