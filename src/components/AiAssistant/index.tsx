@@ -10,7 +10,8 @@ import { runAiAction } from '@/services/aiActionExec';
 import { bumpLocalUsage, canChat, getAiQuota } from '@/services/aiQuota';
 import { isDegraded } from '@/services/cloud';
 import { clearLastChatFailure, getLastChatFailure } from '@/services/cloudLlm';
-import { useT } from '@/store/language';
+import { useLanguageStore, useT } from '@/store/language';
+import { safetyRefusal, screenContent } from '@/utils/contentSafety';
 import type { LangKey } from '@/store/language';
 import { loadChatLog, saveChatLog } from '@/utils/chatLog';
 import { buildPlanProposal, type PlanProposal, type PlanProposalRaw, type PlanApplyEvent } from '@/utils/schedule';
@@ -291,6 +292,13 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
         setInput(content);
         return;
       }
+      // X11：H5 无 msgSecCheck，输入先过本地红线护栏（不耗额度、不发请求）
+      if (isH5 && !screenContent(content).ok) {
+        push('user', content);
+        push('assistant', safetyRefusal(useLanguageStore.getState().lang));
+        setInput(content);
+        return;
+      }
       // AI 对话额度闸门（2026-10-29）：llm_events 以前只写不读，免费用户可以无限用付费 AI。
       // 计数走云端（权威）+ 本地镜像（离线/刚发完的即时值），两者取大，见 services/aiQuota.ts。
       // 判据放在 setSending(true) **之前**：额度用尽不该让界面进入"发送中"。
@@ -318,6 +326,9 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
       const memoryTrace: MemoryTrace | undefined = memItems.length > 0 ? { memoryCount: memItems.length, memoryItems: memItems } : undefined;
       /** 整次发送的硬截止时间：流式失败后重试非流式时，只剩余量、不再叠加超时 */
       const deadline = Date.now() + CHAT_DEADLINE_MS;
+      /** X11：H5 输出同样过本地红线护栏（模型可能被诱导产出违规内容） */
+      const safeReply = (reply: string) =>
+        isH5 && !screenContent(reply).ok ? safetyRefusal(useLanguageStore.getState().lang) : reply;
       try {
         let res: { reply: string; action: string; image?: string; proposals?: PlanProposalRaw[]; memories?: string[] } | null =
           null;
@@ -342,7 +353,7 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
               deadline - Date.now()
             );
             if (streamed && streamed.reply && streamed.reply.trim()) {
-              setMsgContent(sid, streamed.reply);
+              setMsgContent(sid, safeReply(streamed.reply));
               // S-01：与非流式路径汇合——action='plan' 时补齐候选时段与冲突标记。
               // 2026-10-24 审计：此前流式路径只取 {reply, action}，proposals 被整个丢弃，
               // H5（产品主入口）用户永远看不到方案卡片、无法勾选批准。
@@ -398,7 +409,7 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
             proposal = buildPlanProposal(res.proposals, existingEventsRef.current);
           }
           // 诚实性：落到本地模板（mock）时，气泡必须带「未联网 · 本地模板回复」标识
-          push('assistant', res.reply, res.image, proposal, proposal ? memoryTrace : undefined,
+          push('assistant', safeReply(res.reply), res.image, proposal, proposal ? memoryTrace : undefined,
             isDegraded('chat') ? { notice: 'fallback', retryText: content } : undefined);
           // 记账口径与云端一致：**只计成功回复**（cloudLlm 也是流式读完才 insert）。
           // 本地镜像的意义是「发完立刻能反映」+ 云端计数不可用时的降级判据。

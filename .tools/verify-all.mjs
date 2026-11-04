@@ -164,7 +164,8 @@ const CI_EXEMPT = new Map([
   ['verify:sync-delete', '专项行为回归（删除墓碑跨端生效，esbuild + stubs），由 verify:all 覆盖'],
   ['verify:calendar-edit', '专项行为回归（日程编辑落库 + 回读校验，esbuild + stubs），由 verify:all 覆盖'],
   ['verify:local-write', '专项行为回归（账本/购物/收藏写盘失败必须显式失败，stubs），由 verify:all 覆盖'],
-  ['verify:account-purge', '专项静态回归（v2 匿名收紧 / v3 注销清偿 SQL 与客户端接线），由 verify:all 覆盖']
+  ['verify:account-purge', '专项静态回归（v2 匿名收紧 / v3 注销清偿 SQL 与客户端接线），由 verify:all 覆盖'],
+  ['verify:content-safety', '专项行为回归（H5 AI 红线护栏 + 输入输出接线），由 verify:all 覆盖']
 ]);
 
 export function checkCiParity(ciText, scripts, exempt = CI_EXEMPT) {

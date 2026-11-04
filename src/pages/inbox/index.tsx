@@ -12,7 +12,8 @@ import { fromNow } from '@/utils/date';
 import { detectConflicts, buildPlanProposal, type ConflictInfo, type PlanProposal, type PlanProposalRaw, type PlanApplyEvent } from '@/utils/schedule';
 import PlanProposalCard from '@/components/PlanProposalCard';
 import type { Briefing, ExtractResult } from '@/types';
-import { useT } from '@/store/language';
+import { useLanguageStore, useT } from '@/store/language';
+import { safetyRefusal, screenContent } from '@/utils/contentSafety';
 import { useSubmitHotkey } from '@/hooks/useHotkeys';
 import styles from './index.module.scss';
 
@@ -298,11 +299,17 @@ function InboxPage() {
       return;
     }
     if (workBusy) return;
+    // X11：H5 无 msgSecCheck，工作助手输入/输出都过本地红线护栏
+    if (isH5 && !screenContent(text).ok) {
+      setWorkResult(safetyRefusal(useLanguageStore.getState().lang));
+      return;
+    }
     setWorkAction(action);
     setWorkBusy(true);
     try {
       const res = await apiChat(text, 'text', false, { action });
-      setWorkResult(res.reply || '这次没生成结果，再点一次试试。');
+      const reply = res.reply || '';
+      setWorkResult(isH5 && reply && !screenContent(reply).ok ? safetyRefusal(useLanguageStore.getState().lang) : (reply || '这次没生成结果，再点一次试试。'));
     } catch (err) {
       console.error('[InboxPage] work assistant failed:', err);
       Taro.showToast({ title: '没能分析，网络或服务暂时不可用', icon: 'none' });

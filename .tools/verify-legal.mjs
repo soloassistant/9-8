@@ -211,8 +211,12 @@ ok(
 
 // B4 内容安全：先查 H5 侧到底有没有过滤实现，再决定文本能不能无条件陈述
 const h5FilterSrc =
-  read('src/services/cloud.ts') + read('src/services/cloudLlm.ts') + read('src/services/api.ts');
-const h5HasFilter = /msgSecCheck|security\.msgSecCheck/.test(h5FilterSrc);
+  read('src/services/cloud.ts') +
+  read('src/services/cloudLlm.ts') +
+  read('src/services/api.ts') +
+  // X11：网页端新增本地关键词红线护栏（非第三方审核，但确实是内容安全实现）
+  read('src/utils/contentSafety.ts');
+const h5HasFilter = /screenContent\(/.test(h5FilterSrc) && /safetyRefusal\(/.test(h5FilterSrc);
 const wxChat = read('cloudfunctions/chat/index.js');
 const wxHasFilter = wxChat.includes('security.msgSecCheck');
 ok('B4 小程序端确实调用了 security.msgSecCheck（条文里那部分承诺是有依据的）', wxHasFilter);
@@ -220,7 +224,9 @@ const filterSents = sentencesOf(AI_SERVICES).filter((s) => s.includes('安全过
 ok(
   `B4 内容安全过滤句已按端限定（H5 实测${h5HasFilter ? '有' : '无'}实现 → 必须写清哪端有）`,
   filterSents.length > 0 &&
-    filterSents.every((s) => (h5HasFilter ? true : s.includes('小程序端') && s.includes('网页端')))
+    filterSents.every(
+      (s) => s.includes('小程序端') && s.includes('网页端') && (!h5HasFilter || /本地关键词|客户端内置/.test(s))
+    )
 );
 
 // B5 「一键注销」不得声称删掉账号本身（H5 没有删号接口，只能走客服）
