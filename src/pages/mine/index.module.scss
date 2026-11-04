@@ -1563,3 +1563,48 @@
   line-height: 1.5;
   color: $color-text-tertiary;
 }
+
+/* 支付成功但权益未确认（X7）：可见、可重试、带订单号 */
+.reconcileCard {
+  margin: $spacing-md 0;
+  padding: $spacing-md;
+  border-radius: $radius-md;
+  background: $color-bg-card;
+  border-left: 6rpx solid var(--brand-strong);
+}
+
+.reconcileTitle {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.reconcileText {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  line-height: $line-height-normal;
+  color: $color-text-secondary;
+}
+
+.reconcileActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-md;
+  margin-top: $spacing-sm;
+}
+
+.reconcileRetry {
+  font-size: $font-size-sm;
+  color: var(--brand-deep);
+}
+
+.reconcileRetryBusy {
+  opacity: 0.6;
+}
+
+.reconcileDismiss {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}

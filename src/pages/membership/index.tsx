@@ -173,6 +173,9 @@ function MembershipPage() {
   const [promoInput, setPromoInput] = useState('');
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoErr, setPromoErr] = useState('');
+  /** 支付成功但对账失败/未确认时的可见提示（X7）：不允许只写 console.warn 让用户干等 */
+  const [reconcileIssue, setReconcileIssue] = useState<{ orderId: string; text: string } | null>(null);
+  const [rechecking, setRechecking] = useState(false);
 
   /** 支付成功后的对账兜底定时器（1800ms）；卸载时清理，避免卸载后 setState + 重复查单 */
   const payReconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -211,6 +214,98 @@ function MembershipPage() {
     }
     setOrdersError(true);
   }, []);
+
+  /**
+   * 支付成功后的主动对账（X7）。
+   *
+   * 改前：只在不处于订阅态时调 `queryOrder`，且把 `cloud.callFunction` 的返回值
+   * `{ result }` 当成业务对象直接读 `.paid` —— 永远读到 undefined，成功对账也不会
+   * 被识别；失败分支只 `console.warn`，用户付完钱看到「支付成功」后没有任何后续说明。
+   *
+   * 改后：正确解包 `result`；任何「钱可能已付但权益没到」的情况都落到可见卡片，
+   * 展示订单号 + 通道状态 + 重试入口，而不是静默。
+   */
+  const reconcilePaidOrder = useCallback(
+    async (paidOrderId: string) => {
+      try {
+        await init();
+        await loadOrders();
+        if (useUserStore.getState().profile?.subscribed) {
+          setReconcileIssue(null);
+          return;
+        }
+
+        const cloud = (
+          Taro as unknown as {
+            cloud?: {
+              callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown>;
+            };
+          }
+        ).cloud;
+        if (!cloud?.callFunction) {
+          setReconcileIssue({
+            orderId: paidOrderId,
+            text: `当前端不支持自动核对权益。请稍后到「我的」查看订阅状态；若 10 分钟内仍未到账，请联系客服并提供订单号 ${paidOrderId}。`
+          });
+          return;
+        }
+
+        const q = await cloud.callFunction({ name: 'queryOrder', data: { orderId: paidOrderId } });
+        const qRes = ((q as { result?: unknown } | null)?.result ?? q) as {
+          ok?: boolean;
+          paid?: boolean;
+          reconciled?: boolean;
+          channelStatus?: string;
+          error?: string;
+        } | null;
+
+        if (qRes?.paid) {
+          await init();
+          if (useUserStore.getState().profile?.subscribed) {
+            setReconcileIssue(null);
+            console.info('[MembershipPage] ✅ queryOrder 主动对账完成，权益已到账');
+            return;
+          }
+          setReconcileIssue({
+            orderId: paidOrderId,
+            text: `已确认支付成功，权益正在到账（通常 1–2 分钟内）。订单号 ${paidOrderId}，可点「重新核对」刷新。`
+          });
+          return;
+        }
+
+        const status = qRes?.channelStatus || '';
+        let reason = `通道尚未确认到账（${status || '未知'}）`;
+        if (qRes?.ok === false) reason = `核对服务返回失败${qRes.error ? `：${qRes.error}` : ''}`;
+        else if (status === 'query_failed') reason = '查单服务暂时不可用（网络或配置异常）';
+        else if (status === 'reconcile_failed') reason = '已确认支付，但权益发放失败，可重试补发';
+        else if (status === 'amount_mismatch') reason = '通道金额与订单不一致，已拒绝入账，请联系客服';
+        else if (status === 'unconfigured') reason = '支付通道未配置，暂时无法核对';
+        else if (status === 'unsupported') reason = '未知支付通道，无法核对';
+
+        setReconcileIssue({
+          orderId: paidOrderId,
+          text: `支付结果待核对：${reason}。订单号 ${paidOrderId}，可点「重新核对」；持续未到账请联系客服并提供该订单号。`
+        });
+      } catch (e) {
+        console.warn('[MembershipPage] 支付后对账兜底异常:', e);
+        setReconcileIssue({
+          orderId: paidOrderId,
+          text: `网络异常，暂时无法核对权益。订单号 ${paidOrderId}，可稍后点「重新核对」；若仍未到账请联系客服。`
+        });
+      }
+    },
+    [init, loadOrders]
+  );
+
+  const handleRecheck = useCallback(async () => {
+    if (!reconcileIssue || rechecking) return;
+    setRechecking(true);
+    try {
+      await reconcilePaidOrder(reconcileIssue.orderId);
+    } finally {
+      setRechecking(false);
+    }
+  }, [reconcileIssue, rechecking, reconcilePaidOrder]);
 
   // 每次进页面重算本地数据（别的页面可能刚发生过 AI 调用/语音）+ 重新拉账单
   useDidShow(() => {
@@ -347,38 +442,9 @@ function MembershipPage() {
           setLocked(lockPrice(result.planId, result.price));
           Taro.showToast({ title: '支付成功', icon: 'success' });
           const paidOrderId = result.orderId;
-          payReconcileTimerRef.current = setTimeout(async () => {
-            try {
-              await init();
-              const freshProfile = useUserStore.getState().profile;
-              if (!freshProfile?.subscribed || !freshProfile?.expiredAt) {
-                const cloud = (
-                  Taro as unknown as {
-                    cloud?: {
-                      callFunction?: (opt: { name: string; data: Record<string, unknown> }) => Promise<unknown>;
-                    };
-                  }
-                ).cloud;
-                if (cloud?.callFunction) {
-                  const q = await cloud.callFunction({ name: 'queryOrder', data: { orderId: paidOrderId } });
-                  const qRes = q as {
-                    ok?: boolean;
-                    paid?: boolean;
-                    reconciled?: boolean;
-                    channelStatus?: string;
-                  } | null;
-                  if (qRes?.paid) {
-                    console.info('[MembershipPage] ✅ queryOrder 主动对账完成，刷新 profile');
-                    await init();
-                  } else {
-                    console.warn('[MembershipPage] queryOrder 返回未付 channelStatus=', qRes?.channelStatus);
-                  }
-                }
-              }
-              void loadOrders();
-            } catch (e) {
-              console.warn('[MembershipPage] 支付后对账兜底异常:', e);
-            }
+          payReconcileTimerRef.current = setTimeout(() => {
+            // 主动查单 + 失败可见化（X7）；不再把 { result } 误当业务对象
+            void reconcilePaidOrder(paidOrderId);
           }, 1800);
         }
       } catch (payErr) {
@@ -588,6 +654,25 @@ function MembershipPage() {
             </Text>
           ) : null}
         </View>
+
+        {/* 支付成功但权益未确认（X7）：可见卡片 + 订单号 + 重新核对，不静默 */}
+        {reconcileIssue ? (
+          <View className={styles.reconcileCard}>
+            <Text className={styles.reconcileTitle}>支付结果待核对</Text>
+            <Text className={styles.reconcileText}>{reconcileIssue.text}</Text>
+            <View className={styles.reconcileActions}>
+              <Text
+                className={classnames(styles.reconcileRetry, rechecking && styles.reconcileRetryBusy)}
+                onClick={handleRecheck}
+              >
+                {rechecking ? '核对中…' : '重新核对'}
+              </Text>
+              <Text className={styles.reconcileDismiss} onClick={() => setReconcileIssue(null)}>
+                关闭
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         {/* ① 方案卡片横排（替换原 Picker） */}
         <View className={styles.planList}>

@@ -348,6 +348,18 @@ const hasValidExpiredAt = () => {
   assert('B2/查单补发/用户被写 1 次', state.userUpdates.length === 1);
   assert('B2/查单补发/权益最终 applied', state.orders[0].entitlementStatus === 'applied');
 
+  /* ---------- 10. X7：支付成功但对账失败必须有可见提示（前端接线） ---------- */
+  // 这一节是**静态接线断言**（不渲染 React）：缺陷不是云端有没有补发，而是前端
+  // 把失败咽进 console.warn，用户付完钱只看到「支付成功」，之后没有任何说明。
+  const fs = require('node:fs');
+  const uiSrc = fs.readFileSync(path.join(ROOT, 'src/pages/membership/index.tsx'), 'utf8');
+  assert('X7/UI/正确解包 callFunction 的 result', /\(q as \{ result\?: unknown \} \| null\)\?\.result \?\? q/.test(uiSrc));
+  assert('X7/UI/不再把 {result} 直读为业务对象', !/const qRes = q as \{/.test(uiSrc));
+  assert('X7/UI/失败分支写入可见状态', (uiSrc.match(/setReconcileIssue\(\{/g) || []).length >= 4);
+  assert('X7/UI/提示含订单号与客服指引', /订单号 \$\{paidOrderId\}/.test(uiSrc) && /联系客服/.test(uiSrc));
+  assert('X7/UI/提供重新核对入口', /handleRecheck/.test(uiSrc) && /重新核对/.test(uiSrc));
+  assert('X7/UI/卡片真实渲染（不是只存 state）', /reconcileIssue \? \(/.test(uiSrc) && /reconcileCard/.test(uiSrc));
+
   /* ---------- 汇总 ---------- */
   console.log(`\n通过 ${pass} / 失败 ${failures.length}`);
   if (failures.length) {
