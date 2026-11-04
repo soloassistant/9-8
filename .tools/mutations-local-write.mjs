@@ -27,5 +27,12 @@ export default [
     from: '        if (!next) {',
     to: '        if (false) { /* MUT */',
     cmd: 'node .tools/verify-local-write.js'
+  },
+  {
+    label: '转存购物清单改回 H5 本地 mock（小程序端条目消失）',
+    file: 'src/pages/inbox/index.tsx',
+    from: 'shoppingHits.map((s) => apiShoppingAdd({ name: s.title.slice(0, 30) }).catch(() => null))',
+    to: 'shoppingHits.map((s) => Promise.resolve({ id: s.title, name: s.title })) /* MUT */',
+    cmd: 'node .tools/verify-local-write.js'
   }
 ];

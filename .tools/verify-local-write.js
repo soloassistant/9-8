@@ -126,5 +126,14 @@ ok('取消收藏失败不刷新 UI', /if \(!next\)/.test(libraryPage) && library
 const shoppingPage = read('src/pages/shopping/index.tsx');
 ok('购物清单加购失败有提示', /if \(added\)[^]*else[^]*common\.saveFailed/.test(shoppingPage));
 
+/* ---------- 5. X9：小程序转存走统一 API（不能直写 H5 本地层） ---------- */
+console.log('\n── 5. 转存链路（X9） ──');
+const inboxPage = read('src/pages/inbox/index.tsx');
+ok('账单转存不再直写 H5 本地 addEntry', !inboxPage.includes("from '@/data/ledger'"));
+ok('账单转存走 apiLedgerAdd 并等待结果', /await Promise\.all\([^]*apiLedgerAdd\(/m.test(inboxPage));
+ok('购物转存不再直调 H5 本地 mock', !inboxPage.includes("from '@/data/shopping'"));
+ok('购物转存走 apiShoppingAdd 并等待结果', /await Promise\.all\([^]*apiShoppingAdd\(/m.test(inboxPage));
+ok('成功计数来自真实返回（不是循环自增）', /results\.filter\(Boolean\)\.length/.test(inboxPage));
+
 console.log(`\n=== local-write: ${pass} PASS / ${fail} FAIL ===`);
 process.exit(fail === 0 ? 0 : 1);

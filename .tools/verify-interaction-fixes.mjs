@@ -177,8 +177,10 @@ ok(
     /b\.amount === 'number' && b\.amount > 0/.test(extractFn));
   ok('O3 inbox 有三类展示块（账单转存记账 / 物品转存购物 / 生词复制）',
     /handleSaveBills/.test(inboxSrc) && /handleSaveShopping/.test(inboxSrc) && /handleCopyVocab/.test(inboxSrc));
-  ok('O4 账单转存走本地记账数据层（addEntry + cat_subscription）',
-    /addEntry\(\{/.test(inboxSrc) && /cat_subscription/.test(inboxSrc));
+  // X9：旧断言把「直写 H5 本地数据层」当成正确行为，小程序端因此断裂。
+  // 现在必须走统一 apiLedgerAdd（云端/本地由 API 决定），并等待真实结果。
+  ok('O4 账单转存走统一 apiLedgerAdd（不再直写本地层）',
+    /apiLedgerAdd\(\{/.test(inboxSrc) && /cat_subscription/.test(inboxSrc) && !/from '@\/data\/ledger'/.test(inboxSrc));
   ok('O5 三类结果独立于日程草稿渲染（drafts 为空也显示）',
     /bills\.length > 0 \? \(/.test(inboxSrc) && /shoppingHits\.length > 0 \? \(/.test(inboxSrc));
 }
