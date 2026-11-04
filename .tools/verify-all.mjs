@@ -161,7 +161,8 @@ const CI_EXEMPT = new Map([
   // 重复接入只会让 CI 时间翻倍。登记为可核查的豁免。
   ['verify:watchlist-sync', '专项静态回归（自选股删除同步），由 verify:all 覆盖'],
   ['verify:account', '专项行为回归（换账号隔离，esbuild + stubs），由 verify:all 覆盖'],
-  ['verify:sync-delete', '专项行为回归（删除墓碑跨端生效，esbuild + stubs），由 verify:all 覆盖']
+  ['verify:sync-delete', '专项行为回归（删除墓碑跨端生效，esbuild + stubs），由 verify:all 覆盖'],
+  ['verify:calendar-edit', '专项行为回归（日程编辑落库 + 回读校验，esbuild + stubs），由 verify:all 覆盖']
 ]);
 
 export function checkCiParity(ciText, scripts, exempt = CI_EXEMPT) {
