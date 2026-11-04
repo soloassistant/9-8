@@ -153,7 +153,7 @@ const zh = {
   'learn.recReview': '该复习了',
   'learn.goLearn': '去学习',
   'community.entryTitle': '成就与打卡社区',
-  'community.entryDesc': '解锁徽章 · 晒学习动态 · 互相打气',
+  'community.entryDesc': '解锁徽章 · 记录学习动态',
   'community.streakUnit': '天连续打卡',
   'community.unlockedTip': '已解锁 {unlocked}/{total} 枚成就徽章',
   'community.badgeTitle': '成就徽章',
@@ -163,7 +163,12 @@ const zh = {
   'common.saveFailed': '保存失败，请重试',
   'community.postPlaceholder': '分享今天的学习心得，比如「今天记住了 10 个单词」…',
   'community.postButton': '发布',
-  'community.cloudNote': '动态暂存本机，云同步即将开放',
+  // 发布结果与页脚说明必须按端能力如实告知：H5 的 learnCommunityStore 在 SYNC_KEYS 里，
+  // 内容确实会同步到用户自己的云端账号（RLS 隔离，其他用户看不到）；小程序端只写本机 storage。
+  'community.postedH5': '已发布到你的云端账号',
+  'community.postedWeapp': '已发布，仅保存在本机',
+  'community.cloudNoteH5': '内容会同步到你的云端账号（仅你本人可见，其他用户看不到）',
+  'community.cloudNoteWeapp': '仅保存在本机',
 
   // 关联产品入口（网页版服务）：灵犀课堂 / 省心买。
   // 这两个都是独立产品，本应用不重写它们、只做入口；小程序端因无 web-view 只能复制链接。
@@ -1540,7 +1545,7 @@ const en: Record<keyof typeof zh, string> = {
   'learn.recReview': 'Review due',
   'learn.goLearn': 'Start',
   'community.entryTitle': 'Achievements & community',
-  'community.entryDesc': 'Unlock badges · share progress · cheer each other',
+  'community.entryDesc': 'Unlock badges · log your progress',
   'community.streakUnit': 'day streak',
   'community.unlockedTip': '{unlocked}/{total} badges unlocked',
   'community.badgeTitle': 'Badges',
@@ -1550,7 +1555,10 @@ const en: Record<keyof typeof zh, string> = {
   'common.saveFailed': 'Failed to save, please try again',
   'community.postPlaceholder': 'Share today\'s progress, e.g. "mastered 10 words today"…',
   'community.postButton': 'Post',
-  'community.cloudNote': 'Posts are stored locally; cloud sync coming soon',
+  'community.postedH5': 'Published to your cloud account',
+  'community.postedWeapp': 'Published, stored on this device only',
+  'community.cloudNoteH5': 'Content syncs to your cloud account (visible only to you, not to other users)',
+  'community.cloudNoteWeapp': 'Stored on this device only',
 
   // Partner entries (web services): Lingxi Classroom / Shengxinmai.
   // Both are standalone products — this app only links out; the mini program has no web-view.

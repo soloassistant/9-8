@@ -356,8 +356,10 @@ assert(
   const scoped = [
     ['src/pages/library/index.tsx', '热点页'],
     ['src/pages/inbox/index.tsx', '收件箱页'],
-    ['src/pages/shopping/index.tsx', '购物页'],
-    ['src/pages/learnCommunity/index.tsx', '学习社区页']
+    ['src/pages/shopping/index.tsx', '购物页']
+    // 2026-11-04 移除「学习社区页」：该页的示例帖只在条目级标「示例」，
+    // 不再登记 markDegraded（H5 的内容确实会同步到云端账号，把它标成云端降级是假话），
+    // 因此也不再渲染 DemoDataHint —— 断言要求它带 actions 已成过时前提。
   ];
   // ⚠️ 「我的」页**不在**这份清单里：那一页本来就承担全局降级提示（设置 / 用量 / 注销
   // 都在这页，显示全部降级是对的），且该文件当前由并行会话同时改动（多 AI 并发铁律：
