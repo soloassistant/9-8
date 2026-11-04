@@ -73,6 +73,7 @@ exports.main = async (event) => {
     closed: 0,
     paidReconciled: 0,
     skippedUnknown: 0,
+    skippedChanged: 0,
     failed: 0
   };
 
@@ -98,13 +99,21 @@ exports.main = async (event) => {
       }
 
       // 通道明确未支付 → 关单
-      await db.collection('orders').doc(order._id).update({
-        data: {
-          status: 'closed',
-          closedReason: 'timeout',
-          closedTime: new Date().toISOString()
-        }
-      });
+      // CF-03：CAS 只允许 created → closed，避免扫描与关单之间回调已置 paid 时被覆盖成 closed
+      const closedRes = await db.collection('orders')
+        .where({ _id: order._id, status: 'created' })
+        .update({
+          data: {
+            status: 'closed',
+            closedReason: 'timeout',
+            closedTime: new Date().toISOString()
+          }
+        });
+      if (!closedRes || !closedRes.stats || closedRes.stats.updated !== 1) {
+        summary.skippedChanged++;
+        console.log('[closeOrder] 状态已变更（可能已支付），跳过关闭:', order.orderId);
+        continue;
+      }
       summary.closed++;
       console.log('[closeOrder] 已关单:', order.orderId, 'channelStatus=', res.channelStatus);
     } catch (e) {
