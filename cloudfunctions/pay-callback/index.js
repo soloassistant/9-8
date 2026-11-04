@@ -24,6 +24,8 @@ const db = cloud.database();
 // ========== 配置（从云环境变量读，不硬编码）==========
 const cfg = {
   alipayPublicKey: process.env.PAY_ALIPAY_PUBLIC_KEY || '',
+  alipayAppId: process.env.PAY_ALIPAY_APP_ID || '',              // 本站支付宝应用 APP_ID（回调必须属于它）
+  alipaySellerId: process.env.PAY_ALIPAY_SELLER_ID || '',        // 可选：收款商户 PID，配置了就必须一致
   douyinPublicKey: process.env.PAY_DY_PUBLIC_KEY || '',          // 抖音支付平台证书公钥（验签）
   douyinEncryptKey: process.env.PAY_DY_ENCRYPT_KEY || ''        // 接口加密密钥（AES-256-GCM 解密）
 };
@@ -110,6 +112,10 @@ async function handleAlipay(event) {
   const tradeNo = params.trade_no;
   const tradeStatus = params.trade_status;
 
+  // —— 商户身份校验（A2）：回调必须属于本站应用/收款商户，且必须在写库之前 ——
+  // 缺 app_id 或与配置不符一律 400。未配置 APP_ID 时 fail-closed（无法确认归属就不入账）。
+  if (!assertAlipayMerchant(params)) return { httpCode: 400, body: 'fail' };
+
   if (!orderId) return { httpCode: 400, body: 'fail' };
   if (tradeStatus !== 'TRADE_SUCCESS' && tradeStatus !== 'TRADE_FINISHED') {
     // 不是付款成功事件，正常返回 success 避免重试
@@ -128,6 +134,27 @@ async function handleAlipay(event) {
 
   // 支付宝回调必须返回纯文本 success
   return { httpCode: 200, body: 'success' };
+}
+
+/**
+ * A2 商户身份校验：支付宝异步通知的 app_id 必须是本站应用；配置了 seller_id 时也必须一致。
+ * 缺字段按不一致处理（fail-closed）——验签只能证明「消息来自支付宝」，不能证明「收款方是本商户」，
+ * 否则他人应用的合法通知里的 out_trade_no 撞上本站订单号时会被误入账。
+ */
+function assertAlipayMerchant(params) {
+  if (!cfg.alipayAppId) {
+    console.error('[alipay] 未配置 PAY_ALIPAY_APP_ID，拒绝处理（fail-closed）');
+    return false;
+  }
+  if (!params.app_id || String(params.app_id) !== cfg.alipayAppId) {
+    console.warn('[alipay] app_id 不匹配，拒绝处理: 回调=' + params.app_id);
+    return false;
+  }
+  if (cfg.alipaySellerId && String(params.seller_id || '') !== cfg.alipaySellerId) {
+    console.warn('[alipay] seller_id 不匹配，拒绝处理: 回调=' + params.seller_id);
+    return false;
+  }
+  return true;
 }
 
 /**
