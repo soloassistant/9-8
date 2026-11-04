@@ -1161,6 +1161,10 @@ const zh = {
   'syncConflict.ownerTitle': '已切换账号，本机旧数据已归档',
   'syncConflict.ownerDesc': '检测到当前登录账号与原账号 {from} 不同。为避免数据串号，本机属于原账号的数据已移入隔离区（pii-quarantine-{from}），不会上传到当前账号。',
   'syncConflict.ownerDismiss': '知道了',
+  // 单键超过 512KB 未同步（缺陷 X5）：云端会静默丢弃，这里必须显式提示
+  'syncConflict.sizeTitle': '有 {n} 项数据未同步（超过 512KB）',
+  'syncConflict.sizeDesc': '云端单个数据键上限为 512KB。这些数据仍完整保存在本机；请先导出备份，再清理较大的历史记录（如浏览历史、AI 记忆）后重试同步。',
+  'syncConflict.sizeDismiss': '知道了',
   // 21 个 SYNC_KEYS 的可读名（冲突提示逐条列出）；新增同步键时必须同步补这里，
   // 否则列表里会露出 storageKey 原文。
   'sync.key.shoppingList': '购物清单',
@@ -2467,6 +2471,10 @@ const en: Record<keyof typeof zh, string> = {
   'syncConflict.ownerTitle': 'Account switched — previous local data archived',
   'syncConflict.ownerDesc': 'The signed-in account differs from the previous account {from}. To prevent data leakage, local data belonging to {from} was moved to the quarantine area (pii-quarantine-{from}) and will not be uploaded to the current account.',
   'syncConflict.ownerDismiss': 'Got it',
+  // 单键超过 512KB 未同步（缺陷 X5）
+  'syncConflict.sizeTitle': '{n} item(s) not synced (over 512KB)',
+  'syncConflict.sizeDesc': 'Each cloud data key is limited to 512KB. These items remain intact on this device. Export a backup first, then clear large history (e.g. browse history, AI memory) and retry sync.',
+  'syncConflict.sizeDismiss': 'Got it',
   // Readable names for the 21 SYNC_KEYS (listed per item in the conflict notice). When adding
   // a new sync key, add its label here too — otherwise the raw storageKey leaks into the UI.
   'sync.key.shoppingList': 'Shopping list',

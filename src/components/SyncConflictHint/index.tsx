@@ -3,13 +3,16 @@ import { Text, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import {
   dismissSyncOwnerNotice,
+  dismissSyncSizeNotice,
   getSyncConflicts,
   getSyncOwnerNotice,
+  getSyncSizeNotice,
   resolveSyncConflicts,
   subscribeSyncConflicts,
-  subscribeSyncOwnerNotice
+  subscribeSyncOwnerNotice,
+  subscribeSyncSizeNotice
 } from '@/services/cloudSync';
-import type { SyncOwnerNotice } from '@/services/cloudSync';
+import type { SyncOwnerNotice, SyncSizeNotice } from '@/services/cloudSync';
 import { useT } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import type { SyncConflict } from '@/utils/syncConflict';
@@ -31,13 +34,16 @@ function SyncConflictHint() {
   const t = useT();
   const [conflicts, setConflicts] = useState<SyncConflict[]>(() => getSyncConflicts());
   const [ownerNotice, setOwnerNotice] = useState<SyncOwnerNotice | null>(() => getSyncOwnerNotice());
+  const [sizeNotice, setSizeNotice] = useState<SyncSizeNotice | null>(() => getSyncSizeNotice());
 
   // subscribeSyncConflicts 订阅时立即回调一次当前快照，并返回取消订阅函数
   useEffect(() => subscribeSyncConflicts(setConflicts), []);
   // 换账号隔离提示：必须让用户看见（缺陷 B1 明确要求，不能静默）
   useEffect(() => subscribeSyncOwnerNotice(setOwnerNotice), []);
+  // 单键超过 512KB 未同步：同样必须可见（缺陷 X5，云端会静默丢弃）
+  useEffect(() => subscribeSyncSizeNotice(setSizeNotice), []);
 
-  if (conflicts.length === 0 && !ownerNotice) return null;
+  if (conflicts.length === 0 && !ownerNotice && !sizeNotice) return null;
 
   const handleResolve = async (key: string, choice: 'local' | 'remote') => {
     try {
@@ -61,6 +67,15 @@ function SyncConflictHint() {
           <Text className={styles.desc}>{t('syncConflict.ownerDesc', { from: ownerNotice.from })}</Text>
           <Text className={styles.ownerDismiss} onClick={dismissSyncOwnerNotice}>
             {t('syncConflict.ownerDismiss')}
+          </Text>
+        </View>
+      )}
+      {sizeNotice && (
+        <View className={styles.ownerNotice}>
+          <Text className={styles.title}>{t('syncConflict.sizeTitle', { n: String(sizeNotice.items.length) })}</Text>
+          <Text className={styles.desc}>{t('syncConflict.sizeDesc')}</Text>
+          <Text className={styles.ownerDismiss} onClick={dismissSyncSizeNotice}>
+            {t('syncConflict.sizeDismiss')}
           </Text>
         </View>
       )}

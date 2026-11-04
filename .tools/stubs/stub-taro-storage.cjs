@@ -17,6 +17,8 @@ module.exports = {
   setStorageSync: function (k, v) { S.set(k, JSON.stringify({ data: v === undefined ? '' : v })); },
   getStorageSync: function (k) { return S.has(k) ? unwrap(S.get(k)) : ''; },
   removeStorageSync: function (k) { S.delete(k); },
+  // cloudSync 的「单键超限」提示会弹 toast（缺陷 X5）；其余脚本不受影响。
+  showToast: function () { return Promise.resolve(); },
   // localProfile 不直接用下面这些，但保留以免将来 import 面变大：
   getStorage: function (o) { var v = module.exports.getStorageSync(o.key); return v === '' ? Promise.reject({ errMsg: 'data not found' }) : Promise.resolve({ data: v }); },
   setStorage: function (o) { module.exports.setStorageSync(o.key, o.data); return Promise.resolve(); },

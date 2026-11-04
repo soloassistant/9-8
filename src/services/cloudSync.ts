@@ -308,6 +308,120 @@ export function subscribeSyncOwnerNotice(cb: (notice: SyncOwnerNotice | null) =>
   };
 }
 
+/* ---------------- 单键超限提示（2026-11-04，缺陷 X5：512KB 静默丢弃） ----------------
+ *
+ * 事故：云端 `kv_set_many` 有硬约束 `pg_column_size(value) < 524288`，超限行**直接不写入**，
+ * RPC 只返回「写入了几行」。客户端不比对行数，于是浏览历史/AI 记忆等大键
+ * 「看着同步成功、换设备却没有」—— 用户只会认为数据丢了。
+ *
+ * 修复：推送前按 UTF-8 字节预估，超过 512KB 的键**不发**，落一条持久提示并在 UI 明示；
+ * 该键不写 meta/confirm（下一轮仍会重试，直到用户清理或导出）。
+ * 注意：不能用 `JSON.stringify(value).length` 估字节——中文 1 字符 = 3 字节，会低估 3 倍。
+ */
+const SIZE_NOTICE_KEY = 'cloud-sync-oversize-notice';
+const SIZE_TOAST_KEY = 'cloud-sync-oversize-toast-at';
+const KV_VALUE_LIMIT = 512 * 1024;
+const SIZE_NOTICE_MAX_ITEMS = 20;
+
+export interface SyncOversizeItem {
+  key: string;
+  bytes: number;
+}
+
+export interface SyncSizeNotice {
+  kind: 'oversize';
+  at: number;
+  items: SyncOversizeItem[];
+}
+
+const sizeNoticeListeners = new Set<(notice: SyncSizeNotice | null) => void>();
+let sizeNoticeCache: SyncSizeNotice | null = rawGetJSON<SyncSizeNotice | null>(SIZE_NOTICE_KEY, null);
+
+function emitSizeNotice(): void {
+  const snapshot = sizeNoticeCache;
+  sizeNoticeListeners.forEach((cb) => {
+    try {
+      cb(snapshot);
+    } catch (err) {
+      console.warn('[cloudSync] size notice listener failed:', err);
+    }
+  });
+}
+
+/** 当前待展示的「单键超过 512KB、未同步」提示 */
+export function getSyncSizeNotice(): SyncSizeNotice | null {
+  return sizeNoticeCache;
+}
+
+/** 用户确认后清掉提示（不清数据；下一次推送若仍超限会再次出现） */
+export function dismissSyncSizeNotice(): void {
+  sizeNoticeCache = null;
+  rawSet(SIZE_NOTICE_KEY, '');
+  emitSizeNotice();
+}
+
+export function subscribeSyncSizeNotice(cb: (notice: SyncSizeNotice | null) => void): () => void {
+  sizeNoticeListeners.add(cb);
+  cb(sizeNoticeCache);
+  return () => {
+    sizeNoticeListeners.delete(cb);
+  };
+}
+
+/** UTF-8 字节数（含代理对处理），用于对齐云端 512KB 上限 */
+function utf8Bytes(text: string): number {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      bytes += 4; // 代理对：两个 char 合计 4 字节
+      i += 1;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+
+/** 同步值序列化后的字节数（无法序列化时按「超限」处理，宁可不传也不静默丢） */
+function kvByteSize(value: unknown): number {
+  try {
+    return utf8Bytes(JSON.stringify(value) ?? 'null');
+  } catch {
+    return Number.MAX_SAFE_INTEGER;
+  }
+}
+
+/** 记录超限键并（最多 6 小时一次）弹 toast；绝不静默 */
+function recordOversize(items: SyncOversizeItem[]): void {
+  if (items.length === 0) return;
+  const prev = sizeNoticeCache?.items || [];
+  const merged = new Map<string, number>();
+  for (const it of prev) merged.set(it.key, it.bytes);
+  for (const it of items) merged.set(it.key, it.bytes);
+  sizeNoticeCache = {
+    kind: 'oversize',
+    at: Date.now(),
+    items: Array.from(merged, ([key, bytes]) => ({ key, bytes })).slice(0, SIZE_NOTICE_MAX_ITEMS)
+  };
+  rawSet(SIZE_NOTICE_KEY, JSON.stringify(sizeNoticeCache));
+  emitSizeNotice();
+  console.error('[cloudSync] 单键超过 512KB，已跳过同步:', items);
+
+  const now = Date.now();
+  const lastToast = Number(rawGetJSON<{ at?: number }>(SIZE_TOAST_KEY, {}).at) || 0;
+  if (now - lastToast < 6 * 3600 * 1000) return;
+  rawSet(SIZE_TOAST_KEY, JSON.stringify({ at: now }));
+  const isEn = String(taroUnwrap(rawGet('app-lang')) || '') === 'en';
+  void Taro.showToast({
+    title: isEn
+      ? `${items.length} item(s) exceed 512KB and were not synced`
+      : `有 ${items.length} 项数据超过 512KB，未同步`,
+    icon: 'none',
+    duration: 4000
+  });
+}
+
 function readOwnerMarker(): string | null {
   const raw = rawGetJSON<{ owner?: unknown }>(OWNER_KEY, {});
   return typeof raw.owner === 'string' && raw.owner ? raw.owner : null;
@@ -614,8 +728,19 @@ async function pushNow(forceEmptyKeys: string[] = []): Promise<void> {
 
   const items = collectLocal(forceEmptyKeys);
   if (items.length === 0) return;
+  // 缺陷 X5：云端单键上限 512KB（SQL `pg_column_size(value) < 524288`），超限行会被服务端
+  // **静默丢弃**。客户端先按 UTF-8 字节预筛：超限键不发送、不落确认，并明确告知用户。
+  const sendable: typeof items = [];
+  const oversized: SyncOversizeItem[] = [];
+  for (const it of items) {
+    const bytes = kvByteSize(it.value);
+    if (bytes > KV_VALUE_LIMIT) oversized.push({ key: it.key, bytes });
+    else sendable.push(it);
+  }
+  if (oversized.length > 0) recordOversize(oversized);
+  if (sendable.length === 0) return;
   try {
-    const written = await kvSetMany(items);
+    const written = await kvSetMany(sendable);
     if (written === null) {
       // null = 真故障（SDK 不可用 / 数据库报错）。区分「写不进去」与「被更新的远端挡住」：
       // 后者返回 0 是正常的（旧设备推送陈旧版本），不计失败。
@@ -648,7 +773,7 @@ async function pushNow(forceEmptyKeys: string[] = []): Promise<void> {
     // （那次写入已经把 meta 抬得更高，不能被回退）。
     const meta = readMeta();
     const confirm = readConfirm();
-    for (const it of items) {
+    for (const it of sendable) {
       meta[it.key] = Math.max(Number(meta[it.key]) || 0, it.ts);
       confirm[it.key] = valueHash(it.value);
     }

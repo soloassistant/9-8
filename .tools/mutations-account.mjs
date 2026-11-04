@@ -33,5 +33,21 @@ export default [
       );
       /* MUT: no return */`,
     cmd: 'node .tools/verify-account-isolation.mjs'
+  },
+  {
+    // 缺陷 X5：取消 512KB 预筛后，超限键会再次被服务端静默丢弃。
+    label: '取消单键 512KB 预筛',
+    file: 'src/services/cloudSync.ts',
+    from: '    if (bytes > KV_VALUE_LIMIT) oversized.push({ key: it.key, bytes });',
+    to: '    if (false) oversized.push({ key: it.key, bytes }); /* MUT: no size filter */',
+    cmd: 'node .tools/verify-account-isolation.mjs'
+  },
+  {
+    // 缺陷 X5：跳过上传但不提示 = 又是一次静默。
+    label: '超限时不落提示（用户无从知晓）',
+    file: 'src/services/cloudSync.ts',
+    from: '  if (oversized.length > 0) recordOversize(oversized);',
+    to: '  /* MUT: no oversize notice */',
+    cmd: 'node .tools/verify-account-isolation.mjs'
   }
 ];

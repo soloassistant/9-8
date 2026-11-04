@@ -208,5 +208,27 @@ await mod.syncNow();
 await tick(10);
 assert('账号切换后本地确认记录未被改写（after-check 生效）', store.get('cloud-sync-meta:A') === metaBefore);
 
+/* 6. 单键 >512KB → 不发、不落确认、必须有可见提示（缺陷 X5） */
+section('6. 单键超过 512KB：跳过上传但明确提示（不再静默丢弃）');
+sandbox.__CLOUD_SESSION__ = { user: { id: 'A' } };
+store.set(OWNER, JSON.stringify({ owner: 'A', at: Date.now() }));
+store.delete('cloud-sync-oversize-notice');
+store.delete('cloud-sync-oversize-toast-at');
+const huge = { items: [{ title: 'x'.repeat(600000), url: 'https://example.com' }] };
+taroWrite(store, 'browseHistory', huge);
+taroWrite(store, 'newsFeedback', [{ id: 'fb-1' }]);
+await mod.syncNow();
+await tick(10);
+assert('超限键没有上云（服务端不会再"静默丢弃"）', !('browseHistory' in (DB.rows.A || {})));
+assert('同批正常键仍照常上云', !!DB.rows.A.newsFeedback);
+const sizeNotice = mod.getSyncSizeNotice();
+assert('超限提示已落库（UI 可见）', !!sizeNotice && sizeNotice.kind === 'oversize');
+assert('提示列出 browseHistory 且字节数 > 524288',
+  !!sizeNotice && sizeNotice.items.some((it) => it.key === 'browseHistory' && it.bytes > 524288));
+const metaAfterA = JSON.parse(store.get('cloud-sync-meta:A') || '{}');
+const confirmAfterA = JSON.parse(store.get('cloud-sync-confirm:A') || '{}');
+assert('超限键未写 meta（保留重试空间）', metaAfterA.browseHistory === undefined);
+assert('超限键未写 confirm（不会被误判为已同步）', confirmAfterA.browseHistory === undefined);
+
 console.log(`\n结果: ${pass} PASS / ${fail} FAIL`);
 process.exit(fail === 0 ? 0 : 1);
