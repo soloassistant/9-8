@@ -1237,6 +1237,20 @@
     top: 16PX;
   }
 
+  /* P0（2026-11-04，iPad 横屏详情被压成单字竖排）：
+     详情打开时 body 会带上 has-detail-rail，外壳同时把面板收窄到
+     min(100vw - 232 - 24 - 360, 720)（见 src/app.scss）。此时若仍保留
+     280PX 辅助栏 + 24PX 间距，正文只剩 1024→34px / 1080→90px / 1180→127px。
+     详情态让主列独占面板：栅格退化为单列、辅助栏隐藏（不改变未开详情时的版式）。 */
+  :global(body.has-detail-rail) .contentRow {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 100%;
+  }
+
+  :global(body.has-detail-rail) .sideRail {
+    display: none;
+  }
+
   /* 首图从固定 280rpx 的横条改成 16:9，且宽度不超过阅读列（上限 720×405）。 */
   .newsImage {
     width: 100%;
