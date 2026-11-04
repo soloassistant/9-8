@@ -1247,7 +1247,7 @@ const zh = {
   // 运动/健康数据的单独同意（敏感个人信息，见 services/healthConsent.ts）
   'health.consentTitle': '运动与健康数据授权',
   'health.consentBody': '运动记录包含开始时间、时长、距离与轨迹采样，属于敏感个人信息。只有在你同意后，我们才会写入这些数据并同步到云端备份；你可以随时在运动页撤回同意，撤回后不再记录、也不再上传任何记录，云端副本会被删除，本机已生成的记录会保留，可自行逐条删除。是否同意？',
-  'health.consentAgree': '同意并开始',
+  'health.consentAgree': '同意',
   'health.consentDecline': '暂不同意',
   'health.consentDenied': '未同意健康数据授权，无法开始记录',
   'health.statusGranted': '健康数据授权：已同意 · 点此撤回',
@@ -2581,7 +2581,7 @@ const en: Record<keyof typeof zh, string> = {
   'mine.gridSport': 'Running',
   'health.consentTitle': 'Health & activity data consent',
   'health.consentBody': 'Running records contain start time, duration, distance and route samples, which are sensitive personal information. We write and back up these records to the cloud only after your consent. You can withdraw at any time on the Running page; after withdrawal no new records are written and nothing is uploaded (the cloud copy is deleted), existing local records are kept and you can delete them one by one. Do you agree?',
-  'health.consentAgree': 'Agree & start',
+  'health.consentAgree': 'Agree',
   'health.consentDecline': 'Not now',
   'health.consentDenied': 'Health data consent not granted, cannot start recording',
   'health.statusGranted': 'Health data consent: granted · tap to withdraw',
