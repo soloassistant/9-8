@@ -136,6 +136,8 @@
 
 .modeTab {
   flex: 1;
+  // 2026-11-04：64rpx（375 下 32px）低于 44px；视觉不变，上下各外扩 12rpx
+  @include hit-expand(0, 12rpx);
   height: 64rpx;
   display: flex;
   align-items: center;
@@ -319,6 +321,8 @@
 
 .extractButton {
   @include button-reset;
+  // 2026-11-04：80rpx（375 下 40px）差 4px；视觉不变，上下各外扩 4rpx
+  @include hit-expand(0, 4rpx);
   width: 100%;
   height: $button-height-md;
   border-radius: $radius-button;

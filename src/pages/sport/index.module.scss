@@ -17,6 +17,9 @@
 
 .backRow,
 .backRowInline {
+  // 2026-11-04：实测 56×23（375，含 padding）低于 44px；视觉不变，外扩到 44
+  // backRowInline（padding:0）基准更矮，26rpx 保证两种返回条都 ≥44
+  @include hit-expand(8rpx, 26rpx);
   display: inline-flex;
   align-items: center;
   gap: 6rpx;

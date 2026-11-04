@@ -16,6 +16,8 @@
 }
 
 .back {
+  // 2026-11-04：实测 31×19（375）远低于 44px；视觉不变，透明外扩到 ≈47×47
+  @include hit-expand(16rpx, 28rpx);
   display: inline-flex;
   align-items: center;
   gap: 4rpx;

@@ -93,6 +93,78 @@ assert(
   [nav, ai, login].reduce((n, src) => n + (src.split('pressableProps(').length - 1), 0) >= 4
 );
 
+/* ───────────── A''. 触摸热区 ≥44px（2026-11-04，审计 P1） ─────────────
+ * 手机端审计（.tmp-verify/responsive/audit.mjs）实测 17 个控件宽或高 <44：
+ *   日历翻月 32×32、日期格 44×38、自选页签 44×24、设置 兴趣/清除/重置统计 64×23、
+ *   来源⚙ 高 36、收件箱 modeTab 32 / extractButton 40、学习语言页签 36、省心买页签 32、
+ *   avatarEdit 33×16、各页返回条 19~40。
+ * 修法：**视觉尺寸不变**，用 `.hit-expand` 透明伪元素外扩，或给日期格加 min-height。
+ * 判据锁住「每个控件真的被处理过」——只查源码里出现 `hit-expand(` 会被别处的调用点亮。
+ */
+const varsScss = read('src/styles/variables.scss');
+assert(
+  'A13 hit-expand 混入存在且只用透明伪元素扩命中（不画像素、不改视觉）',
+  /@mixin hit-expand\(/.test(varsScss) && /background:\s*transparent;/.test(varsScss)
+);
+
+const stripScssComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+/** 取某个选择器在文件里的**所有**规则体（同名选择器可能出现在多个上下文里） */
+function ruleBlocks(src, sel) {
+  const s = stripScssComments(src);
+  const re = new RegExp('(^|\\n)\\s*' + sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[,\\s{]', 'g');
+  const out = [];
+  for (const m of s.matchAll(re)) {
+    const start = s.indexOf('{', m.index);
+    if (start < 0) continue;
+    let depth = 0;
+    for (let i = start; i < s.length; i++) {
+      if (s[i] === '{') depth++;
+      else if (s[i] === '}' && --depth === 0) {
+        out.push(s.slice(start + 1, i));
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+const TOUCH = [
+  ['src/pages/calendar/index.module.scss', '.navButton', 'hit', '日历翻月'],
+  ['src/pages/calendar/index.module.scss', '.cell', 'min', '日历日期格'],
+  ['src/pages/library/index.module.scss', '.aiEditBtn', 'hit', '设置 兴趣/清除/重置统计'],
+  ['src/pages/library/index.module.scss', '.sourceEntry', 'hit', '来源⚙'],
+  ['src/pages/trade/index.module.scss', '.wlTab', 'pseudo', '行情自选页签'],
+  ['src/pages/trade/index.module.scss', '.backBtn', 'pseudo', '行情返回条'],
+  ['src/pages/inbox/index.module.scss', '.modeTab', 'hit', '收件箱模式页签'],
+  ['src/pages/inbox/index.module.scss', '.extractButton', 'hit', '收件箱提取按钮'],
+  ['src/pages/learn/index.module.scss', '.langTab', 'hit', '学习语言页签'],
+  ['src/pages/learn/index.module.scss', '.backButton', 'hit', '学习返回条'],
+  ['src/pages/sxm/index.module.scss', '.tab', 'hit', '省心买页签'],
+  ['src/pages/mine/index.module.scss', '.avatarEdit', 'hit', '头像编辑'],
+  ['src/pages/ledger/index.module.scss', '.backButton', 'hit', '记账返回条'],
+  ['src/pages/shopping/index.module.scss', '.backButton', 'hit', '购物返回条'],
+  ['src/pages/search/index.module.scss', '.backButton', 'hit', '搜索返回条'],
+  ['src/pages/sport/index.module.scss', '.backRow', 'hit', '运动返回条'],
+  ['src/pages/notify/index.module.scss', '.back', 'hit', '通知返回条'],
+];
+const touchBad = [];
+for (const [file, sel, mode, why] of TOUCH) {
+  const blocks = ruleBlocks(read(file), sel);
+  const ok = blocks.some((body) =>
+    mode === 'hit'
+      ? /@include\s+hit-expand\(/.test(body)
+      : mode === 'min'
+        ? /min-height:\s*88rpx/.test(body)
+        : /&::before[\s\S]*?background:\s*transparent/.test(body)
+  );
+  if (!ok) touchBad.push(`${why}(${sel})`);
+}
+assert(
+  `A14 ${TOUCH.length} 个 <44px 控件都按「视觉不变、热区 ≥44」处理（hit-expand / min-height / 透明伪元素）`,
+  touchBad.length === 0,
+  touchBad.join(' | ')
+);
+
 /* ───────────── B. 真浏览器 ───────────── */
 const CHROME = process.env.CHROME_BIN || 'C:\\Users\\geral\\.agent-browser\\browsers\\chrome-154.0.8037.92\\chrome.exe';
 const DIST = path.join(ROOT, 'dist');

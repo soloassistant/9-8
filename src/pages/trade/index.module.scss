@@ -62,6 +62,8 @@
   .backBtn {
     flex: 0 0 auto;
     display: flex;
+    // 2026-11-04：26PX 高，低于手机端 44px 下限；视觉不变，透明外扩 18rpx（≈9px）
+    position: relative;
     align-items: center;
     gap: 5PX;
     height: 26PX;
@@ -71,6 +73,17 @@
     color: var(--t-text-dim);
     cursor: pointer;
     transition: color 120ms ease, border-color 120ms ease;
+
+    // 只扩命中，不画像素
+    &::before {
+      content: '';
+      position: absolute;
+      top: -18rpx;
+      right: 0;
+      bottom: -18rpx;
+      left: 0;
+      background: transparent;
+    }
 
     &:hover {
       color: var(--t-text);
@@ -228,12 +241,25 @@
   }
 
   .wlTab {
+    // 2026-11-04：实测 44×24，高度低于手机端 44px；视觉不变，透明外扩到 44
+    // 向上扩到标题行（非交互），向下只吃 6PX 容器内边距，不碰下方自选行
+    position: relative;
     padding: 2PX 10PX;
     border-radius: 3PX;
     font-size: 11PX;
     color: var(--t-text-dim);
     border: 1PX solid transparent;
     cursor: pointer;
+
+    &::before {
+      content: '';
+      position: absolute;
+      top: -36rpx;
+      right: 0;
+      bottom: -4rpx;
+      left: 0;
+      background: transparent;
+    }
   }
 
   .wlTabActive {

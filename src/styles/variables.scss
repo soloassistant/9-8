@@ -148,6 +148,24 @@ $transition-slow: 0.35s ease;
   }
 }
 
+// 透明外扩命中区（2026-11-04）：视觉尺寸不变，用 ::before 的负 inset 把可点范围扩到 ≥44px。
+// 只扩命中、不画任何像素（background: transparent）。
+// ⚠️ 调用处要保证外扩后不与相邻交互控件重叠；挤不下时改用 min-height/min-width。
+// 审计口径：有效命中区 = 元素矩形 + ::before 四边 inset（.tmp-verify/responsive/audit.mjs 的 hitOf）。
+@mixin hit-expand($x: 0, $y: 0) {
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: -$y;
+    right: -$x;
+    bottom: -$y;
+    left: -$x;
+    background: transparent;
+  }
+}
+
 // 卡片表面：白底 + 特大圆角 + 双层柔影 + 发丝描边 + 大内边距。
 // 「晨光 v2」（2026-10-25）：阴影放轻后用 1rpx 描边补回轮廓定义，白卡在暖纸底上更「立」；
 // 描边色走 $color-card-border（theme.scss），与 $color-border（表单边框）语义分开。

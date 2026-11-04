@@ -16,6 +16,8 @@
   // ⚠️ 高度必须用 rpx：h5 的 pxtransform baseFontSize=37.5，写 `min-height: 32px`
   //    会被当 32 设计像素换算成 0.85333rem ≈ 17px 实际高度 —— 点击区偏小一半。
   .backButton {
+    // 2026-11-04：80rpx（375 下 40px）差 4px；视觉不变，上下各外扩 4rpx
+    @include hit-expand(0, 4rpx);
     display: flex;
     align-items: center;
     gap: $spacing-xs;
