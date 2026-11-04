@@ -270,6 +270,22 @@ const realLocalActions = realLocalMatch ? [...realLocalMatch[1].matchAll(/'([^']
   assert('C3 用了横幅的页面都显式声明了 actions（不声明会显示全部降级 ⇒ 串台）', undeclared.length === 0, undeclared.join(', '));
 }
 
+/* ─────────────── D. 手机详情底栏不得被底部 TabBar 压住（2026-11-04，P1） ─────────────── */
+{
+  // 现象（实测 390×844）：文章视图 CTA bottom=815、底部 TabBar top=794 ⇒ 压住 21px。
+  // 修复口径：<600px 打开详情（body.has-detail-rail）时收起底部 TabBar。
+  // 判据锁**规则存在**，不锁具体像素；变异「注释掉 display:none」必须判红。
+  const appScss = read('src/app.scss')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  assert(
+    'D1 <600px 详情打开时收起底部 TabBar（否则 50px 高的 TabBar 会压住文章底栏 CTA）',
+    /@media\s*\(max-width:\s*599px\)\s*\{\s*body\.has-detail-rail\s+\.taro-tabbar__tabbar\s*\{\s*display:\s*none\s*!important\s*;\s*\}\s*\}/.test(
+      appScss
+    )
+  );
+}
+
 /* ───────────────────────── 输出 ───────────────────────── */
 for (const r of rows) {
   console.log(`  ${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok || !r.detail ? '' : '  → ' + r.detail}`);
