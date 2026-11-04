@@ -5,14 +5,17 @@ import {
   dismissSyncOwnerNotice,
   dismissSyncSizeNotice,
   getSyncConflicts,
+  getSyncDisabledState,
   getSyncOwnerNotice,
   getSyncSizeNotice,
   resolveSyncConflicts,
+  retrySync,
   subscribeSyncConflicts,
+  subscribeSyncDisabled,
   subscribeSyncOwnerNotice,
   subscribeSyncSizeNotice
 } from '@/services/cloudSync';
-import type { SyncOwnerNotice, SyncSizeNotice } from '@/services/cloudSync';
+import type { SyncDisabledState, SyncOwnerNotice, SyncSizeNotice } from '@/services/cloudSync';
 import { useT } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import type { SyncConflict } from '@/utils/syncConflict';
@@ -35,6 +38,7 @@ function SyncConflictHint() {
   const [conflicts, setConflicts] = useState<SyncConflict[]>(() => getSyncConflicts());
   const [ownerNotice, setOwnerNotice] = useState<SyncOwnerNotice | null>(() => getSyncOwnerNotice());
   const [sizeNotice, setSizeNotice] = useState<SyncSizeNotice | null>(() => getSyncSizeNotice());
+  const [disabledState, setDisabledState] = useState<SyncDisabledState>(() => getSyncDisabledState());
 
   // subscribeSyncConflicts 订阅时立即回调一次当前快照，并返回取消订阅函数
   useEffect(() => subscribeSyncConflicts(setConflicts), []);
@@ -42,8 +46,10 @@ function SyncConflictHint() {
   useEffect(() => subscribeSyncOwnerNotice(setOwnerNotice), []);
   // 单键超过 512KB 未同步：同样必须可见（缺陷 X5，云端会静默丢弃）
   useEffect(() => subscribeSyncSizeNotice(setSizeNotice), []);
+  // 熔断（连续 5 次云端硬失败）：必须告诉用户「同步已暂停」，不能继续装作正常（缺陷 X6）
+  useEffect(() => subscribeSyncDisabled(setDisabledState), []);
 
-  if (conflicts.length === 0 && !ownerNotice && !sizeNotice) return null;
+  if (conflicts.length === 0 && !ownerNotice && !sizeNotice && !disabledState.disabled) return null;
 
   const handleResolve = async (key: string, choice: 'local' | 'remote') => {
     try {
@@ -67,6 +73,24 @@ function SyncConflictHint() {
           <Text className={styles.desc}>{t('syncConflict.ownerDesc', { from: ownerNotice.from })}</Text>
           <Text className={styles.ownerDismiss} onClick={dismissSyncOwnerNotice}>
             {t('syncConflict.ownerDismiss')}
+          </Text>
+        </View>
+      )}
+      {disabledState.disabled && (
+        <View className={styles.ownerNotice}>
+          <Text className={styles.title}>{t('syncConflict.disabledTitle')}</Text>
+          <Text className={styles.desc}>{t('syncConflict.disabledDesc', { n: String(disabledState.failures) })}</Text>
+          <Text
+            className={styles.ownerDismiss}
+            onClick={async () => {
+              const ok = await retrySync();
+              Taro.showToast({
+                title: t(ok ? 'syncConflict.disabledRetryOk' : 'syncConflict.disabledRetryFail'),
+                icon: 'none'
+              });
+            }}
+          >
+            {t('syncConflict.disabledRetry')}
           </Text>
         </View>
       )}

@@ -9,6 +9,7 @@ function owner() {
 
 module.exports = {
   kvGetAll: function () {
+    if (globalThis.__KV_FAIL__) return Promise.resolve(null);
     var o = owner();
     if (!o) return Promise.reject(new Error('no session'));
     var bucket = DB.rows[o] || {};
@@ -19,6 +20,7 @@ module.exports = {
     );
   },
   kvSetMany: function (items) {
+    if (globalThis.__KV_FAIL__) return Promise.resolve(null);
     var o = owner();
     if (!o) return Promise.resolve(null);
     DB.rows[o] = DB.rows[o] || {};

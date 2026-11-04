@@ -196,6 +196,92 @@ let readyPromise: Promise<void> | null = null;
  *  既查不到重点也耗流量。连续 DB_FAIL_LIMIT 次就停掉轮询并 console.error 一次说清楚。 */
 let hardFailures = 0;
 let syncDisabled = false;
+
+/* ---------------- 熔断可见化（2026-11-04，缺陷 X6） ----------------
+ *
+ * 事故：云数据库缺表/缺策略等硬故障连续 5 次后 `disableSync()` 只 console.error，
+ * 页面照常显示「已登录、已同步」，用户以为数据在云上，换设备才发现没有。
+ *
+ * 修复：熔断状态暴露给 UI（常驻提示 + 手动重试）；重试会重新开始轮询，
+ * 仍失败则继续熔断并如实返回 false。本地数据始终不受影响。
+ */
+export interface SyncDisabledState {
+  disabled: boolean;
+  reason: string;
+  at: number;
+  failures: number;
+}
+
+let syncDisabledState: SyncDisabledState = { disabled: false, reason: '', at: 0, failures: 0 };
+const syncDisabledListeners = new Set<(state: SyncDisabledState) => void>();
+
+function emitSyncDisabled(): void {
+  const snapshot = syncDisabledState;
+  syncDisabledListeners.forEach((cb) => {
+    try {
+      cb(snapshot);
+    } catch (err) {
+      console.warn('[cloudSync] disabled listener failed:', err);
+    }
+  });
+}
+
+export function getSyncDisabledState(): SyncDisabledState {
+  return syncDisabledState;
+}
+
+export function subscribeSyncDisabled(cb: (state: SyncDisabledState) => void): () => void {
+  syncDisabledListeners.add(cb);
+  cb(syncDisabledState);
+  return () => {
+    syncDisabledListeners.delete(cb);
+  };
+}
+
+/** 手动重试同步：解除熔断、重启轮询并立即拉推一次；返回是否成功 */
+export async function retrySync(): Promise<boolean> {
+  syncDisabled = false;
+  hardFailures = 0;
+  syncDisabledState = { disabled: false, reason: '', at: 0, failures: 0 };
+  emitSyncDisabled();
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(() => void pushNow(), SYNC_INTERVAL);
+  await pullRemote();
+  await pushNow();
+  if (hardFailures > 0) {
+    syncDisabled = true;
+    syncDisabledState = {
+      disabled: true,
+      reason: '手动重试仍失败（云端不可达或缺少表/策略）',
+      at: Date.now(),
+      failures: hardFailures
+    };
+    emitSyncDisabled();
+    return false;
+  }
+  return true;
+}
+
+function disableSync(reason: string) {
+  syncDisabled = true;
+  syncDisabledState = { disabled: true, reason, at: Date.now(), failures: hardFailures };
+  emitSyncDisabled();
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  console.error(
+    `[cloudSync] 连续 ${DB_FAIL_LIMIT} 次云数据库失败，已停止轮询（跨设备同步当前不可用），本地数据不受影响。` +
+      `首次失败原因：${reason}`
+  );
+  // 熔断不能只写控制台：用户在任何页面都应看到一次明确提示（缺陷 X6）。
+  const isEn = String(taroUnwrap(rawGet('app-lang')) || '') === 'en';
+  void Taro.showToast({
+    title: isEn ? 'Sync paused — your local data is safe' : '跨设备同步已暂停，本地数据安全',
+    icon: 'none',
+    duration: 4000
+  });
+}
 const DB_FAIL_LIMIT = 5;
 
 // ---- 原生 localStorage 封装（模块加载期可用，不依赖 Taro） ----
@@ -687,18 +773,6 @@ function schedulePush(delay = DEBOUNCE) {
     pushTimer = null;
     void pushNow();
   }, delay);
-}
-
-function disableSync(reason: string) {
-  syncDisabled = true;
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-  console.error(
-    `[cloudSync] 连续 ${DB_FAIL_LIMIT} 次云数据库失败，已停止轮询（跨设备同步当前不可用），本地数据不受影响。` +
-      `首次失败原因：${reason}`
-  );
 }
 
 /** 推送本地数据到云端（云数据库 kv_set_many，服务端新者赢）。

@@ -49,5 +49,13 @@ export default [
     from: '  if (oversized.length > 0) recordOversize(oversized);',
     to: '  /* MUT: no oversize notice */',
     cmd: 'node .tools/verify-account-isolation.mjs'
+  },
+  {
+    // 缺陷 X6：熔断不通知 UI = 页面继续装作同步正常。
+    label: '熔断时不发状态给 UI',
+    file: 'src/services/cloudSync.ts',
+    from: '  syncDisabledState = { disabled: true, reason, at: Date.now(), failures: hardFailures };\n  emitSyncDisabled();',
+    to: '  syncDisabledState = { disabled: true, reason, at: Date.now(), failures: hardFailures };\n  /* MUT: no emit */',
+    cmd: 'node .tools/verify-account-isolation.mjs'
   }
 ];

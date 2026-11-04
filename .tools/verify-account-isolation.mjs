@@ -230,5 +230,34 @@ const confirmAfterA = JSON.parse(store.get('cloud-sync-confirm:A') || '{}');
 assert('超限键未写 meta（保留重试空间）', metaAfterA.browseHistory === undefined);
 assert('超限键未写 confirm（不会被误判为已同步）', confirmAfterA.browseHistory === undefined);
 
+/* 7. 熔断必须有 UI 状态，且可手动重试（缺陷 X6） */
+section('7. 连续 5 次云端硬失败 → 熔断状态可见、可重试');
+sandbox.__CLOUD_SESSION__ = { user: { id: 'A' } };
+store.set(OWNER, JSON.stringify({ owner: 'A', at: Date.now() }));
+sandbox.__KV_FAIL__ = true;
+let disabledEvents = 0;
+const unsubDisabled = mod.subscribeSyncDisabled(() => { disabledEvents++; });
+for (let i = 0; i < 5; i++) await mod.syncNow();
+assert('连续 5 次硬失败后进入熔断', mod.getSyncDisabledState().disabled === true);
+assert('熔断状态带有失败次数与原因', mod.getSyncDisabledState().failures >= 5 && mod.getSyncDisabledState().reason.length > 0);
+assert('订阅方收到熔断状态（UI 能渲染）', disabledEvents >= 1);
+const callsAtFuse = DB.calls.length;
+taroWrite(store, 'newsFeedback', [{ id: 'fb-2' }]);
+await mod.syncNow();
+assert('熔断期间不再打云端（轮询已停）', DB.calls.length === callsAtFuse);
+
+sandbox.__KV_FAIL__ = false;
+const ok = await mod.retrySync();
+assert('云端恢复后手动重试成功', ok === true && mod.getSyncDisabledState().disabled === false);
+taroWrite(store, 'newsFeedback', [{ id: 'fb-3' }]);
+await mod.syncNow();
+assert('重试后推送恢复（云端收到新写入）', DB.calls.length > callsAtFuse);
+
+sandbox.__KV_FAIL__ = true;
+const ok2 = await mod.retrySync();
+assert('仍失败时重试如实返回 false 并保持熔断', ok2 === false && mod.getSyncDisabledState().disabled === true);
+unsubDisabled();
+sandbox.__KV_FAIL__ = false;
+
 console.log(`\n结果: ${pass} PASS / ${fail} FAIL`);
 process.exit(fail === 0 ? 0 : 1);

@@ -1165,6 +1165,12 @@ const zh = {
   'syncConflict.sizeTitle': '有 {n} 项数据未同步（超过 512KB）',
   'syncConflict.sizeDesc': '云端单个数据键上限为 512KB。这些数据仍完整保存在本机；请先导出备份，再清理较大的历史记录（如浏览历史、AI 记忆）后重试同步。',
   'syncConflict.sizeDismiss': '知道了',
+  // 熔断可见化（缺陷 X6）：连续硬失败后必须说明「同步已暂停」，并提供重试
+  'syncConflict.disabledTitle': '跨设备同步已暂停',
+  'syncConflict.disabledDesc': '云端连续 {n} 次无响应，已停止自动重试。本地数据完整、未受损；可点击右侧重新尝试。',
+  'syncConflict.disabledRetry': '重试同步',
+  'syncConflict.disabledRetryOk': '已重新开始同步',
+  'syncConflict.disabledRetryFail': '仍无法连接云端，请稍后再试',
   // 21 个 SYNC_KEYS 的可读名（冲突提示逐条列出）；新增同步键时必须同步补这里，
   // 否则列表里会露出 storageKey 原文。
   'sync.key.shoppingList': '购物清单',
@@ -2475,6 +2481,12 @@ const en: Record<keyof typeof zh, string> = {
   'syncConflict.sizeTitle': '{n} item(s) not synced (over 512KB)',
   'syncConflict.sizeDesc': 'Each cloud data key is limited to 512KB. These items remain intact on this device. Export a backup first, then clear large history (e.g. browse history, AI memory) and retry sync.',
   'syncConflict.sizeDismiss': 'Got it',
+  // 熔断可见化（缺陷 X6）
+  'syncConflict.disabledTitle': 'Cross-device sync paused',
+  'syncConflict.disabledDesc': 'The cloud service failed {n} times in a row, so automatic retry stopped. Your local data is intact. Tap the link to try again.',
+  'syncConflict.disabledRetry': 'Retry sync',
+  'syncConflict.disabledRetryOk': 'Sync restarted',
+  'syncConflict.disabledRetryFail': 'Cloud still unreachable, please try later',
   // Readable names for the 21 SYNC_KEYS (listed per item in the conflict notice). When adding
   // a new sync key, add its label here too — otherwise the raw storageKey leaks into the UI.
   'sync.key.shoppingList': 'Shopping list',
