@@ -30,14 +30,14 @@ import {
 import MonthReview from './MonthReview';
 import styles from './index.module.scss';
 
-/** 金额展示：整数部分带千分位，小数只在有值时显示（¥80 而不是 ¥80.00）。 */
+/** 金额展示：整数部分带千分位，**统一两位小数**（2026-11-04 UI 口径统一）。
+ *  历史行为是「有小数才显示」（¥80 / ¥80.5），与晨报卡片的 ¥80.00 不一致，用户对不上账。 */
 function formatMoney(n: number): string {
   const v = Math.round(n * 100) / 100;
   const intPart = Math.floor(Math.abs(v));
-  const frac = Math.abs(v) - intPart;
   const grouped = String(intPart).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const sign = v < 0 ? '-' : '';
-  return frac > 0.004 ? `${sign}¥${grouped}.${String(Math.round(frac * 100)).padStart(2, '0')}` : `${sign}¥${grouped}`;
+  return `${sign}¥${grouped}.${String(Math.round((Math.abs(v) - intPart) * 100)).padStart(2, '0')}`;
 }
 
 /** 预算条：已用占比。超过上限时把进度截到 100%（不能让条超出容器宽度）。 */
