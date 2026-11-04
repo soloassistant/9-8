@@ -57,6 +57,9 @@ const PAGES = [
   ['pages/shopping/index', '购物'],
   ['pages/sxm/index', '省心买'],
   ['pages/learn/index', '学习'],
+  // 2026-10-31：周报与晨报存档页（产品评估 §7.2 A/B）纳入巡检 —— routes 门禁只保
+  // 「渲染且无溢出」，遮挡/对比度/控制台纪律必须同款覆盖，不能因为是子页就豁免
+  ['pages/report/index', '周报存档'],
 ];
 
 /** 遮挡判据：中/底滚动位，固定元素压住带文字内容的面积比阈值 */
@@ -105,7 +108,10 @@ function buildInit() {
     // 首启引导（Onboarding）是**全屏固定层**，不设这个标记的话每一页都会被它 100% 盖住，
     // 巡检会把「引导层」当成遮挡硬伤，十页全 FAIL —— 真正的遮挡问题反而被淹没。
     // 引导本身由 probe-onboarding.mjs 单独验（两屏截图 + 标记落库 + 刷新不再出现）。
-    `  localStorage.setItem('onboarded-v2', JSON.stringify({ data: true }));\n` +
+    `  localStorage.setItem('onboarded-v2', JSON.stringify({ data: true }));
+  // 2026-10-31：引导判定升级为账号级（5078fec）—— 假登录 uid=probe-user-0001，必须把账号级标记也种上，
+  // 否则每页都会弹引导层把巡检全盖住（设备级只剩冷启动兜底语义）。Taro storage 只认 {data:...} 包装。
+  localStorage.setItem('onboarded-v2:probe-user-0001', JSON.stringify({ data: true }));\n` +
     `} catch (e) {}\n`;
   const file = path.join(OUTDIR, '_init_patrol.js');
   fs.writeFileSync(file, seed + stub);

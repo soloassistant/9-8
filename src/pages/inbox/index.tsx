@@ -5,16 +5,15 @@ import dayjs from 'dayjs';
 import classnames from 'classnames';
 import EmptyState from '@/components/EmptyState';
 import DemoDataHint from '@/components/DemoDataHint';
-import { apiExtract, apiConfirmItem, apiGetBriefing, apiChat, type WorkAction } from '@/services/api';
+import { apiExtract, apiConfirmItem, apiGetBriefing, apiChat, apiLedgerAdd, apiShoppingAdd, type WorkAction } from '@/services/api';
 import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { fromNow } from '@/utils/date';
 import { detectConflicts, buildPlanProposal, type ConflictInfo, type PlanProposal, type PlanProposalRaw, type PlanApplyEvent } from '@/utils/schedule';
 import PlanProposalCard from '@/components/PlanProposalCard';
 import type { Briefing, ExtractResult } from '@/types';
-import { addEntry } from '@/data/ledger';
-import shoppingApi from '@/data/shopping';
-import { useT } from '@/store/language';
+import { useLanguageStore, useT } from '@/store/language';
+import { safetyRefusal, screenContent } from '@/utils/contentSafety';
 import { useSubmitHotkey } from '@/hooks/useHotkeys';
 import styles from './index.module.scss';
 
@@ -66,6 +65,8 @@ function InboxPage() {
    *  （它们不走「确认入库」批量链路，各自一键转存到记账/购物清单，生词仅展示+复制）。 */
   const [bills, setBills] = useState<NonNullable<ExtractResult['bills']>>([]);
   const [shoppingHits, setShoppingHits] = useState<NonNullable<ExtractResult['shoppingItems']>>([]);
+  /** 一键转存进行中：防重复点击（X9 走异步统一 API，不能再同步自增计数） */
+  const [transferring, setTransferring] = useState(false);
   const [vocabHits, setVocabHits] = useState<NonNullable<ExtractResult['vocabularies']>>([]);
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
@@ -298,11 +299,17 @@ function InboxPage() {
       return;
     }
     if (workBusy) return;
+    // X11：H5 无 msgSecCheck，工作助手输入/输出都过本地红线护栏
+    if (isH5 && !screenContent(text).ok) {
+      setWorkResult(safetyRefusal(useLanguageStore.getState().lang));
+      return;
+    }
     setWorkAction(action);
     setWorkBusy(true);
     try {
       const res = await apiChat(text, 'text', false, { action });
-      setWorkResult(res.reply || '这次没生成结果，再点一次试试。');
+      const reply = res.reply || '';
+      setWorkResult(isH5 && reply && !screenContent(reply).ok ? safetyRefusal(useLanguageStore.getState().lang) : (reply || '这次没生成结果，再点一次试试。'));
     } catch (err) {
       console.error('[InboxPage] work assistant failed:', err);
       Taro.showToast({ title: '没能分析，网络或服务暂时不可用', icon: 'none' });
@@ -451,40 +458,59 @@ function InboxPage() {
   /* ---------------- 三类扩展：一键转存（2026-10-25）----------------
    * 与「确认入库」分开：账单/物品的归宿是本地记账/购物清单（即时可见、走各自同步键），
    * 生词不自动入库（没有生词库这种域），给复制。 */
-  /** 账单 → 记账（支出/订阅类/今日）。amount>0 已由云函数过滤，这里的 null 只是双保险。 */
-  const handleSaveBills = () => {
-    let saved = 0;
-    for (const b of bills) {
-      const entry = addEntry({
-        amount: b.amount,
-        kind: 'expense',
-        categoryId: 'cat_subscription',
-        note: `${b.title}${b.source ? `（${b.source}）` : ''}`.slice(0, 60),
-        date: dayjs().format('YYYY-MM-DD')
+  /** 账单 → 记账（X9：必须走统一 API；旧实现直接写 H5 本地数据层，
+   *  小程序端记账页读云函数，转存后条目根本不出现） */
+  const handleSaveBills = async () => {
+    if (transferring || bills.length === 0) return;
+    setTransferring(true);
+    try {
+      const results = await Promise.all(
+        bills.map((b) =>
+          apiLedgerAdd({
+            amount: b.amount,
+            kind: 'expense',
+            categoryId: 'cat_subscription',
+            note: `${b.title}${b.source ? `（${b.source}）` : ''}`.slice(0, 60),
+            date: dayjs().format('YYYY-MM-DD')
+          }).catch(() => null)
+        )
+      );
+      const saved = results.filter(Boolean).length;
+      if (saved === 0) {
+        Taro.showToast({ title: '这几笔没能记进账本，再点一次', icon: 'none' });
+        return;
+      }
+      setBills([]);
+      Taro.showToast({
+        title: saved < bills.length ? `已记 ${saved}/${bills.length} 笔，其余失败` : `已记 ${saved} 笔（订阅类支出）`,
+        icon: saved < bills.length ? 'none' : 'success'
       });
-      if (entry) saved += 1;
+    } finally {
+      setTransferring(false);
     }
-    if (saved === 0) {
-      Taro.showToast({ title: '这几笔没能记进账本，再点一次', icon: 'none' });
-      return;
-    }
-    setBills([]);
-    Taro.showToast({ title: `已记 ${saved} 笔（订阅类支出）`, icon: 'success' });
   };
 
-  /** 物品 → 购物清单（走 shopping 数据层 add 动作，与购物页添加同一条链路） */
-  const handleSaveShopping = () => {
-    let saved = 0;
-    for (const s of shoppingHits) {
-      shoppingApi({ action: 'add', name: s.title.slice(0, 30) });
-      saved += 1;
+  /** 物品 → 购物清单（X9：H5 与小程序都走 apiShoppingAdd，不再直接调用 H5 本地 mock） */
+  const handleSaveShopping = async () => {
+    if (transferring || shoppingHits.length === 0) return;
+    setTransferring(true);
+    try {
+      const results = await Promise.all(
+        shoppingHits.map((s) => apiShoppingAdd({ name: s.title.slice(0, 30) }).catch(() => null))
+      );
+      const saved = results.filter(Boolean).length;
+      if (saved === 0) {
+        Taro.showToast({ title: '没能加进购物清单，再点一次', icon: 'none' });
+        return;
+      }
+      setShoppingHits([]);
+      Taro.showToast({
+        title: saved < shoppingHits.length ? `已加入 ${saved}/${shoppingHits.length} 件，其余失败` : `已加入购物清单 ${saved} 件`,
+        icon: saved < shoppingHits.length ? 'none' : 'success'
+      });
+    } finally {
+      setTransferring(false);
     }
-    if (saved === 0) {
-      Taro.showToast({ title: '没能加进购物清单，再点一次', icon: 'none' });
-      return;
-    }
-    setShoppingHits([]);
-    Taro.showToast({ title: `已加入购物清单 ${saved} 件`, icon: 'success' });
   };
 
   /** 生词：复制（词 + 释义），一次全部 —— 不建生词库（超本轮范围），复制到背单词 App 是用户已有习惯 */
@@ -526,7 +552,7 @@ function InboxPage() {
           用户会看到一份"看起来很合理"的固定示例（产品评审会 / 评审前更新演示文稿），
           完全无法分辨这不是自己粘贴的内容 —— 于是"AI 提取成功"成了假象。
           挂上之后，真实路径成功时提示自动消失（cloud.ts 的 clearDegraded）。 */}
-      <DemoDataHint />
+      <DemoDataHint actions={['extract']} />
 
       <View className={styles.inputCard}>
         <Text className={styles.inputTitle}>{t('inbox.pasteTitle')}</Text>

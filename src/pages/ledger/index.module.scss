@@ -31,7 +31,9 @@
 .page {
   min-height: 100vh;
   background: $color-bg-page;
-  padding-bottom: calc(#{180rpx} + env(safe-area-inset-bottom));
+  /* 2026-11-03：记账主按钮改为固定右下 FAB（距底 96px、直径 56px），
+     页面底部留白需 ≥152px，否则最后一行会滚进按钮下面。 */
+  padding-bottom: calc(173PX + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -71,7 +73,9 @@
   padding: $spacing-xs $spacing-sm;
   border-radius: $radius-button;
   background: rgba(232, 93, 42, 0.1);
-  color: $color-warning;
+  /* 2026-11-03：$color-warning(#ff7d00) 压在此浅橙底上不足 3:1，超支提示几乎读不清。
+     换 #9a3412，浅橙底对比度 ≈6.4:1。 */
+  color: #9a3412;
   font-size: $font-size-sm;
   font-weight: $font-weight-medium;
 }
@@ -101,7 +105,9 @@
 
 .budgetCap {
   font-size: $font-size-sm;
-  color: $color-text-tertiary;
+  /* 2026-11-03：预算档位名是信息性文字，巡检报对比度不足（1.44:1）。
+     改用次级文字色 #4e5969（白卡 ≈7.4:1，浅橙超支卡 ≈6.8:1）。 */
+  color: $color-text-secondary;
 }
 
 .budgetVal {
@@ -112,7 +118,7 @@
 
 .bar {
   height: 12rpx;
-  border-radius: 6rpx;
+  border-radius: $radius-tier-sm;
   background: $color-bg-hover;
   overflow: hidden;
   margin-top: $spacing-xs;
@@ -120,7 +126,7 @@
 
 .barFill {
   height: 100%;
-  border-radius: 6rpx;
+  border-radius: $radius-tier-sm;
   background: var(--brand, #{$color-primary});
 }
 
@@ -155,13 +161,20 @@
   color: var(--brand-strong, #{$color-primary-strong}); // 5.26:1（原 --brand 2.59:1）
   margin-left: $spacing-sm;
   flex-shrink: 0;
+  /* 2026-11-03：导出入口实测 22.9×18.3，点不中。撑到 88rpx（≈45.8px）可点区。 */
+  min-width: 88rpx;
+  min-height: 88rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
 .catItem {
   display: flex;
   align-items: center;
   gap: $spacing-sm;
-  padding: 8rpx 0;
+  padding: $spacing-xs 0;
 }
 
 .catIcon {
@@ -200,6 +213,35 @@
   font-size: $font-size-sm;
   color: $color-text-tertiary;
   font-weight: $font-weight-medium;
+}
+
+/* 2026-11-03：点行编辑时的选中态 + 行尾删除按钮（删除仍走二次确认） */
+.rowEditing {
+  background: #fff7f2;
+  outline: 1rpx solid rgba(199, 55, 26, 0.25);
+  outline-offset: -1rpx;
+}
+
+.rowDelete {
+  flex-shrink: 0;
+  min-width: 72rpx;
+  min-height: 72rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.editCancel {
+  flex-shrink: 0;
+  min-height: 72rpx;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 $spacing-sm;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
 }
 
 .row {
@@ -248,24 +290,22 @@
   color: var(--brand-deep, #{$color-primary-dark});
 }
 
-/* 录入区 */
-.addBar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+/* 首屏录入区（2026-11-03）：金额 + 分类在页面顶部，不再固定在底部。
+   原来固定底条把首屏让给 AI 点评，用户必须先看点评才够得着输入框。 */
+.entryCard {
   display: flex;
   gap: $spacing-sm;
   align-items: center;
-  padding: $spacing-sm $page-padding calc(#{$spacing-sm} + env(safe-area-inset-bottom));
-  background: rgba(255, 255, 255, 0.96);
-  border-top: 1rpx solid $color-border;
-  backdrop-filter: blur(12rpx);
+  padding: $spacing-md;
+  margin-bottom: $spacing-md;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
 }
 
-.addInput {
+.entryInput {
   flex: 1;
-  height: $button-height-md;
+  height: 88rpx;
   padding: 0 $spacing-sm;
   border-radius: $radius-button;
   background: $color-bg-card;
@@ -274,17 +314,41 @@
   box-sizing: border-box;
 }
 
-.addBtn {
+.entryCatBtn {
   @include button-reset;
   width: auto; //覆盖 taro-button-core 默认 width:100%，否则挤掉输入框
-  height: $button-height-md;
+  height: 88rpx;
   padding: 0 $spacing-lg;
   border-radius: $radius-button;
-  background: var(--brand-strong, #{$color-primary-strong}); // 白字 4.95:1（原 --brand 白字 2.59:1）
-  color: #fff;
+  /* 浅橙底 #fff1e9 + 品牌深色文字 = 4.69:1（--brand-soft 的 #ffa06b 只有 2.6:1）。 */
+  background: #fff1e9;
+  color: var(--brand-strong, #{$color-primary-strong});
   font-size: $font-size-md;
   font-weight: $font-weight-medium;
   flex-shrink: 0;
+}
+
+/* 记账主按钮：固定右下拇指区，距底 96px、直径 56px，滚动时不隐藏。
+   z-index 高于内容、低于分类弹层（1000）。 */
+.fab {
+  @include button-reset;
+  position: fixed;
+  right: 32rpx;
+  bottom: calc(96PX + env(safe-area-inset-bottom));
+  width: 56PX;
+  height: 56PX;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-strong, #{$color-primary-strong}); // 白字 4.95:1
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: $font-weight-semibold;
+  line-height: 1.2;
+  box-shadow: 0 8PX 20PX rgba(199, 55, 26, 0.28);
+  z-index: 60;
 }
 
 /* 分类选择弹层 */
@@ -298,6 +362,26 @@
   display: flex;
   align-items: flex-end;
   z-index: 1000;
+}
+
+/* 2026-11-03：桌面端分类弹层同样要让开自绘左栏。
+   .mask 是 fixed，但壳层左栏 z-index 更高、且不透明 —— 弹层左段被压在导航下，
+   分类按钮的头两个（餐饮/交通，以及用户自建分类）实际看不见也点不到。
+   分档与 .addBar / app.scss 左栏宽度保持一致。 */
+@media (min-width: 600px) {
+  .mask {
+    left: 64PX;
+  }
+}
+@media (min-width: 748px) {
+  .mask {
+    left: 232PX;
+  }
+}
+@media (min-width: 1200px) {
+  .mask {
+    left: 240PX;
+  }
 }
 
 .sheet {

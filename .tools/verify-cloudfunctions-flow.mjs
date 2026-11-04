@@ -724,6 +724,12 @@ async function caseDeleteAccount() {
       errors: [
         { _id: 'e-a', openid: OWNER, message: '我的崩溃', page: 'pages/home/index' },
         { _id: 'e-b', openid: OTHER, message: '别人的崩溃', page: 'pages/mine/index' }
+      ],
+      // redeemCodes 是码池文档：usedBy 是**数组内成员**（redeemCode `_.push([OPENID])` 写入）。
+      // 2026-10-31（I1b）修复前按 openid remove 一条也匹配不到，注销后兑换记录仍留在池里。
+      redeemCodes: [
+        { _id: 'rc-shared', code: 'PRO-SHARED', planDays: 30, maxUses: 50, usedBy: [OWNER, OTHER] },
+        { _id: 'rc-other', code: 'PRO-OTHER', planDays: 30, maxUses: 50, usedBy: [OTHER] }
       ]
     }
   });
@@ -731,12 +737,19 @@ async function caseDeleteAccount() {
   const r = await capture(() => main({}));
   const res = noThrow('deleteAccount 正常调用不抛错', r);
   eq('返回 {code:0, data.deleted:true}', [res.code, res.data.deleted], [0, true]);
-  eq('removed 计数覆盖本人 5 条记录（含 errors）', res.data.removed, 5);
+  eq('removed 计数覆盖本人 6 处（5 条文档 + 共享码池 usedBy 的 1 次 pull）', res.data.removed, 6);
   ok('本人 users/orders/todos/items/errors 全部清空', scoped.every((c) => cloud.__docs(c).every((d) => d.openid !== OWNER)), json(cloud.__dump()));
   ok('别人的数据一条都不能少（含 errors）', scoped.every((c) => cloud.__docs(c).filter((d) => d.openid === OTHER).length === 1), json(cloud.__dump()));
   eq('注销后 errors 里该 openid 的记录为 0（F18：崩溃上报也算个人数据）', cloud.__docs('errors').filter((d) => d.openid === OWNER).length, 0);
   eq('别人的 errors 仍然保留（不能误删）', cloud.__docs('errors').filter((d) => d.openid === OTHER).map((d) => d._id), ['e-b']);
   ok('未创建的遗留集合（history 等）被跳过而不是判失败', res.data.failed === undefined, json(res.data));
+  // 2026-10-31（I1b）：usedBy 数组内成员的清偿——本人被 pull、别人保留、池文档本身不删
+  const shared = cloud.__docs('redeemCodes').find((d) => d._id === 'rc-shared');
+  const otherOnly = cloud.__docs('redeemCodes').find((d) => d._id === 'rc-other');
+  ok('码池文档本身还在（pull 不是 remove，运营资产不可误删）',
+    Boolean(shared) && Boolean(otherOnly), json(cloud.__docs('redeemCodes')));
+  eq('共享码的 usedBy 只剩别人（本人被原子拉除）', shared.usedBy, [OTHER]);
+  eq('只属于别人的码原样未动', otherOnly.usedBy, [OTHER]);
 }
 
 /* ================================================================== *
@@ -915,7 +928,9 @@ async function caseOrders() {
   }
   {
     const seedOrders = [
-      { _id: 'o2', orderId: 'ord_2', openid: OWNER, channel: 'wechat', planId: 'monthly', price: 990, months: 1, status: 'paid', channelTradeNo: 'wx_trade_1' }
+      // 缺陷 B2 后，幂等早退条件从「status=paid」收紧为「paid 且权益 applied」；
+      // 已完成对账的订单必然带着 entitlementStatus=applied。
+      { _id: 'o2', orderId: 'ord_2', openid: OWNER, channel: 'wechat', planId: 'monthly', price: 990, months: 1, status: 'paid', entitlementStatus: 'applied', channelTradeNo: 'wx_trade_1' }
     ];
     const { cloud, main } = boot('queryOrder', { seed: { orders: seedOrders, users: [{ _id: 'u-a', openid: OWNER }] } });
     const r = await capture(() => main({ orderId: 'ord_2' }));
@@ -1424,6 +1439,89 @@ async function caseChat() {
     eq('他人日程时间未被改动', cloud.__docs('events').find((e) => e._id === 'e-b').startTime, `${todayStr()} 11:00`);
   }
   {
+    // fix(calendar-edit)：手动编辑要能改标题/时间/地点/备注，且能清空可选字段
+    const { cloud, main } = boot('chat', {
+      seed: {
+        users: [],
+        usage: [],
+        events: [
+          {
+            _id: 'e-edit',
+            openid: OWNER,
+            title: '原标题',
+            startTime: `${todayStr()} 09:00`,
+            endTime: `${todayStr()} 10:00`,
+            location: '旧地点',
+            note: '旧备注',
+            status: 'confirmed'
+          }
+        ]
+      }
+    });
+    const r = await capture(() =>
+      main({
+        action: 'applyPlan',
+        events: [
+          {
+            eventId: 'e-edit',
+            title: '新标题',
+            startTime: `${todayStr()} 14:30`,
+            endTime: `${todayStr()} 15:30`,
+            location: '新地点',
+            note: '新备注'
+          }
+        ]
+      })
+    );
+    const res = noThrow('chat applyPlan 手动编辑不抛错', r);
+    eq('手动编辑 saved=1', res.data.saved, 1);
+    const doc = cloud.__docs('events').find((e) => e._id === 'e-edit');
+    eq('标题已更新', doc.title, '新标题');
+    eq('开始时间已更新', doc.startTime, `${todayStr()} 14:30`);
+    eq('结束时间已更新', doc.endTime, `${todayStr()} 15:30`);
+    eq('地点已更新', doc.location, '新地点');
+    eq('备注已更新', doc.note, '新备注');
+
+    // 显式传空串 = 清空；字段真的消失（不是置 null）
+    const rClear = await capture(() =>
+      main({
+        action: 'applyPlan',
+        events: [{ eventId: 'e-edit', title: '新标题', startTime: `${todayStr()} 16:00`, endTime: '', location: '', note: '' }]
+      })
+    );
+    noThrow('chat applyPlan 清空可选字段不抛错', rClear);
+    const cleared = cloud.__docs('events').find((e) => e._id === 'e-edit');
+    eq('清空后 endTime 字段消失', Object.prototype.hasOwnProperty.call(cleared, 'endTime'), false);
+    eq('清空后 location 字段消失', Object.prototype.hasOwnProperty.call(cleared, 'location'), false);
+    eq('清空后 note 字段消失', Object.prototype.hasOwnProperty.call(cleared, 'note'), false);
+
+    // 旧改期路径（只传 startTime）不得误删原有地点/备注
+    const { cloud: cloud2, main: main2 } = boot('chat', {
+      seed: {
+        users: [],
+        usage: [],
+        events: [
+          {
+            _id: 'e-move',
+            openid: OWNER,
+            title: '只改时间',
+            startTime: `${todayStr()} 09:00`,
+            endTime: `${todayStr()} 10:00`,
+            location: '原地点',
+            note: '原备注',
+            status: 'confirmed'
+          }
+        ]
+      }
+    });
+    const rMove = await capture(() => main2({ action: 'applyPlan', events: [{ eventId: 'e-move', startTime: `${todayStr()} 11:00` }] }));
+    noThrow('chat applyPlan 旧改期路径不抛错', rMove);
+    const moved = cloud2.__docs('events').find((e) => e._id === 'e-move');
+    eq('旧改期保留原地点', moved.location, '原地点');
+    eq('旧改期保留原备注', moved.note, '原备注');
+    eq('旧改期保留原结束时间', moved.endTime, `${todayStr()} 10:00`);
+  }
+  {
     const { main } = boot('chat', { seed: { users: [], usage: [], events: [], todos: [] } });
     const r = await capture(() => main({}));
     threwWith('chat 缺 message → 抛错', r, /message is required/);
@@ -1700,7 +1798,14 @@ async function caseStaticAlignment() {
   ok('扫描器能看到 errors（否则它对本次缺陷是瞎的）', found.has('errors'), json([...found]));
   ok('扫描器能看到 users / orders / items', ['users', 'orders', 'items'].every((c) => found.has(c)), json([...found]));
 
-  const missing = [...found].filter((c) => !listed.includes(c) && !GLOBAL_COLLECTIONS.has(c));
+  // 2026-10-31（I1b）：redeemCodes 走「数组字段 pull」的非文档删除分支 ——
+  // 不在文档清单里但同样覆盖。识别依据与 audit-identity 保持同款（两处判据必须同步改）：
+  // collection('redeemCodes') 与 _.pull 在 deleteAccount 源码内同时出现。
+  const pullCovered = /collection\('redeemCodes'\)[\s\S]*?_\.pull\(/.test(src) ? ['redeemCodes'] : [];
+  ok('redeemCodes 的 pull 分支存在且被识别为已覆盖（usedBy 是数组成员，remove 语义够不着）',
+    pullCovered.length === 1 && found.has('redeemCodes'), json({ pullCovered, found: [...found] }));
+
+  const missing = [...found].filter((c) => !listed.includes(c) && !GLOBAL_COLLECTIONS.has(c) && !pullCovered.includes(c));
   ok(
     '所有按 openid 写入的集合都已登记进注销清单',
     missing.length === 0,

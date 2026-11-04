@@ -211,8 +211,12 @@ ok(
 
 // B4 内容安全：先查 H5 侧到底有没有过滤实现，再决定文本能不能无条件陈述
 const h5FilterSrc =
-  read('src/services/cloud.ts') + read('src/services/cloudLlm.ts') + read('src/services/api.ts');
-const h5HasFilter = /msgSecCheck|security\.msgSecCheck/.test(h5FilterSrc);
+  read('src/services/cloud.ts') +
+  read('src/services/cloudLlm.ts') +
+  read('src/services/api.ts') +
+  // X11：网页端新增本地关键词红线护栏（非第三方审核，但确实是内容安全实现）
+  read('src/utils/contentSafety.ts');
+const h5HasFilter = /screenContent\(/.test(h5FilterSrc) && /safetyRefusal\(/.test(h5FilterSrc);
 const wxChat = read('cloudfunctions/chat/index.js');
 const wxHasFilter = wxChat.includes('security.msgSecCheck');
 ok('B4 小程序端确实调用了 security.msgSecCheck（条文里那部分承诺是有依据的）', wxHasFilter);
@@ -220,7 +224,9 @@ const filterSents = sentencesOf(AI_SERVICES).filter((s) => s.includes('安全过
 ok(
   `B4 内容安全过滤句已按端限定（H5 实测${h5HasFilter ? '有' : '无'}实现 → 必须写清哪端有）`,
   filterSents.length > 0 &&
-    filterSents.every((s) => (h5HasFilter ? true : s.includes('小程序端') && s.includes('网页端')))
+    filterSents.every(
+      (s) => s.includes('小程序端') && s.includes('网页端') && (!h5HasFilter || /本地关键词|客户端内置/.test(s))
+    )
 );
 
 // B5 「一键注销」不得声称删掉账号本身（H5 没有删号接口，只能走客服）
@@ -318,6 +324,33 @@ ok('E1 首启同意弹窗渲染三份文本（写了不渲染 = 用户根本看�
 ok('E1 「我的」半屏查看层也渲染三份（同意之后仍需可查）', RENDER_KEYS.every((k) => mineSrc.includes(k)));
 ok('E2 同意记录按 LEGAL_VERSION 比对（改文案不递增 = 对老用户静默改条款）',
   legalSrc.includes('rec.version === LEGAL_VERSION'));
+
+/* ================================================================== */
+/* E3. 敏感个人信息（运动/健康）的单独同意闸门                            */
+/* ================================================================== */
+console.log('\n── E3. 运动/健康数据的单独同意 ──');
+const healthSrc = read('src/services/healthConsent.ts');
+const sportSrc = read('src/pages/sport/index.tsx');
+const startBody = bodyOf(sportSrc, 'const start = useCallback');
+const finishBody = bodyOf(sportSrc, 'const finish = useCallback');
+ok(
+  'E3a 开始记录前先过单独同意闸门（ensureHealthConsent 在 start 函数体里）',
+  !!startBody && startBody.includes('ensureHealthConsent()')
+);
+ok(
+  'E3b 落库前再判一次同意（finish 里 hasHealthConsent 在 saveRun 之前，撤回即不写）',
+  !!finishBody &&
+    finishBody.includes('hasHealthConsent()') &&
+    finishBody.indexOf('hasHealthConsent()') < finishBody.indexOf('saveRun(rec)')
+);
+ok(
+  'E3c 同意版本化（改文案/撤回后旧同意失效）',
+  /HEALTH_CONSENT_VERSION\s*=\s*'v\d+-\d{8}'/.test(healthSrc) &&
+    healthSrc.includes('rec.version === HEALTH_CONSENT_VERSION')
+);
+ok('E3d 撤回只清同意键、不删已有运动记录（撤回 ≠ 删用户数据）',
+  !/withdrawHealthConsent[\s\S]{0,240}removeRun/.test(healthSrc));
+ok('E3e 隐私政策披露了运动/健康数据及其撤回入口', PRIVACY.includes('运动与健康数据') && PRIVACY.includes('撤回'));
 
 console.log('──────────────────────────────────────────────────────────');
 console.log(`PASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);

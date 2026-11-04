@@ -270,7 +270,9 @@ function ShoppingPage() {
         <Text className={styles.backText}>{t('common.back')}</Text>
       </View>
       {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
-      <DemoDataHint />
+      {/* 2026-10-30：去掉 'shopping' —— 它在 cloud.ts 的 REAL_LOCAL_ACTIONS 里
+          （H5 回退读写的是**真实本地**购物清单，不是演示数据）⇒ 永不登记降级。 */}
+      <DemoDataHint actions={['createOrder']} />
       <View className={styles.addBar}>
         <Input
           className={styles.nameInput}

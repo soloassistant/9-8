@@ -4,7 +4,7 @@
  *
  * ## 要回答的问题（不依赖真机、不依赖部署）
  *   1. 每个集合的身份字段是 `openid` 还是 `owner_id`？
- *   2. H5 有没有能力读写这些集合？（`RPC_ALLOWLIST` 只放行三个函数）
+ *   2. H5 有没有能力读写这些集合？（`RPC_ALLOWLIST` 已于 2026-10-31 清空 —— 见 I2a）
  *   3. H5「注销」到底删了什么、漏了什么？weapp「注销」反过来会漏什么？
  *   4. 同一自然人两端登录，是不是两个互不相干的用户？
  *
@@ -111,10 +111,17 @@ for (const fn of fnNames) {
 const delSrc = read('cloudfunctions/deleteAccount/index.js');
 const delListRaw = /const collections = \[([\s\S]*?)\];/.exec(delSrc)?.[1] ?? '';
 const deleteCollections = [...delListRaw.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+// 2026-10-31（I1b 清偿）：deleteAccount 对 redeemCodes 走的是「数组字段 pull」的
+// **非文档删除**分支 —— 它不在上面的文档清单里，但同样是注销覆盖。识别依据：
+// collection('redeemCodes') 与 _.pull 在同一源文件内同时出现，缺一个即视为未覆盖。
+const pullCovered = /collection\('redeemCodes'\)[\s\S]*?_\.pull\(/.test(delSrc) ? ['redeemCodes'] : [];
 
 // H5 传输层白名单
 const dsSrc = read('src/services/dataSource.ts');
-const allowRaw = /const RPC_ALLOWLIST = new Set\(\[([\s\S]*?)\]\)/.exec(dsSrc)?.[1] ?? '';
+// ⚠️ 2026-10-31：白名单清空成 `new Set<string>([])`（TS 泛型带在字面量里），
+//   原正则 `/new Set\(\[([\s\S]*?)\]\)/` 匹配不上 ⇒ 解析成空串（碰巧结果一样，
+//   但那是**巧合**：一旦白名单里再有名，审计会看不见它）。改成容错正则。
+const allowRaw = /const RPC_ALLOWLIST[^=]*=\s*new Set(?:<[^>]*>)?\(\s*\[([\s\S]*?)\]\s*\)/.exec(dsSrc)?.[1] ?? '';
 const rpcAllow = [...allowRaw.matchAll(/'([^']+)'/g)].map((m) => m[1]);
 
 // H5 真实写入面（cloudDb.ts 是唯一写云 DB 的地方）
@@ -210,12 +217,13 @@ const rows = [...collections.keys()].sort().map((c) => {
   const rec = collections.get(c);
   const identity = rec.ownerId && rec.openid ? 'openid+owner_id' : rec.ownerId ? 'owner_id' : rec.openid ? 'openid' : '(按 _id)';
   const inDel = deleteCollections.includes(c);
+  const pullHit = pullCovered.includes(c);
   const h5Reachable = rec.writers.size > 0 && [...rec.writers].some((w) => rpcAllow.includes(w));
   return {
     collection: c,
     identity,
     writers: [...rec.writers].sort().join(','),
-    weappDelete: inDel ? 'yes' : 'NO',
+    weappDelete: inDel ? 'yes' : pullHit ? 'pull' : 'NO',
     h5Reachable: h5Reachable ? 'yes' : 'NO'
   };
 });
@@ -230,7 +238,7 @@ for (const r of rows) {
 // 只有**含个人身份字段**的集合才属于「该不该删」的范围；
 // 判据是「非豁免就必须在注销清单里」——宁可多删，不许默默漏人。
 const leakedForWeapp = [...collections.keys()]
-  .filter((c) => !PERSONAL_EXEMPT.has(c) && !deleteCollections.includes(c))
+  .filter((c) => !PERSONAL_EXEMPT.has(c) && !deleteCollections.includes(c) && !pullCovered.includes(c))
   .sort();
 const nonPersonal = [...PERSONAL_EXEMPT.keys()].filter((c) => collections.has(c));
 const h5OwnTables = h5Tables.filter((t) => t !== 'kv_clear');
@@ -257,14 +265,6 @@ out('── 断言 ──');
  */
 const KNOWN_GAPS = new Map([
   [
-    'I1b',
-    'redeemCodes 的 usedBy 是**数组内成员**，不是每用户一条文档。' +
-      '直接塞进 deleteAccount 的 collections 会走 where({openid}).remove() —— 那会删掉整个码池文档' +
-      '（运营活动的码全废），而实际上一条也匹配不到（文档里没有 openid 字段），' +
-      '于是删除数为 0、界面还报"已删除"。正确做法是 update({ usedBy: _.pull(OPENID) })，' +
-      '需要给 deleteAccount 加一条"非文档删除"的分支，且云函数当前无法部署验证（主体未注册）。'
-  ],
-  [
     'I3a',
     'H5 与 weapp 共用 feedback 表：云函数按 openid 写，H5 侧按 owner_id 写。' +
       '同一张表两套身份 → weapp 注销按 openid 删不到 H5 写的那批。' +
@@ -283,8 +283,23 @@ const KNOWN_GAPS = new Map([
 
 ok('I1a', 'I1 注销清单非空（解析没失效）', deleteCollections.length >= 10);
 ok('I1b', `I1 注销清单覆盖了所有非豁免集合（漏: ${leakedForWeapp.join(',') || '无'}）`, leakedForWeapp.length === 0);
-ok('I2a', 'I2 H5 放行白名单只有 webSearch/chat/extract（身份分歧的结构性根因）',
-  rpcAllow.length === 3 && ['webSearch', 'chat', 'extract'].every((x) => rpcAllow.includes(x)));
+ok('I2a', 'I2 H5 RPC 白名单必须为空（留任何名字 = 白发一发注定 404 的请求）',
+  // 2026-10-30 **判据更新**（线上探针推翻原假设）：
+  //   原判据要求白名单恰好是 webSearch/chat/extract。2026-10-30 线上匿名探针实测：
+  //     POST /.cloud/database/rest/rpc/webSearch → 404 DATABASE_PGRST202
+  //     "Could not find the function public.webSearch(action, feedback, id) in the schema cache"
+  //   ⇒ 应用数据库里**根本没有** webSearch 这个 PG 函数（微信云开发里的同名云函数与
+  //     应用数据库是两套运行时）。
+  // 2026-10-31 **判据再次更新**（03aede4 清空白名单，verify-db-contract 接管 DB 面）：
+  //   带真实参数名的探针证明 chat / extract / newsFeedback / feedback / getBriefing / shopping
+  //   **同样不是**应用数据库的 PG 函数（chat/extract 在 H5 走 cloud.llm，本就不经 DB）。
+  //   白名单里留「不可达但看起来可用」的名字 = 假的安全感：谁按名单写新调用点就白发 404。
+  //   ⇒ 白名单**清空**；H5 真实 DB 通路只剩直连通道（user_kv/llm_events/feedback/
+  //     client_errors + kv_set_many/kv_clear/log_client_error，2026-10-31 探针证实全部存在），
+  //     由 `verify-db-contract.mjs` 守契约（函数存在性 + 匿名收紧 + 前端不读收口表）。
+  //   本条判据随之收紧为「白名单必须为空」—— 将来要放行某个名字，必须先在线上证明
+  //   对应 PG 函数存在，并同步更新本断言与 verify-db-contract。
+  rpcAllow.length === 0);
 ok('I2b', 'I2 deleteAccount / getUsage / login / queryOrder / createOrder / pay-callback 都不在 H5 白名单',
   ['deleteAccount', 'getUsage', 'login', 'queryOrder', 'createOrder', 'pay-callback'].every((x) => !rpcAllow.includes(x)));
 ok('I3a', 'I3 H5 的云端写入面完全不含任何 openid 集合（两端数据在物理上不同的表）',

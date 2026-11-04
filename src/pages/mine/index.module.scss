@@ -1,7 +1,10 @@
 @use '@/styles/variables.scss' as *;
 
 .page {
-  @include page-root;
+  /* 2026-11-03：移动端底部 TabBar 高 50px，原 page-root 的 120rpx 在 390 视口只有 62.4px，
+     「退出登录」行贴到栏底（巡检报被 tabbar 覆盖）。加到 128rpx（≈66.6px）+ 安全区，
+     保证最后一行与 TabBar 之间始终留出可点间隙。 */
+  @include page-root(calc(#{128rpx} + env(safe-area-inset-bottom)));
 }
 
 .userCard {
@@ -477,6 +480,21 @@
   margin-bottom: $spacing-md;
 }
 
+/* 分组标题（2026-10-30）：给「常用 / 设置」两块一个可扫的锚点。
+   字号刻意小、颜色用 secondary —— 它只负责分区，不该和卡片标题抢注意力。 */
+.groupLabel {
+  display: block;
+  margin: $spacing-lg $spacing-lg $spacing-sm;
+  font-size: $font-size-sm;
+  font-weight: 600;
+  color: $color-text-secondary;
+  letter-spacing: 0.08em;
+}
+
+.groupLabel:first-of-type {
+  margin-top: $spacing-md;
+}
+
 .cardTitle {
   display: block;
   font-size: $font-size-xs;
@@ -556,7 +574,7 @@
 }
 
 .tag {
-  padding: 8rpx 24rpx;
+  padding: $spacing-xs $spacing-md;
   border-radius: $radius-round;
   background: $color-bg-page;
   border: 1rpx solid transparent;
@@ -613,8 +631,10 @@
 }
 
 .scaleChip {
-  min-width: 72rpx;
-  height: 56rpx;
+  /* 2026-11-03：字号/语言 chip 实测仅 29.1px 高，低于 44px 触控下限。
+     高度与最小宽度都提到 88rpx（390 视口 ≈45.8px）。 */
+  min-width: 88rpx;
+  height: 88rpx;
   padding: 0 $spacing-sm;
   display: flex;
   align-items: center;
@@ -739,7 +759,7 @@
 }
 
 .fbChip {
-  padding: 10rpx 24rpx;
+  padding: $spacing-xs $spacing-md;
   border: 1rpx solid $color-divider;
   border-radius: $radius-round;
   background: $color-bg-hover;
@@ -1033,7 +1053,7 @@
   font-size: $font-size-sm;
   // 92% 白在深膜底上只有 4.67:1 的余量，12.5px 正文没有缓冲；纯白 = 5.5:1，留出主题差异
   color: $color-text-white;
-  margin-bottom: 8rpx;
+  margin-bottom: $spacing-xs;
 }
 
 .planPrice {
@@ -1055,7 +1075,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6rpx;
-  padding: 6rpx 16rpx;
+  padding: $spacing-xs $spacing-sm;
   background: rgba(255, 255, 255, 0.22);
   border-radius: $radius-button;
 }
@@ -1357,7 +1377,7 @@
 .orderRetry {
   @include button-reset;
   width: auto; // 覆盖 taro-button-core 默认 width:100%
-  padding: 8rpx 32rpx;
+  padding: $spacing-xs $spacing-lg;
   border-radius: $radius-round;
   background: var(--brand-strong, #{$color-primary-strong}); // 白字 5.26:1
   color: $color-text-white;
@@ -1432,7 +1452,7 @@
 .orderRefundBtn {
   font-size: $font-size-sm;
   color: #E85D2A;
-  padding: 4rpx 16rpx;
+  padding: 4rpx $spacing-sm;
   border-radius: $radius-sm;
   transition: background $transition-fast;
 
@@ -1541,5 +1561,50 @@
   margin-bottom: $spacing-sm;
   font-size: $font-size-xs;
   line-height: 1.5;
+  color: $color-text-tertiary;
+}
+
+/* 支付成功但权益未确认（X7）：可见、可重试、带订单号 */
+.reconcileCard {
+  margin: $spacing-md 0;
+  padding: $spacing-md;
+  border-radius: $radius-md;
+  background: $color-bg-card;
+  border-left: 6rpx solid var(--brand-strong);
+}
+
+.reconcileTitle {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.reconcileText {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-xs;
+  line-height: $line-height-normal;
+  color: $color-text-secondary;
+}
+
+.reconcileActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-md;
+  margin-top: $spacing-sm;
+}
+
+.reconcileRetry {
+  font-size: $font-size-sm;
+  color: var(--brand-deep);
+}
+
+.reconcileRetryBusy {
+  opacity: 0.6;
+}
+
+.reconcileDismiss {
+  font-size: $font-size-sm;
   color: $color-text-tertiary;
 }

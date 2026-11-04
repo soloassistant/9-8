@@ -19,7 +19,7 @@ import { useT } from '@/store/language';
 import { brandVars, useThemeStore } from '@/store/theme';
 import styles from './index.module.scss';
 
-interface Item {
+export interface Item {
   key: string;
   icon: string;
   labelKey: string;
@@ -28,7 +28,13 @@ interface Item {
   tab: boolean;
 }
 
-const MAIN: Item[] = [
+/**
+ * ⚠️ 这两个数组是**全站桌面左栏的唯一数据源**。晨报页（`pages/briefing`）的
+ * 自绘侧栏也从这里派生（见该文件 `SIDE_NAV`），不要再在页面里写第二份。
+ * 2026-10-29 巡检发现两套列表各自漂移：晨报页 6 项、其余页 10 项，
+ * 桌面用户在晨报页找不到学习/运动/省钱/记账。
+ */
+export const NAV_MAIN: Item[] = [
   { key: 'today', icon: '☀️', labelKey: 'tab.briefing', url: '/pages/briefing/index', tab: true },
   { key: 'inbox', icon: '📥', labelKey: 'tab.inbox', url: '/pages/inbox/index', tab: true },
   { key: 'hot', icon: '🔥', labelKey: 'tab.hotspot', url: '/pages/library/index', tab: true },
@@ -39,7 +45,7 @@ const MAIN: Item[] = [
   { key: 'ledger', icon: '🧾', labelKey: 'nav.ledger', url: '/pages/ledger/index', tab: false }
 ];
 
-const MORE: Item[] = [
+export const NAV_MORE: Item[] = [
   { key: 'prefs', icon: '⚙️', labelKey: 'nav.settings', url: '/pages/prefs/index', tab: false },
   { key: 'mine', icon: '🙂', labelKey: 'tab.mine', url: '/pages/mine/index', tab: true }
 ];
@@ -109,9 +115,9 @@ export default function DesktopNav() {
         </View>
       </View>
 
-      <View className={styles.group}>{MAIN.map(renderItem)}</View>
+      <View className={styles.group}>{NAV_MAIN.map(renderItem)}</View>
       <Text className={styles.groupLabel}>{t('nav.more')}</Text>
-      <View className={styles.group}>{MORE.map(renderItem)}</View>
+      <View className={styles.group}>{NAV_MORE.map(renderItem)}</View>
     </View>
   );
 }

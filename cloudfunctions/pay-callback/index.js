@@ -310,21 +310,35 @@ function decryptDouyinResource(resource) {
   return JSON.parse(decrypted.toString('utf-8'));
 }
 
-// ========== 4. 统一回写：订单置为 paid + 延长订阅 ==========
+// ========== 4. 统一回写：订单置为 paid + 发放权益（CAS 状态机）==========
 /**
- * 幂等更新订单状态为 paid，延长 users.expiredAt。
- * 多源触发（支付宝/抖音/微信回调 或 主动查单）都走这里。
- * 用 orders 集合本身作为互斥锁（状态检查 → 原子更新），避免并发重入。
+ * 缺陷 B2（资损）：原实现「先置 paid → 再延长订阅」，且幂等只看 status==='paid'。
+ *   · 延长失败后订单已是 paid，支付平台重试命中幂等分支直接 return ⇒ 权益永久不补；
+ *   · 两个并发回调各自读到「未 paid」，都执行 +months ⇒ 一次付款买到两个月。
+ *
+ * 现改为三段式状态机（orders 文档上的 entitlementStatus）：
+ *   1. **抢锁**：带条件更新 `status=<原状态> AND entitlementStatus ∈ {不存在,none,failed}`
+ *      （SDK 的 where().update() 是原子的；更新行数为 0 说明别的实例已抢到）；
+ *      抢到后写 `entitlementStatus='applying'` + 唯一 applyingToken；
+ *   2. **发放**：按该用户全部已支付订单**回放**计算到期时间（幂等：重跑结果一致，
+ *      不会因为「用户已更新、标记 applied 失败」的重试而叠加月份）；
+ *   3. **落定**：CAS 到 `applied`；任何一步失败都回滚成 `failed`（可安全重试）。
+ *
+ * ⚠️ queryOrder/index.js 有一份镜像实现，改动必须同步两处。
  */
+const ENTITLEMENT_STALE_MS = 2 * 60 * 1000; // applying 超过 2 分钟视为中断，允许接管
+const MS_PER_MONTH = 30 * 24 * 3600 * 1000;
+
 async function confirmOrderPaid({ orderId, channel, channelTradeNo, amountFen }) {
   // 1. 读订单
   const orderSnap = await db.collection('orders').where({ orderId }).get();
   const order = orderSnap.data && orderSnap.data[0];
   if (!order) throw new Error('订单不存在: ' + orderId);
 
-  // 2. 幂等：已 paid 直接返回
-  if (order.status === 'paid') {
-    console.log('[pay-callback] 订单已 paid，跳过:', orderId);
+  // 2. 幂等：只有**权益已发放**才算真正完成。仅 status==='paid' 不能早退，
+  //    否则「已 paid 但未 applied」的订单永远不会被补发（就是本缺陷的根因）。
+  if (order.status === 'paid' && order.entitlementStatus === 'applied') {
+    console.log('[pay-callback] 订单已 paid 且权益已发放，跳过:', orderId);
     return { orderId, alreadyPaid: true };
   }
 
@@ -352,30 +366,108 @@ async function confirmOrderPaid({ orderId, channel, channelTradeNo, amountFen })
     throw new Error('[pay-callback] 用户不存在，拒绝置单为 paid: openid=' + order.openid);
   }
 
-  // 4. 原子更新订单状态（微信云开发 SDK 的 update 自带乐观并发控制）
-  const now = new Date().toISOString();
-  await db.collection('orders').doc(order._id).update({
-    data: {
-      status: 'paid',
-      payStatus: 'paid',
-      paidChannel: channel,
-      channelTradeNo,
-      paidTime: now,
-      payTime: now
-    }
-  });
+  // 4. 抢锁（CAS）：并发回调只有一个能把 entitlementStatus 改成 applying
+  const lock = await acquireEntitlementLock(order, { paidChannel: channel, channelTradeNo });
+  if (!lock.token) {
+    if (lock.alreadyApplied) return { orderId, alreadyPaid: true };
+    // 另一个实例正在发放：返回失败让支付平台稍后重试（不能假装成功，否则权益可能丢）
+    throw new Error('[pay-callback] 权益发放进行中，请稍后重试: ' + orderId);
+  }
 
-  // 5. 延长用户订阅时长（幂等：每次回调都是 +months，但 expiredAt 只增不减）
-  const openid = order.openid;
-  const months = order.months || 1;
-  await extendUserExpiredAt(openid, months, order.planId);
+  try {
+    // 5. 发放权益（幂等回放，重跑不会叠加）
+    await applyEntitlement(order.openid, order.planId);
+    // 6. 落定：CAS 成 applied（带 token，防止被别的实例接管后误标）
+    await markEntitlementApplied(order._id, lock.token);
+  } catch (err) {
+    // 任一步失败都回滚为 failed：订单保持「可重试」，平台重试或主动查单都能补发
+    await rollbackEntitlement(order._id, lock.token, err);
+    throw err;
+  }
 
-  console.log('[pay-callback] ✅ 订单置为 paid:', orderId, 'channel:', channel);
+  console.log('[pay-callback] ✅ 订单置为 paid 且权益已发放:', orderId, 'channel:', channel);
   return { orderId, channel, paid: true };
 }
 
-/** 延长用户订阅过期时间（幂等 + 原子更新） */
-async function extendUserExpiredAt(openid, months, planId) {
+/**
+ * CAS 抢锁。返回 { token } 表示抢到；{ busy } / { alreadyApplied } 表示没抢到。
+ * 条件更新用 `where().update()`（云数据库原子操作），绝不先读后写裸更新。
+ */
+async function acquireEntitlementLock(order, extra) {
+  const _ = db.command;
+  const now = new Date().toISOString();
+  const token = now + '-' + Math.random().toString(36).slice(2, 10);
+  const data = Object.assign({}, extra, {
+    status: 'paid',
+    payStatus: 'paid',
+    // 第一次置 paid 时写入支付时间；重试时保留原值（回放要用它，不能被重试改写）
+    paidTime: order.paidTime || now,
+    payTime: order.payTime || order.paidTime || now,
+    entitlementStatus: 'applying',
+    applyingToken: token,
+    applyingAt: now,
+    entitlementError: ''
+  });
+
+  const base = { _id: order._id };
+  const candidates = [];
+  if (order.status !== 'paid') {
+    // 首付：对 status 做 CAS（pending/created → paid 只能成功一次）
+    candidates.push(Object.assign({}, base, { status: order.status }));
+  } else if (order.entitlementStatus === 'failed') {
+    candidates.push(Object.assign({}, base, { status: 'paid', entitlementStatus: 'failed' }));
+  } else if (order.entitlementStatus === 'applying') {
+    const age = Date.now() - Date.parse(order.applyingAt || '');
+    if (Number.isFinite(age) && age >= 0 && age < ENTITLEMENT_STALE_MS) return { busy: true };
+    // 超时接管：用旧 token 做 CAS，避免两个接管者同时成功
+    candidates.push(
+      Object.assign({}, base, { status: 'paid', entitlementStatus: 'applying', applyingToken: order.applyingToken })
+    );
+  } else if (order.entitlementStatus === 'applied') {
+    return { alreadyApplied: true };
+  } else {
+    // 历史订单没有 entitlementStatus 字段（或显式 none）
+    candidates.push(Object.assign({}, base, { status: 'paid', entitlementStatus: _.exists(false) }));
+    candidates.push(Object.assign({}, base, { status: 'paid', entitlementStatus: _.in(['none']) }));
+  }
+
+  for (const query of candidates) {
+    const res = await db.collection('orders').where(query).update({ data });
+    if (res && res.stats && res.stats.updated > 0) return { token };
+  }
+  return { busy: true };
+}
+
+/** CAS 落定 applied。更新行数必须为 1（token 已被接管则说明状态异常，抛错触发回滚） */
+async function markEntitlementApplied(orderId, token) {
+  const now = new Date().toISOString();
+  const res = await db.collection('orders')
+    .where({ _id: orderId, entitlementStatus: 'applying', applyingToken: token })
+    .update({ data: { entitlementStatus: 'applied', entitlementAppliedAt: now, entitlementError: '' } });
+  if (!res || !res.stats || res.stats.updated === 0) {
+    throw new Error('[pay-callback] 标记权益已发放失败（锁已失效）: ' + orderId);
+  }
+}
+
+/** 失败回滚：applying → failed，保留错误摘要；下次回调/查单可重新抢锁 */
+async function rollbackEntitlement(orderId, token, err) {
+  const msg = String((err && err.message) || err || 'unknown').slice(0, 200);
+  try {
+    await db.collection('orders')
+      .where({ _id: orderId, entitlementStatus: 'applying', applyingToken: token })
+      .update({ data: { entitlementStatus: 'failed', applyingToken: '', entitlementError: msg } });
+  } catch (e) {
+    // 回滚失败只留痕：调用方已收到失败响应，平台会重试
+    console.error('[pay-callback] 权益回滚失败:', orderId, e.message);
+  }
+}
+
+/**
+ * 幂等发放：把该用户全部「已支付且未退款」订单按支付时间回放，得到到期时间；
+ * 再与用户现有 expiredAt 取较大值写回。重复执行结果一致 —— 这是「延长成功但
+ * 标记 applied 失败」后安全重试的依据（不会 +months 两次）。
+ */
+async function applyEntitlement(openid, planId) {
   const users = db.collection('users');
   // ⚠️ 查询键必须是自定义字段 openid，**不能是 _openid**：
   //    users 文档由 login 云函数用 `users.add({ data: { openid: OPENID, ... } })` 创建，
@@ -388,9 +480,12 @@ async function extendUserExpiredAt(openid, months, planId) {
     throw new Error('[pay-callback] 用户不存在，无法发放权益 openid=' + openid);
   }
 
-  const current = user.expiredAt ? new Date(user.expiredAt).getTime() : Date.now();
-  const base = Math.max(current, Date.now());           // 已过期则从现在开始算
-  const next = new Date(base + months * 30 * 24 * 3600 * 1000).toISOString();
+  const replayed = await replayExpiry(openid);
+  if (replayed <= 0) {
+    throw new Error('[pay-callback] 回放不到任何已支付订单，拒绝发放: openid=' + openid);
+  }
+  const current = user.expiredAt ? new Date(user.expiredAt).getTime() : 0;
+  const next = new Date(Math.max(Number.isFinite(current) ? current : 0, replayed)).toISOString();
 
   // subscribed 必须一起写：所有权益判定（getUsage/chat/webSearch）都要求
   // `user.subscribed === true` 且 `expiredAt > now`。只延 expiredAt 不置 subscribed，
@@ -400,6 +495,22 @@ async function extendUserExpiredAt(openid, months, planId) {
 
   await users.doc(user._id).update({ data: patch });
   console.log('[pay-callback] 用户订阅延长至:', next, 'openid:', openid);
+}
+
+/** 按 paidTime 顺序回放所有已支付订单，返回确定性到期时间戳（ms） */
+async function replayExpiry(openid) {
+  const snap = await db.collection('orders').where({ openid, status: 'paid' }).get();
+  const paid = (snap.data || [])
+    .filter((o) => o.paidTime && !(o.refundStatus === 'refunded' || o.refundStatus === 'refunding'))
+    .sort((a, b) => new Date(a.paidTime).getTime() - new Date(b.paidTime).getTime());
+  let cursor = 0;
+  for (const o of paid) {
+    const t = new Date(o.paidTime).getTime();
+    if (!Number.isFinite(t)) continue;
+    const months = Number(o.months) || 1;
+    cursor = Math.max(cursor, t) + months * MS_PER_MONTH;
+  }
+  return cursor;
 }
 
 function buildErrorResponse(err, channel) {

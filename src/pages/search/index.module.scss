@@ -42,7 +42,8 @@
 
   .searchInput {
     width: 100%;
-    height: $button-height-md;
+    /* 2026-11-04：44px 触控下限（88rpx @390 ≈45.8px）；原 $button-height-md=80rpx 实测 41.6px */
+    height: 88rpx;
     background: $color-bg-card;
     border-radius: $radius-button;
     padding: 0 $spacing-lg;

@@ -234,6 +234,39 @@
   color: $color-text-tertiary;
 }
 
+/* 诚实性标识（2026-11-03）：本地模板回复 / 失败原因 + 重试。
+   用 warn 色而不是禁用灰 —— 必须让用户一眼看到「这不是正常 AI 回答」。 */
+.msgNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  margin-top: $spacing-xs;
+  padding-top: $spacing-xs;
+  border-top: 1rpx dashed $color-border;
+}
+
+.msgNoticeText {
+  flex: 1;
+  font-size: $font-size-xs;
+  color: #b45309;
+  line-height: $line-height-normal;
+}
+
+.msgRetry {
+  flex-shrink: 0;
+  padding: 4rpx $spacing-md;
+  border-radius: $radius-round;
+  border: 1rpx solid #b45309;
+  background: $color-bg-card;
+}
+
+.msgRetryText {
+  font-size: $font-size-xs;
+  color: #b45309;
+  font-weight: $font-weight-medium;
+}
+
 .inputRow {
   display: flex;
   align-items: center;
@@ -245,7 +278,8 @@
 
 .input {
   flex: 1;
-  height: $button-height-md;
+  /* 2026-11-03：与 44px 触控下限对齐（80rpx=41.6px 会裁掉 44px 的内层 input）。 */
+  height: 88rpx;
   background: $color-bg-page;
   border-radius: $radius-button;
   padding: 0 $spacing-lg;
@@ -260,12 +294,13 @@
 .sendBtn {
   flex-shrink: 0;
   width: 140rpx;
-  height: $button-height-md;
+  height: 88rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: $radius-button;
-  background: var(--brand, #{$color-secondary});
+  /* 2026-11-03：白字压品牌橙/晨空蓝只有 2.59 / 3.23:1。改 strong 变体：白字 4.95 / 5.97:1。 */
+  background: var(--brand-strong, #{$color-secondary-strong});
   color: $color-text-white;
   font-size: $font-size-md;
   font-weight: $font-weight-medium;

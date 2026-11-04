@@ -110,8 +110,10 @@ exports.main = async (event) => {
     amountFen: undefined
   };
 
-  // 3. 本地已 paid：幂等返回，不打通道、不重复延长订阅
-  if (order.status === 'paid') {
+  // 3. 本地已 paid 且**权益已发放**：幂等返回，不打通道、不重复延长订阅。
+  //    缺陷 B2：只看 status==='paid' 会漏掉「已 paid 但 entitlement 未 applied」的订单，
+  //    它们永远补不发；这里必须看 entitlementStatus。
+  if (order.status === 'paid' && order.entitlementStatus === 'applied') {
     return Object.assign(base, {
       paid: true,
       channelStatus: 'local',
@@ -252,62 +254,146 @@ function httpGetJson(host, path, authorization) {
   });
 }
 
-// ========== 对账（镜像 pay-callback confirmOrderPaid + extendUserExpiredAt） ==========
+// ========== 对账（与 pay-callback 的 CAS 状态机逐字同步） ==========
+/**
+ * ⚠️ 本段与 cloudfunctions/pay-callback/index.js 的 confirmOrderPaid /
+ * acquireEntitlementLock / markEntitlementApplied / rollbackEntitlement /
+ * applyEntitlement / replayExpiry 是**镜像实现**（云函数各自打包，无法共享模块）。
+ * 两端都必须：先 CAS 抢锁 → 幂等回放发放 → CAS 落定 applied，失败回滚 failed。
+ */
+const ENTITLEMENT_STALE_MS = 2 * 60 * 1000;
+const MS_PER_MONTH = 30 * 24 * 3600 * 1000;
+
 async function reconcileOrder(order, q) {
-  // 幂等：已 paid 直接返回（并发双跑时这里兜底）
-  if (order.status === 'paid') {
-    console.log('[queryOrder] 订单已 paid，跳过对账:', order.orderId);
+  // 幂等：只有权益已发放才算完成（仅 paid 不能早退，否则 failed 的订单永远补不发）
+  if (order.status === 'paid' && order.entitlementStatus === 'applied') {
+    console.log('[queryOrder] 订单已 paid 且权益已发放，跳过对账:', order.orderId);
     return { orderId: order.orderId, alreadyPaid: true };
   }
 
   // 预检：权益接收方必须存在。**必须放在置 paid 之前** —— 否则订单已 paid 而权益永远发不出去
-  // （上方幂等分支「已 paid 直接 return」，以及 main() 的本地已 paid 早退，都不会再补发）。
   const payerSnap = await db.collection('users').where({ openid: order.openid }).limit(1).get();
   if (!payerSnap.data || payerSnap.data.length === 0) {
     throw new Error('[queryOrder] 用户不存在，拒绝对账置 paid: openid=' + order.openid);
   }
 
-  const now = new Date().toISOString();
-  await db.collection('orders').doc(order._id).update({
-    data: {
-      status: 'paid',
-      payStatus: 'paid',
-      paidChannel: order.channel,
-      channelTradeNo: q.channelTradeNo,
-      paidTime: now,
-      payTime: now,
-      paidVia: 'queryOrder-reconcile'      // 标记对账来源，便于排查
-    }
+  const lock = await acquireEntitlementLock(order, {
+    paidChannel: order.channel,
+    channelTradeNo: q.channelTradeNo,
+    paidVia: 'queryOrder-reconcile' // 标记对账来源，便于排查
   });
+  if (!lock.token) {
+    if (lock.alreadyApplied) return { orderId: order.orderId, alreadyPaid: true };
+    throw new Error('[queryOrder] 权益发放进行中，请稍后重试: ' + order.orderId);
+  }
 
-  await extendUserExpiredAt(order.openid, order.months || 1, order.planId);
-  console.log('[queryOrder] ✅ 对账完成，订单置 paid:', order.orderId, 'channel:', order.channel);
+  try {
+    await applyEntitlement(order.openid, order.planId);
+    await markEntitlementApplied(order._id, lock.token);
+  } catch (err) {
+    await rollbackEntitlement(order._id, lock.token, err);
+    throw err;
+  }
+  console.log('[queryOrder] ✅ 对账完成，订单置 paid 且权益已发放:', order.orderId, 'channel:', order.channel);
   return { orderId: order.orderId, paid: true };
 }
 
-/** 延长用户订阅过期时间（幂等 + 原子更新），与 pay-callback 保持同一算法 */
-async function extendUserExpiredAt(openid, months, planId) {
+async function acquireEntitlementLock(order, extra) {
+  const _ = db.command;
+  const now = new Date().toISOString();
+  const token = now + '-' + Math.random().toString(36).slice(2, 10);
+  const data = Object.assign({}, extra, {
+    status: 'paid',
+    payStatus: 'paid',
+    paidTime: order.paidTime || now,
+    payTime: order.payTime || order.paidTime || now,
+    entitlementStatus: 'applying',
+    applyingToken: token,
+    applyingAt: now,
+    entitlementError: ''
+  });
+
+  const base = { _id: order._id };
+  const candidates = [];
+  if (order.status !== 'paid') {
+    candidates.push(Object.assign({}, base, { status: order.status }));
+  } else if (order.entitlementStatus === 'failed') {
+    candidates.push(Object.assign({}, base, { status: 'paid', entitlementStatus: 'failed' }));
+  } else if (order.entitlementStatus === 'applying') {
+    const age = Date.now() - Date.parse(order.applyingAt || '');
+    if (Number.isFinite(age) && age >= 0 && age < ENTITLEMENT_STALE_MS) return { busy: true };
+    candidates.push(
+      Object.assign({}, base, { status: 'paid', entitlementStatus: 'applying', applyingToken: order.applyingToken })
+    );
+  } else if (order.entitlementStatus === 'applied') {
+    return { alreadyApplied: true };
+  } else {
+    candidates.push(Object.assign({}, base, { status: 'paid', entitlementStatus: _.exists(false) }));
+    candidates.push(Object.assign({}, base, { status: 'paid', entitlementStatus: _.in(['none']) }));
+  }
+
+  for (const query of candidates) {
+    const res = await db.collection('orders').where(query).update({ data });
+    if (res && res.stats && res.stats.updated > 0) return { token };
+  }
+  return { busy: true };
+}
+
+async function markEntitlementApplied(orderId, token) {
+  const now = new Date().toISOString();
+  const res = await db.collection('orders')
+    .where({ _id: orderId, entitlementStatus: 'applying', applyingToken: token })
+    .update({ data: { entitlementStatus: 'applied', entitlementAppliedAt: now, entitlementError: '' } });
+  if (!res || !res.stats || res.stats.updated === 0) {
+    throw new Error('[queryOrder] 标记权益已发放失败（锁已失效）: ' + orderId);
+  }
+}
+
+async function rollbackEntitlement(orderId, token, err) {
+  const msg = String((err && err.message) || err || 'unknown').slice(0, 200);
+  try {
+    await db.collection('orders')
+      .where({ _id: orderId, entitlementStatus: 'applying', applyingToken: token })
+      .update({ data: { entitlementStatus: 'failed', applyingToken: '', entitlementError: msg } });
+  } catch (e) {
+    console.error('[queryOrder] 权益回滚失败:', orderId, e.message);
+  }
+}
+
+async function applyEntitlement(openid, planId) {
   const users = db.collection('users');
-  // ⚠️ 查询键必须是自定义字段 openid，**不能是 _openid**：
-  //    users 文档由 login 云函数用 `users.add({ data: { openid: OPENID, ... } })` 创建，
-  //    云函数环境的 add() **不会**自动注入 _openid（_openid 只在客户端 SDK 写记录时才有）。
-  //    对照组：getUsage/index.js、refundOrder/index.js 都用 where({ openid })。
+  // ⚠️ 查询键必须是自定义字段 openid，**不能是 _openid**（与 pay-callback 同一理由）。
   const snap = await users.where({ openid }).get();
   const user = snap.data && snap.data[0];
   if (!user) {
-    // 不能静默 return：订单此时可能已置 paid，静默失败会让用户永久丢失权益。
     throw new Error('[queryOrder] 用户不存在，无法发放权益 openid=' + openid);
   }
-  const current = user.expiredAt ? new Date(user.expiredAt).getTime() : Date.now();
-  const base = Math.max(current, Date.now());           // 已过期则从现在开始算
-  const next = new Date(base + months * 30 * 24 * 3600 * 1000).toISOString();
 
-  // subscribed 必须一起写：所有权益判定（getUsage/chat/webSearch）都要求
-  // `user.subscribed === true` 且 `expiredAt > now`。只延 expiredAt 不置 subscribed，
-  // 用户付了钱仍会被判成免费版（语音 20 条 / 收藏 50 条）。
+  const replayed = await replayExpiry(openid);
+  if (replayed <= 0) {
+    throw new Error('[queryOrder] 回放不到任何已支付订单，拒绝发放: openid=' + openid);
+  }
+  const current = user.expiredAt ? new Date(user.expiredAt).getTime() : 0;
+  const next = new Date(Math.max(Number.isFinite(current) ? current : 0, replayed)).toISOString();
+
   const patch = { expiredAt: next, subscribed: true };
   if (planId === 'earlybird_monthly') patch.isEarlyBird = true;
 
   await users.doc(user._id).update({ data: patch });
   console.log('[queryOrder] 用户订阅延长至:', next, 'openid=', openid);
+}
+
+async function replayExpiry(openid) {
+  const snap = await db.collection('orders').where({ openid, status: 'paid' }).get();
+  const paid = (snap.data || [])
+    .filter((o) => o.paidTime && !(o.refundStatus === 'refunded' || o.refundStatus === 'refunding'))
+    .sort((a, b) => new Date(a.paidTime).getTime() - new Date(b.paidTime).getTime());
+  let cursor = 0;
+  for (const o of paid) {
+    const t = new Date(o.paidTime).getTime();
+    if (!Number.isFinite(t)) continue;
+    const months = Number(o.months) || 1;
+    cursor = Math.max(cursor, t) + months * MS_PER_MONTH;
+  }
+  return cursor;
 }

@@ -28,11 +28,27 @@ const state = {
   users: [],
   userQueries: [],
   orderUpdates: [],
-  userUpdates: []
+  userUpdates: [],
+  failUserUpdate: false // 注入「延长订阅失败」分支（断言订单可重试）
 };
 
 const clone = (o) => (o === undefined ? undefined : JSON.parse(JSON.stringify(o)));
-const matches = (doc, q) => Object.keys(q).every((k) => doc[k] === q[k]);
+
+/** 云数据库条件匹配：支持等值 + db.command.exists/in（CAS 抢锁用到） */
+const matches = (doc, q) =>
+  Object.keys(q).every((k) => {
+    const want = q[k];
+    if (want && want.__op === 'exists') {
+      return want.value ? Object.prototype.hasOwnProperty.call(doc, k) : !Object.prototype.hasOwnProperty.call(doc, k);
+    }
+    if (want && want.__op === 'in') return want.values.includes(doc[k]);
+    return doc[k] === want;
+  });
+
+function recordUpdate(name, id, data) {
+  if (name === 'orders') state.orderUpdates.push({ id, data: clone(data) });
+  if (name === 'users') state.userUpdates.push({ id, data: clone(data) });
+}
 
 function makeQuery(name, query) {
   let lim = null;
@@ -45,12 +61,26 @@ function makeQuery(name, query) {
       let rows = state[name].filter((d) => matches(d, query));
       if (lim !== null) rows = rows.slice(0, lim);
       return { data: clone(rows) };
+    },
+    /** 条件更新（CAS）：原子命中多少行就更新多少行，返回 stats.updated */
+    async update({ data }) {
+      const rows = state[name].filter((d) => matches(d, query));
+      for (const row of rows) {
+        const i = state[name].indexOf(row);
+        state[name][i] = { ...row, ...clone(data) };
+        recordUpdate(name, row._id, data);
+      }
+      return { stats: { updated: rows.length } };
     }
   };
   return api;
 }
 
 const dbStub = {
+  command: {
+    exists: (value) => ({ __op: 'exists', value }),
+    in: (values) => ({ __op: 'in', values })
+  },
   collection(name) {
     return {
       where(query) {
@@ -60,12 +90,12 @@ const dbStub = {
       doc(id) {
         return {
           async update({ data }) {
+            if (name === 'users' && state.failUserUpdate) throw new Error('injected: user update failed');
             const arr = state[name];
             const i = arr.findIndex((d) => d._id === id);
             if (i < 0) throw new Error('doc not found: ' + id);
             arr[i] = { ...arr[i], ...clone(data) };
-            if (name === 'orders') state.orderUpdates.push({ id, data: clone(data) });
-            if (name === 'users') state.userUpdates.push({ id, data: clone(data) });
+            recordUpdate(name, id, data);
             return { stats: { updated: 1 } };
           },
           async get() {
@@ -137,6 +167,7 @@ function reset() {
   state.userQueries.length = 0;
   state.orderUpdates.length = 0;
   state.userUpdates.length = 0;
+  state.failUserUpdate = false;
 }
 
 function seedOrder(over) {
@@ -193,7 +224,11 @@ const hasValidExpiredAt = () => {
   assert('PAY/成功/返回 paid=true', !!rOk && rOk.code === 0 && !!rOk.data && rOk.data.paid === true);
   assert('PAY/查询键是 openid（不是 _openid）', queriesAllUseOpenid());
   assert('PAY/预检 + 发放各查一次 users', state.userQueries.length >= 2);
-  assert('PAY/订单置为 paid', state.orderUpdates.length === 1 && state.orderUpdates[0].data.status === 'paid');
+  assert('PAY/订单置为 paid', state.orderUpdates.length >= 1 && state.orderUpdates[0].data.status === 'paid');
+  assert(
+    'PAY/权益状态机走完 applied',
+    state.orders[0].status === 'paid' && state.orders[0].entitlementStatus === 'applied'
+  );
   assert('PAY/用户更新恰好 1 次', state.userUpdates.length === 1);
   assert('PAY/patch 同时写 subscribed:true', hasSubscribedTrue());
   assert('PAY/patch 同时写 expiredAt', hasValidExpiredAt());
@@ -217,12 +252,13 @@ const hasValidExpiredAt = () => {
   await fireCallback('ORDER-IDEM');
   assert('PAY/幂等/首次确实发放', state.userUpdates.length === 1);
   const payFirstExpired = state.userUpdates[0] ? state.userUpdates[0].data.expiredAt : undefined;
+  const payFirstOrderWrites = state.orderUpdates.length;
   const rIdem = await fireCallback('ORDER-IDEM');
 
   assert('PAY/幂等/第二次走 alreadyPaid', !!rIdem && rIdem.code === 0 && !!rIdem.data && rIdem.data.alreadyPaid === true);
   assert('PAY/幂等/用户不再更新', state.userUpdates.length === 1);
   assert('PAY/幂等/expiredAt 不叠加', !!state.userUpdates[0] && state.userUpdates[0].data.expiredAt === payFirstExpired);
-  assert('PAY/幂等/订单只更新一次', state.orderUpdates.length === 1);
+  assert('PAY/幂等/第二次不再写订单', state.orderUpdates.length === payFirstOrderWrites);
 
   /* =====================================================================
    * 4. queryOrder 成功路径
@@ -235,7 +271,11 @@ const hasValidExpiredAt = () => {
   assert('QUERY/成功/返回 paid 且已对账', !!qOk && qOk.paid === true && qOk.reconciled === true);
   assert('QUERY/查询键是 openid（不是 _openid）', queriesAllUseOpenid());
   assert('QUERY/预检 + 发放各查一次 users', state.userQueries.length >= 2);
-  assert('QUERY/订单置为 paid', state.orderUpdates.length === 1 && state.orderUpdates[0].data.status === 'paid');
+  assert('QUERY/订单置为 paid', state.orderUpdates.length >= 1 && state.orderUpdates[0].data.status === 'paid');
+  assert(
+    'QUERY/权益状态机走完 applied',
+    state.orders[0].status === 'paid' && state.orders[0].entitlementStatus === 'applied'
+  );
   assert('QUERY/用户更新恰好 1 次', state.userUpdates.length === 1);
   assert('QUERY/patch 同时写 subscribed:true', hasSubscribedTrue());
   assert('QUERY/patch 同时写 expiredAt', hasValidExpiredAt());
@@ -265,6 +305,60 @@ const hasValidExpiredAt = () => {
   assert('QUERY/幂等/第二次 paid 但不重复对账', !!qIdem && qIdem.paid === true && qIdem.reconciled === false);
   assert('QUERY/幂等/用户不再更新', state.userUpdates.length === 1);
   assert('QUERY/幂等/expiredAt 不叠加', !!state.userUpdates[0] && state.userUpdates[0].data.expiredAt === qFirstExpired);
+
+  /* ---------- 7. B2 回归：延长失败 → 订单可重试 → 重试只加一次月 ---------- */
+  reset();
+  seedOrder({ orderId: 'ORDER-RETRY' });
+  seedUser('buyer-openid');
+  state.failUserUpdate = true;
+  const rFail = await fireCallback('ORDER-RETRY');
+
+  assert('B2/延长失败/本次返回失败', !!rFail && rFail.code === -1);
+  assert('B2/延长失败/订单仍为 paid（不是永久卡死）', state.orders[0].status === 'paid');
+  assert('B2/延长失败/权益状态回滚为 failed（可重试）', state.orders[0].entitlementStatus === 'failed');
+  assert('B2/延长失败/用户未被写入', state.userUpdates.length === 0);
+  const paidTimeAfterFail = state.orders[0].paidTime;
+  assert('B2/延长失败/支付时间已落盘', typeof paidTimeAfterFail === 'string' && paidTimeAfterFail.length > 0);
+
+  state.failUserUpdate = false;
+  const rRetry = await fireCallback('ORDER-RETRY');
+  assert('B2/重试/成功且返回 paid', !!rRetry && rRetry.code === 0 && rRetry.data.paid === true);
+  assert('B2/重试/用户只被写 1 次', state.userUpdates.length === 1);
+  assert('B2/重试/权益最终 applied', state.orders[0].entitlementStatus === 'applied');
+  assert('B2/重试/支付时间不被重试改写', state.orders[0].paidTime === paidTimeAfterFail);
+
+  /* ---------- 8. B2 回归：两个并发回调只加一次月 ---------- */
+  reset();
+  seedOrder({ orderId: 'ORDER-RACE' });
+  seedUser('buyer-openid');
+  const [rA, rB] = await Promise.all([fireCallback('ORDER-RACE'), fireCallback('ORDER-RACE')]);
+
+  assert('B2/并发/至少一个回调成功', (!!rA && rA.code === 0) || (!!rB && rB.code === 0));
+  assert('B2/并发/用户只被写 1 次（只加一次月）', state.userUpdates.length === 1);
+  assert('B2/并发/权益最终 applied', state.orders[0].entitlementStatus === 'applied');
+
+  /* ---------- 9. B2 回归：已 paid 但未 applied 的订单，queryOrder 能补发 ---------- */
+  reset();
+  // 模拟历史失败订单：paid 已经写进去，但权益从未发放（旧实现会永久漏发）
+  seedOrder({ orderId: 'Q-RECOVER', status: 'paid', entitlementStatus: 'failed', paidTime: '2026-10-01T00:00:00.000Z' });
+  seedUser('buyer-openid');
+  const qRecover = await queryOrder.main({ orderId: 'Q-RECOVER' });
+
+  assert('B2/查单补发/返回已支付', !!qRecover && qRecover.paid === true);
+  assert('B2/查单补发/用户被写 1 次', state.userUpdates.length === 1);
+  assert('B2/查单补发/权益最终 applied', state.orders[0].entitlementStatus === 'applied');
+
+  /* ---------- 10. X7：支付成功但对账失败必须有可见提示（前端接线） ---------- */
+  // 这一节是**静态接线断言**（不渲染 React）：缺陷不是云端有没有补发，而是前端
+  // 把失败咽进 console.warn，用户付完钱只看到「支付成功」，之后没有任何说明。
+  const fs = require('node:fs');
+  const uiSrc = fs.readFileSync(path.join(ROOT, 'src/pages/membership/index.tsx'), 'utf8');
+  assert('X7/UI/正确解包 callFunction 的 result', /\(q as \{ result\?: unknown \} \| null\)\?\.result \?\? q/.test(uiSrc));
+  assert('X7/UI/不再把 {result} 直读为业务对象', !/const qRes = q as \{/.test(uiSrc));
+  assert('X7/UI/失败分支写入可见状态', (uiSrc.match(/setReconcileIssue\(\{/g) || []).length >= 4);
+  assert('X7/UI/提示含订单号与客服指引', /订单号 \$\{paidOrderId\}/.test(uiSrc) && /联系客服/.test(uiSrc));
+  assert('X7/UI/提供重新核对入口', /handleRecheck/.test(uiSrc) && /重新核对/.test(uiSrc));
+  assert('X7/UI/卡片真实渲染（不是只存 state）', /reconcileIssue \? \(/.test(uiSrc) && /reconcileCard/.test(uiSrc));
 
   /* ---------- 汇总 ---------- */
   console.log(`\n通过 ${pass} / 失败 ${failures.length}`);

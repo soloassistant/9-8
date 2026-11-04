@@ -66,6 +66,15 @@ export default [
     to: '  if (false) {',
     cmd: 'node .tools/verify-paid-entitlement.js'
   },
+  {
+    // X7：前端把 callFunction 的 { result } 直读成业务对象 —— qRes.paid 恒 undefined，
+    //   成功对账也识别不到；配合原来的 console.warn-only，用户付完钱仍无任何提示。
+    label: '前端不解包 callFunction 的 result（对账结果永远读不到）',
+    file: 'src/pages/membership/index.tsx',
+    from: '    const qRes = ((q as { result?: unknown } | null)?.result ?? q) as {',
+    to: '    const qRes = q as { /* MUT: no unwrap */',
+    cmd: 'node .tools/verify-paid-entitlement.js'
+  },
 
   /* ==================================================================
    * 3) verify-pref-selection.js —— 偏好改变「集合」

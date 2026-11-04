@@ -27,11 +27,13 @@ function load(): MockShoppingItem[] {
     return [];
   }
 }
-function save(list: MockShoppingItem[]) {
+function save(list: MockShoppingItem[]): boolean {
   try {
     Taro.setStorageSync(STORAGE_KEY, list);
+    return true;
   } catch (err) {
     console.warn('[mock:shopping] save failed:', err);
+    return false;
   }
 }
 
@@ -53,7 +55,7 @@ export default function shopping(data?: { action?: string; id?: string; name?: s
       createdAt: new Date().toISOString(),
       prices: []
     };
-    save([item, ...list]);
+    if (!save([item, ...list])) return null;
     return item;
   }
 
@@ -61,13 +63,13 @@ export default function shopping(data?: { action?: string; id?: string; name?: s
     const item = list.find((it) => it.id === data?.id);
     if (!item) return null;
     const bought = !item.bought;
-    save(list.map((it) => (it.id === data?.id ? { ...it, bought } : it)));
+    if (!save(list.map((it) => (it.id === data?.id ? { ...it, bought } : it)))) return null;
     return { id: data?.id, bought };
   }
 
   if (action === 'remove') {
     if (!list.some((it) => it.id === data?.id)) return null;
-    save(list.filter((it) => it.id !== data?.id));
+    if (!save(list.filter((it) => it.id !== data?.id))) return null;
     return { id: data?.id };
   }
 
@@ -78,7 +80,7 @@ export default function shopping(data?: { action?: string; id?: string; name?: s
     const price = Number(data?.price);
     if (!platform || !Number.isFinite(price)) return null;
     const prices = [...item.prices, { platform, price }];
-    save(list.map((it) => (it.id === data?.id ? { ...it, prices } : it)));
+    if (!save(list.map((it) => (it.id === data?.id ? { ...it, prices } : it)))) return null;
     return { id: data?.id, prices };
   }
 
@@ -88,7 +90,7 @@ export default function shopping(data?: { action?: string; id?: string; name?: s
     if (!item) return null;
     const price = Number(data?.price);
     if (!Number.isFinite(price) || price <= 0) return null;
-    save(list.map((it) => (it.id === data?.id ? { ...it, targetPrice: price } : it)));
+    if (!save(list.map((it) => (it.id === data?.id ? { ...it, targetPrice: price } : it)))) return null;
     return { id: data?.id, targetPrice: price };
   }
 
@@ -96,11 +98,15 @@ export default function shopping(data?: { action?: string; id?: string; name?: s
   if (action === 'clearTargetPrice') {
     const item = list.find((it) => it.id === data?.id);
     if (!item) return null;
-    save(
-      list.map((it) =>
-        it.id === data?.id ? { ...it, targetPrice: undefined, lastNotifiedPrice: undefined } : it
+    if (
+      !save(
+        list.map((it) =>
+          it.id === data?.id ? { ...it, targetPrice: undefined, lastNotifiedPrice: undefined } : it
+        )
       )
-    );
+    ) {
+      return null;
+    }
     return { id: data?.id };
   }
 

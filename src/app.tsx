@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import Splash from '@/components/Splash';
-import Onboarding, { hasOnboarded } from '@/components/Onboarding';
+import Onboarding, { hasOnboarded, hasOnboardedFor, markOnboardedFor } from '@/components/Onboarding';
 import DesktopNav from '@/components/DesktopNav';
 import ConsentGate from '@/components/ConsentGate';
 import HotkeyHelp from '@/components/HotkeyHelp';
@@ -10,7 +10,7 @@ import { HELP_EVENT, focusSearchBox, useGlobalHotkeys } from '@/hooks/useHotkeys
 import { hotkeyRoute } from '@/utils/hotkeys';
 import type { HotkeyId } from '@/utils/hotkeys';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
-import { needsAuthGate, getSession, markGateRedirect } from '@/services/cloudAuth';
+import { needsAuthGate, getSession, markGateRedirect, getCloudUserId, hasStoredSession } from '@/services/cloudAuth';
 import { hasAgreedConsent } from '@/data/legal';
 import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/language';
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
@@ -18,6 +18,7 @@ import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
 import { initCloudSync } from '@/services/cloudSync';
 import { restoreSubscriptionFromOrders } from '@/services/subscription';
 import { dismissBootSkeletonAfterPaint } from '@/utils/bootSkeleton';
+import { showBootFailure } from '@/utils/bootFailure';
 import { activatePressable, observePressables } from '@/utils/a11y';
 import { reportCrash, installH5CrashHandlers } from '@/services/crashReport';
 import type { CrashPayload } from '@/services/crashReport';
@@ -141,6 +142,50 @@ function App(props: PropsWithChildren) {
   // 首次启动引导（设计稿 p19/p20）：只在 H5 且有真实账号体系时才有意义，
   // 看过一次就落库，不再骚扰（微信端直接视为已看过）。
   const [onboarded, setOnboarded] = useState(() => process.env.TARO_ENV !== 'h5' || hasOnboarded());
+  // 当前会话的 uid：引导完成时按账号落库（见下方 effect 与 Onboarding 的 accountKey）
+  const [onboardUid, setOnboardUid] = useState<string | null>(null);
+  /**
+   * 登录后补一次用户指导（2026-10-30，用户反馈「只有注册有、登录没有」）。
+   *
+   * 上面 useState 只在应用挂载时求值一次，读的是**设备级**标记 —— 于是：
+   *   · 老用户换设备登录 → 本地没标记，但那次挂载可能发生在登录页（不渲染引导），
+   *     登录成功切进来后 state 已定，不会重新判断 → 一次指导都看不到；
+   *   · 同设备换账号登录 → 设备标记还在 → 新账号也永远看不到。
+   * 这里在「离开登录页」时按**账号**再判一次，没看过就补上。
+   * 会话取不到时保持原判断（宁可少弹一次，也不要因为异常把人挡在门外）。
+   */
+  useEffect(() => {
+    if (process.env.TARO_ENV !== 'h5' || isLoginPage) return;
+    let alive = true;
+    let tries = 0;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    // ⚠️ 2026-10-30 线上实测：这条判定**只跑一次**，而 getSession() 在「刚登录 / 刚刷新」
+    //    那一刻经常还是 null（SDK 的会话恢复有竞态）。一次拿不到就退化成设备级判断
+    //    （hasOnboardedFor(null) → 退回设备标记 true）→ 「登录后补引导」**永远不会弹**，
+    //    真账号 E2E 里 L4/L4b 都是 false 就是这个原因。
+    //    改成最多重试 10 次（约 7 秒）：拿到 uid 再决定，拿不到才沿用设备级。
+    const decide = () => {
+      getCloudUserId()
+        .then((uid) => {
+          if (!alive) return;
+          if (!uid && tries < 10) {
+            tries += 1;
+            timers.push(setTimeout(decide, 700));
+            return;
+          }
+          setOnboardUid(uid);
+          setOnboarded(hasOnboardedFor(uid));
+        })
+        .catch((err) => {
+          console.warn('[App] 引导的账号级判定失败，沿用设备级标记:', err);
+        });
+    };
+    decide();
+    return () => {
+      alive = false;
+      timers.forEach((t) => clearTimeout(t));
+    };
+  }, [isLoginPage]);
   // 外壳左栏导航：H5 + ≥600px 挂载（手机继续用 Taro 底部 tabBar）。
   // 同时给 body 打类，让 app.scss 把 Taro tabBar 关掉并把内容列按断点右移（64/232/240）。
   // 断点从 1200 降到 600 的原因：Taro tabBar 最多 5 项，768 的 iPad 上记账/运动/省钱
@@ -173,22 +218,84 @@ function App(props: PropsWithChildren) {
    * ChunkLoadError / "dynamically imported module" 的运行时错误。
    * 15 秒窗口内只救一次：第二次还失败说明不是版本漂移，重载只会变成刷屏死循环，
    * 那时应该让用户看到错误而不是无限刷新。
+   *
+   * ⚠️ 2026-10-30 加了**启动期豁免**：此前任何脚本加载失败（**包括网络抖动/超时**）
+   *   都会整页 reload。而发布网关对单个请求有 20–31 秒的首字节长尾（实测），
+   *   一次卡顿就会把用户从「已渲染的界面」打回「重新下载 900 KB + 骨架重来」——
+   *   把一次局部抖动放大成整页重来，比不重载更糟。
+   *   ⇒ 启动后 15 秒内不重载：那段时间多半是网络问题，不是版本漂移；
+   *     真碰上版本漂移（首屏拿到的 index.html 是旧的）也有更好的出路 ——
+   *     骨架的「重新加载」按钮带 cache-busting 的 query，会强制取一份**新的** index.html。
+   *   启动期失败改为把骨架切到失败态（文案 + 可重试按钮），不再静默整页刷新。
    */
   useEffect(() => {
     if (process.env.TARO_ENV !== 'h5' || typeof window === 'undefined') return;
     const KEY = 'chunk-reload-at';
+    /** 启动后这段时间内的失败不整页重载（见上方注释） */
+    const BOOT_GRACE_MS = 15000;
     const onError = (e: Event) => {
       const target = e.target as HTMLElement | null;
       const scriptFailed = target && target.tagName === 'SCRIPT';
       const msg = String((e as ErrorEvent).message || '');
       const chunkFailed = /ChunkLoadError|Loading chunk|dynamically imported module|Importing a module script failed/i.test(msg);
       if (!scriptFailed && !chunkFailed) return;
+      const inBoot = (() => {
+        try {
+          return typeof performance !== 'undefined' && performance.now() < BOOT_GRACE_MS;
+        } catch {
+          return false;
+        }
+      })();
+      if (inBoot) {
+        // 启动期：优先交给骨架的失败态（它带进度与重试），骨架不在就直接插兜底层。
+        // ⚠️ 骨架在**应用挂载成功那一刻就被撤掉了**，而最常见的失败恰恰发生在挂载之后
+        //    （外壳起来了、切页的分包挂了）—— 那时 `skel` 为 null，原来这里静默无效：
+        //    实测掐掉 js/855.*.js 后用户看到的是一个没有内容、没有提示、没有重试的页面。
+        console.error('[App] 启动期资源加载失败:', scriptFailed ? 'script' : msg);
+        let handedToSkeleton = false;
+        try {
+          const skel = document.getElementById('boot-skeleton');
+          if (skel) {
+            skel.classList.add('is-fail');
+            handedToSkeleton = true;
+          }
+        } catch {
+          /* DOM 不可用就走兜底层 */
+        }
+        // ⚠️ 不能一有 script 失败就盖全屏：`<script onerror>` 也包含 wb-sdk.js。
+        //    SDK 挂了但应用本身照常能渲染简报，这时盖一层「页面没有加载出来」
+        //    会把**本来能用**的界面挡掉 —— 比不处理更糟。
+        // ⚠️ 也不能只靠 message 判：分包失败在浏览器里是 script 元素的 onerror，
+        //    message 是空串（没有 ChunkLoadError 文本），按 message 判会把真正的
+        //    页面打不开漏掉（实测 B8–B10 就是这么红的）。必须看失败脚本的 src。
+        // 判「应用是否已经在渲染界面」不能只数节点：登录页只有 45 个节点，会被误判成"没挂载"。
+        // Taro 一旦产出 .taro_page 就说明路由已经在渲染（哪怕渲染的是登录页）。
+        const failSrc = (target as HTMLScriptElement | null)?.src || '';
+        const mounted = !!document.querySelector('.taro_page') && document.querySelectorAll('taro-view-core').length > 10;
+        const failedPageChunk = /\/js\/\d+\.[0-9a-f]+\.js(\?|$)/.test(failSrc);
+        // SDK 是**可缺**的：它挂了只是云能力降级（登录/同步不可用），应用本身照常能跑。
+        // 而且它在渲染之前就加载，失败时页面还没挂载，用 mounted 判会误盖全屏。
+        // 所以这一条按文件直接排除，不看时机。
+        const sdkFailed = /\/assets\/wb-sdk\.js/.test(failSrc);
+        if (!handedToSkeleton && !sdkFailed && (chunkFailed || failedPageChunk || !mounted)) {
+          showBootFailure(scriptFailed ? `script onerror: ${failSrc.split('/').pop() || '?'}` : msg);
+        } else if (!handedToSkeleton) {
+          console.error('[App] 非致命脚本失败，不盖全屏（交由功能降级处理）:', failSrc.split('/').pop() || msg);
+        }
+        return;
+      }
       try {
         const last = Number(window.sessionStorage.getItem(KEY) || 0);
-        if (Date.now() - last < 15000) return;
+        if (Date.now() - last < 15000) {
+          // 已经在 15s 内救过一次还失败 = 不是版本漂移，再刷就是刷屏死循环。
+          // 以前这里直接 return（用户面对一个空白页无路可走），改成给一个能点的重试。
+          showBootFailure(`二次失败，放弃自动重载：${msg}`);
+          return;
+        }
         window.sessionStorage.setItem(KEY, String(Date.now()));
       } catch {
-        return; // sessionStorage 被禁（隐私模式）：不重载，避免无记录的死循环
+        showBootFailure('sessionStorage 不可用，无法安全自动重载');
+        return;
       }
       console.error('[App] chunk 加载失败，重载一次以获取最新版本:', scriptFailed ? 'script' : msg);
       window.location.reload();
@@ -347,8 +454,25 @@ function App(props: PropsWithChildren) {
     // 注意实现方式是**重定向**，而不是在 App 里不渲染 children —— 后者会打断
     // Taro 的页面生命周期（实测抛「没有找到页面实例」并整页白屏，只剩 Tab 栏）。
     if (needsAuthGate && route && !route.includes('login')) {
-      getSession().then((s) => {
-        if (!s) {
+      // 2026-10-31（用户实测 #3）：getSession() 返回 null 有两种完全不同的原因——
+      //   ① 本地无凭据（真未登录 / 会话过期被 SDK 清掉）→ 送登录页正确；
+      //   ② 本地**还存着**凭据但恢复请求网络失败（SDK 保留凭据只置 lastFailure）
+      //      → 送登录页会把能无缝恢复的会话变成「重新输密码」。②先延迟重试
+      //      （2s × 3 次），期间用户停在原页；仍失败才走重定向（网络长尾实测 20-30s，
+      //      3 次重试约 6s，是「抖动」与「真断网」的合理分界）。
+      let gateRetries = 0;
+      const runGateCheck = () => {
+        getSession().then((s) => {
+          if (s) return;
+          if (hasStoredSession() && gateRetries < 3) {
+            gateRetries += 1;
+            console.error(`[App] 会话恢复失败（第 ${gateRetries}/3 次重试）——本地凭据还在，不送登录页`);
+            setTimeout(runGateCheck, 2000);
+            return;
+          }
+          if (hasStoredSession()) {
+            console.error('[App] 会话恢复连续 3 次失败，转登录页让用户重新验证');
+          }
           // ⚠️ 用 reLaunch 而非 redirectTo：前者只 unload 当前页但不清理 tabBar 缓存，
           // 导致 briefing 页一直留在 DOM 里且带 .taro_page_show.taro_page_stationed，
           // CSS 规则 `:not(.taro_tabbar_page)` 又不会隐藏 tabBar 页 → 真实访客跳登录后
@@ -362,13 +486,20 @@ function App(props: PropsWithChildren) {
             // （用 console.error：console.warn 会被生产构建剔除）
             console.error('[App] 门禁重定向登录页失败:', err);
           });
-        }
-      });
+        });
+      };
+      runGateCheck();
     }
   });
 
   return (
     <>
+      {/* ★ 2026-10-30：侧栏必须排在正文**之前**。
+          DesktopNav 是 position:fixed，放在 children 前后视觉上完全一样，
+          但**Tab 顺序按 DOM 走** —— 放在 children 后面时，键盘用户得先穿过整个正文
+          才摸得到导航（资料库页实测 2121 个停靠点、导航排在第 2121 位）。
+          登录页不渲染侧栏，所以此处要自己带 isLoginPage 守卫（原来靠外层 Fragment 兜着）。 */}
+      {!isLoginPage && desktopNav ? <DesktopNav /> : null}
       {props.children}
       {/* 应用外壳一律不进登录页：未登录时它既无用又泄漏"应用已就绪"的错觉 */}
       {isLoginPage ? null : (
@@ -378,11 +509,15 @@ function App(props: PropsWithChildren) {
               两套实现各自维护；收敛成一个页面后，页面上不再有悬浮物遮挡正文。 */}
           {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页 */}
           {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
-          {desktopNav ? <DesktopNav /> : null}
           {/* 首启引导：必须等隐私同意之后再挂（两个全屏层叠在一起，用户会点不到下面那层），
               也必须等开屏退场（shellReady），否则引导藏在开屏下面等于没出现。 */}
           {consentAgreed && shellReady && !onboarded ? (
-            <Onboarding onDone={() => setOnboarded(true)} />
+            <Onboarding
+              onDone={() => {
+                markOnboardedFor(onboardUid);
+                setOnboarded(true);
+              }}
+            />
           ) : null}
           {/* 键盘快捷键面板：`?` 或「我的 → 键盘快捷键」打开（H5 桌面端） */}
           <HotkeyHelp open={helpOpen} onClose={() => setHelpOpen(false)} />

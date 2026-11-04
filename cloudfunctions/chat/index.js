@@ -481,7 +481,15 @@ async function handleApplyPlan(openid, event) {
       eventId: e && e.eventId ? String(e.eventId) : '',
       title: String((e && e.title) || '日程').slice(0, MAX_TITLE_LEN),
       startTime: String((e && e.startTime) || ''),
-      endTime: e && e.endTime ? String(e.endTime) : ''
+      endTime: e && e.endTime ? String(e.endTime) : '',
+      // 手动编辑新增字段（fix(calendar-edit)）：旧调用方（一键重排）不传这些键，
+      // 用 has* 标记区分「显式清空」与「本次不修改」，避免把原地点/备注误删
+      hasTitle: !!(e && e.title),
+      hasEndTime: !!(e && Object.prototype.hasOwnProperty.call(e, 'endTime')),
+      hasLocation: !!(e && Object.prototype.hasOwnProperty.call(e, 'location')),
+      hasNote: !!(e && Object.prototype.hasOwnProperty.call(e, 'note')),
+      location: e && typeof e.location === 'string' ? e.location.slice(0, MAX_TITLE_LEN) : '',
+      note: e && typeof e.note === 'string' ? e.note.slice(0, 120) : ''
     }))
     .filter((e) => TIME_RE.test(e.startTime));
 
@@ -495,11 +503,15 @@ async function handleApplyPlan(openid, event) {
     const item = items[i];
     try {
       if (item.eventId) {
-        // 改期：校验归属后只更新时间字段
+        // 改期/编辑：校验归属后更新
         const doc = await db.collection('events').doc(item.eventId).get();
         if (!doc.data || doc.data.openid !== openid) continue;
         const update = { startTime: item.startTime, updatedAt: now };
-        if (TIME_RE.test(item.endTime)) update.endTime = item.endTime;
+        if (item.hasTitle) update.title = item.title;
+        // 显式传空串 = 清空该字段（手动编辑删除地点/备注）；未传 = 保持原值（一键重排旧路径）
+        if (item.hasEndTime) update.endTime = TIME_RE.test(item.endTime) ? item.endTime : _.remove();
+        if (item.hasLocation) update.location = item.location ? item.location : _.remove();
+        if (item.hasNote) update.note = item.note ? item.note : _.remove();
         await db.collection('events').doc(item.eventId).update({ data: update });
         ids.push(item.eventId);
       } else {

@@ -76,6 +76,26 @@ exports.main = async () => {
     }
   }
 
+  // 2026-10-31（I1b 清偿）：redeemCodes 的 usedBy 是**数组内成员**（redeemCode 云函数
+  // `_.push([OPENID])` 写入），按 openid 的文档删除一条也匹配不到。注销承诺必须覆盖
+  // 「我的兑换记录」——用 where(数组字段含本人) + `_.pull` 原子拉除本人；
+  // 池文档本身与其他用户的记录原样保留（码池是运营资产，不是个人数据）。
+  try {
+    const _ = db.command;
+    const res = await db
+      .collection('redeemCodes')
+      .where({ usedBy: OPENID })
+      .update({ data: { usedBy: _.pull(OPENID) } });
+    deleted += (res.stats && res.stats.updated) || 0;
+  } catch (err) {
+    if (isCollectionMissing(err)) {
+      console.info(`[deleteAccount] collection redeemCodes not exists, skipped`);
+    } else {
+      console.error(`[deleteAccount] redeemCodes pull FAILED:`, err && err.message);
+      failed.push('redeemCodes');
+    }
+  }
+
   console.info(
     `[deleteAccount] openid=${OPENID} removed=${deleted} failed=${failed.join(',') || 'none'}`
   );

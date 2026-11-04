@@ -27,7 +27,7 @@ const ok = (cond, msg, detail = '') => {
   else { fail++; console.log(`  ✗ ${msg}${detail ? ' → ' + detail : ''}`); }
 };
 
-const DOCS = ['AGENTS.md', 'MEMORY.md'].filter((f) => fs.existsSync(path.join(ROOT, f)));
+const DOCS = ['AGENTS.md', 'MEMORY.md', 'README.md'].filter((f) => fs.existsSync(path.join(ROOT, f)));
 const text = Object.fromEntries(DOCS.map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')]));
 const all = DOCS.map((f) => text[f]).join('\n');
 
@@ -197,11 +197,26 @@ console.log('\n── C. 文档里的数字必须等于现查结果 ──');
 
 const realFnCount = fs.readdirSync(path.join(ROOT, 'cloudfunctions'), { withFileTypes: true })
   .filter((d) => d.isDirectory()).length;
-const fnClaim = all.match(/`cloudfunctions\/` 下 (\d+) 个函数/);
+// ⚠️ 2026-11-03：README 曾写「24 个云函数」而实际 26 个（门禁当时只扫 AGENTS/MEMORY，
+//    于是只要 README 不进 DOCS 就永远发现不了）。现在 README 也纳入，且判据改成
+//    全文档所有「N 个云函数」声明都必须等于现查值 —— 不再依赖某一种固定句式。
+const fnClaims = [...all.matchAll(/(\d+) 个云函数/g)].map((m) => Number(m[1]));
 ok(
-  fnClaim === null || Number(fnClaim[1]) === realFnCount,
+  fnClaims.every((n) => n === realFnCount),
   `C1 文档若声明云函数个数，必须等于实际值（实际 ${realFnCount}）`,
-  fnClaim ? `文档写 ${fnClaim[1]} 个` : ''
+  fnClaims.filter((n) => n !== realFnCount).map((n) => `文档写 ${n} 个`).join(', ')
+);
+
+// C1b：页面个数同理。此前 README 写「13 个」，实际 20 个。
+const realPageCount = fs.readdirSync(path.join(ROOT, 'src', 'pages'), { withFileTypes: true })
+  .filter((d) => d.isDirectory()).length;
+// ⚠️ 不能用贪婪的 `[^\n]{0,20}`：它会把「20 个」里的 2 一起吃进去，捕获到 0（实测踩过）。
+//    限定中间不能出现数字，捕获组才是真正的页面个数。
+const pageClaims = [...all.matchAll(/页面[^\d\n]{0,20}(\d+) 个/g)].map((m) => Number(m[1]));
+ok(
+  pageClaims.every((n) => n === realPageCount),
+  `C1b 文档若声明页面个数，必须等于实际值（实际 ${realPageCount}）`,
+  pageClaims.filter((n) => n !== realPageCount).map((n) => `文档写 ${n} 个`).join(', ')
 );
 
 const realMutFiles = fs.readdirSync(path.join(ROOT, '.tools')).filter((f) => /^mutations-.*\.mjs$/.test(f)).length;

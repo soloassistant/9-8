@@ -18,11 +18,23 @@ $page-spacing: 32rpx;
 $max-content-width: 686rpx; // 750 - 32*2，内容最大宽度
 
 // 间距（8px 网格系统）
+// 2026-11-04 UI 批次：**全站收敛到 8 / 16 / 24 三档**（xs/sm/md）。
+// lg / xl 仅保留给大区块纵向留白，新样式优先用前三档；页面里散落的
+// 4/6/10/12rpx 微调已在高频页（briefing/library/ledger/mine）逐步替换为这三档。
 $spacing-xs: 8rpx;
 $spacing-sm: 16rpx;
 $spacing-md: 24rpx;
 $spacing-lg: 32rpx;
 $spacing-xl: 48rpx;
+
+// 圆角三档（2026-11-04 UI token 收敛）：新代码只用这三档，别再写 3/4/6/8/10 这类零散值。
+//   tier-sm 12rpx = 小元素（chip / 徽章 / 进度条）
+//   tier-md 20rpx = 卡片内的图与输入框
+//   tier-lg 32rpx = 卡片 / 弹层
+// 旧变量保留（未被迁移的页面继续用），迁移完可删除。
+$radius-tier-sm: 12rpx;
+$radius-tier-md: 20rpx;
+$radius-tier-lg: 32rpx;
 
 // 圆角（语义化）——「晨光 v2」2026-10-25 视觉焕新：全面放大圆角，
 // 现代移动端的「大软圆角」语言（原值 4/8/12/16/20，见 git 历史回退）。

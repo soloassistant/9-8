@@ -254,13 +254,40 @@ ensureHotspotFallback();
 //   verify:boot-skeleton 直接验产物（比验模板更接近事实）。
 // 片段源在 src/assets/boot-skeleton.html（可 review、可 diff），本函数只负责摆放：
 //   <style> → </head> 前；骨架 DOM + watchdog → <div id="app"> 前（保持 #app 为空给 React）。
+// 首屏真实字节数：把 index.html 里引用的**本地** JS/CSS 体积加起来，作为骨架进度条的分母。
+// 为什么要真实值：骨架报「已下载 320 KB / 900 KB」比只报「正在准备…」诚实得多
+// （2026-10-30 实测线上首屏最慢挂载 30 秒以上，用户必须知道自己在等什么）。
+// 算不出就返回 0，骨架会退化成「已下载 X KB」，**绝不编造分母**。
+function bootPayloadBytes(html) {
+  const re = /(?:src|href)="\.?\/?([^"?#]+\.(?:js|css))"/g;
+  let m;
+  let total = 0;
+  let files = 0;
+  while ((m = re.exec(html))) {
+    const rel = m[1].replace(/^\.?\//, '');
+    const f = path.join(dist, rel);
+    try {
+      if (fs.existsSync(f) && fs.statSync(f).isFile()) {
+        total += fs.statSync(f).size;
+        files += 1;
+      }
+    } catch (e) {
+      /* 单个文件读不到就跳过，不影响其余统计 */
+    }
+  }
+  return { total, files };
+}
+
 function injectBootSkeleton() {
   const fragPath = path.join(root, 'src/assets/boot-skeleton.html');
   const indexPath = path.join(dist, 'index.html');
   try {
-    const frag = fs.readFileSync(fragPath, 'utf8');
+    let frag = fs.readFileSync(fragPath, 'utf8');
     const html = fs.readFileSync(indexPath, 'utf8');
     if (html.includes('id="boot-skeleton"')) return; // 幂等：重复跑不会插两份
+    const payload = bootPayloadBytes(html);
+    // 占位符替换：没算到就是 0，骨架会自动退化成「只报已下载字节数」
+    frag = frag.replace(/__BOOT_TOTAL_BYTES__/g, String(payload.total));
     const m = frag.match(/^\s*<style>[\s\S]*?<\/style>\s*/);
     const styleBlock = m ? m[0] : '';
     const bodyBlock = m ? frag.slice(m[0].length) : frag;
@@ -271,7 +298,10 @@ function injectBootSkeleton() {
       .replace('</head>', styleBlock + '</head>')
       .replace('<div id="app">', bodyBlock + '<div id="app">');
     fs.writeFileSync(indexPath, out);
-    console.log(`[copy-assets] 首屏骨架已注入 dist/index.html（${styleBlock.length + bodyBlock.length} B）`);
+    console.log(
+      `[copy-assets] 首屏骨架已注入 dist/index.html（${styleBlock.length + bodyBlock.length} B，` +
+        `首屏资源 ${payload.files} 个 / ${payload.total} B）`
+    );
   } catch (e) {
     // 失败只告警不阻塞构建：发布前的 verify:boot-skeleton 会把它拦下来
     console.warn(`[copy-assets] 首屏骨架注入失败：${String((e && e.message) || e)}`);

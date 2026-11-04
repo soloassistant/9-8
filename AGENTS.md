@@ -121,7 +121,7 @@ MSYS_NO_PATHCONV=1 robocopy "D:\Agent\晨报\dist" "D:\Agent\dist" /MIR
 > `SITES_UPLOAD_FAILED`。而且该失败**已经改写了线上 sandbox**，链接会短时间不可用，必须重新发布一次恢复。
 > **必须是真实目录副本**（3.4 MB，可接受）。
 
-发布后 4 项必查（缺一项都可能"看起来上线了但其实坏的"）：
+发布后 5 项必查（缺一项都可能"看起来上线了但其实坏的"）：
 
 ```bash
 H=https://48f86dcd48e3462dbe897b5fce534551.app.workbuddy.host
@@ -151,6 +151,60 @@ curl -s "$H/.cloud/database/rest/user_kv?select=*" -H "Origin: $H" -H "X-Wb-Weba
 > `createWorkBuddyCloud({endpoint:location.origin, publishableKey:…}).auth.signInWithPassword(不存在的账号)`
 > 必须返回业务错误 `invalid-request / "Username or password incorrect."`；返回 `Failed to fetch`
 > 就是 Origin/CORS 问题，**不是密码问题**。
+
+### ★ 第 5 项（浏览器级）：**用户到底看不看得见界面**
+
+上面 4 项全是**资产 / API 级**检查 —— 它们回答「文件到位了吗、接口通吗」，
+**回答不了「用户打开页面，看得见界面吗」**。一条命令跑完全部 5 项：
+
+```bash
+npm run publish:check        # node .tools/verify-publish-live.mjs
+```
+
+第 ⑤ 项用真 Chrome 打开线上入口，断言：**30s 内真的挂载**（`#container` 存在 / `#app` 有内容）、
+**首屏骨架已被移除**（`#boot-skeleton` 不在 DOM 里）、**页面显示的是真实界面而不是骨架文案**、**没有横向溢出**。
+
+> ⚠️ **2026-10-30 实测踩出来的坑**（当时线上 ①②③④ **全绿**）：
+> 真浏览器里 **30 秒后 React 仍未挂载**（没有 `#container`，`#app` 还是模板里的空占位），
+> 首屏骨架 `<div id="boot-skeleton">`（`position:fixed; z-index:9999`）**一直盖在最上面**，
+> `elementFromPoint` 命中的还是骨架，页面上只有「正在准备今天的晨报…加载得有点慢…重新加载」
+> ⇒ **用户永远看不到登录页**。
+>
+> 根因是**两件事叠加**（别只怪平台）：
+> ① **投递侧单请求首字节长尾**：真浏览器网络时间线实测，同一批并行请求里
+>    **恰好一个**被卡了 20402ms / 23851ms / 30877ms，同批其余请求只要 0.4–3 秒
+>    ⇒ 长尾是**按请求随机**的，不是"整个站都慢"；卡的是**首字节**不是体积
+>    （5.4KB 的 HTML body 传输只要 1–4ms）；网关**不压缩**、**没有 HTTP/2**、
+>    边缘缓存**每次 MISS**（这几条是平台侧，我们改不了）。
+> ② **我们自己的 `defer` 链把第三方 SDK 串在了主包前面**（可以改，已改，见下节）。
+>
+> ⇒ **「资产都在」不等于「用户看得见界面」**。只查资产的那 4 项，必须配第 ⑤ 项一起跑。
+> 排查这类现象时先分清三种原因：**① 产物半成品 / ② 产物落后于未提交源码 / ③ 投递侧慢或失败**，
+> 别一上来就改源码。
+
+### ★ 首屏关键路径：`defer` 会把第三方脚本**串到主包前面**
+
+`defer` 脚本按**文档序**执行。所以写在 `src/index.html` 里、排在 webpack 注入的
+`js/657.*.js` / `js/app.*.js` **之前**的第三方脚本，**一旦卡住，整个应用就卡住** ——
+主包早就下载完了也不能执行。
+
+> 2026-10-30 实测：`assets/wb-sdk.js` 的首字节卡了 23.8 秒 ⇒ `app.js` 在 **3.7 秒**就下载完，
+> 应用却到 **27.6 秒**才挂载。受控实验（同一份线上字节，本地给 SDK 注入 8 秒延迟）：
+> `defer` → 挂载 **8823ms**；改 `async` → 挂载 **636ms**。
+
+⇒ **与主包无关但同源的脚本一律用 `async`**，不要用 `defer`。
+改之前先确认「读它的代码是否本来就是异步等待的」—— 本项目 `cloudAuth.waitForSdk()`
+本来就是轮询等全局出现，所以改 `async` 安全（见 `src/index.html` 里的论证）。
+
+**门禁**：`npm run verify:boot-path`（14 条源码层 + 产物层；12 条变异用例），
+守「SDK 必须 async」「SDK 卡住要重试（带 cache-busting）」「chunk 失败不在启动期整页重载」
+「骨架要报真实进度、不许重复 id」。**产物层只在干净构建时跑**（`build-stamp.json` 的
+`dirty === false`），否则就是"改完 src 未重建 ⇒ 必然红"的常红门禁。
+
+**顺带一条纪律**：**失败处理不能放大故障**。
+此前 chunk 加载失败（**包括网络抖动**）会整页 `reload` ⇒ 一次局部抖动被放大成
+「重下 900KB + 骨架重来」，比不处理更糟。**恢复手段必须与故障类型匹配**：只有版本漂移
+（404）才该整页重载；启动期内一律不重载，交给骨架的失败态 + 带 cache-busting 的重试。
 
 顺带一条隔离举证（顺手做的，可复用）：**未登录** `database.from('user_kv').select('*')` 返回
 `rows: 0, error: null` —— 库里 20+ 行真实数据对匿名用户完全不可见，即 RLS 生效。
@@ -254,13 +308,23 @@ WorkBuddy 那个要平台侧重发。⇒ 改了 `src/` 只提交/推送，**两�
 发布到 WorkBuddy 前务必同步：`robocopy D:\Agent\晨报\dist D:\Agent\dist /MIR`，
 否则发出去的是上一次的旧产物（平台只认 `D:\Agent\dist` 这个目录，不认仓库路径）。
 
+> ★ **发布回滚预案（2026-10-31 补，配合 docs/上市差距与上线检查单）**：
+> 平台没有版本历史，**唯一回滚手段 = 把旧产物放回 `D:\Agent\dist` 再重发一次**。因此：
+> ① **每次面板重发之前**，把当时的 `D:\Agent\dist` 整目录复制为 `D:\Agent\dist.stale\<日期>/`
+>   （未跟踪目录，别提交进仓——只留最近一代，发新版覆盖它之前先换名）；
+> ② 线上事故回滚 = `robocopy "D:\Agent\dist.stale\<日期>" "D:\Agent\dist" /MIR`（带
+>   `MSYS_NO_PATHCONV=1`，见上）→ 面板重发 → `npm run publish:check` 全绿再收工；
+> ③ 前端回滚**不影响**数据侧（`user_kv` / `llm_events` / 热点数据）——查数据问题别顺着
+>   前端回滚找；反过来，`api/hotspot.json` 是烘焙进发布目录的，回滚会连它一起回退，
+>   如需保留新数据，回滚后单独补一次 `fetch-data --out D:\Agent\dist\api\hotspot.json`。
+
 > `deploy.ps1` / `.deploy-config.json`（SFTP）**不是**当前上线通道，别照它操作。
 > `deploy-gh-pages.ps1` **在仓库里从来不存在**（历史文档提到的那个脚本已不存在，别再去找）。
 
 ## 5. 云函数
 
 `cloudfunctions/` 下的函数按功能分组（**数量用 `ls -d cloudfunctions/*/ | wc -l` 现查，别背数字**；
-本文档曾写"24 个"，实际已是 25）：
+本文档曾写"24 个"、后又写成 25，实际已是 26）：
 
 | 分组 | 函数 |
 |---|---|
@@ -274,7 +338,7 @@ WorkBuddy 那个要平台侧重发。⇒ 改了 `src/` 只提交/推送，**两�
   （`.env.local` 里没有；`project.config.json` 的 appid 还是 `touristappid`）
   → **云函数改动目前只能在本地验证，线上跑的是旧版本**
 - **无凭据也能守的底线**：`npm run verify:cloudfunctions`（148 条断言）。
-  用 vm + 伪造 `require` 在**没有 wx-server-sdk、不联网**的情况下加载全部 24 个函数，
+  用 vm + 伪造 `require` 在**没有 wx-server-sdk、不联网**的情况下加载全部 26 个函数，
   守住结构（`exports.main` / 依赖声明 / 相对 require 目标 / timer 必须 7 段 cron）、
   可加载性、权限边界（缺 OPENID 必须明确拒绝 / `where` 查询不得用 `_openid` / 无硬编码 AppID）。
   **新增云函数必须同步登记到脚本里的 `OPENID_GUARDED` / `OPENID_OPTIONAL` 表**，
@@ -296,7 +360,7 @@ WorkBuddy 那个要平台侧重发。⇒ 改了 `src/` 只提交/推送，**两�
 - 云函数里调用 `cloud.openapi.*` 需要在**同名目录**放 `config.json` 声明权限，
   例如 `security.msgSecCheck`（参考 `cloudfunctions/extract/config.json`）
 
-### 5.1 云数据库（H5 数据面，与上面 24 个云函数是两套东西）
+### 5.1 云数据库（H5 数据面，与上面 26 个云函数是两套东西）
 
 H5 不走微信云开发，走 WorkBuddy 云库（3 张表）：
 
@@ -418,6 +482,26 @@ SPA fallback 把 `index.html` 当 JS 返回，报 `Unexpected token '<'`）。
 固定开销（系统提示词 + 工具定义）每次 45,101。也就是说钱的形状是"同样一段输出被反复背"，
 不是"读得太多"。把一轮能跑完的门禁拆成 6 轮跑，每一轮的输出都会被后续轮次重发 ——
 这才是 `verify:all` 存在的理由。
+
+### 6.3 自动化选择器约定：Taro `Text` 不透传 `data-testid`（2026-11-04 实测）
+
+**事实**：`<Text data-testid='watchlist-remove'>` 在真实 H5 DOM 里**不落地** —— 全页
+`querySelectorAll('[data-testid]').length === 0`。原因与 `Text` 不透传未知属性（`tabIndex` 同族）
+一致：Taro 组件只转发它认识的 props。
+
+**约定**：自动化一律按**稳定 className** 选，不要用 `data-testid`。
+
+- 自选股删除按钮：`.watch-remove-btn`（`src/pages/briefing/index.tsx`），断言在
+  `npm run verify:watchlist-sync`（防有人改回 `data-testid` 变成死选择器）。
+- 真实构建验收（需 Chrome + `dist/`）：
+  1. `npm run build:h5`；本地起静态服务；
+  2. 预置 localStorage `watchlist`（至少 1 个代码，如 `sh600519`）后打开晨报页；
+  3. 点「管理」进入编辑态 → `document.querySelectorAll('.watch-remove-btn').length >= 1`；
+  4. 删一条后编辑态自动退出，必须**重新点「管理」**才能删下一条。
+
+**交互事实（写自动化前必读）**：✕ **只在点「管理」进入编辑态后才出现**；删掉一条后
+**自动退出编辑态**（`handleRemoveStock` 末尾 `setQuoteOpen(false)`）。所以脚本必须
+「进管理态 → 删一条 → 重新进管理态」，不能连续查询 ✕。
 
 ## 7. 合规硬约束（微信小程序发布前必读）
 

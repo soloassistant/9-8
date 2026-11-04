@@ -12,6 +12,12 @@ import { hasKeyboard, requestHotkeyHelp } from '@/hooks/useHotkeys';
 import { resolveCityName } from '@/utils/weather';
 import { getTtsPrefs, saveTtsPrefs, TTS_RATE_OPTIONS } from '@/utils/tts';
 import type { TtsPrefs, TtsVoiceMode } from '@/utils/tts';
+import PromptModal from '@/components/PromptModal';
+import { collectVault, validateVault, buildVaultFilename, pickVaultKeys } from '@/utils/dataVault';
+import { SYNC_KEYS } from '@/services/cloudSync';
+import { readWatchKeywords, saveWatchKeywords } from '@/utils/intelWatchStore';
+import { getHotspotPayload, resetHotspotCache } from '@/services/cloud';
+import { readDisabledSources, setSourceEnabled } from '@/utils/sourcePrefs';
 import { CITY_TEXT } from '../mine/feedbackText';
 import styles from '../mine/index.module.scss';
 
@@ -183,6 +189,132 @@ function PrefsPage() {
   /** 键盘快捷键面板由 App 持有（全局单例），本页只发一个打开请求 */
   const handleOpenHotkeys = () => requestHotkeyHelp();
 
+  // ===== 数据保险箱（2026-10-31）：全量导出 / 导入（docs 评估 §7.2 F + 设置缺口②）=====
+  // 键清单单一事实源 = cloudSync.SYNC_KEYS；导入校验必须先过 dataVault.validateVault
+  // （结构/版本不对一律拒绝，绝不「尽量恢复」——这是唯一会覆盖用户数据的路径）。
+  const [vaultImportOpen, setVaultImportOpen] = useState(false);
+
+  const handleVaultExport = async () => {
+    const entries: Record<string, unknown> = {};
+    for (const k of SYNC_KEYS) {
+      try {
+        entries[k] = Taro.getStorageSync(k);
+      } catch {
+        entries[k] = null;
+      }
+    }
+    const { payload, dropped } = collectVault(entries);
+    const json = JSON.stringify(payload, null, 2);
+    if (process.env.TARO_ENV === 'h5') {
+      const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = buildVaultFilename();
+      // 必须先挂到 DOM 再 click（与记账导出同款，游离节点个别浏览器不触发下载）
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } else {
+      await Taro.setClipboardData({ data: json });
+    }
+    if (dropped.length) {
+      Taro.showToast({ title: t('prefs.vaultDropped').replace('{n}', String(dropped.length)), icon: 'none', duration: 2400 });
+    }
+  };
+
+  const handleVaultImport = async (raw: string) => {
+    // 体量护栏：正常备份 ~几十 KB，2MB 开外基本是粘错了东西
+    if (raw.length > 2_000_000) {
+      Taro.showToast({ title: t('prefs.vaultImportBad'), icon: 'none' });
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      Taro.showToast({ title: t('prefs.vaultImportBad'), icon: 'none' });
+      return;
+    }
+    const res = validateVault(parsed);
+    if (!res.ok) {
+      Taro.showToast({ title: t('prefs.vaultImportBad'), icon: 'none' });
+      return;
+    }
+    /* 缺陷 X4：只写白名单（SYNC_KEYS）。备份是唯一会覆盖用户数据的入口，
+       手工编辑过的 JSON 不得借此写入 `cloud-sync-owner` / `cloud-sync-meta` /
+       合规同意 / 订阅缓存等业务外键。跳过多少条必须如实告诉用户。 */
+    const { accepted, skipped } = pickVaultKeys(res.payload.keys, SYNC_KEYS);
+    if (Object.keys(accepted).length === 0) {
+      setVaultImportOpen(false);
+      Taro.showToast({
+        title: t('prefs.vaultImportNothing').replace('{m}', String(skipped.length)),
+        icon: 'none',
+        duration: 2600
+      });
+      return;
+    }
+    const keys = Object.keys(accepted);
+    for (const k of keys) {
+      Taro.setStorageSync(k, accepted[k]);
+    }
+    setVaultImportOpen(false);
+    Taro.showToast({
+      title: skipped.length
+        ? t('prefs.vaultImportOkSkipped').replace('{n}', String(keys.length)).replace('{m}', String(skipped.length))
+        : t('prefs.vaultImportOk').replace('{n}', String(keys.length)),
+      icon: skipped.length ? 'none' : 'success',
+      duration: skipped.length ? 2800 : 2200
+    });
+  };
+
+  // ===== 资讯来源开关（2026-11-02，产品评估 §P0-2）=====
+  // 源清单来自热点载荷的 sources 元信息（与服务端同一份，不另维护一份写死的列表）
+  const [hotSources, setHotSources] = useState<{ name: string; count: number }[]>([]);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [disabledSources, setDisabledSources] = useState<string[]>(() => readDisabledSources());
+  useEffect(() => {
+    let cancelled = false;
+    // 2026-11-03（J9）：热点页筛选条的「来源 ⚙」带 ?focus=sources 进来时，直接展开来源面板。
+    if (Taro.getCurrentInstance()?.router?.params?.focus === 'sources') setSourcesOpen(true);
+    getHotspotPayload()
+      .then((p) => {
+        if (cancelled || !p) return;
+        setHotSources((p.sources || []).filter((s) => s && s.name).map((s) => ({ name: s.name, count: s.count || 0 })));
+      })
+      .catch((err) => console.warn('[prefs] load hotspot sources failed:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const handleToggleSource = (name: string, enabled: boolean) => {
+    const res = setSourceEnabled(name, enabled, hotSources.map((s) => s.name));
+    if (!res.ok) {
+      Taro.showToast({ title: t('prefs.sourcesMin'), icon: 'none' });
+      return;
+    }
+    setDisabledSources(readDisabledSources());
+    // 缓存里存的是「已过滤」结果，改完必须清一次，否则 5 分钟内仍是旧列表
+    resetHotspotCache();
+  };
+
+  // ===== 追踪关键词（2026-10-31，产品评估 §7.2 E）：命中进晨报「追踪」区 =====
+  const [watchWords, setWatchWords] = useState<string[]>(() => readWatchKeywords());
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [watchDraft, setWatchDraft] = useState('');
+
+  const handleWatchSave = async (raw: string) => {
+    const words = saveWatchKeywords(raw);
+    setWatchWords(words);
+    setWatchOpen(false);
+    Taro.showToast({
+      title: words.length ? t('prefs.watchSaved').replace('{n}', String(words.length)) : t('prefs.watchCleared'),
+      icon: 'success',
+      duration: 2000,
+    });
+  };
+
   const renderRow = (label: string, valueNode: React.ReactNode, onClick?: () => void) => (
     <View className={styles.row} onClick={onClick}>
       <Text className={styles.rowLabel}>{label}</Text>
@@ -194,6 +326,16 @@ function PrefsPage() {
     <View className={styles.page} style={brandVars(theme)}>
       <View className={styles.card}>
         <Text className={styles.cardTitle}>{t('mine.settingGeneral')}</Text>
+        {/* 周报与晨报存档入口（2026-10-31，产品评估 §7.2 A/B）：个人数据视图，v1 先挂在设置页，
+            IA 是否独立成「我的」入口留给下一轮（我的页高度已顶满，别硬塞）。 */}
+        {renderRow(
+          t('prefs.reportEntry'),
+          <>
+            <Text className={styles.valueHint}>{t('prefs.reportEntryDesc')}</Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          () => void Taro.navigateTo({ url: '/pages/report/index' })
+        )}
         {renderRow(
           t('mine.nickname'),
           <Input
@@ -222,6 +364,47 @@ function PrefsPage() {
             onChange={(e) => persistCustom({ morningReminderEnabled: e.detail.value })}
           />
         )}
+        {/* 追踪关键词：命中进晨报「追踪」区；存 intel-watchlist（与自选股 watchlist 是两码事） */}
+        {renderRow(
+          t('prefs.watchTitle'),
+          <>
+            <Text className={styles.valueText}>
+              {watchWords.length ? t('prefs.watchCount').replace('{n}', String(watchWords.length)) : t('prefs.watchOff')}
+            </Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          () => {
+            setWatchDraft(watchWords.join('，'));
+            setWatchOpen(true);
+          }
+        )}
+        {/* 资讯来源（2026-11-02）：关掉的源整条不进列表。
+            过滤在 services/cloud 的载荷出口一处收口，这里只负责改偏好 + 清缓存。 */}
+        {renderRow(
+          t('prefs.sourcesTitle'),
+          <>
+            <Text className={styles.valueText}>
+              {disabledSources.length
+                ? t('prefs.sourcesOff').replace('{n}', String(disabledSources.length))
+                : t('prefs.sourcesAll')}
+            </Text>
+            <Text className={styles.arrow}>{sourcesOpen ? '⌄' : '›'}</Text>
+          </>,
+          () => setSourcesOpen((v) => !v)
+        )}
+        {sourcesOpen
+          ? hotSources.map((s) => (
+              <View key={s.name} className={styles.row}>
+                <Text className={styles.rowLabel}>{s.name}</Text>
+                <Text className={styles.valueText}>{t('prefs.sourcesCount').replace('{n}', String(s.count))}</Text>
+                <Switch
+                  checked={!disabledSources.includes(s.name)}
+                  color={theme.color}
+                  onChange={(e) => handleToggleSource(s.name, e.detail.value)}
+                />
+              </View>
+            ))
+          : null}
         {/* 天气城市：手动兜底，拒绝定位不再等于「永远是北京」。
             文案复用既有的 sync.key.user-city（'所在城市' / 'City'），不新增 i18n 键。 */}
         {renderRow(
@@ -318,6 +501,51 @@ function PrefsPage() {
           )}
         </View>
       ) : null}
+
+      {/* ===== 数据保险箱（2026-10-31）=====
+          日程/待办/收藏/记忆/学习进度都是用户资产，此前没有任何「带走数据」的入口。
+          放 prefs 不放「我的」：它是配置行为，且我的页高度已顶满（见 hotkeys 卡的注释）。
+          键清单单一事实源 = cloudSync.SYNC_KEYS；导入先过 validateVault，拒绝即拒绝。 */}
+      <View className={styles.card}>
+        <Text className={styles.cardTitle}>{t('prefs.vaultTitle')}</Text>
+        {renderRow(
+          t('prefs.vaultExport'),
+          <>
+            <Text className={styles.valueHint}>{t('prefs.vaultExportHint')}</Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          () => void handleVaultExport()
+        )}
+        {renderRow(
+          t('prefs.vaultImport'),
+          <>
+            <Text className={styles.valueHint}>{t('prefs.vaultImportHint')}</Text>
+            <Text className={styles.arrow}>›</Text>
+          </>,
+          () => setVaultImportOpen(true)
+        )}
+      </View>
+      <PromptModal
+        visible={vaultImportOpen}
+        title={t('prefs.vaultImport')}
+        description={t('prefs.vaultImportDesc')}
+        placeholder={t('prefs.vaultImportPlaceholder')}
+        confirmText={t('prefs.vaultImportGo')}
+        cancelText={t('cancel')}
+        onConfirm={handleVaultImport}
+        onCancel={() => setVaultImportOpen(false)}
+      />
+      <PromptModal
+        visible={watchOpen}
+        title={t('prefs.watchTitle')}
+        description={t('prefs.watchDesc')}
+        placeholder={t('prefs.watchPlaceholder')}
+        initialValue={watchDraft}
+        confirmText={t('prefs.watchSave')}
+        cancelText={t('cancel')}
+        onConfirm={handleWatchSave}
+        onCancel={() => setWatchOpen(false)}
+      />
     </View>
   );
 }

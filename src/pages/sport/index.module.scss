@@ -116,6 +116,20 @@
   color: $color-text-tertiary;
 }
 
+/* 健康数据单独同意的状态行（见 services/healthConsent.ts） */
+.healthRow {
+  display: block;
+  margin-top: $spacing-sm;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+  color: $color-text-secondary;
+}
+
+/* 已同意时突出「可撤回」—— 撤回权必须比默认告知更显眼 */
+.healthRowOn {
+  color: $color-primary-strong;
+}
+
 /* 完成度圆环：设计稿是「恢复良好 82」的绿色评分圈，
    这里换成真实的本周完成度（见 index.tsx 里为什么不编生理评分）。 */
 .scoreCircle {

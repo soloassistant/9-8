@@ -91,8 +91,11 @@
   }
 }
 
+/* 2026-11-03：激活项实测 2.04:1（文字 #c7371a 压在品牌橙 #ff7a45 实底上）。
+   改成不透明浅橙底 #fff1e9：与 $color-primary-strong 的对比度 4.69:1，
+   既保留「选中=品牌色」语义，又满足 WCAG AA。 */
 .itemActive {
-  background: rgba(255, 122, 69, 0.14);
+  background: #fff1e9;
 
   .label {
     color: $color-primary-strong;

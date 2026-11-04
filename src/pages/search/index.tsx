@@ -9,6 +9,9 @@ import type { Briefing, CollectionItem, HotspotNews } from '@/types';
 import { useT, useLanguageStore } from '@/store/language';
 import styles from './index.module.scss';
 
+/** H5 预览端：nativeProps 键盘语义仅在 H5 生效（小程序端忽略，无副作用） */
+const isH5 = process.env.TARO_ENV === 'h5';
+
 interface SearchResult {
   events: Briefing['events'];
   todos: Briefing['todos'];
@@ -161,6 +164,9 @@ function SearchPage() {
           placeholder={t('search.placeholder')}
           focus
           confirmType='search'
+          // 2026-11-04：H5 键盘语义（搜索键 + 放大镜）；原生小程序忽略 nativeProps。
+          // 实测此前只剩 type=search，inputmode/enterkeyhint 均为 null（软键盘回退成普通回车）。
+          nativeProps={isH5 ? { inputMode: 'search', enterKeyHint: 'search' } : undefined}
           onInput={(e) => setKeyword(e.detail.value)}
           onConfirm={() => setKeyword((k) => k.trim())}
         />

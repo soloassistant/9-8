@@ -20,6 +20,24 @@ export function listCollections(): CollectionItem[] {
   return load();
 }
 
+/** 删除一条收藏；返回删除后的完整列表（调用方负责 syncNow 与 UI 刷新）。
+ *  缺陷 B3：删掉最后一条会让 collectionStore 变成 []，必须由页面显式 syncNow(['collectionStore'])，
+ *  否则空数组默认不上推，换设备后收藏会「复活」。
+ *  X8：写盘失败返回 null —— 旧实现把内存里的 next 当结果返回，页面显示「已删除」，
+ *  刷新后又复活，属「本地写失败吞提示」。 */
+export function removeCollection(id: string): CollectionItem[] | null {
+  const next = load().filter((item) => item.id !== id);
+  try {
+    Taro.setStorageSync(STORE_KEY, next);
+  } catch (err) {
+    console.warn('[collectionStore] remove failed:', err);
+    return null;
+  }
+  // 回读：确认目标 id 真的不在了（storage 静默失败时不能报成功）
+  if (load().some((item) => item.id === id)) return null;
+  return next;
+}
+
 /** 新增收藏（时间倒序，最新在前）
  *
  * ⚠️ `opts.quota` 是**付费墙的唯一硬边界**（2026-10-12 增长审计）：
@@ -48,7 +66,10 @@ export function addCollection(
     Taro.setStorageSync(STORE_KEY, [full, ...existing]);
   } catch (err) {
     console.warn('[collectionStore] save failed:', err);
+    throw new Error('collection-save-failed');
   }
+  // 回读：写盘静默失败时不能把「已收藏」返回给调用方（X8）
+  if (!load().some((row) => row.id === full.id)) throw new Error('collection-save-failed');
   return full;
 }
 

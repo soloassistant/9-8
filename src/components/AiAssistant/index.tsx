@@ -6,8 +6,12 @@ import Taro from '@tarojs/taro';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
 import { apiChat, apiChatStream, apiApplyPlan, apiGetBriefing } from '@/services/api';
+import { runAiAction } from '@/services/aiActionExec';
 import { bumpLocalUsage, canChat, getAiQuota } from '@/services/aiQuota';
-import { useT } from '@/store/language';
+import { isDegraded } from '@/services/cloud';
+import { clearLastChatFailure, getLastChatFailure } from '@/services/cloudLlm';
+import { useLanguageStore, useT } from '@/store/language';
+import { safetyRefusal, screenContent } from '@/utils/contentSafety';
 import type { LangKey } from '@/store/language';
 import { loadChatLog, saveChatLog } from '@/utils/chatLog';
 import { buildPlanProposal, type PlanProposal, type PlanProposalRaw, type PlanApplyEvent } from '@/utils/schedule';
@@ -26,6 +30,27 @@ const isH5 = process.env.TARO_ENV === 'h5';
 const isWeapp = process.env.TARO_ENV === 'weapp';
 /** AI 助理对话本地持久化 key（上限 60 条，由 saveChatLog 截断） */
 const AI_LOG_KEY = 'aiAssistantLog';
+/** 单次发送的总时限（ms，覆盖流式 + 非流式两次尝试）。
+ *  2026-11-03：原先断网/云端不响应时，流式要等 SDK 自带 60s 超时，用户 20s 内看到的是
+ *  「正在思考…」且最终落到模板话术。现在给整次发送一个硬上限，到点即报超时并给重试。 */
+const CHAT_DEADLINE_MS = 30_000;
+
+/** 给任意请求加硬超时（不取消底层请求，只保证 UI 不会无限等待） */
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`chat timeout after ${ms}ms`)), Math.max(ms, 0));
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
 
 /** 悬浮球离底基准偏移（设计 px / rpx），offset 由调用页在此基础上叠加 */
 const FAB_BASE_OFFSET_RPX = 100;
@@ -90,6 +115,10 @@ interface AssistantMsg {
   memoryCount?: number;
   /** P1-E 记忆溯源：本次发送的记忆明细（footnote 展开面板逐条展示） */
   memoryItems?: MemoryItem[];
+  /** 诚实性标识（2026-11-03）：fallback = 这条回复来自本地模板而非云端 AI；error = 请求失败 */
+  notice?: 'fallback' | 'error';
+  /** 失败时「重试」要重发的原文（保留用户输入，不用重新打字） */
+  retryText?: string;
   createTime: string;
 }
 
@@ -141,7 +170,8 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
       content: string,
       image?: string,
       proposal?: PlanProposal,
-      memory?: MemoryTrace
+      memory?: MemoryTrace,
+      extra?: Partial<AssistantMsg>
     ): string => {
       msgIdRef.current += 1;
       const id = `ai-msg-${msgIdRef.current}`;
@@ -155,7 +185,8 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
           proposal,
           memoryCount: memory?.memoryCount,
           memoryItems: memory?.memoryItems,
-          createTime: dayjs().toISOString()
+          createTime: dayjs().toISOString(),
+          ...extra
         }
       ]);
       return id;
@@ -189,6 +220,34 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
     }
   }, []);
 
+  /** 执行模型给的动作并如实反馈（2026-10-31）。
+   *  设计取舍：
+   *   · `schedule`（排班建议）与 `shopping`（选购分析）不写库 —— 前者按提示词要求「先建议后确认」，
+   *     后者根本没有可写实体；这里返回 null 就直接跳过，不再补一句多余提示。
+   *   · 写失败必须 toast 出来，不能让用户以为成功了（与 apiTodoSetStatus 的「先写库再改 UI」同口径）。 */
+  const applyAiAction = useCallback(
+    async (res: { action?: string; targetId?: string | null; newTime?: string | null; newEvents?: unknown[] }) => {
+      const outcome = await runAiAction(res);
+      if (!outcome) return;
+      if (outcome.ok) {
+        if (outcome.kind === 'batch') {
+          Taro.showToast({ title: t('ai.act.batchSaved').replace('{n}', String(outcome.saved)), icon: 'success' });
+          void loadExistingEvents();
+        } else if (outcome.kind === 'done') {
+          Taro.showToast({ title: t('ai.act.todoDone'), icon: 'success' });
+        } else {
+          Taro.showToast({ title: t('ai.act.rescheduled'), icon: 'success' });
+        }
+        return;
+      }
+      const failedKey =
+        outcome.kind === 'batch' ? 'ai.act.batchFailed' : outcome.kind === 'done' ? 'ai.act.todoFailed' : 'ai.act.rescheduleFailed';
+      Taro.showToast({ title: t(failedKey), icon: 'none' });
+      console.warn('[AiAssistant] action not applied:', outcome.kind, outcome.reason);
+    },
+    [t, loadExistingEvents]
+  );
+
   /** 记忆写入 toast + 5s 撤销（M-03 / M-04）：撤销后写入抑制列表，本轮不再重复写入 */
   const memoryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showMemoryToast = useCallback((items: MemoryItem[]) => {
@@ -221,6 +280,25 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
     async (text: string) => {
       const content = text.trim();
       if (!content || sending) return;
+      // 断网快速失败（2026-11-03）：H5 的 CDP/飞行模式断网时，SDK 请求会挂到 60s 才超时，
+      // 期间界面只有「正在思考…」，最后还落到模板话术。navigator.onLine 能立刻判定，
+      // 直接给出「网络不可用」+ 重试，不再发请求、不耗额度。
+      if (isH5 && typeof navigator !== 'undefined' && navigator.onLine === false) {
+        push('user', content);
+        push('assistant', t('ai.errorOffline'), undefined, undefined, undefined, {
+          notice: 'error',
+          retryText: content
+        });
+        setInput(content);
+        return;
+      }
+      // X11：H5 无 msgSecCheck，输入先过本地红线护栏（不耗额度、不发请求）
+      if (isH5 && !screenContent(content).ok) {
+        push('user', content);
+        push('assistant', safetyRefusal(useLanguageStore.getState().lang));
+        setInput(content);
+        return;
+      }
       // AI 对话额度闸门（2026-10-29）：llm_events 以前只写不读，免费用户可以无限用付费 AI。
       // 计数走云端（权威）+ 本地镜像（离线/刚发完的即时值），两者取大，见 services/aiQuota.ts。
       // 判据放在 setSending(true) **之前**：额度用尽不该让界面进入"发送中"。
@@ -238,22 +316,44 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
       }
       setSending(true);
       push('user', content);
+      // 清空上一次失败类型：避免「上一条超时」的文案污染这一条的真实失败原因
+      clearLastChatFailure();
       // 记忆回灌：发消息时读取用户长期记忆（开关关闭/读取失败则空数组），随请求带给模型
       const memStore = readMemory();
       // P1-E：保留明细（content/createdAt/source）供溯源 footnote；发送侧只取 content
       const memItems = memStore.enabled ? memStore.items.slice(0, 20) : [];
       const memories = memItems.map((m) => m.content);
       const memoryTrace: MemoryTrace | undefined = memItems.length > 0 ? { memoryCount: memItems.length, memoryItems: memItems } : undefined;
+      /** 整次发送的硬截止时间：流式失败后重试非流式时，只剩余量、不再叠加超时 */
+      const deadline = Date.now() + CHAT_DEADLINE_MS;
+      /** X11：H5 输出同样过本地红线护栏（模型可能被诱导产出违规内容） */
+      const safeReply = (reply: string) =>
+        isH5 && !screenContent(reply).ok ? safetyRefusal(useLanguageStore.getState().lang) : reply;
       try {
         let res: { reply: string; action: string; image?: string; proposals?: PlanProposalRaw[]; memories?: string[] } | null =
           null;
+        /** 流式空气泡 id；成功时保留该气泡，失败则移除并走整段降级 */
+        let streamId: string | null = null;
         if (isH5) {
-          // F-03 H5 流式：空气泡打字机追加；失败移除空气泡降级整段 apiChat
-          const streamId = push('assistant', '');
+          // F-03 H5 流式：空气泡先显示「正在思考…」，失败移除后降级整段 apiChat
+          streamId = push('assistant', '');
+          const sid = streamId;
           try {
-            const streamed = await apiChatStream(content, false, (chunk) => appendMsg(streamId, chunk), memories);
-            if (streamed) {
-              setMsgContent(streamId, streamed.reply);
+            const streamed = await withDeadline(
+              apiChatStream(
+                content,
+                false,
+                (chunk) => appendMsg(sid, chunk),
+                memories,
+                {
+                  onThinking: () => setMsgContent(sid, t('ai.thinking')),
+                  onClear: () => setMsgContent(sid, '')
+                }
+              ),
+              deadline - Date.now()
+            );
+            if (streamed && streamed.reply && streamed.reply.trim()) {
+              setMsgContent(sid, safeReply(streamed.reply));
               // S-01：与非流式路径汇合——action='plan' 时补齐候选时段与冲突标记。
               // 2026-10-24 审计：此前流式路径只取 {reply, action}，proposals 被整个丢弃，
               // H5（产品主入口）用户永远看不到方案卡片、无法勾选批准。
@@ -262,37 +362,55 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
                 if (existingEventsRef.current.length === 0) await loadExistingEvents();
                 proposal = buildPlanProposal(streamed.proposals as PlanProposalRaw[], existingEventsRef.current);
               }
+              const patch: Partial<AssistantMsg> = {};
               // P1-E：携带排班提案的回复补记记忆溯源 footnote（与非流式路径同口径）
               if (proposal && memoryTrace) {
-                patchMsg(streamId, { proposal, memoryCount: memoryTrace.memoryCount, memoryItems: memoryTrace.memoryItems });
+                patch.proposal = proposal;
+                patch.memoryCount = memoryTrace.memoryCount;
+                patch.memoryItems = memoryTrace.memoryItems;
               }
+              // 诚实性（2026-11-03）：这条是本地模板兜底来的，就必须在气泡上标出来
+              if (isDegraded('chat')) {
+                patch.notice = 'fallback';
+                patch.retryText = content;
+              }
+              if (Object.keys(patch).length > 0) patchMsg(sid, patch);
               // M-03：模型返回记忆条目时写入并展示 toast（此前流式路径丢弃，H5 上记忆永不落库）
               if (Array.isArray(streamed.memories) && streamed.memories.length > 0) {
                 showMemoryToast(writeMemory(streamed.memories, 'chat', content));
               }
               res = { ...streamed, proposals: streamed.proposals as PlanProposalRaw[] | undefined };
             } else {
-              removeMsg(streamId);
+              // 空响应：不留空气泡；继续走非流式，仍失败则由 catch 给错误态 + 重试
+              removeMsg(sid);
+              streamId = null;
             }
           } catch (streamErr) {
-            // 流式失败（超时/断流）：移除空气泡后**继续往下走非流式 apiChat**，
-            // 与上方注释声明的「降级整段 apiChat」一致。此前直接抛到外层 catch，
-            // 用户看到一条空气泡 + 一条兜底文案（双气泡），且没有真正降级重试。
             console.error('[AiAssistant] chat stream failed, degrade to apiChat:', streamErr);
-            removeMsg(streamId);
+            removeMsg(sid);
+            streamId = null;
+            // 到点/断网类失败不再叠加第二次尝试；业务错误仍可降级整段（如流式中途断流）
+            if (/timeout/i.test(String((streamErr as Error)?.message || ''))) throw streamErr;
           }
         }
         if (!res) {
-          res = await apiChat(content, 'text', false, undefined, memories);
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) throw new Error('chat deadline exceeded');
+          res = await withDeadline(apiChat(content, 'text', false, undefined, memories), remaining);
+        }
+        // 空回复不当成成功：不 push 空气泡，直接走错误态
+        if (!res || !res.reply || !res.reply.trim()) throw new Error('empty reply');
 
+        if (!streamId) {
           // S-01：AI 返回排班提案时，前端补齐候选时段与冲突标记（云函数不写库）
           let proposal: PlanProposal | undefined;
           if (res.action === 'plan' && Array.isArray(res.proposals) && res.proposals.length > 0) {
             if (existingEventsRef.current.length === 0) await loadExistingEvents();
             proposal = buildPlanProposal(res.proposals, existingEventsRef.current);
           }
-          // P1-E：仅携带排班提案的回复记录记忆溯源，普通回复不显示 footnote
-          push('assistant', res.reply, res.image, proposal, proposal ? memoryTrace : undefined);
+          // 诚实性：落到本地模板（mock）时，气泡必须带「未联网 · 本地模板回复」标识
+          push('assistant', safeReply(res.reply), res.image, proposal, proposal ? memoryTrace : undefined,
+            isDegraded('chat') ? { notice: 'fallback', retryText: content } : undefined);
           // 记账口径与云端一致：**只计成功回复**（cloudLlm 也是流式读完才 insert）。
           // 本地镜像的意义是「发完立刻能反映」+ 云端计数不可用时的降级判据。
           bumpLocalUsage();
@@ -302,14 +420,39 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
             showMemoryToast(writeMemory(res.memories, 'chat', content));
           }
         }
+        // 动作执行（2026-10-31）：模型说「已经排好/已标记完成」时必须真的写进库。
+        // 放在两条回复路径汇合之后执行**一次**，避免流式与非流式各写一遍。
+        await applyAiAction(res);
       } catch (err) {
         console.error('[AiAssistant] chat failed:', err);
-        push('assistant', t('ai.fallbackReply'));
+        // 禁止伪装成功（2026-11-03）：失败必须给出可读原因 + 重试，不再回「已收到你的指令」
+        const raw = String((err as Error)?.message || '');
+        let msg: string;
+        if (isH5 && typeof navigator !== 'undefined' && navigator.onLine === false) {
+          msg = t('ai.errorOffline');
+        } else if (/timeout/i.test(raw)) {
+          msg = t('ai.errorTimeout');
+        } else {
+          const kind = getLastChatFailure();
+          msg =
+            kind === 'auth'
+              ? t('ai.errorAuth')
+              : kind === 'server'
+                ? t('ai.errorServer')
+                : kind === 'empty'
+                  ? t('ai.errorEmpty')
+                  : kind === 'network'
+                    ? t('ai.errorOffline')
+                    : t('ai.errorGeneric');
+        }
+        push('assistant', msg, undefined, undefined, undefined, { notice: 'error', retryText: content });
+        // 保留用户输入：失败后原文回到输入框，配合气泡上的「重试」不必重打
+        setInput(content);
       } finally {
         setSending(false);
       }
     },
-    [sending, push, appendMsg, setMsgContent, patchMsg, removeMsg, loadExistingEvents, showMemoryToast, t]
+    [sending, push, appendMsg, setMsgContent, patchMsg, removeMsg, loadExistingEvents, showMemoryToast, applyAiAction, t]
   );
 
   /**
@@ -689,9 +832,28 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
                       onAbandon={() => handleAbandonPlan(m.id)}
                     />
                   ) : null}
-                  {/* P0-2 合规显式标识：AI 回复气泡底部标注「AI 生成内容」（用户消息不标） */}
-                  {m.role === 'assistant' ? (
+                  {/* P0-2 合规显式标识：AI 回复气泡底部标注「AI 生成内容」（用户消息与错误态不标） */}
+                  {m.role === 'assistant' && m.notice !== 'error' ? (
                     <Text className={styles.msgLabel}>{t('ai.labelText')}</Text>
+                  ) : null}
+                  {/* 诚实性标识（2026-11-03）：本地模板回复必须标明；失败给可读原因 + 重试 */}
+                  {m.role === 'assistant' && m.notice ? (
+                    <View className={styles.msgNotice}>
+                      {m.notice === 'fallback' ? (
+                        <Text className={styles.msgNoticeText}>{t('ai.fallbackLocal')}</Text>
+                      ) : null}
+                      {m.retryText ? (
+                        <View
+                          className={styles.msgRetry}
+                          onClick={() => {
+                            if (!sending && m.retryText) void sendMessage(m.retryText);
+                          }}
+                          {...pressableProps(t('ai.retry'))}
+                        >
+                          <Text className={styles.msgRetryText}>{t('ai.retry')}</Text>
+                        </View>
+                      ) : null}
+                    </View>
                   ) : null}
                   {/* P1-E 记忆溯源：仅携带排班提案的回复显示；点击展开/收起本次发送的记忆明细 */}
                   {m.role === 'assistant' && m.memoryCount && m.memoryItems && m.memoryItems.length > 0 ? (
@@ -740,6 +902,8 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
               placeholder={t('ai.placeholder')}
               confirmType='send'
               disabled={sending}
+              // 2026-11-03：H5 软键盘回车键显示「发送」（小程序忽略 nativeProps）
+              nativeProps={{ enterKeyHint: 'send' }}
               onInput={(e) => setInput(e.detail.value)}
               onConfirm={handleSend}
             />

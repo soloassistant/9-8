@@ -113,6 +113,20 @@
   color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.5:1）
 }
 
+/* 2026-11-03（J3）：桌面阅读列与右侧辅助栏。
+   手机/平板（<1024）保持单列原样，辅助栏不渲染（display:none）。 */
+.contentRow {
+  display: block;
+}
+
+.columnMain {
+  min-width: 0;
+}
+
+.sideRail {
+  display: none;
+}
+
 .hotspot {
   margin-bottom: $spacing-sm;
 }
@@ -230,7 +244,7 @@
 
 .aiEditBtn {
   flex-shrink: 0;
-  padding: 4rpx 18rpx;
+  padding: 4rpx $spacing-sm;
   border-radius: $radius-round;
   background: $color-bg-card;
   color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand 2.59:1）
@@ -326,7 +340,7 @@
   display: block;
   margin: $spacing-sm auto 0;
   width: fit-content;
-  padding: 8rpx 30rpx;
+  padding: $spacing-xs $spacing-lg;
   border-radius: $radius-round;
   background: $color-bg-card;
   color: var(--brand-strong, $color-secondary-strong); // 5.26:1（原 --brand 2.59:1）
@@ -359,10 +373,29 @@
 .filterBar {
   padding: 0 $page-padding $spacing-md;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
 }
 
 .chipScroll {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+/* J9：筛选条右侧的「来源 ⚙」一键入口 */
+.sourceEntry {
+  flex-shrink: 0;
+  min-height: 72rpx;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 $spacing-sm;
+  border-radius: $radius-button;
+  background: $color-bg-card;
+  border: 1rpx solid $color-border;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
 }
 
 .list {
@@ -405,6 +438,19 @@
 .time {
   font-size: $font-size-xs;
   color: $color-text-tertiary; // 5.02:1（原误用禁用灰 1.59:1）
+}
+
+// 收藏删除入口（缺陷 B3）：44px 热区，大写 PX 逃过 pxtransform（小程序端保持 44px）。
+.removeFavBtn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44PX;
+  min-height: 44PX;
+  margin-left: $spacing-xs;
+  color: $color-text-tertiary;
+  font-size: 32rpx;
 }
 
 .summary {
@@ -619,6 +665,77 @@
 }
 
 /* L3：资讯列表免责页脚（次级色、小号、居中） */
+/* 2026-11-03：搜索空态的建议区（最近搜索 + 热门词）—— 点击即搜 */
+.searchSuggest {
+  padding: 0 $page-padding $spacing-lg;
+}
+
+.searchSuggestTitle {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.searchSuggestRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+}
+
+.searchSuggestChip {
+  min-height: 72rpx;
+  padding: 0 $spacing-md;
+  display: inline-flex;
+  align-items: center;
+  border-radius: $radius-button;
+  background: $color-bg-card;
+  border: 1rpx solid $color-border;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+/* 桌面右侧辅助栏：热榜 + 频道筛选 */
+.railCard {
+  @include card-surface;
+  margin-bottom: $spacing-md;
+  padding: $spacing-md;
+}
+
+.railTitle {
+  display: block;
+  margin-bottom: $spacing-sm;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.railItem {
+  display: block;
+  padding: $spacing-xs 0;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+  color: $color-text-secondary;
+  @include text-ellipsis-multi(2);
+  cursor: pointer;
+}
+
+.railTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
+.railTag {
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $radius-button;
+  background: $color-bg-page;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  cursor: pointer;
+}
+
 .disclaimerFooter {
   margin: $spacing-sm $page-padding $spacing-md;
 }
@@ -634,6 +751,15 @@
 /* X9：分享按钮（weapp 用 Button 重置样式，H5 用 Text） */
 .shareBtn {
   margin-left: auto;
+  /* 2026-11-03：分享按钮实测 41.6×18，远低于 44×44 触控区。
+     用 inline-flex + 最小盒尺寸把可点区域撑到 88rpx（390 视口 ≈45.8px），
+     文字仍居中，视觉大小不变。 */
+  min-width: 88rpx;
+  min-height: 88rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   padding: 0 $spacing-sm;
   font-size: $font-size-sm;
   color: $color-text-tertiary;
@@ -1012,6 +1138,30 @@
   background: $color-bg-page;
 }
 
+/* 摘要分档 tab（30 秒 / 3 分钟 / 全文） */
+.articleDigest {
+  display: flex;
+  gap: $spacing-sm;
+  padding: $spacing-sm $page-padding 0;
+}
+
+.articleDigestTab {
+  min-height: 72rpx;
+  padding: 0 $spacing-md;
+  display: inline-flex;
+  align-items: center;
+  border-radius: $radius-button;
+  background: $color-bg-page;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.articleDigestTabActive {
+  background: #fff1e9;
+  color: var(--brand-strong, #{$color-primary-strong});
+  font-weight: $font-weight-medium;
+}
+
 .articleBody {
   display: block;
   margin-top: $spacing-md;
@@ -1053,6 +1203,63 @@
 // 关闭仍走详情里的「取消」按钮；Esc 由全局快捷键层处理。
 // ============================================================
 @media (min-width: 1024px) {
+  // 桌面：热点列表限宽居中（2026-11-03）。
+  // 根因在页面级而非外壳：外壳面板 1440 下已 1136、1920 下封顶 1200，
+  // 单列资讯卡跟着一直拉伸 —— 标题一行过长、封面被拉成宽幅条，比例失衡。
+  // 主内容收到 1100PX（大写 PX 逃过 pxtransform，与 briefing/inbox 同一手法）后
+  // 不再随窗口变宽，更宽时两侧留白。手机/平板两档面板本身 ≤976，max-width 不生效，零回归。
+  .page {
+    max-width: 1100PX;
+    margin: 0 auto;
+    box-sizing: border-box;
+  }
+
+  /* 2026-11-03（J3 回归修正）：限宽必须放在**正文文本列**上，而不是只包住整页。
+     1440 下 .page=1100 但正文仍 1066、首图 6.9:1 —— 说明限制没落到卡片流。
+     这里：阅读列 720 + 间距 24 + 右栏 280 = 1024，整体在 1100 的页内居中。 */
+  .contentRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 280PX;
+    column-gap: 24PX;
+    align-items: start;
+    max-width: 1024PX;
+    margin: 0 auto;
+  }
+
+  .columnMain {
+    width: 100%;
+    max-width: 720PX;
+  }
+
+  .sideRail {
+    display: block;
+    position: sticky;
+    top: 16PX;
+  }
+
+  /* P0（2026-11-04，iPad 横屏详情被压成单字竖排）：
+     详情打开时 body 会带上 has-detail-rail，外壳同时把面板收窄到
+     min(100vw - 232 - 24 - 360, 720)（见 src/app.scss）。此时若仍保留
+     280PX 辅助栏 + 24PX 间距，正文只剩 1024→34px / 1080→90px / 1180→127px。
+     详情态让主列独占面板：栅格退化为单列、辅助栏隐藏（不改变未开详情时的版式）。 */
+  :global(body.has-detail-rail) .contentRow {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 100%;
+  }
+
+  :global(body.has-detail-rail) .sideRail {
+    display: none;
+  }
+
+  /* 首图从固定 280rpx 的横条改成 16:9，且宽度不超过阅读列（上限 720×405）。 */
+  .newsImage {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    height: auto;
+    max-height: 405PX;
+    object-fit: cover;
+  }
+
   .blockMask {
     background: transparent;
     pointer-events: none;

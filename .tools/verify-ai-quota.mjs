@@ -53,13 +53,13 @@ const assistantCode = assistant
 const gateCallIdx = assistant.indexOf('const quota = await getAiQuota();');
 const sendingIdx = assistant.indexOf('setSending(true);', gateCallIdx);
 const bumpIdx = assistant.indexOf('bumpLocalUsage();');
-const successPushIdx = assistant.indexOf("push('assistant', res.reply");
+const successPushIdx = assistant.indexOf("push('assistant', safeReply(res.reply)");
 
 assert('A1 发送路径上调用了额度闸门（getAiQuota）', gateCallIdx > 0, `idx=${gateCallIdx}`);
 assert('A2 闸门判据在 setSending(true) 之前（额度用尽不进入"发送中"）', gateCallIdx > 0 && sendingIdx > gateCallIdx);
 assert('A3 超限时弹窗引导去订阅，而不是静默失败', /ai\.quotaLimitTitle/.test(assistant) && /pages\/membership\/index/.test(assistant));
 const bumpCodeIdx = assistantCode.indexOf('bumpLocalUsage();');
-const successCodeIdx = assistantCode.indexOf("push('assistant', res.reply");
+const successCodeIdx = assistantCode.indexOf("push('assistant', safeReply(res.reply)");
 assert(
   'A4 记账在**成功回复之后**且真的存在（注释掉不算）',
   bumpCodeIdx > successCodeIdx && successCodeIdx > 0,

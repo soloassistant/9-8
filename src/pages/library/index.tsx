@@ -9,11 +9,13 @@ import EmptyState from '@/components/EmptyState';
 import DemoDataHint from '@/components/DemoDataHint';
 import { NewsCardSkeleton } from '@/components/Skeleton';
 import { apiGetLibrary, apiGetHotspot, apiNewsSearch, apiVideoNews } from '@/services/api';
+import { removeCollection } from '@/data/collectionStore';
+import { syncNow } from '@/services/cloudSync';
 import { getHotspotMeta, apiAiNewsFilter, apiGetAffinity, apiSaveAffinity } from '@/services/cloud';
 import { invoke } from '@/services/dataSource';
 import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore } from '@/store/theme';
-import { fromNow } from '@/utils/date';
+import { formatDate, fromNow } from '@/utils/date';
 import { openExternalPage } from '@/utils/externalLink';
 import { logActivity } from '@/utils/activityLog';
 import type { CollectionItem, HistoryEntry, HotspotNews } from '@/types';
@@ -62,6 +64,18 @@ const TYPE_ICON_FALLBACK = '📄';
 
 const HISTORY_KEY = 'browseHistory';
 const HISTORY_LIMIT = 50;
+/** 最近搜索（设备本地，最多 3 条）。搜索词属于弱隐私，跨设备同步没有收益，故不进 SYNC_KEYS。 */
+const RECENT_SEARCH_KEY = 'library-search-history';
+
+/** 摘要在同一份文本上分档（不二次抓取）：30 秒 ≈180 字，3 分钟 ≈700 字，全文原样。 */
+type DigestMode = 'quick' | 'brief' | 'full';
+const DIGEST_LIMITS: Record<Exclude<DigestMode, 'full'>, number> = { quick: 180, brief: 700 };
+function digestText(text: string, mode: DigestMode): string {
+  if (mode === 'full') return text;
+  const s = text.trim();
+  const limit = DIGEST_LIMITS[mode];
+  return s.length > limit ? `${s.slice(0, limit).trimEnd()}…` : s;
+}
 const NEWS_FEEDBACK_KEY = 'newsFeedback';
 /** U-01 骨架屏延迟：加载超过该时长才显示骨架（防快速命中缓存时闪烁） */
 const SKELETON_DELAY_MS = 300;
@@ -145,12 +159,26 @@ function readNewsFeedback(): Record<string, 'up' | 'down'> {
 
 /** 资讯反馈云端落库（双端生效，失败静默）
  *
- *  2026-10-05 修复：原先调的是 `invoke('newsFeedback', { id, value })` —— **三重错误**：
+ *  历史（2026-10-05 修复）：原先调的是 `invoke('newsFeedback', { id, value })` —— **三重错误**：
  *  cloudfunctions 下根本没有 newsFeedback 这个函数（只有 webSearch）；
  *  少了 `action` 分派；字段名是 `feedback` 不是 `value`。
- *  所以收藏页的 👍/👎 从未真正落库，**weapp 端同样失效**（不是 H5 独有）。
- *  服务端按 openid 聚合最新一条，见 webSearch/index.js 的 `action === 'feedback'`。 */
+ *
+ *  2026-10-30 更正两处口径：
+ *  ① 「从未真正落库」**只对微信云函数那条路成立**：H5 端 `newsFeedback` 在
+ *     `services/cloudSync.ts` 的 SYNC_KEYS 里，本地写入会被劫持推到应用库 `user_kv`
+ *     （RLS 按 owner 隔离）⇒ **H5 的反馈数据其实一直上云了**。
+ *  ② 但 H5 端每次点赞还会**额外**调一次 webSearch 云函数的 feedback 动作，
+ *     而应用数据库里没有 `webSearch` 这个 PG 函数（线上实测 404 PGRST202）⇒ 这一发**必然失败**：
+ *     白费一个请求，还会把「webSearch」登记进降级表（页级横幅于是亮出
+ *     「云端功能暂不可用，当前为本地演示数据」—— 而热点页显示的是**真实** RSS，
+ *     那是一条**反向谎言**）。
+ *
+ *  ⇒ H5 端直接跳过这次调用（cloudSync 负责上云）；weapp 保留（微信云函数按 openid 聚合）。 */
 async function apiNewsFeedback(id: string, value: 'up' | 'down'): Promise<void> {
+  if (!isWeapp) {
+    // H5：落库由 cloudSync 负责（newsFeedback ∈ SYNC_KEYS），这里不再发注定失败的一发。
+    return;
+  }
   try {
     await invoke('webSearch', { action: 'feedback', id, feedback: value });
   } catch (err) {
@@ -182,6 +210,8 @@ function LibraryPage() {
   const [videos, setVideos] = useState<HotspotNews[]>([]);
   /** 站内文章视图（2026-10-25）：点卡片先进来读，正文 = 源 feed 自带摘要（不抓正文页） */
   const [article, setArticle] = useState<HotspotNews | null>(null);
+  /** 摘要分档（2026-11-03）：同一份 content/summary 切不同长度，不重复抓取 */
+  const [digestMode, setDigestMode] = useState<DigestMode>('quick');
   /** 最近浏览（2026-10-25，IA 瘦身）：浏览历史从独立页并入热点页 —— 在哪看的就在哪回看。
    *  默认折叠；清空走 showModal 二次确认。pages/history 已删（-1 页）。 */
   const [recent, setRecent] = useState<HistoryEntry[]>([]);
@@ -235,6 +265,15 @@ function LibraryPage() {
   const [searching, setSearching] = useState(false);
   const [activeTag, setActiveTag] = useState('全部');
   const [keyword, setKeyword] = useState('');
+  /** 最近搜索（设备本地，最多 3 条）：搜索空态时给用户一个「再点一下就能搜」的起点 */
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try {
+      const v = Taro.getStorageSync(RECENT_SEARCH_KEY);
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()).slice(0, 3) : [];
+    } catch {
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(true);
   // U-01 骨架屏：首屏加载 >300ms 才显示 3 张资讯卡骨架
   const [showSkeleton, setShowSkeleton] = useState(false);
@@ -579,6 +618,17 @@ function LibraryPage() {
     return ['全部', ...[...cnt.entries()].sort((a, b) => b[1] - a[1]).map(([tg]) => tg)];
   }, [minorVisibleNews]);
 
+  /** 搜索空态的热门词：取当前热点里出现频次最高的 6 个标签。
+   *  不写死词表（写死会和当天内容脱节，点进去全是空结果）。 */
+  const hotSearchWords = useMemo(() => {
+    const cnt = new Map<string, number>();
+    for (const n of minorVisibleNews) for (const tg of n.tags) cnt.set(tg, (cnt.get(tg) || 0) + 1);
+    return [...cnt.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([tg]) => tg);
+  }, [minorVisibleNews]);
+
   const newsFiltered = useMemo(
     () =>
       minorVisibleNews.filter(
@@ -594,6 +644,30 @@ function LibraryPage() {
       data: `${item.title}\n${item.summary}`,
       success: () => Taro.showToast({ title: '摘要已复制', icon: 'success' })
     }).catch((err) => console.error('[LibraryPage] copy failed:', err));
+  };
+
+  /** 删除收藏：必须二次确认 + 显式推空（缺陷 B3，删最后一条时跨端生效） */
+  const handleRemoveCollection = (item: CollectionItem) => {
+    Taro.showModal({
+      title: t('library.removeFavTitle'),
+      content: t('library.removeFavConfirm'),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      confirmColor: '#ee5a29',
+      success: (res) => {
+        if (!res.confirm) return;
+        const next = removeCollection(item.id);
+        if (!next) {
+          // X8：写盘失败不能提示「已取消收藏」（旧实现用内存结果，刷新后收藏复活）
+          Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+          return;
+        }
+        setItems(next);
+        hasDataRef.current = next.length > 0;
+        void syncNow(['collectionStore']);
+        Taro.showToast({ title: t('library.removeFavDone'), icon: 'none' });
+      }
+    }).catch(() => undefined);
   };
 
   const handleNewsTap = (item: HotspotNews) => {
@@ -615,6 +689,7 @@ function LibraryPage() {
     // ★ 2026-10-25 演进：先开**站内文章视图**（读源 feed 自带的摘要，合规口径「不转载正文」
     // 不变——不另行抓原文页），想看全文再点「阅读原文」→ openExternalPage（见 handleReadOriginal）。
     // 2026-10-24 修的「点了没反应」问题由本视图承接：卡片点击必有下文。
+    setDigestMode('quick');
     setArticle(item);
   };
 
@@ -680,8 +755,8 @@ function LibraryPage() {
    *  点「清空」也不取消在途请求，旧结果会自己冒回来。 */
   const searchSeqRef = useRef(0);
 
-  const handleNewsSearch = async () => {
-    const kw = keyword.trim();
+  const handleNewsSearch = async (raw?: string) => {
+    const kw = (raw ?? keyword).trim();
     // 先占号：此后任何新搜索或清空都会让本次请求作废
     const seq = ++searchSeqRef.current;
     if (!kw) {
@@ -689,6 +764,16 @@ function LibraryPage() {
       setSearchResults([]);
       return;
     }
+    // 2026-11-03：记住最近 3 次搜索（设备本地，不进云同步），空态时一键复搜。
+    setRecentSearches((prev) => {
+      const next = [kw, ...prev.filter((x) => x !== kw)].slice(0, 3);
+      try {
+        Taro.setStorageSync(RECENT_SEARCH_KEY, next);
+      } catch (err) {
+        console.warn('[library] save recent searches failed:', err);
+      }
+      return next;
+    });
     setSearchMode(true);
     setSearching(true);
     const online = await apiNewsSearch(kw);
@@ -985,7 +1070,17 @@ function LibraryPage() {
       <View key={item.id} className={styles.videoCard} onClick={() => handleNewsTap(item)}>
         <View className={styles.videoCoverWrap}>
           {item.image ? (
-            <Image src={item.image} mode='aspectFill' lazyLoad className={styles.videoCover} />
+            <Image
+              src={item.image}
+              mode='aspectFill'
+              lazyLoad
+              className={styles.videoCover}
+              // B 站 CDN（i0/i1.hdslb.com）见到非自家 Referer 直接 403 —— 实测：
+              // 无 Referer 200 / 带本应用域名 403。浏览器默认会带 origin，于是视频封面
+              // 对所有人都是破图。http 侧只能靠 no-referrer 绕开（行情 logo 同理，
+              // 见 utils/quotes.ts 的同一处处理）。
+              nativeProps={isH5 ? { referrerPolicy: 'no-referrer' } : undefined}
+            />
           ) : null}
           {item.duration ? <Text className={styles.videoDuration}>{item.duration}</Text> : null}
         </View>
@@ -1036,9 +1131,31 @@ function LibraryPage() {
           ) : null}
         </View>
         {item.image ? (
-          <Image src={item.image} mode='widthFix' lazyLoad className={styles.articleImage} />
+          <Image
+            src={item.image}
+            mode='widthFix'
+            lazyLoad
+            className={styles.articleImage}
+            nativeProps={isH5 ? { referrerPolicy: 'no-referrer' } : undefined}
+          />
         ) : null}
-        <Text className={styles.articleBody}>{item.content || item.summary}</Text>
+        {/* 2026-11-03：30 秒 / 3 分钟 / 全文三档，只是同一份文本的不同截断长度。 */}
+        <View className={styles.articleDigest}>
+          {([
+            ['quick', 'library.digest30s'],
+            ['brief', 'library.digest3min'],
+            ['full', 'library.digestFull']
+          ] as const).map(([mode, key]) => (
+            <Text
+              key={mode}
+              className={`${styles.articleDigestTab} ${digestMode === mode ? styles.articleDigestTabActive : ''}`}
+              onClick={() => setDigestMode(mode)}
+            >
+              {t(key)}
+            </Text>
+          ))}
+        </View>
+        <Text className={styles.articleBody}>{digestText(item.content || item.summary, digestMode)}</Text>
         <Text className={styles.articleSourceNote}>{t('library.articleSourceNote')}</Text>
         <View className={styles.articleCta}>
           {item.url ? (
@@ -1081,7 +1198,7 @@ function LibraryPage() {
             // Taro 的 Image 没有 alt 属性，H5 端唯一能透传到真实 <img> 的入口是 nativeProps
             // （见 @tarojs/components/dist/esm/image-*.js 的 render：h("img", {...nativeProps})），
             // 且 nativeProps 仅 h5 支持，故只在 H5 端传。取新闻标题作为等价文本。
-            nativeProps={isH5 ? { alt: item.title } : undefined}
+            nativeProps={isH5 ? { alt: item.title, referrerPolicy: 'no-referrer' } : undefined}
             onClick={(e) => {
               e.stopPropagation();
               handleNewsImageTap(item);
@@ -1175,8 +1292,10 @@ function LibraryPage() {
 
   return (
     <View className={styles.page} style={brandVars(theme)}>
-      {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded） */}
-      <DemoDataHint />
+      {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded）
+          页面粒度：只关心本页的 webSearch（视频/搜索/AI 精选）与 getHotspot ——
+          别的页面的降级不该串到这里（2026-10-30 实测串过一次，把 412 条真实 RSS 说成演示数据） */}
+      <DemoDataHint actions={['webSearch', 'getHotspot']} />
       {/* 竞品分析 X11：未成年人模式低调横幅 */}
       {minorMode ? (
         <View className={styles.minorBanner}>
@@ -1190,6 +1309,8 @@ function LibraryPage() {
           value={keyword}
           placeholder={t('library.searchPlaceholder')}
           confirmType='search'
+          // 2026-11-03：H5 键盘语义 —— 搜索键 + 搜索图标（小程序忽略 nativeProps）
+          nativeProps={{ inputMode: 'search', enterKeyHint: 'search' }}
           onInput={(e) => setKeyword(e.detail.value)}
           onConfirm={() => handleNewsSearch()}
         />
@@ -1205,14 +1326,19 @@ function LibraryPage() {
         ) : null}
       </View>
 
-      {/* U-01：加载 >300ms 时显示热点流骨架（3 张资讯卡），快速命中缓存不显示 */}
-      {loading && showSkeleton ? (
-        <View className={styles.hotspot}>
-          {[0, 1, 2].map((i) => (
-            <NewsCardSkeleton key={i} />
-          ))}
-        </View>
-      ) : null}
+      {/* 2026-11-03（J3）：桌面版的阅读列必须是「文本列」，不是整个容器。
+          原来 max-width 放在 .page（1100）上，正文仍被拉到 1066px、首图成 6.9:1 横条。
+          现在把骨架与热点流一起放进 .columnMain（桌面 720px），右侧 280px 放热榜/筛选。 */}
+      <View className={styles.contentRow}>
+        <View className={styles.columnMain}>
+          {/* U-01：加载 >300ms 时显示热点流骨架（3 张资讯卡），快速命中缓存不显示 */}
+          {loading && showSkeleton ? (
+            <View className={styles.hotspot}>
+              {[0, 1, 2].map((i) => (
+                <NewsCardSkeleton key={i} />
+              ))}
+            </View>
+          ) : null}
 
       {searchMode || newsFiltered.length > 0 ? (
         <View className={classnames(styles.hotspot, styles.contentFade)}>
@@ -1237,7 +1363,11 @@ function LibraryPage() {
                   把首屏的资讯全挤走了（2026-10-12）。这里只列前 3 个 + 总数，
                   完整清单在「我的」页与 AI 标识说明里可查。 */}
               <Text className={styles.dataMetaText}>
-                {t('library.dataUpdated')} {dayjs(hotMeta.updatedAt || Date.now()).format('MM-DD HH:mm')}
+                {/* 2026-11-03：updatedAt 缺失时不再回填 Date.now()（那会把「不知道」显示成「刚刚」）。
+                    宁可如实说未知，也不伪造新鲜度。 */}
+                {hotMeta.updatedAt
+                  ? `${t('library.dataUpdated')} ${formatDate(hotMeta.updatedAt, true)}`
+                  : t('library.dataUpdatedUnknown')}
                 {hotMeta.stale ? ` · ${t('library.dataStale')}` : ''}
                 {(() => {
                   const okNames = hotMeta.sources.filter((s) => s.ok).map((s) => s.name);
@@ -1404,6 +1534,14 @@ function LibraryPage() {
                   />
                 ))}
               </ScrollView>
+              {/* 2026-11-03（J9）：换热点源原来要走 4 次点击/3 层（我的 → 偏好 → 展开来源）。
+                  这里给一个一键入口，直接打开偏好页的来源面板；偏好页保留完整版。 */}
+              <Text
+                className={styles.sourceEntry}
+                onClick={() => Taro.navigateTo({ url: '/pages/prefs/index?focus=sources' })}
+              >
+                {t('library.sourceEntry')}
+              </Text>
             </View>
           ) : null}
           {searchMode && searching ? (
@@ -1417,14 +1555,74 @@ function LibraryPage() {
             <Text className={styles.disclaimerText}>{t('common.disclaimer')}</Text>
           </View>
           {searchMode && !searching && searchResults.length === 0 ? (
-            <EmptyState
-              icon='🔎'
-              title={t('library.searchEmpty')}
-              hint={t('library.searchEmptyHint')}
-            />
+            <>
+              <EmptyState
+                icon='🔎'
+                title={t('library.searchEmpty')}
+                hint={t('library.searchEmptyHint')}
+              />
+              {/* 2026-11-03：空态不再只有一行占位文案 —— 给最近搜索与当天热门词，点一下即搜。 */}
+              <View className={styles.searchSuggest}>
+                {recentSearches.length > 0 ? (
+                  <>
+                    <Text className={styles.searchSuggestTitle}>{t('library.recentSearches')}</Text>
+                    <View className={styles.searchSuggestRow}>
+                      {recentSearches.map((kw) => (
+                        <Text
+                          key={`recent-${kw}`}
+                          className={styles.searchSuggestChip}
+                          onClick={() => void handleNewsSearch(kw)}
+                        >
+                          {kw}
+                        </Text>
+                      ))}
+                    </View>
+                  </>
+                ) : null}
+                {hotSearchWords.length > 0 ? (
+                  <>
+                    <Text className={styles.searchSuggestTitle}>{t('library.hotWords')}</Text>
+                    <View className={styles.searchSuggestRow}>
+                      {hotSearchWords.map((kw) => (
+                        <Text
+                          key={`hot-${kw}`}
+                          className={styles.searchSuggestChip}
+                          onClick={() => void handleNewsSearch(kw)}
+                        >
+                          {kw}
+                        </Text>
+                      ))}
+                    </View>
+                  </>
+                ) : null}
+              </View>
+            </>
           ) : null}
         </View>
-      ) : null}
+        ) : null}
+        </View>
+        {/* 桌面右侧辅助栏（2026-11-03 J3）：只放热榜与频道筛选，手机端 display:none。 */}
+        <View className={styles.sideRail}>
+          <View className={styles.railCard}>
+            <Text className={styles.railTitle}>{t('library.sideHotTitle')}</Text>
+            {(searchMode ? searchResults : newsFiltered).slice(0, 5).map((n) => (
+              <Text key={n.id} className={styles.railItem} onClick={() => handleNewsTap(n)}>
+                {n.title}
+              </Text>
+            ))}
+          </View>
+          <View className={styles.railCard}>
+            <Text className={styles.railTitle}>{t('library.sideFilterTitle')}</Text>
+            <View className={styles.railTags}>
+              {newsTags.slice(1, 7).map((tag) => (
+                <Text key={tag} className={styles.railTag} onClick={() => setActiveNewsTag(tag)}>
+                  {tag}
+                </Text>
+              ))}
+            </View>
+          </View>
+        </View>
+      </View>
 
       <View className={styles.sectionBar}>
         <Text className={styles.sectionBarIcon}>🔖</Text>
@@ -1456,6 +1654,18 @@ function LibraryPage() {
               <Text className={styles.typeIcon}>{TYPE_ICONS[item.sourceType] || TYPE_ICON_FALLBACK}</Text>
               <Text className={styles.title}>{item.title}</Text>
               <Text className={styles.time}>{fromNow(item.createTime)}</Text>
+              {/* 删除入口：Text 不透传 data-testid，用稳定 className 供自动化选择（见 AGENTS.md） */}
+              {!keyword && (
+                <Text
+                  className={styles.removeFavBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemoveCollection(item);
+                  }}
+                >
+                  ✕
+                </Text>
+              )}
             </View>
             <Text className={styles.summary}>{item.summary}</Text>
             <View className={styles.tagRow}>

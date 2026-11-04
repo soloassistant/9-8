@@ -197,8 +197,13 @@ const cloudSrc = read('src/services/cloud.ts');
 // 不剥的话这条断言会被自己的文档判成违规（假 FAIL）。
 const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const cloud = stripComments(cloudSrc);
-ok('getBriefing 走偏好选位', cloud.includes('selectByPreference(hotspot.items, prefs, 3)'));
-ok('getHotspot 也按偏好重排', cloud.includes('selectByPreference(payload.items, prefs, payload.items.length)'));
+// 2026-11-03：两条路径收口到 selectForDisplay（= 偏好选位 + 防茧房探索位），
+// 断言改守**行为**：两条路径都经统一入口，且该入口内部确实调用 selectByPreference。
+// 原先锚死 `selectByPreference(hotspot.items, ...)` 是把实现细节当契约 ——
+// 收口重构一改就红，而"偏好选位是否真的生效"其实没变。
+ok('getBriefing 走偏好选位（经统一入口）', cloud.includes('selectForDisplay(hotspot.items, prefs, 3)'));
+ok('getHotspot 也按偏好重排（经统一入口）', cloud.includes('selectForDisplay(payload.items, prefs, payload.items.length)'));
+ok('统一入口内部确实调用 selectByPreference', /const ranked = selectByPreference\(items, prefs, limit\)/.test(cloud));
 ok(
   '不再有 slice(0, 3) 硬切（旧缺陷）',
   cloud.includes('hotspot.items.slice(0, 3)') === false

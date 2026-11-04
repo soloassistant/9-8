@@ -49,6 +49,20 @@ if (-not (Test-Path (Join-Path $dist 'index.html'))) {
   exit 1
 }
 
+# ---------- 1.5 发布前预检：不通过就拒绝打包 ----------
+# 2026-11-03：实测出现过只跑 `taro build`、漏 copy-assets 的半成品 dist
+# （缺 assets/wb-sdk.js → 线上 SDK 404、登录/同步/AI 全废）。打包前必须先过闸。
+Write-Host '==> Verify deploy freshness (dist) ...' -ForegroundColor Green
+Push-Location $Root
+& node .tools/verify-deploy-fresh.mjs dist
+$code = $LASTEXITCODE
+Pop-Location
+if ($code -ne 0) {
+  Write-Host '[ERROR] dist 未通过发布前预检（缺 build-stamp / assets/wb-sdk.js / 热点数据等），拒绝打包。' -ForegroundColor Red
+  Write-Host '        请先完整执行 npm run build:h5（taro build + copy-assets + fetch-data）。' -ForegroundColor Yellow
+  exit $code
+}
+
 $tar = Join-Path $env:TEMP 'dist-deploy.tar.gz'
 Write-Host "==> Packing dist -> $tar" -ForegroundColor Green
 

@@ -25,6 +25,22 @@
   line-height: $line-height-normal;
 }
 
+// 换账号隔离提示（缺陷 B1）：与冲突卡同容器，但语义是「安全告知」而非「待裁决」，
+// 用分隔线区分，用户关掉后不再出现。
+.ownerNotice {
+  padding-bottom: $spacing-sm;
+  border-bottom: 1rpx solid $color-divider;
+}
+
+.ownerDismiss {
+  display: block;
+  margin-top: $spacing-xs;
+  font-size: $font-size-sm;
+  line-height: $line-height-normal;
+  color: var(--brand-deep, $color-secondary);
+  font-weight: $font-weight-medium;
+}
+
 .item {
   display: flex;
   align-items: center;

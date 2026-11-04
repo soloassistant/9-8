@@ -15,9 +15,11 @@ import {
   apiLedgerInit,
   apiLedgerRemove,
   apiLedgerRemoveCategory,
-  apiLedgerSaveBudget
+  apiLedgerSaveBudget,
+  apiLedgerUpdate
 } from '@/services/api';
 import type { LedgerBudget, LedgerCategory, LedgerEntry, LedgerKind } from '@/types';
+import { syncNow } from '@/services/cloudSync';
 import {
   currentMonthStr,
   filterByRange,
@@ -26,16 +28,17 @@ import {
   summarize,
   todayStr
 } from '@/utils/ledgerAggregate';
+import MonthReview from './MonthReview';
 import styles from './index.module.scss';
 
-/** 金额展示：整数部分带千分位，小数只在有值时显示（¥80 而不是 ¥80.00）。 */
+/** 金额展示：整数部分带千分位，**统一两位小数**（2026-11-04 UI 口径统一）。
+ *  历史行为是「有小数才显示」（¥80 / ¥80.5），与晨报卡片的 ¥80.00 不一致，用户对不上账。 */
 function formatMoney(n: number): string {
   const v = Math.round(n * 100) / 100;
   const intPart = Math.floor(Math.abs(v));
-  const frac = Math.abs(v) - intPart;
   const grouped = String(intPart).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const sign = v < 0 ? '-' : '';
-  return frac > 0.004 ? `${sign}¥${grouped}.${String(Math.round(frac * 100)).padStart(2, '0')}` : `${sign}¥${grouped}`;
+  return `${sign}¥${grouped}.${String(Math.round((Math.abs(v) - intPart) * 100)).padStart(2, '0')}`;
 }
 
 /** 预算条：已用占比。超过上限时把进度截到 100%（不能让条超出容器宽度）。 */
@@ -67,6 +70,8 @@ function LedgerPage() {
   const [exportBusy, setExportBusy] = useState(false);
   /** 预算编辑弹窗：记录正在编辑哪一档，null = 关闭 */
   const [budgetEdit, setBudgetEdit] = useState<'daily' | 'monthly' | null>(null);
+  /** 2026-11-03：正在编辑的账目 id。点行进入编辑，金额/分类回填到首屏录入区，FAB 变成「保存」。 */
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     apiLedgerInit();
@@ -108,6 +113,20 @@ function LedgerPage() {
     []
   );
 
+  /** 点行进入编辑：回填金额/分类/方向到首屏录入区；删除改由行尾独立按钮触发。 */
+  const beginEdit = useCallback((e: LedgerEntry) => {
+    setEditingId(e.id);
+    setAmount(String(e.amount));
+    setTab(e.kind);
+    setPickedCategory(e.categoryId);
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingId(null);
+    setAmount('');
+    setPickedCategory('');
+  }, []);
+
   const submit = useCallback(async () => {
     const n = Number(amount);
     if (!Number.isFinite(n) || n <= 0) {
@@ -116,6 +135,19 @@ function LedgerPage() {
     }
     if (!pickedCategory) {
       Taro.showToast({ title: t('ledger.pickCategory'), icon: 'none' });
+      return;
+    }
+    if (editingId) {
+      const updated = await apiLedgerUpdate(editingId, { amount: n, categoryId: pickedCategory });
+      if (!updated) {
+        Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+        return;
+      }
+      setEditingId(null);
+      setAmount('');
+      setPickedCategory('');
+      await reload();
+      Taro.showToast({ title: t('ledger.edited'), icon: 'success' });
       return;
     }
     const created = await apiLedgerAdd({ amount: n, kind: tab, categoryId: pickedCategory });
@@ -133,7 +165,7 @@ function LedgerPage() {
     } else {
       Taro.showToast({ title: t('ledger.added'), icon: 'success' });
     }
-  }, [amount, pickedCategory, tab, today, reload, t]);
+  }, [amount, pickedCategory, tab, today, reload, t, editingId]);
 
   const remove = useCallback(
     (id: string) => {
@@ -150,6 +182,9 @@ function LedgerPage() {
           const ok = await apiLedgerRemove(id);
           if (ok) {
             await reload();
+            // 缺陷 B3：删掉最后一条时账目变成 []，默认的空数组策略不会上推；
+            // 这里显式声明「这是删除」，让远端拿到墓碑标记（否则换端会复活）。
+            void syncNow(['ledgerEntries']);
             Taro.showToast({ title: t('ledger.deleted'), icon: 'success' });
           } else {
             Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
@@ -181,7 +216,12 @@ function LedgerPage() {
         Taro.showToast({ title: t('ledger.invalidAmount'), icon: 'none' });
         return;
       }
-      setBudget(await apiLedgerSaveBudget({ ...budget, [budgetEdit]: n }));
+      const saved = await apiLedgerSaveBudget({ ...budget, [budgetEdit]: n });
+      if (!saved) {
+        Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+        return;
+      }
+      setBudget(saved);
       setBudgetEdit(null);
     },
     [budgetEdit, budget, t]
@@ -192,9 +232,14 @@ function LedgerPage() {
     if (!budgetEdit) return;
     const next: LedgerBudget = { ...budget };
     delete next[budgetEdit];
-    setBudget(await apiLedgerSaveBudget(next));
+    const saved = await apiLedgerSaveBudget(next);
+    if (!saved) {
+      Taro.showToast({ title: t('common.saveFailed'), icon: 'none' });
+      return;
+    }
+    setBudget(saved);
     setBudgetEdit(null);
-  }, [budgetEdit, budget]);
+  }, [budgetEdit, budget, t]);
 
   const addCat = useCallback(async () => {
     const name = newCatName.trim();
@@ -296,12 +341,12 @@ function LedgerPage() {
     }
     const total = [...byCat.values()].reduce((a, b) => a + b, 0);
     const sorted = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
-    const top = sorted.slice(0, 3).map(([id, amount]) => ({
+    const top = sorted.slice(0, 3).map(([id, catAmount]) => ({
       id,
       name: resolveCategory(categories, id).name,
       icon: resolveCategory(categories, id).icon,
-      amount,
-      share: total > 0 ? Math.round((amount / total) * 100) : 0
+      amount: catAmount,
+      share: total > 0 ? Math.round((catAmount / total) * 100) : 0
     }));
     // 只列前 3 名时，占比加起来必然不足 100%（第 4 名起没地方去）。
     // 补一行「其他」把剩下的钱和百分点收口 —— 否则用户看到 96% 会以为数字算错了。
@@ -330,6 +375,32 @@ function LedgerPage() {
         <Text className={styles.backIcon}>‹</Text>
         <Text className={styles.backText}>{t('common.back')}</Text>
       </View>
+      {/* 2026-11-03：首屏第一眼必须是「能记账」。
+          原顺序把 198px 高的 AI 月度点评放在最上面，录入区固定在底部，
+          用户打开记账页看到的第一屏是点评而不是输入框。
+          现在把「金额输入 + 分类」提到点评卡之前，记账按钮固定在右下拇指区。 */}
+      <View className={styles.entryCard}>
+        <Input
+          className={styles.entryInput}
+          type='digit'
+          value={amount}
+          placeholder={t('ledger.amountPlaceholder')}
+          focus={false}
+          nativeProps={{ inputMode: 'decimal' }}
+          onInput={(e) => setAmount(e.detail.value)}
+        />
+        <Button className={styles.entryCatBtn} onClick={() => setSheetOpen(true)}>
+          {pickedCategory ? resolveCategory(categories, pickedCategory).name : t('ledger.pickCategory')}
+        </Button>
+        {editingId ? (
+          <Text className={styles.editCancel} onClick={cancelEdit}>
+            {t('ledger.editCancel')}
+          </Text>
+        ) : null}
+      </View>
+
+      {/* AI 月度消费点评（2026-10-31，产品评估 §7.2 D）：自包含组件，吃当前 entries */}
+      <MonthReview entries={entries} />
       <View className={styles.head}>
         <View className={styles.monthRow}>
           <Text className={styles.monthLabel}>
@@ -439,7 +510,11 @@ function LedgerPage() {
               {list.map((e) => {
                 const cat = resolveCategory(categories, e.categoryId);
                 return (
-                  <View key={e.id} className={styles.row} onClick={() => remove(e.id)}>
+                  <View
+                    key={e.id}
+                    className={editingId === e.id ? `${styles.row} ${styles.rowEditing}` : styles.row}
+                    onClick={() => beginEdit(e)}
+                  >
                     <Text className={styles.rowIcon}>{cat.icon}</Text>
                     <View className={styles.rowMain}>
                       <Text className={styles.rowTitle}>{cat.name}</Text>
@@ -449,6 +524,16 @@ function LedgerPage() {
                       {e.kind === 'income' ? '+' : '-'}
                       {formatMoney(e.amount)}
                     </Text>
+                    {/* 2026-11-03：点行改为编辑，删除保留在行尾独立按钮（仍走二次确认），避免误触丢账。 */}
+                    <Text
+                      className={styles.rowDelete}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        remove(e.id);
+                      }}
+                    >
+                      {t('common.delete')}
+                    </Text>
                   </View>
                 );
               })}
@@ -457,23 +542,11 @@ function LedgerPage() {
         </View>
       )}
 
-      {/* 录入区：金额输入 + 分类选择 + 记账 */}
-      <View className={styles.addBar}>
-        <Input
-          className={styles.addInput}
-          type='digit'
-          value={amount}
-          placeholder={t('ledger.amountPlaceholder')}
-          focus={false}
-          onInput={(e) => setAmount(e.detail.value)}
-        />
-        <Button className={styles.addBtn} onClick={() => setSheetOpen(true)}>
-          {pickedCategory ? resolveCategory(categories, pickedCategory).name : t('ledger.pickCategory')}
-        </Button>
-        <Button className={styles.addBtn} onClick={() => void submit()}>
-          {t('ledger.record')}
-        </Button>
-      </View>
+      {/* 记账主按钮：固定在右下拇指区（距底 96px、直径 56px），滚动时不隐藏。
+          金额与分类在页面顶部，按钮始终可达，不必滚回底部再提交。 */}
+      <Button className={styles.fab} onClick={() => void submit()}>
+        {editingId ? t('ledger.editSave') : t('ledger.record')}
+      </Button>
 
       {sheetOpen ? (
         <View className={styles.mask} onClick={() => setSheetOpen(false)}>

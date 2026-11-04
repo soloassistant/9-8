@@ -21,11 +21,12 @@
  */
 
 import Taro from '@tarojs/taro';
-import { getCloudLlm } from './cloudAuth';
+import { getCloudLlm, signOut } from './cloudAuth';
 import type { LlmMessage } from './cloudAuth';
 import { llmEventInsert } from './cloudDb';
 import { readPlan } from '../data/dailyPlan';
 import type { ExtractResult } from '../types';
+import { sanitizeShoppingReply } from '../utils/replyGuard';
 
 /* ---------------- 系统提示（与 cloudfunctions/chat 同口径） ---------------- */
 
@@ -189,6 +190,28 @@ const CLOUD_LLM_TIMEOUT_MS = 60_000;
 const CLOUD_LLM_COOLDOWN_MS = 30_000;
 let cloudLlmCooldownUntil = 0;
 
+/** 最近一次 chat 失败的类型（供 UI 给出「断网/超时/鉴权/服务端」可读文案）。
+ *  2026-11-03：此前所有失败都只 console.warn + 返回 null，UI 拿不到原因，
+ *  只能统一回一句模板话术 —— 这正是「静默降级、假装作答」的入口之一。 */
+export type ChatFailureKind = 'timeout' | 'auth' | 'server' | 'network' | 'empty' | 'unknown';
+let lastChatFailure: ChatFailureKind | null = null;
+export function getLastChatFailure(): ChatFailureKind | null {
+  return lastChatFailure;
+}
+/** 发送前清空：一次旧失败不能污染下一次请求的文案 */
+export function clearLastChatFailure(): void {
+  lastChatFailure = null;
+}
+
+/** 错误串 → 可解释的失败类型（只做保守匹配，不猜 HTTP 细节） */
+function classifyChatError(err: unknown): ChatFailureKind {
+  const s = String((err as Error)?.message || err || '').toLowerCase();
+  if (/timeout|timed out|abort/.test(s)) return 'timeout';
+  if (/401|403|invalid_grant|unauthenticated|session.*expired/.test(s)) return 'auth';
+  if (/\b5\d\d\b|server error|bad gateway|gateway|unavailable/.test(s)) return 'server';
+  return 'network';
+}
+
 export interface CloudLlmChatOpts {
   /** 系统提示（调用方用 pickSystemPrompt 选；空值直接拒绝 —— system 必须在 messages[0]） */
   system: string;
@@ -209,6 +232,27 @@ export interface CloudLlmChatOpts {
  *
  * 返回完整文本；任何失败返回 null（内部已 warn，调用方降级）。
  */
+/** 会话失效自愈：把本地那份已死的会话清掉，让后续请求以匿名身份发出。
+ *
+ *  为什么必须有（2026-10-31 用户实测「AI 有反馈但不会做事 / 提示本地演示数据」）：
+ *  4396411 之后，会话恢复失败**不再把人踢回登录页**——用户留在应用里，
+ *  但本地那份过期 token 会被 SDK 一直带上。实测云端对坏 token 的响应是
+ *  `401 {"error":"invalid_grant"}`（无 token 反而是 200），于是**每一个** LLM 请求都失败。
+ *  失败又进了 60s 熔断，表现就是「AI 一直不可用」。不清掉它，重试多少次都一样。 */
+function isAuthError(err: unknown): boolean {
+  const s = String((err as Error)?.message || err || '');
+  return /401|invalid_grant|unauthenticated|session is invalid|session.*expired/i.test(s);
+}
+
+async function repairDeadSession(err: unknown): Promise<void> {
+  console.warn('[cloudLlm] session invalid, dropping it:', String((err as Error)?.message || err).slice(0, 100));
+  try {
+    await signOut();
+  } catch (e) {
+    console.error('[cloudLlm] signOut during repair failed:', e);
+  }
+}
+
 export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | null> {
   const system = (opts.system || '').trim();
   if (!system) {
@@ -219,13 +263,18 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
   if (Date.now() < cloudLlmCooldownUntil) {
     // 熔断期内：不重复打一个刚卡死过的服务端。兜底链照常走，用户侧有降级提示。
     console.warn('[cloudLlm] cooldown after recent failure, skip cloud call');
+    if (!lastChatFailure) lastChatFailure = 'network';
     return null;
   }
   const llm = await getCloudLlm();
-  if (!llm) return null;
+  if (!llm) {
+    lastChatFailure = 'unknown';
+    return null;
+  }
   const model = await pickModel();
   if (!model) {
     console.warn('[cloudLlm] no selectable model (empty or all-disabled directory)');
+    lastChatFailure = 'server';
     return null;
   }
   const messages: LlmMessage[] = [
@@ -258,7 +307,8 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
       // content 正常累积；reasoning_content 是思考过程，与可见回复分开，不混入 text
       if (delta && typeof delta.content === 'string' && delta.content) text += delta.content;
     }
-    return text;
+    // 2026-11-03（I-4）：H5 直连不经过 chat 云函数的禁语后处理，这里补同一口径。
+    return sanitizeShoppingReply(text, opts.userContent);
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -268,7 +318,11 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
         timer = setTimeout(() => reject(new Error(`cloud.llm stream timeout after ${CLOUD_LLM_TIMEOUT_MS}ms`)), CLOUD_LLM_TIMEOUT_MS);
       })
     ]);
-    if (!text) return null;
+    if (!text) {
+      lastChatFailure = 'empty';
+      return null;
+    }
+    lastChatFailure = null;
     // 记账只计**成功完成**的调用：失败attempt不耗用户免费额度（网络抖动不该扣配额）
     // ⚠️ catch 里必须 console.error 留痕：原先 `.catch(() => {})` 完全吞掉，而
     // llmEventInsert 内部的痕迹只有 console.warn（生产构建会被剔除）——记账失败
@@ -276,9 +330,30 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
     void llmEventInsert('chat').catch((err) => {
       console.error('[cloudLlm] llm_event insert failed:', err);
     });
-    return text;
+    return sanitizeShoppingReply(text, opts.userContent);
   } catch (err) {
     console.warn('[cloudLlm] stream failed:', err);
+    lastChatFailure = classifyChatError(err);
+    if (isAuthError(err)) {
+      // 认证失败 ≠ 服务端不稳：清掉死会话后**立刻重试一次**（匿名身份可用），
+      // 不进熔断 —— 否则一次 401 会让 AI 哑 60 秒，用户看到的就是「提示演示数据」。
+      await repairDeadSession(err);
+      cloudLlmCooldownUntil = 0;
+      try {
+        const retried = await collect();
+        if (retried) {
+          lastChatFailure = null;
+          return sanitizeShoppingReply(retried, opts.userContent);
+        }
+        console.warn('[cloudLlm] retry after session repair returned empty');
+        lastChatFailure = 'empty';
+        return null;
+      } catch (e2) {
+        console.warn('[cloudLlm] retry after session repair failed:', e2);
+        lastChatFailure = 'auth';
+        return null;
+      }
+    }
     // 超时与断流都进熔断：二者都意味着「这次云端调用不可靠」，短期内重试大概率同样失败
     cloudLlmCooldownUntil = Date.now() + CLOUD_LLM_COOLDOWN_MS;
     return null;
@@ -288,12 +363,57 @@ export async function cloudLlmChat(opts: CloudLlmChatOpts): Promise<string | nul
 }
 
 /** 解析 LLM 的 JSON 回复契约（与 chat 云函数 safeParse 同口径：失败返回 null） */
-export function safeParseReply<T>(raw: string): T | null {
+/** 提取首个**括号配平**的 {...}（跳过字符串字面量与转义）——模型在 JSON 前后加解说散文时救回 */
+export function extractFirstJsonObject(text: string): string | null {
+  const str = String(text || '');
+  const start = str.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr: string | null = null;
+  for (let i = start; i < str.length; i += 1) {
+    const ch = str[i];
+    if (inStr) {
+      if (ch === '\\') { i += 1; continue; }
+      if (ch === inStr) inStr = null;
+      continue;
+    }
+    if (ch === '"') { inStr = '"'; continue; }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return str.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function tryParseJson<T>(text: string): T | null {
   try {
-    return JSON.parse(raw) as T;
+    const v = JSON.parse(text);
+    return v && typeof v === 'object' && v !== null ? (v as T) : null;
   } catch {
     return null;
   }
+}
+
+/** 容错解析三级：直解 → 剥 ``` 围栏 → 首个平衡 {...}。
+ *  为什么必须有：平台下发的模型并不总输出纯 JSON——实测出现 `json 围栏、
+ *  前后解说散文；裸 JSON.parse 一失败，chat/extract 双双降级 mock（用户实测：
+ *  AI 助理「有反馈但不会做事」+ 收件箱「本地演示数据」），且生产构建剔除
+ *  console.warn，线上零痕迹难排查。容错只放宽「包装」不放宽「结构」——
+ *  提取出的仍必须是合法 JSON 对象，解析不了就如实返回 null。 */
+export function safeParseReply<T>(raw: string): T | null {
+  const text = String(raw || '');
+  if (!text.trim()) return null;
+  const direct = tryParseJson<T>(text);
+  if (direct !== null) return direct;
+  const fence = /```(?:json)?\s*([\s\S]*?)```/g;
+  for (let m = fence.exec(text); m; m = fence.exec(text)) {
+    const inner = tryParseJson<T>(m[1].trim());
+    if (inner !== null) return inner;
+  }
+  const obj = extractFirstJsonObject(text);
+  return obj === null ? null : tryParseJson<T>(obj);
 }
 
 /** chat 云函数返回契约里本模块会透传的字段 */
@@ -302,6 +422,12 @@ export interface CloudChatResult {
   action: string;
   proposals?: unknown[];
   memories?: string[];
+  /** 动作载荷：batch 的 newEvents、done/reschedule 的 targetId、reschedule 的 newTime。
+   *  2026-10-31 之前这里只透传 reply/action/proposals/memories，模型给的 newEvents /
+   *  targetId 被整个丢掉 —— 于是「AI 说帮你排好了」但客户端手上根本没有要写什么。 */
+  targetId?: string | null;
+  newTime?: string | null;
+  newEvents?: unknown[];
 }
 
 /**
@@ -334,6 +460,10 @@ export async function chatViaCloudLlm(data?: {
   };
   if (Array.isArray(parsed.proposals)) out.proposals = parsed.proposals;
   if (Array.isArray(parsed.memories)) out.memories = parsed.memories.filter((m): m is string => typeof m === 'string');
+  // 动作载荷必须一起带出来，否则调用方只能拿到一句「已经安排好了」
+  if (typeof parsed.targetId === 'string' || parsed.targetId === null) out.targetId = parsed.targetId as string | null;
+  if (typeof parsed.newTime === 'string' || parsed.newTime === null) out.newTime = parsed.newTime as string | null;
+  if (Array.isArray(parsed.newEvents)) out.newEvents = parsed.newEvents;
   return out;
 }
 

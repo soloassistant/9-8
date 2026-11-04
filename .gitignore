@@ -102,6 +102,7 @@ static-server.log*
 dist-weapp/
 dist-alipay/
 dist-tt/
+dist-verify/
 
 # push-via-api 临时目录
 .tools/.pushtmp/

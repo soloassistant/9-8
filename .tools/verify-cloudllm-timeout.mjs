@@ -34,7 +34,7 @@ const src = fs.readFileSync(SRC, 'utf8');
 
 /* ── 抽 cloudLlmChat 函数体（大括号配平，跳过字符串/模板串，同 verify-extract-coerce） ── */
 function sliceFn(s, name) {
-  const m = new RegExp(`(?:export\\s+)?async function ${name}\\s*\\(`).exec(s);
+  const m = new RegExp(`(?:export\\s+)?(?:async\\s+)?function ${name}\\s*\\(`).exec(s);
   if (!m) throw new Error(`sliceFn: ${name} not found in ${SRC}`);
   const start = m.index;
   let depth = 0, started = false, inStr = null, inTpl = false;
@@ -50,12 +50,29 @@ function sliceFn(s, name) {
   throw new Error(`sliceFn: ${name} unbalanced`);
 }
 const fnSrc = sliceFn(src, 'cloudLlmChat');
+// 2026-11-01：cloudLlmChat 新增认证失败自愈（1345c33）——isAuthError / repairDeadSession
+// 是它的模块级依赖，切片必须一并带上（否则 harness 作用域 ReferenceError，两条用例假红）；
+// signOut 已在下方 mock。切片跟随源码演进，别让 harness 停在过去。
+// 2026-11-04：cloudLlmChat 增加 classifyChatError（把错误归类给 UI 文案），
+// 以及模块级 lastChatFailure 状态；切片继续跟随源码，别让 harness 停在过去。
+// 2026-11-04：cloudLlmChat 还依赖 sanitizeShoppingReply（H5 直连的禁语兜底），
+// 它来自 src/utils/replyGuard.ts —— 直接带上整份源码（无外部依赖）。
+const guardSrc = fs
+  .readFileSync(path.join(ROOT, 'src', 'utils', 'replyGuard.ts'), 'utf8')
+  .replace(/^export\s+/gm, '');
+const depSrc = [
+  sliceFn(src, 'isAuthError'),
+  sliceFn(src, 'repairDeadSession'),
+  sliceFn(src, 'classifyChatError'),
+  guardSrc
+].join('\n');
 
 /* ── 抽模块级常量（旧代码没有这三行 = 空，正好让 RED 成立） ── */
 const constLines = [
   /const CLOUD_LLM_TIMEOUT_MS[^;]*;/,
   /const CLOUD_LLM_COOLDOWN_MS[^;]*;/,
   /let cloudLlmCooldownUntil[^;]*;/,
+  /let lastChatFailure[^;]*;/,
 ].map((re) => { const m = re.exec(src); return m ? m[0] : ''; }).filter(Boolean).join('\n');
 
 /* ── 拼装可测模块：mock 依赖 + 常量 + 真函数 ── */
@@ -69,6 +86,8 @@ async function getCloudLlm() {
 function getConversationId() { return 'harness-conv'; }
 async function pickModel() { return { id: 'harness-model' }; }
 async function llmEventInsert(kind) { (globalThis.__llmEventCalls ||= []).push(kind); return true; }
+async function signOut() { (globalThis.__signOutCalls ||= []).push(1); return { data: null, error: null }; }
+${depSrc}
 ${fnSrc.replace(/^export\s+/, '')}
 export { cloudLlmChat };
 `;
@@ -167,6 +186,26 @@ await t('恢复：熔断过期后正常流重新可用', async () => {
   const r = await cloudLlmChat({ system: 's', userContent: 'u' });
   nowOffset = 0;
   return done(r === '又好' && globalThis.__llmMock.createCalls === 1, `reply=${JSON.stringify(r)} createCalls=${globalThis.__llmMock.createCalls}`);
+});
+
+// 2026-11-01：认证失败自愈契约（1345c33）——401/invalid_grant → 清死会话 → 立即重试一次
+// 且**不进熔断**（紧随其后的调用直接可用）；非认证错误（超时）仍走熔断，两条路径不许混。
+await t('认证失败：清死会话并立即重试一次（不进熔断）', async () => {
+  let n = 0;
+  // 前面「卡死流」用例真实等了 60s 并留下 30s 熔断窗（模块级状态跨用例残留）——
+  // 快进时钟越过它，让本用例从干净态开始（测的是认证重试路径，不是熔断残留）。
+  nowOffset = 31_000;
+  globalThis.__llmMock.impl = async () => {
+    n += 1;
+    if (n === 1) { const e = new Error('401 invalid_grant: the session is invalid, expired or issued for another client'); throw e; }
+    return okStream(['重', '试', '成'])();
+  };
+  const r = await cloudLlmChat({ system: 's', userContent: 'u' });
+  const signOuts = (globalThis.__signOutCalls || []).length;
+  const next = await cloudLlmChat({ system: 's', userContent: 'u2' });
+  nowOffset = 0;
+  return done(r === '重试成' && signOuts === 1 && next === '重试成',
+    `reply=${JSON.stringify(r)} signOuts=${signOuts} next=${JSON.stringify(next)} warns=${JSON.stringify(warns).slice(0, 200)}`);
 });
 
 console.warn = origWarn;
