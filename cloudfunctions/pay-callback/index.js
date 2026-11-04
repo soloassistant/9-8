@@ -329,6 +329,9 @@ function decryptDouyinResource(resource) {
 const ENTITLEMENT_STALE_MS = 2 * 60 * 1000; // applying 超过 2 分钟视为中断，允许接管
 const MS_PER_MONTH = 30 * 24 * 3600 * 1000;
 
+/** B3 状态机：只有这三个状态允许进入「置 paid」流程；closed/refunded 等终态一律拒绝 */
+const PAYABLE_STATUSES = ['created', 'pending', 'failed'];
+
 async function confirmOrderPaid({ orderId, channel, channelTradeNo, amountFen }) {
   // 1. 读订单
   const orderSnap = await db.collection('orders').where({ orderId }).get();
@@ -340,6 +343,11 @@ async function confirmOrderPaid({ orderId, channel, channelTradeNo, amountFen })
   if (order.status === 'paid' && order.entitlementStatus === 'applied') {
     console.log('[pay-callback] 订单已 paid 且权益已发放，跳过:', orderId);
     return { orderId, alreadyPaid: true };
+  }
+
+  // 2.5 B3 状态机：已关闭/已退款的终态订单不得被回调「复活」为 paid（禁止 closed → paid）
+  if (order.status !== 'paid' && !PAYABLE_STATUSES.includes(order.status)) {
+    throw new Error('[pay-callback] 订单状态不可入账（禁止 closed→paid）: ' + order.status);
   }
 
   // 3. 要素一致性校验：渠道匹配 + 金额匹配
@@ -412,8 +420,8 @@ async function acquireEntitlementLock(order, extra) {
   const base = { _id: order._id };
   const candidates = [];
   if (order.status !== 'paid') {
-    // 首付：对 status 做 CAS（pending/created → paid 只能成功一次）
-    candidates.push(Object.assign({}, base, { status: order.status }));
+    // 首付：CAS 候选限定 created/pending/failed（closed/refunded 永远匹配不到）
+    candidates.push(Object.assign({}, base, { status: _.in(PAYABLE_STATUSES) }));
   } else if (order.entitlementStatus === 'failed') {
     candidates.push(Object.assign({}, base, { status: 'paid', entitlementStatus: 'failed' }));
   } else if (order.entitlementStatus === 'applying') {
