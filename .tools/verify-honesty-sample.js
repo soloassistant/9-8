@@ -94,20 +94,40 @@ ok(
 );
 ok('A10 scss 定义 .sampleNote', /\.sampleNote\s*\{/.test(communityScss));
 
-/* ============ B. 页级降级提示：markDegraded + DemoDataHint ============ */
+/* ============ B. 社区同步告知：与端能力一致（2026-11-04） ============ */
+/*
+ * 旧断言守的是「社区没有云同步」：要求页面导入 markDegraded + DemoDataHint。
+ * 但那本身就是假话 —— H5 的 learnCommunityStore 早在 SYNC_KEYS 里，会同步到用户自己的
+ * 云端账号；小程序端才是仅本机。继续要求降级横幅，等于把「如实告知」判成回归。
+ * 现在改为按端核对文案：H5 说清同步去向与可见范围，小程序只说本机，且旧假话零残留。
+ */
+const langSrc = read('src/store/language.ts');
+const communityCode = stripComments(community);
+const langCode = stripComments(langSrc);
 
 ok(
-  'B1 learnCommunity 从 @/services/cloud 导入 markDegraded',
-  /import\s*\{\s*markDegraded\s*\}\s*from\s*'@\/services\/cloud'/.test(community)
+  'B1 H5 页脚如实告知：同步到你的云端账号、仅本人可见',
+  langCode.includes("'community.cloudNoteH5': '内容会同步到你的云端账号（仅你本人可见，其他用户看不到）'")
 );
-ok("B2 learnCommunity 调用 markDegraded('learnCommunity')", community.includes("markDegraded('learnCommunity')"));
 ok(
-  'B3 learnCommunity 导入并渲染 DemoDataHint',
-  // 2026-10-30 放宽：DemoDataHint 现在支持**页面粒度**（actions prop），
-  // 判据不该锁死「无参写法」—— 写成 `<DemoDataHint actions={[...]} />` 同样是渲染了它。
-  // 放宽方向是「接受更多形态」，不会掩盖任何真实回归。
-  /import DemoDataHint from '@\/components\/DemoDataHint'/.test(community) &&
-    community.includes('<DemoDataHint')
+  'B2 小程序页脚只写「仅保存在本机」',
+  langCode.includes("'community.cloudNoteWeapp': '仅保存在本机'")
+);
+ok(
+  'B3 页面按 TARO_ENV 选择两端文案（页脚与发布提示都分流）',
+  /isH5\s*=\s*process\.env\.TARO_ENV\s*===\s*'h5'/.test(communityCode) &&
+    communityCode.includes("t(isH5 ? 'community.cloudNoteH5' : 'community.cloudNoteWeapp')") &&
+    communityCode.includes("t(isH5 ? 'community.postedH5' : 'community.postedWeapp')")
+);
+ok(
+  'B4 「暂存本机 / 云同步未开放 / 云同步即将开放 / 已发布到打卡墙」零残留',
+  ['暂存本机', '云同步未开放', '云同步即将开放', '已发布到打卡墙'].every(
+    (s) => !communityCode.includes(s) && !langCode.includes(s)
+  )
+);
+ok(
+  'B5 社区页不再把「示例帖」误标成云端功能降级',
+  !communityCode.includes('markDegraded') && !communityCode.includes('DemoDataHint')
 );
 
 /* ============ C. H5 语音：不 mock、不扣额度 ============ */

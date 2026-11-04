@@ -8,11 +8,13 @@ import { readLearnStore, getStreak } from '@/utils/learn';
 import { LEARN_LANGS } from '@/data/learn';
 import { useT } from '@/store/language';
 import { fromNow } from '@/utils/date';
-import { markDegraded } from '@/services/cloud';
-import DemoDataHint from '@/components/DemoDataHint';
 import styles from './index.module.scss';
 
-/** 社区动态（MVP：本地持久化 + 种子示例，结构兼容后续云同步） */
+/** H5：learnCommunityStore 在 SYNC_KEYS 里，会同步到用户自己的云端账号（RLS 隔离）；
+ *  小程序端只写本机 storage。文案按端如实区分，不要再说「云同步未开放/暂存本机」。 */
+const isH5 = process.env.TARO_ENV === 'h5';
+
+/** 社区动态（本地持久化 + 种子示例） */
 interface Post {
   id: string;
   name: string;
@@ -84,16 +86,11 @@ function readCommunity(): CommunityStore {
   try {
     const raw = Taro.getStorageSync(COMMUNITY_STORE_KEY);
     if (raw && Array.isArray(raw.posts)) {
-      const posts = markSamples(raw.posts);
-      // 社区数据全在本机 storage、没有云同步：只要展示里带示例条目，就登记降级，
-      // 让页级 DemoDataHint 如实说明「云端服务尚未接通」。
-      if (posts.some((p) => p.sample)) markDegraded('learnCommunity');
-      return { posts };
+      return { posts: markSamples(raw.posts) };
     }
   } catch (err) {
     console.warn('[learnCommunity] read failed:', err);
   }
-  markDegraded('learnCommunity');
   return { posts: seedPosts() };
 }
 
@@ -147,7 +144,10 @@ function LearnCommunityPage() {
     setPosts(next);
     writeCommunity({ posts: next });
     setDraft('');
-    Taro.showToast({ title: '已发布到打卡墙', icon: 'success' });
+    Taro.showToast({
+      title: t(isH5 ? 'community.postedH5' : 'community.postedWeapp'),
+      icon: 'success'
+    });
   };
 
   const toggleLike = (id: string) => {
@@ -191,9 +191,6 @@ function LearnCommunityPage() {
           {t('community.unlockedTip', { unlocked, total: achievements.length })}
         </Text>
       </View>
-
-      {/* 页级诚实性提示：社区数据全在本地 storage，没有云同步 */}
-      <DemoDataHint actions={['learnCommunity']} />
 
       {/* 成就徽章墙 */}
       <View className={styles.sectionCard}>
@@ -263,7 +260,9 @@ function LearnCommunityPage() {
       </View>
 
       <View className={styles.footer}>
-        <Text className={styles.footerText}>{t('community.cloudNote')}</Text>
+        <Text className={styles.footerText}>
+          {t(isH5 ? 'community.cloudNoteH5' : 'community.cloudNoteWeapp')}
+        </Text>
       </View>
     </View>
   );
