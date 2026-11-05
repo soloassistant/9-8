@@ -32,6 +32,21 @@
 users / events / todos / items / briefings / usage / history / shopping / hotspotCache（webSearch 首次运行自动创建）
 - users 关键字段：`subscribed`（付费订阅）、`expiredAt`（到期时间）、`subscribeAccepted`（订阅消息授权）、`preferences`（偏好标签数组）
 
+### 2.1 部署后必须人工核对：敏感集合权限
+
+> 仓库没有权限的 IaC，离线门禁也不模拟安全规则（mock 明确不校验权限）——**这两项只能部署后进控制台逐条确认**，代码合并与 CI 全绿都不代表权限设对了。
+> 两个集合由云函数首次写入时自动创建；`refund_attempts` 随退款幂等改动生效，`moderation_failures` 随内容安全 fail-closed 改动生效（对应分支未合并前控制台里可能还看不到集合，合并部署后再核对）。
+
+- [ ] **`refund_attempts`**：权限必须为「仅创建者可读写」，或自定义 `{"read": false, "write": false}`
+  - **怎么查**：云开发控制台 → 数据库 → `refund_attempts` → 右上「权限设置」；再用小程序端（真机/体验版）执行 `wx.cloud.database().collection('refund_attempts').get()`，应返回 0 条或 `database permission denied`；同一条查询在云函数里应能读到数据（说明只限制了客户端，管理端不受影响）。
+  - **期望值**：客户端读不到任何一条；云函数可读写。
+  - **最坏情况**：若误设「所有用户可读」，任意登录用户可枚举他人的 `openid` + 退款金额 + `orderId`/`refundNo`；若再设「可写」，还能删改 `status`，直接拆掉 `_id` 唯一性构成的退款并发闸门，为重复退款打开入口。
+
+- [ ] **`moderation_failures`**：权限必须为「仅创建者可读写」，或自定义 `{"read": false, "write": false}`
+  - **怎么查**：同上，集合名换成 `moderation_failures`；客户端 `get()` 应 0 条/拒绝，云函数可读写。
+  - **期望值**：客户端读不到；该集合字段为 `openid` / `action` / `reason` / `errCode` / `detail` / `ts` / `textHash`。
+  - **最坏情况**：可读会泄露用户标识与其提交内容的指纹（`textHash` 可被同内容关联/反推）；可写可伪造或清除内容审核失败记录，掩盖违规内容、破坏 fail-closed 的取证链。
+
 ## 3. 小程序后台配置
 - [ ] **插件管理**：添加「微信同声传译」（provider `wx069ba97219f66d99`）；版本与 `src/app.config.ts` 一致（当前写 0.3.5，**以后台插件页显示的最新稳定版为准**，不一致就同步改 app.config.ts）
 - [ ] **订阅消息**：申请模板 → 替换两处：`src/pages/briefing/index.tsx` 的 `SUBSCRIBE_TEMPLATE_ID`、getBriefing 云函数环境变量 `SUBSCRIBE_TEMPLATE_ID`
