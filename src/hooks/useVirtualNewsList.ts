@@ -16,8 +16,8 @@ const SUPPORTED =
 
 type Range = { start: number; end: number };
 
-export type VirtualNewsList = {
-  slice: any[];
+export type VirtualNewsList<T> = {
+  slice: T[];
   start: number;
   end: number;
   total: number;
@@ -29,7 +29,7 @@ export type VirtualNewsList = {
 export function useVirtualNewsList<T extends { id: string }>(
   list: T[],
   resetKey: string
-): VirtualNewsList {
+): VirtualNewsList<T> {
   const total = list.length;
   // 上限覆盖整张列表时虚拟化没有意义；MAX_WINDOW=9999 即整表直出（等价于关掉虚拟化）
   const virtual = SUPPORTED && total > MAX_WINDOW;
