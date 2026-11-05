@@ -1,0 +1,56 @@
+@use '@/styles/variables.scss' as *;
+
+/* 题库三页（列表 / 答题 / 错题本）共用样式，避免三份近似样式各自漂移。 */
+.page {
+  min-height: 100vh;
+  padding: $spacing-md $page-padding $spacing-xl;
+  background: $color-bg-page;
+  box-sizing: border-box;
+  color: $color-text-primary;
+}
+.header { display: flex; align-items: center; gap: $spacing-sm; margin-bottom: $spacing-lg; }
+.back { @include hit-expand(16rpx, 28rpx); display: inline-flex; align-items: center; gap: 4rpx; flex: 0 0 auto; cursor: pointer; }
+.backIcon { font-size: 34rpx; line-height: 1; color: $color-text-tertiary; }
+.backText { font-size: $font-size-sm; color: $color-text-tertiary; }
+.title { flex: 1; min-width: 0; font-size: $font-size-xxl; font-weight: $font-weight-semibold; }
+.headerAction { flex: 0 0 auto; font-size: $font-size-sm; color: $color-primary-strong; cursor: pointer; }
+.search {
+  padding: 0 $spacing-md;
+  height: $button-height-md;
+  margin-bottom: $spacing-md;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-button;
+  font-size: $font-size-md;
+  box-sizing: border-box;
+}
+.chips { display: flex; flex-wrap: wrap; gap: $spacing-xs; margin-bottom: $spacing-sm; }
+.chip { padding: 8rpx $spacing-sm; border-radius: $radius-tier-sm; background: $color-bg-hover; font-size: $font-size-sm; color: $color-text-secondary; cursor: pointer; }
+.chipActive { background: $color-primary-strong; color: #fff; }
+.count { display: block; margin-bottom: $spacing-sm; font-size: $font-size-xs; color: $color-text-tertiary; }
+.card {
+  margin-bottom: $spacing-sm;
+  padding: $spacing-md;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-lg;
+  cursor: pointer;
+}
+.stem { display: block; font-size: $font-size-md; line-height: $line-height-normal; }
+.meta { display: flex; align-items: center; gap: $spacing-xs; margin-top: $spacing-xs; }
+.badge { padding: 4rpx 10rpx; border-radius: $radius-xs; background: $color-bg-hover; font-size: $font-size-xs; color: $color-text-tertiary; }
+
+/* 三态：加载 / 失败 / 空。失败态给重试入口，绝不与空态共用一个盒子。 */
+.state { display: flex; flex-direction: column; align-items: center; padding: 120rpx 0; text-align: center; }
+.stateIcon { font-size: 64rpx; line-height: 1; opacity: 0.6; }
+.stateTitle { margin-top: $spacing-md; font-size: $font-size-md; color: $color-text-primary; }
+.stateDesc { margin-top: 8rpx; font-size: $font-size-sm; color: $color-text-tertiary; }
+.retry {
+  margin-top: $spacing-md;
+  padding: 12rpx $spacing-lg;
+  border: 1rpx solid $color-primary-strong;
+  border-radius: $radius-button;
+  font-size: $font-size-sm;
+  cursor: pointer;
+}
+.retryText { color: $color-primary-strong; }
