@@ -3,7 +3,7 @@
  *
  * ## 设计：订单是权益的唯一事实源
  * 支付通道接通后，支付成功分支只做一件事：往 `orders` 表落一条 status='paid'
- * 的订单（见 marketFeed 无关的 cloudOrders.orderInsert）。订阅状态**不单独存**，
+ * 的订单（服务端函数写入，见 cloudOrders 的 A-1 说明）。订阅状态**不单独存**，
  * 而是从已支付订单**回放**出来 —— 这样：
  *   - 换设备 / 重装 / 清缓存：登录后回放一遍，订阅自动回来（不需要「找回」入口）；
  *   - 退款：订单 refund_status 变了，回放时自然剔除（浏览器改不了订单，服务端说了算）；
@@ -16,6 +16,8 @@
  */
 
 import { type CloudOrder } from './cloudOrders';
+import { refreshEntitlement } from './entitlement';
+import { getSession, getCloudDatabase } from './cloudAuth';
 
 /** 是否计入订阅回放：已支付且未退款（退款中也不算 —— 宁可先停权益再恢复） */
 function isPaidAndActive(order: CloudOrder): boolean {
@@ -48,19 +50,29 @@ export function computeExpiryFromOrders(orders: CloudOrder[], today: string): st
   return expiry >= today ? expiry : null; // 回放出来已过期 = 如实未订阅
 }
 
-/** 兑换成功后落一条 promo 订单（orders 表的第一个写入方；失败只记日志不阻塞兑换） */
+/**
+ * 兑换成功后登记一条 promo 订单。
+ *
+ * A-1：客户端不再直插 `orders` 表（那条路径可被任何登录用户伪造），改为调用服务端
+ * 函数 `record_promo_order(p_days)` —— 订单号/渠道/金额/状态/到期全由服务端生成。
+ * 返回 false 时调用方必须如实提示「未登记」，不能报成功（见 membership 页）。
+ * SQL 未执行时这里会收到 PGRST202，同样返回 false。
+ */
 export async function recordPromoOrder(days: number): Promise<boolean> {
-  const { orderInsert } = await import('./cloudOrders');
-  const months = Math.max(1, Math.round(days / 30));
-  return orderInsert({
-    orderId: `promo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    planId: 'promo',
-    channel: 'promo',
-    amountCents: 0,
-    months,
-    status: 'paid',
-    paidAt: new Date().toISOString()
-  });
+  if (!(await getSession())) return false;
+  const db = await getCloudDatabase();
+  if (!db) return false;
+  try {
+    const res = await db.rpc('record_promo_order', { p_days: Math.max(1, Math.round(days)) });
+    if (res.error) {
+      console.error('[subscription] record_promo_order failed:', res.error.code || '', res.error.message || '');
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[subscription] record_promo_order threw:', err instanceof Error ? err.message : String(err));
+    return false;
+  }
 }
 
 export interface RestoreResult {
@@ -80,9 +92,8 @@ export interface RestoreResult {
  * **不再写本地凭证** —— 本地存储不再参与任何权益判定。
  */
 export async function restoreSubscriptionFromOrders(): Promise<RestoreResult> {
-  // 动态 import：entitlement 静态依赖本文件的纯函数 computeExpiryFromOrders，
-  // 静态互引会形成模块环；这里在调用期才取，环不会在求值阶段被触发。
-  const { refreshEntitlement } = await import('./entitlement');
+  // entitlement 依赖本文件的纯函数 computeExpiryFromOrders，形成模块环；
+  // 两边的函数都在调用期才执行，环不会在求值阶段触发（esbuild/ESM 均按 live binding 处理）。
   const ent = await refreshEntitlement();
   if (ent.source === 'unavailable') {
     return { restored: false, expiredAt: null, reason: 'db-error' };

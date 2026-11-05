@@ -364,5 +364,58 @@ assert('G2 伪造凭证后 getUsage 仍按免费档给额度（voiceQuota=20 / c
   h5Usage.voiceQuota === 20 && h5Usage.collectionQuota === 50);
 // 其余消费方（档案 / 小程序端 / 退款 / fail-closed）的断言在紧随其后的门禁 PR 中补齐。
 
+/* ================================================================== */
+/* H. 订单写入只走服务端函数（A-1，2026-11-05）                          */
+/* ================================================================== */
+section('H. 订单写入只走服务端函数（客户端无直写路径）');
+
+const AUTH_SESSION_STUB = path.join(ROOT, '.tools', 'stubs', 'stub-cloud-auth-session.cjs');
+const ENT_STUB = path.join(ROOT, '.tools', 'stubs', 'stub-entitlement.cjs');
+const stubOrderWritePlugin = {
+  name: 'stub-order-write',
+  setup(build) {
+    build.onResolve({ filter: /cloudAuth$/ }, () => ({ path: AUTH_SESSION_STUB, external: true }));
+    build.onResolve({ filter: /entitlement$/ }, () => ({ path: ENT_STUB, external: true }));
+  }
+};
+
+const subMod2 = (await loadModule('src/services/subscription.ts', {
+  plugins: [stubOrderWritePlugin],
+  taroExternal: true
+})).mod;
+
+const calls = [];
+globalThis.__SESSION__ = { user: { id: 'u1' } };
+globalThis.__RPC_RES__ = { data: { order_id: 'promo_x' }, error: null };
+globalThis.__DB__ = {
+  rpc: async function (fn, params) {
+    calls.push({ fn: fn, params: params });
+    return globalThis.__RPC_RES__;
+  },
+  // 客户端直写订单必须走不到这里 —— 一旦调用就立刻炸，用例据此判定
+  from: function (table) {
+    throw new Error('客户端不得直写 ' + table);
+  }
+};
+
+const h1 = await subMod2.recordPromoOrder(30);
+assert('H1 兑换登记走服务端函数 record_promo_order（参数 p_days=30）',
+  h1 === true && calls.length === 1 && calls[0].fn === 'record_promo_order' && calls[0].params.p_days === 30);
+
+globalThis.__RPC_RES__ = { data: null, error: { code: 'PGRST202', message: 'function not found' } };
+const h2 = await subMod2.recordPromoOrder(30);
+assert('H2 服务端函数未部署/执行失败 → 返回 false（调用方必须提示失败，不得假装成功）', h2 === false);
+
+globalThis.__SESSION__ = null;
+calls.length = 0;
+globalThis.__RPC_RES__ = { data: {}, error: null };
+const h3 = await subMod2.recordPromoOrder(30);
+assert('H3 未登录 → 不调用 RPC、返回 false', h3 === false && calls.length === 0);
+
+globalThis.__SESSION__ = { user: { id: 'u1' } };
+globalThis.__DB__ = null;
+const h4 = await subMod2.recordPromoOrder(30);
+assert('H4 数据库不可用 → 返回 false（fail-closed）', h4 === false);
+
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);
