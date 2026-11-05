@@ -89,8 +89,19 @@ exports.main = async (event) => {
       collectionCount: itemsCount.total,
       collectionQuota: isSubscribed ? -1 : FREE_COLLECTION_QUOTA,
       // B-01：有锁价记录时返回，供前端展示与续费取价兜底
-      lockedPrice
+      lockedPrice,
+      // AC-03：会员态由服务端判（客户端本地凭证不再授予权益）
+      subscribed: isSubscribed
     };
+
+    // AC-03：权益查询（客户端唯一可信来源）。过期/未订阅都如实返回 false
+    if (action === 'getEntitlement') {
+      return {
+        code: 0,
+        message: 'ok',
+        data: { subscribed: isSubscribed, expiredAt: isSubscribed ? user.expiredAt || null : null }
+      };
+    }
 
     // 新增动作统一走 { code, message, data }
     if (action === 'getLockedPrice') {
@@ -109,6 +120,10 @@ exports.main = async (event) => {
       collectionQuota: FREE_COLLECTION_QUOTA,
       lockedPrice: null
     };
+    if (action === 'getEntitlement') {
+      // fail-closed：拿不到服务端结论时不授予会员（客户端据此按未订阅处理）
+      return { code: -1, message: 'getUsage failed', data: { subscribed: false, expiredAt: null } };
+    }
     if (action === 'getLockedPrice') {
       return { code: -1, message: 'getUsage failed', data: { lockedPrice: null } };
     }

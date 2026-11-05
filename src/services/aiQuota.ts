@@ -11,7 +11,7 @@
  *   **只计成功回复**（cloudLlm 也是流式读完才 insert），失败/超时不扣额度。
  */
 import Taro from '@tarojs/taro';
-import { readH5Subscription } from '@/utils/promo';
+import { hasProEntitlement } from './entitlement';
 import { getCloudDatabase } from './cloudAuth';
 import {
   canChat,
@@ -94,5 +94,6 @@ async function countCloudToday(now = new Date()): Promise<number | null> {
 export async function getAiQuota(now = new Date()): Promise<AiQuota> {
   const local = readLocalUsage(now);
   const cloud = await countCloudToday(now);
-  return decideQuota({ subscribed: !!readH5Subscription(), cloudCount: cloud, localUsed: local.used });
+  // AC-03：不限额度只给服务端确认过的会员（本地伪造凭证不再生效）
+  return decideQuota({ subscribed: hasProEntitlement(), cloudCount: cloud, localUsed: local.used });
 }

@@ -57,7 +57,15 @@ function section(title) {
  * 编译单个 src 模块并在隔离 vm 里求值，返回其 module.exports。
  * Taro 依赖统一 alias 到 .tools/stubs/stub-taro-storage.cjs（忠实复刻 H5 存储语义）。
  */
-async function loadModule(relPath, { weapp = false, plugins = [] } = {}) {
+async function loadModule(relPath, { weapp = false, plugins = [], taroExternal = false } = {}) {
+  // taroExternal：把 Taro 桩标成 external，让被测模块与 harness **共用同一个**宿主实例
+  // （AC-03 需要「先写伪造凭证、再加载被测模块」，内联版每个 bundle 一份 private storage 读不到）。
+  const taroExtPlugin = {
+    name: 'taro-external',
+    setup(build) {
+      build.onResolve({ filter: /^@tarojs\/taro$/ }, () => ({ path: TARO_STUB, external: true }));
+    }
+  };
   const built = await esbuild.build({
     entryPoints: [path.join(ROOT, relPath)],
     bundle: true,
@@ -65,9 +73,11 @@ async function loadModule(relPath, { weapp = false, plugins = [] } = {}) {
     format: 'cjs',
     platform: 'node',
     target: 'node18',
-    alias: { '@tarojs/taro': TARO_STUB, '@': path.join(ROOT, 'src') },
+    alias: taroExternal
+      ? { '@': path.join(ROOT, 'src') }
+      : { '@tarojs/taro': TARO_STUB, '@': path.join(ROOT, 'src') },
     define: { 'process.env.TARO_ENV': JSON.stringify(weapp ? 'weapp' : 'h5') },
-    plugins,
+    plugins: taroExternal ? [taroExtPlugin, ...plugins] : plugins,
     logLevel: 'silent'
   });
   const code = built.outputFiles[0].text;
@@ -315,6 +325,44 @@ assert('E3 暂停 5 秒后恢复再走 5 秒 → 净时长 15 秒（暂停时长
 /* ================================================================== */
 assert('F1 11 秒的垃圾记录不落库', sportMod.isRunWorthSaving(11) === false);
 assert('F2 30 秒整算达标（边界包含）', sportMod.isRunWorthSaving(30) === true && sportMod.MIN_SAVE_SEC === 30);
+
+/* ================================================================== */
+/* G. 会员权益只认服务端（AC-03，2026-11-05）                            */
+/* ================================================================== */
+section('G. 会员权益只认服务端（本地伪造凭证不授予权益）');
+
+const ORDERS_STUB = path.join(ROOT, '.tools', 'stubs', 'stub-cloud-orders.cjs');
+const stubOrdersPlugin = {
+  name: 'stub-cloud-orders',
+  setup(build) {
+    build.onResolve({ filter: /cloudOrders$/ }, () => ({ path: ORDERS_STUB, external: true }));
+  }
+};
+const TaroStub = require(TARO_STUB);
+
+// 伪造本地凭证（改前这条会直接授予会员 —— 这正是要堵的零成本路径）
+TaroStub.setStorageSync('h5-subscription', { expiredAt: '2099-12-31' });
+globalThis.__STORE__ = globalThis.__STORE__ || new Map();
+
+const entH5 = (await loadModule('src/services/entitlement.ts', {
+  plugins: [stubOrdersPlugin],
+  taroExternal: true
+})).mod;
+
+// G1 ★ 回归本体
+globalThis.__ORDERS_RESP__ = { ok: true, orders: [] };
+const g1 = await entH5.refreshEntitlement();
+assert('G1 伪造 localStorage 凭证(2099) + 服务端无订单 → 不授予会员', g1.active === false && entH5.hasProEntitlement() === false);
+
+// G2 消费方：额度读取不再认本地凭证（旧实现读 local 会给出 -1 不限）
+globalThis.__ORDERS_RESP__ = { ok: true, orders: [] };
+const h5Usage = (await loadModule('src/data/getUsage.ts', {
+  plugins: [stubOrdersPlugin],
+  taroExternal: true
+})).mod.default();
+assert('G2 伪造凭证后 getUsage 仍按免费档给额度（voiceQuota=20 / collectionQuota=50）',
+  h5Usage.voiceQuota === 20 && h5Usage.collectionQuota === 50);
+// 其余消费方（档案 / 小程序端 / 退款 / fail-closed）的断言在紧随其后的门禁 PR 中补齐。
 
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);

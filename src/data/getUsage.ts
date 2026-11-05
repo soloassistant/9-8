@@ -4,10 +4,11 @@
 import type { Usage } from '../types';
 import { readVoiceUsed } from '../utils/usage';
 import { listCollections } from './collectionStore';
-import { readH5Subscription } from '../utils/promo';
+import { hasProEntitlement } from '../services/entitlement';
 
 export default function getUsage(): Usage {
-  const sub = readH5Subscription();
+  // AC-03：会员态只认服务端确认（entitlement 缓存），不读 localStorage 凭证
+  const sub = hasProEntitlement();
   return {
     voiceUsed: readVoiceUsed(),
     voiceQuota: sub ? -1 : 20,
