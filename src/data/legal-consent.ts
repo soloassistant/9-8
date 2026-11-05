@@ -14,7 +14,7 @@ import Taro from '@tarojs/taro';
  * ★ 版本历史见 `legal.ts` 顶部（改文案必须同步递增本常量，否则旧同意记录不会失效 ——
  * 等于对老用户静默改条款）。
  */
-export const LEGAL_VERSION = 'v1.11-20261105';
+export const LEGAL_VERSION = 'v1.12-20261105';
 
 /** H5 首启同意记录的 storage key（记录同意时的文本版本，便于版本升级后重新征求同意） */
 export const CONSENT_KEY = 'privacy-consent';
