@@ -1,17 +1,13 @@
 /**
- * 退款后「权益回滚失败」的轻量对账（定时触发）
+ * 退款后「权益回滚失败」的轻量对账（每日定时触发）
  *
- * 背景：refundOrder 采用两段提交——退款事实先落库（status=refunded），再扣权益。
- * 扣权益失败时只写 `entitlementRollbackStatus='failed'`，退款状态保持正确。
- * 本函数负责把 failed 收敛成 rolled_back，连续失败 N 次转 manual_required，
- * 只做状态推进，**不提供任何人工操作入口**。
+ * refundOrder 两段提交：退款事实先落库，扣权益失败时只留 `entitlementRollbackStatus='failed'`。
+ * 本函数把 failed 收敛成 rolled_back，连续失败 MAX_ATTEMPTS 次转 manual_required，
+ * 只推进状态，**不提供任何人工操作入口**。
  *
- * 幂等设计：首次尝试先持久化 `entitlementRollbackBase`（当时的到期日）与
- * `entitlementRollbackTarget`（应扣到的绝对值），再对 users 做**绝对赋值**。
- * 因此重试不会重复扣减；若到期日在回滚期间发生变化（新购买/兑换），
- * 绝不覆盖，直接转 manual_required 交人工核对。
- *
- * 触发：config.json 每日 03:15（7 段 cron）；单次最多处理 20 条，失败留待下一轮。
+ * 幂等：首次尝试先持久化 `entitlementRollbackBase`（当时到期日）与
+ * `entitlementRollbackTarget`（应扣到的绝对值），再对 users 绝对赋值 → 重试不重复扣；
+ * 回滚窗口内到期日被新购买改大则绝不覆盖，直接转人工。
  */
 
 const cloud = require('wx-server-sdk');
