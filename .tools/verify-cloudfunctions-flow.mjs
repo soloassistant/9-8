@@ -969,7 +969,8 @@ async function caseOrders() {
     eq('未支付订单拒绝退款', [res.ok, res.error], [false, '订单未支付或已处理']);
   }
   {
-    // 微信通道退款：cloudPay 不可用 → 必须如实失败，且状态落到 refund_failed（不假装成功）
+    // 微信通道退款：cloudPay 不可用 → 结果「未知」（可能已发出），必须保持 refunding。
+    // R4 起不再把未知结果写成 refund_failed：那会放出重试入口，重试若派生新单号 = 第二笔。
     const seedOrders = [
       { _id: 'o1', orderId: 'ord_1', openid: OWNER, channel: 'wechat', planId: 'monthly', price: 990, months: 1, status: 'paid' }
     ];
@@ -978,7 +979,9 @@ async function caseOrders() {
     const r = await capture(() => main({ orderId: 'ord_1' }));
     const res = noThrow('refundOrder 通道异常不抛出（返回业务失败）', r);
     eq('通道不可用 → ok:false（绝不伪装退款成功）', res.ok, false);
-    eq('失败后订单标记 refund_failed 便于人工介入', cloud.__docs('orders')[0].refundStatus, 'refund_failed');
+    eq('结果未知时订单保持 refunding（不降级成一键重试）', cloud.__docs('orders')[0].refundStatus, 'refunding');
+    eq('调用前已落确定性 refundNo', cloud.__docs('orders')[0].refundNo, 'Rord_1-01');
+    eq('调用前已有 pending 尝试记录（可先查单再接管）', [cloud.__docs('refund_attempts')[0]._id, cloud.__docs('refund_attempts')[0].status], ['Rord_1-01', 'pending']);
     eq('失败不扣减订阅（expiredAt 保持不变）', cloud.__docs('users')[0].expiredAt, userExpiredAt);
   }
   {

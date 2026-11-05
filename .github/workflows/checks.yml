@@ -390,6 +390,12 @@ jobs:
         # 零网络：启动时主动清空 LLM_*/WEATHER_*/PAY_*/*_TEMPLATE_ID，外部能力全部走「必须明确失败」断言。
         run: npm run verify:cloudflow
 
+      - name: 退款幂等行为回归
+        # R4：退款单号必须由 orderId + attempt 确定性派生，调用前先落 refund_attempts；
+        # 用桩计数断言「连点 3 次只打 1 次通道」「并发只放一个进」「stale 接管先查单再决定」。
+        # 与 verify:cloudflow 互补：那边没有第三方调用计数，结构上看不见「重试打了第二笔」。
+        run: npm run verify:funds
+
       - name: 晨报首屏结构与状态机回归
         # 守 2026-10-24 审计发现并修掉的 6 个「手感」缺陷：记账卡被粘进右上角图标按钮行内
         # （卡片在 flex 行里撑开、压垮问候语列）、hasContent 不看情报（有情报却显示
