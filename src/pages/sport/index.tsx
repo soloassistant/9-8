@@ -23,6 +23,7 @@ import {
   formatKm,
   formatPace,
   haversineM,
+  activeElapsedSec,
   paceDeltaSec,
   paceSecPerKm,
   readGoalKm,
@@ -229,8 +230,8 @@ export default function SportPage() {
     setView('recording');
 
     tickRef.current = setInterval(() => {
-      const base = pausedTotalRef.current;
-      setElapsed(Math.floor((Date.now() - startedAtRef.current - base) / 1000));
+      // SP-01：暂停期间计时表必须停走（把「当前这段暂停」也扣掉）
+      setElapsed(activeElapsedSec(startedAtRef.current, Date.now(), pausedTotalRef.current, pausedAtRef.current));
     }, 500);
 
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -286,13 +287,14 @@ export default function SportPage() {
 
   const finish = useCallback(() => {
     const startedAt = startedAtRef.current;
-    const total = Date.now() - startedAt - pausedTotalRef.current;
+    // SP-01：结束在暂停状态下时，必须把这段暂停也扣掉（否则暂停 5 秒白送 5 秒）
+    const durSec = activeElapsedSec(startedAt, Date.now(), pausedTotalRef.current, pausedAtRef.current);
     stopTick();
     stopWatch();
     const rec: RunRecord = {
       id: `run_${startedAt}_${Math.random().toString(36).slice(2, 8)}`,
       startedAt,
-      durationSec: Math.max(0, Math.round(total / 1000)),
+      durationSec: durSec,
       distanceM: distRef.current,
       distanceKnown: geo === 'ok' || distRef.current > 0,
       samples: samplesRef.current,

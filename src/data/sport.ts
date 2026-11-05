@@ -114,6 +114,25 @@ export function readRuns(): RunRecord[] {
     .sort((a, b) => b.startedAt - a.startedAt);
 }
 
+/**
+ * 净活动时长（秒）：总经过时长 − 已暂停总时长 − **当前进行中的暂停**。
+ * SP-01：暂停时 `pausedTotalMs` 尚未累加（恢复时才加），若公式不额外扣掉当前这段，
+ * 计时表会继续走、结束那一刻也会把暂停时长写进 durationSec。
+ * @param startedAt 开始时间戳（ms）
+ * @param now       当前时间戳（ms）
+ * @param pausedTotalMs 已结束的暂停累计（ms）
+ * @param pausedAt  当前暂停开始的时刻（0 = 未暂停）
+ */
+export function activeElapsedSec(
+  startedAt: number,
+  now: number,
+  pausedTotalMs: number,
+  pausedAt: number
+): number {
+  const ongoingPauseMs = pausedAt ? Math.max(0, now - pausedAt) : 0;
+  return Math.max(0, Math.floor((now - startedAt - pausedTotalMs - ongoingPauseMs) / 1000));
+}
+
 export function saveRun(rec: RunRecord): RunRecord[] {
   const all = readRuns().filter((r) => r.id !== rec.id);
   all.push(rec);
