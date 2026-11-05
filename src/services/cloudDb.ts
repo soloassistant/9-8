@@ -66,6 +66,35 @@ export async function kvGetAll(signal?: AbortSignal): Promise<KvRow[] | null> {
   });
 }
 
+/** user_kv 的轻量版本行：只带 key 与 client_ts，不带宽字段 value（PR-3 版本门禁用） */
+export interface KvVersion {
+  key: string;
+  clientTs: number;
+}
+
+/**
+ * 读当前用户全部同步键的**版本号**（key + client_ts），不取 value。
+ *
+ * 用途：轮询先拿版本，与本地 meta 比对；没有更新就不做全量 kvGetAll。
+ * 代价：多一次请求，但响应只有「key + 时间戳」——典型 46 个同步键约 2KB，
+ * 而全量拉的 value 可达数百 KB（browseHistory / sportRuns / ai-memory）。
+ * 失败语义与 kvGetAll 一致：true 故障返回 null。
+ */
+export async function kvGetVersions(signal?: AbortSignal): Promise<KvVersion[] | null> {
+  const db = await getCloudDatabase();
+  if (!db) return null;
+  let q = db.from('user_kv').select('key, client_ts').order('key');
+  if (signal) q = q.abortSignal(signal);
+  const res = await q;
+  const rows = unwrap(res, 'kvGetVersions');
+  if (!rows) return null;
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return { key: String(row.key || ''), clientTs: Number(row.client_ts) || 0 };
+  });
+}
+
 /**
  * 批量 upsert 同步键（一次推送一条 RPC，避免 N 次往返）。
  * 服务端「新者赢」：仅当 incoming ts > 已存 ts 才覆盖 —— 旧设备离线后的陈旧推送
