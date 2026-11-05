@@ -16,3 +16,12 @@
   color: $color-text-secondary;
   line-height: $line-height-normal;
 }
+
+.retry {
+  margin-left: auto;
+  padding-left: $spacing-md;
+  flex-shrink: 0;
+  font-size: $font-size-sm;
+  font-weight: 600;
+  color: $color-primary;
+}

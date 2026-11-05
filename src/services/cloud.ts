@@ -167,6 +167,12 @@ export function getHotspotPayload(): Promise<HotspotPayload | null> {
   if (!hotspotInFlight) {
     hotspotInFlight = loadHotspotPayload().then(
       (payload) => {
+        // U-05：失败（payload=null）不能进缓存，否则用户点「重试」拿到的还是那份失败结果，
+        // 按钮形同虚设。只有真正取到数据才缓存。
+        if (!payload) {
+          hotspotInFlight = null
+          return null
+        }
         const filtered = applySourcePrefs(payload)
         hotspotCache = { at: Date.now(), payload: filtered }
         hotspotInFlight = null
@@ -529,6 +535,9 @@ export async function callFunction<T = unknown>(
           })
         }
         briefing.intel = intel
+        // U-05：资讯源全挂但天气取到时，原来 degraded 仍是 false、intelItems=[]，
+        // 页面会把它渲染成「情报 0 条」——把失败伪装成空数据。资讯没取到就必须置位。
+        if (!hotspot) intel.degraded = true
       } catch (err) {
         // 不静默失败（AGENTS.md:215）：原来这里只 console.warn 然后放行，
         // 结果 `briefing.intel` 保持 undefined —— 页面只知道「没数据」，

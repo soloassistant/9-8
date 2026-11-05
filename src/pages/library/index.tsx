@@ -1316,7 +1316,7 @@ function LibraryPage() {
       {/* 云端不可用、已回退本地/演示实现时如实提示（诚实性，来源 briefing.degraded）
           页面粒度：只关心本页的 webSearch（视频/搜索/AI 精选）与 getHotspot ——
           别的页面的降级不该串到这里（2026-10-30 实测串过一次，把 412 条真实 RSS 说成演示数据） */}
-      <DemoDataHint actions={['webSearch', 'getHotspot']} />
+      <DemoDataHint actions={['webSearch', 'getHotspot']} onRetry={() => void load()} />
       {/* 竞品分析 X11：未成年人模式低调横幅 */}
       {minorMode ? (
         <View className={styles.minorBanner}>
