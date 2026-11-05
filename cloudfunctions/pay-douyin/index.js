@@ -18,13 +18,11 @@
  *   - 抖音小程序 JSAPI 还需要：tt.login 拿 code → 服务端 code2Session 拿 openid（调用方传进来）
  *
  * @param {object} event
- *   - planId           套餐 ID
  *   - orderId          本地订单号
- *   - totalAmount      金额，单位：分
- *   - subject          商品描述
- *   - openid           必填，抖音用户 openid（抖音小程序 code → code2Session）
+ *   - internalToken    必填，createOrder 用 PAY_INTERNAL_TOKEN 签发的 HMAC（客户端无法伪造）
  *   - notifyUrl        可选，通知地址
  *   - attach           可选
+ *   金额 / 套餐 / openid 一律从 orders 读，入参里的 totalAmount / planId / openid 会被忽略
  */
 
 const cloud = require('wx-server-sdk');
@@ -32,6 +30,7 @@ const crypto = require('crypto');
 const https = require('https');
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
+const db = cloud.database();
 
 const PLANS = {
   earlybird_monthly: { price: 690, months: 1, label: '晨报·早鸟月付' },
@@ -116,25 +115,70 @@ function httpPostJson(host, path, bodyObj, authorization) {
   });
 }
 
+/**
+ * A3：金额/套餐/买家一律以 orders 为准，入参 totalAmount / planId / openid 全部忽略。
+ * 客户端 callFunction 直调无法伪造 internalToken（HMAC 密钥只在云环境变量里）。
+ */
+function signInternalToken(orderId) {
+  const secret = process.env.PAY_INTERNAL_TOKEN || '';
+  if (!secret) return '';
+  return crypto.createHmac('sha256', secret).update('pay:' + orderId).digest('hex');
+}
+
+function verifyInternalToken(orderId, token) {
+  const expect = signInternalToken(orderId);
+  const got = String(token || '');
+  if (!expect || got.length !== expect.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(got, 'utf8'), Buffer.from(expect, 'utf8'));
+  } catch (e) {
+    return false;
+  }
+}
+
+async function loadOrderForPayment(event, ctxOpenid, channel) {
+  const orderId = event && event.orderId;
+  if (!orderId) throw new Error('orderId required');
+  if (!verifyInternalToken(orderId, event.internalToken)) {
+    throw new Error('拒绝未授权调用：internalToken 无效（仅允许 createOrder 内部调用）');
+  }
+  const snap = await db.collection('orders').where({ orderId }).get();
+  const order = snap.data && snap.data[0];
+  if (!order) throw new Error('订单不存在: ' + orderId);
+  if (order.channel && order.channel !== channel) {
+    throw new Error('订单通道不匹配: order=' + order.channel + ' fn=' + channel);
+  }
+  if (ctxOpenid && order.openid !== ctxOpenid) {
+    throw new Error('订单归属不匹配');
+  }
+  const fee = Number(order.price);
+  if (!Number.isFinite(fee) || fee < 1) throw new Error('订单金额异常: ' + order.price);
+  return order;
+}
+
 // ========== 主入口 ==========
 
 exports.main = async (event) => {
-  const { planId, orderId, totalAmount, subject, openid, notifyUrl, attach } = event;
+  const { OPENID } = cloud.getWXContext();
+  const { orderId, notifyUrl, attach } = event || {};
 
   // 校验配置
   if (!cfg.appId || !cfg.mchid || !cfg.privateKey || !cfg.serialNo) {
     throw new Error('抖音支付配置缺失，请设置 PAY_DY_* 云环境变量');
   }
 
-  // 校验入参
+  // 校验入参（只信 orderId）
   if (!orderId) throw new Error('orderId required');
-  if (!openid) throw new Error('openid required（抖音小程序 code 换得）');
 
-  const plan = PLANS[planId];
-  if (!plan) throw new Error('invalid planId: ' + planId);
+  const order = await loadOrderForPayment(event, OPENID, 'douyin');
+  const openid = order.douyinOpenid;
+  if (!openid) throw new Error('订单缺少 douyinOpenid（createOrder 时写入）');
+
+  const plan = PLANS[order.planId];
+  const subject = plan ? plan.label : '晨报订阅';
 
   // 金额：直接用分（抖音单位是分，和微信一致）
-  const amountFen = Number(totalAmount);
+  const amountFen = Number(order.price);
   if (!amountFen || amountFen < 1) throw new Error('invalid totalAmount');
 
   // 构造请求体

@@ -405,6 +405,24 @@ const hasValidExpiredAt = () => {
   assert('X7/UI/提供重新核对入口', /handleRecheck/.test(uiSrc) && /重新核对/.test(uiSrc));
   assert('X7/UI/卡片真实渲染（不是只存 state）', /reconcileIssue \? \(/.test(uiSrc) && /reconcileCard/.test(uiSrc));
 
+  /* ---------- 14. A3：pay-* 金额服务端化 + 内部调用 token ---------- */
+  // 改前：pay-wechat/pay-alipay/pay-douyin 的金额与 planId 全取自 event，
+  // 且 pay-wechat 还接受 event.openid ⇒ 客户端直调即可「1 分钱买年付」。
+  const payFns = ['pay-wechat', 'pay-alipay', 'pay-douyin'];
+  for (const fn of payFns) {
+    const src = fs.readFileSync(path.join(ROOT, 'cloudfunctions', fn, 'index.js'), 'utf8');
+    const mainSrc = src.slice(src.indexOf('exports.main'));
+    assert(`A3/${fn}/不读入参金额`, !/Number\(\s*totalAmount\s*\)/.test(mainSrc));
+    assert(`A3/${fn}/不读入参 openid/planId/buyerId`, !/event\.openid|event\.planId|event\.buyerId/.test(src));
+    assert(`A3/${fn}/金额取自 orders.price`, /Number\(order\.price\)/.test(src));
+    const posToken = src.indexOf('verifyInternalToken(orderId, event.internalToken)');
+    const posDb = src.indexOf("db.collection('orders')");
+    assert(`A3/${fn}/token 校验早于读 orders`, posToken >= 0 && posToken < posDb);
+  }
+  const coSrc = fs.readFileSync(path.join(ROOT, 'cloudfunctions', 'createOrder', 'index.js'), 'utf8');
+  const payloadBlock = coSrc.slice(coSrc.indexOf('function buildChannelPayload'), coSrc.indexOf('function buildClientPayment'));
+  assert('A3/createOrder 签发 internalToken', /internalToken:\s*signInternalToken\(order\.orderId\)/.test(payloadBlock));
+  assert('A3/createOrder 不再向支付函数传金额/套餐/openid', !/totalAmount|planId|openid/.test(payloadBlock));
   const cbSrc = fs.readFileSync(path.join(ROOT, 'cloudfunctions', 'pay-callback', 'index.js'), 'utf8');
 
   /* ---------- 12. A2：支付宝回调必须校验商户身份 ---------- */
