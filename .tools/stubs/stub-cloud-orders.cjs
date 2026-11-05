@@ -7,7 +7,4 @@ module.exports = {
     if (v.reject) throw new Error('orders stub rejected');
     return v;
   },
-  orderInsert: async function () {
-    return true;
-  }
 };

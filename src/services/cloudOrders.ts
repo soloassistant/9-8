@@ -5,11 +5,14 @@
  * 旧实现走 `Taro.cloud.callFunction('ordersList')`。那套只有小程序端有 `Taro.cloud`，
  * H5 根本没有这个对象 —— 于是「订阅记录」在网页端必然失败，而页面还给了一个
  * **点多少次都不会成功的「重试」按钮**。按「不按小程序做，用云服务自己的通道」的决定，
- * 订单改落 WorkBuddy 云数据库：客户端只 insert / select 自己的行。
+ * 订单改落 WorkBuddy 云数据库：客户端**只读**自己的行。
  *
  * ## 安全边界（改这里之前先读完）
- * - `owner_id` 由 `DEFAULT auth.uid()` **服务端**填充，客户端绝不传。
- *   表上的 INSERT 策略是 `WITH CHECK (owner_id = auth.uid())`，传伪造值只会被拒。
+ * - A-1（2026-11-05）：客户端**没有任何写入口**。`v5-orders-server-write.sql` 收回
+ *   authenticated/anon 的 INSERT/UPDATE/DELETE，唯一写入通道是服务端函数
+ *   `record_promo_order()`（SECURITY DEFINER，天数/状态/金额全由服务端生成）。
+ *   改前 INSERT 策略是 `WITH CHECK (owner_id = auth.uid())` —— 「插自己的一行」是合法写入，
+ *   任何登录用户直插 `status:'paid', months:120` 就能回放成 10 年 PRO。
  * - 表**只 GRANT 给 `authenticated`，没有给 `anon`**。原因不是洁癖：匿名会话的
  *   `auth.uid()` 返回字面量 `'anon'`，所有匿名访客共用同一个 owner —— 给 anon 开
  *   SELECT 等于让所有未登录访客互相读到对方的订单（`client_errors` 踩过这个坑，
@@ -110,51 +113,8 @@ export async function ordersListOwn(limit = 20): Promise<OrdersFetch> {
   }
 }
 
-/** 落一条订单所需的字段（`owner_id` 不在其中，由数据库填） */
-export interface OrderDraft {
-  orderId: string;
-  planId: string;
-  /** 'wechat' | 'alipay' | 'douyin' | 'promo' —— 表上是普通文本，不做枚举 CHECK */
-  channel: string;
-  /** 金额（分） */
-  amountCents: number;
-  months: number;
-  status?: 'created' | 'paid' | 'closed' | 'failed';
-  paidAt?: string | null;
-}
-
 /**
- * 写一条订单。
- *
- * ⚠️ 现状（2026-10-27）：**还没有调用方** —— H5 的 `getPayChannel()` 恒为 null，
- * 网页端没有在线支付通道，所以没有真实成交可记。这个函数是给「支付接通后」用的
- * 写入契约（届时在支付成功分支里调用）；在那之前 `orders` 表为空是**预期状态**，
- * 页面显示「暂无支付记录」也是真的，不是故障。
- *
- * 不传 owner_id：由 `DEFAULT auth.uid()` 填。显式传 null 反而会覆盖默认值并被 RLS 拒。
+ * ⚠️ 这里**故意没有** orderInsert：客户端写入订单的路径已移除（A-1）。
+ * 需要写订单时走服务端函数（`subscription.recordPromoOrder` → `record_promo_order()`），
+ * 不要在这个模块里重新加回 `from('orders').insert(...)`。
  */
-export async function orderInsert(draft: OrderDraft): Promise<boolean> {
-  const session = await getSession();
-  if (!session) return false;
-
-  const db = await getCloudDatabase();
-  if (!db) return false;
-
-  const row: Record<string, unknown> = {
-    order_id: draft.orderId,
-    plan_id: draft.planId,
-    channel: draft.channel,
-    amount_cents: Math.max(0, Math.round(draft.amountCents)),
-    months: Math.max(1, Math.min(Math.round(draft.months), 120)),
-    status: draft.status || 'created'
-  };
-  if (draft.paidAt) row.paid_at = draft.paidAt;
-
-  const res = await db.from('orders').insert(row).select();
-  if (res.error) {
-    // 23505 = 同一个 orderId 重复写入（重试/双击）。订单号按次生成，正常不会撞。
-    console.error('[cloudOrders] orderInsert failed:', res.error.code || '', res.error.message || '');
-    return false;
-  }
-  return true;
-}
