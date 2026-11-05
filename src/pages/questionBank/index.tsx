@@ -132,6 +132,16 @@ export default function QuestionBankPage() {
           <Text className={styles.backText}>{t('common.back')}</Text>
         </View>
         <Text className={styles.title}>{t('qb.title')}</Text>
+        <Text
+          className={styles.headerAction}
+          onClick={() =>
+            Taro.navigateTo({ url: '/pages/questionBankMistakes/index' }).catch((err) =>
+              console.warn('[QuestionBank] navigate failed:', err)
+            )
+          }
+        >
+          {t('qb.openMistakes')}
+        </Text>
       </View>
 
       <Input
