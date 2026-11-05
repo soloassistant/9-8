@@ -1,0 +1,28 @@
+@use '@/styles/variables.scss' as *;
+
+.head { display: flex; flex-direction: column; gap: $spacing-xs; margin: 0 $page-padding $spacing-md; }
+.headTitle { font-size: $font-size-lg; font-weight: $font-weight-semibold; color: $color-text-primary; }
+.headDesc { font-size: $font-size-xs; color: $color-text-tertiary; line-height: $line-height-normal; }
+
+/* 入口卡：min-height 88rpx = 375 下 44px，点按热区不得小于这个值 */
+.card, .courseCard {
+  min-height: 88rpx; margin: 0 $page-padding $spacing-md; padding: $spacing-lg;
+  background: $color-bg-card; border-radius: $radius-lg; box-shadow: $shadow-card; text-align: left;
+  &:active { opacity: 0.9; transform: scale(0.99); }
+}
+.card { display: flex; align-items: center; gap: $spacing-md; }
+.courseCard { display: flex; flex-direction: column; gap: $spacing-md; }
+.courseTop { display: flex; align-items: flex-start; gap: $spacing-md; }
+.icon { flex-shrink: 0; font-size: 48rpx; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: $spacing-xs; }
+.title { font-size: $font-size-md; font-weight: $font-weight-medium; color: $color-text-primary; }
+.desc { font-size: $font-size-xs; color: $color-text-tertiary; line-height: $line-height-normal; }
+.badge {
+  flex-shrink: 0; padding: 4rpx 16rpx; border-radius: $radius-round;
+  background: rgba(99, 102, 241, 0.12); color: #4338ca; font-size: $font-size-xs;
+}
+.metaRow { display: flex; flex-wrap: wrap; gap: $spacing-sm; padding-top: $spacing-sm; border-top: 1rpx solid $color-border; }
+.metaChip {
+  padding: 4rpx 16rpx; border-radius: $radius-tier-sm; background: $color-bg-page;
+  color: $color-text-secondary; font-size: $font-size-xs; line-height: $line-height-normal;
+}

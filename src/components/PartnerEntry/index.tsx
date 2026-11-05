@@ -62,7 +62,7 @@ function PartnerEntry({ icon, title, desc, url, onTap, actionText }: PartnerEntr
   };
 
   return (
-    <View className={styles.card} onClick={handleTap}>
+    <View className={`${styles.card} partner-entry-card`} onClick={handleTap}>
       <Text className={styles.icon}>{icon}</Text>
       <View className={styles.main}>
         <Text className={styles.title}>{title}</Text>

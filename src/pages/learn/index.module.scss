@@ -34,6 +34,11 @@
   @include page-root(80rpx, 0);
 }
 
+/* 进度归属声明：明确「只有今日练习计入进度」，避免和下方外部来源混在一起 */
+.sourceHead { display: flex; flex-direction: column; gap: $spacing-xs; margin: $spacing-md $page-padding $spacing-sm; }
+.sourceHeadTitle { font-size: $font-size-lg; font-weight: $font-weight-semibold; color: $color-text-primary; }
+.sourceHeadDesc { font-size: $font-size-xs; color: $color-text-tertiary; line-height: $line-height-normal; }
+
 /* 语种切换 */
 .langBar {
   display: flex;
@@ -406,14 +411,6 @@
 }
 
 /* 社区与成就入口 */
-/* 关联产品入口区块（灵犀课堂）：与下方社区入口留出同等级间距 */
-.partnerBlock {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-md;
-  margin: 0 $page-padding $spacing-lg;
-}
-
 .communityEntry {
   display: flex;
   align-items: center;
