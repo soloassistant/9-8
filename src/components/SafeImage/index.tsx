@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Image, Text, View } from '@tarojs/components';
+import type { ITouchEvent } from '@tarojs/components';
 import { thumbUrl } from '@/utils/imageUrl';
 import styles from './index.module.scss';
 
@@ -35,8 +36,10 @@ export interface SafeImageProps {
   fallbackLabel?: string;
   /** 失败占位的来源标注（如「哔哩哔哩」→ 显示「来自哔哩哔哩」） */
   source?: string;
-  /** 点击图片（仅在加载成功时挂载；失败态不挂，点占位块会冒泡到外层卡片） */
-  onClick?: (e: any) => void;
+  /** 点击图片（仅在加载成功时挂载；失败态不挂，点占位块会冒泡到外层卡片）。
+   *  事件类型用 Taro 自己的 `ITouchEvent`（与 `Image` 的 onClick 完全一致），
+   *  调用方靠它 `stopPropagation()` 阻止缩略图点击冒泡成卡片跳转。 */
+  onClick?: (e: ITouchEvent) => void;
 }
 
 export default function SafeImage({
