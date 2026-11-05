@@ -50,8 +50,10 @@ export interface QuestionOption { key: string; text: string }
 export type AnswerKey = string | string[] | boolean;
 
 export interface Question {
-  /** 稳定、可预测的字符串；建议由 utils/questionBank.questionId() 生成。 */
+  /** 身份：独立随机生成、与内容无关、永不变更；由 utils/questionBank.questionId() 生成。 */
   id: string;
+  /** 内容指纹：只用于判重与「疑似重复」提示，不参与身份。同一 id 的 stemHash 变化 = 该题被修订，引用该 id 的记录仍然有效。 */
+  stemHash: string;
   /** 题干，允许 LaTeX：`$\frac{1}{2}$`、`$x^{2}$`、`$\sqrt{3}$`。 */
   stem: string;
   options: QuestionOption[];

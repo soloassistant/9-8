@@ -32,16 +32,21 @@ export function stemHash(input: string): string {
   return `${fnv.toString(36)}-${djb.toString(36)}`;
 }
 
-/** 可预测的稳定 id：体系 + 语言 + 题干哈希。 */
-export function questionId(q: Pick<Question, 'examSystem' | 'langCode' | 'stem'>): string {
-  return `qb_${q.examSystem}_${q.langCode}_${stemHash(q.stem)}`;
+/**
+ * 身份 id：与内容无关、永不变更（改题干不换 id）。12 位 base36 ≈ 62 bit 随机空间。
+ * 随机源可注入，测试用固定种子即可复现。
+ */
+export function questionId(random: () => number = Math.random): string {
+  let s = '';
+  for (let i = 0; i < 12; i++) s += (Math.floor(random() * 36) % 36).toString(36);
+  return `qb_${s}`;
 }
 
 /** 按 `langCode + hash` 判重；跨语言同题不合并。 */
 export function findDuplicates(questions: Question[]): DuplicateGroup[] {
   const groups = new Map<string, DuplicateGroup>();
   for (const q of questions) {
-    const hash = stemHash(q.stem);
+    const hash = q.stemHash || stemHash(q.stem);
     const key = `${q.langCode}:${hash}`;
     const group = groups.get(key);
     if (group) group.questionIds.push(q.id);
@@ -57,6 +62,7 @@ export function validateQuestion(q: Question): ValidationResult {
   const stem = typeof q.stem === 'string' ? q.stem.replace(/\s+/g, ' ').trim() : '';
   if (stem.length < 4) err('stem', 'stem.tooShort', '题干去空白后至少 4 个字符');
   if (typeof q.id !== 'string' || !q.id.trim()) err('id', 'id.empty', 'id 不能为空');
+  if (typeof q.stemHash !== 'string' || !q.stemHash.trim()) err('stemHash', 'stemHash.empty', 'stemHash 不能为空');
 
   const options = Array.isArray(q.options) ? q.options : [];
   const keys = new Set<string>();
