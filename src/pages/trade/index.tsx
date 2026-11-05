@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Taro, { useDidHide, useDidShow } from '@tarojs/taro';
 import { Input, Text, View } from '@tarojs/components';
 import classnames from 'classnames';
-import { useT } from '@/store/language';
+import { useT, useLanguageStore } from '@/store/language';
 import { isComposing, isEditableTarget } from '@/utils/hotkeys';
 import {
   SYMBOLS,
@@ -248,6 +248,7 @@ function fmtClock(ts: number): string {
 
 function TradePage() {
   const t = useT();
+  const uiLang = useLanguageStore((s) => s.lang);
 
   /* ---------- 引擎（进程内惰性建一份；weapp 不建，用不到） ---------- */
   const engineRef = useRef<EngineState | null>(null);
@@ -886,7 +887,7 @@ function TradePage() {
           {realFeed ? t('trade.feedRealBadge') : t('trade.demoBadge')}
         </View>
         <View className={styles.statItem}>
-          <Text className={styles.statLabel}>{selDef.nameZh}</Text>
+          <Text className={styles.statLabel}>{uiLang === 'en' ? selDef.nameEn : selDef.nameZh}</Text>
           <Text className={classnames(styles.statValue, spotChg >= 0 ? styles.up : styles.down)}>
             {spot.toFixed(selDef.digits)}
           </Text>
@@ -931,7 +932,7 @@ function TradePage() {
                 onClick={() => setSelected(def.symbol)}
               >
                 <View>
-                  <View className={styles.wlName}>{def.nameZh}</View>
+                  <View className={styles.wlName}>{uiLang === 'en' ? def.nameEn : def.nameZh}</View>
                   <View className={styles.wlSym}>{def.symbol}</View>
                 </View>
                 <View

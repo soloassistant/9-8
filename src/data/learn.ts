@@ -37,6 +37,8 @@ export type LearnLangId = 'en' | 'ja' | 'ko';
 export interface LearnLang {
   id: LearnLangId;
   name: string;
+  /** 英文界面下的语种名（中文 name 只用于 zh） */
+  nameEn: string;
   accent: string;
   levels: LearnLevel[];
 }
@@ -64,6 +66,7 @@ export const LEARN_LANGS: LearnLang[] = [
   {
     id: 'en',
     name: '英语',
+    nameEn: 'English',
     accent: '#2F6DB5', // 文字色 5.4:1（原 #4A90D9 仅 3.15:1，作 levelName/recBadge 文字不达 AA）
     levels: [
       {
@@ -170,6 +173,7 @@ export const LEARN_LANGS: LearnLang[] = [
   {
     id: 'ja',
     name: '日语',
+    nameEn: 'Japanese',
     accent: '#C7394A', // 文字色 5.3:1（原 #E8636F 仅 3.4:1）
     levels: [
       {
@@ -276,6 +280,7 @@ export const LEARN_LANGS: LearnLang[] = [
   {
     id: 'ko',
     name: '韩语',
+    nameEn: 'Korean',
     accent: '#5B4FC4', // 文字色 5.7:1（原 #7C6FE0 仅 4.2:1）
     levels: [
       {
