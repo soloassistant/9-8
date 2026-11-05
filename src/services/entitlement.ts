@@ -1,26 +1,11 @@
 /**
  * 会员权益的**服务端事实源**（AC-03，2026-11-05）。
  *
- * ## 改前是什么行为（审计实测）
- * `utils/promo.ts` 的本地凭证 `h5-subscription` 直接决定「是否会员」：
- * 在控制台写 `localStorage['h5-subscription'] = {"data":{"expiredAt":"2099-12-31"}}`
- * 即可永久解锁不限额度 —— 伪造成本为 0，且清缓存/换设备后本地凭证还能被订单回放重写。
- *
- * ## 改后
- * 本地凭证**不再授予任何权益**。会员态只能由服务端确认，且每次确认都按服务端时钟判：
- *   - 微信小程序：`getUsage` 云函数按 OPENID 读 `users` 表（部署后生效）；
- *   - H5：`orders` 表由数据库 RLS 只回给本人，再按 paid / 未退款订单回放到期日
- *     （`computeExpiryFromOrders`，与订阅恢复同一口径）。
- *
- * ## 失败语义：fail-closed
- * 拿不到服务端结论 → 按**未订阅**处理，并标记 `source='unavailable'`，
- * 页面可以据此显示「权益状态暂时无法确认」，而不是把故障当成「你确实没买」。
- * 不能 fail-open —— 那等于把断网/后端故障变成免费解锁。
- *
- * ## 已知残余边界（本 PR 不假装解决）
- * H5 的 `orders` 表允许客户端插入自己的行（RLS 只约束 owner_id），
- * 所以「伪造一条 paid 订单」仍可能被回放成会员。彻底收口需要把订单写入改成
- * 服务端函数（SQL 迁移），属于后续项；本 PR 只堵「本地存储直接伪造」这条零成本路径。
+ * 改前：本地凭证 `h5-subscription` 直接决定是否会员 —— 写个 expiredAt=2099 即永久 PRO。
+ * 改后：本地凭证不再授予权益；小程序读 `users`（getUsage 云函数，服务端时钟），
+ * H5 回放 RLS 只回本人的 `orders`（与订阅恢复同一口径）。
+ * 拿不到服务端结论 → fail-closed（未订阅 + source='unavailable'），断网不得变成免费解锁。
+ * 残余边界：H5 的 orders 允许客户端插自己的行（RLS 只约束 owner_id），彻底收口需服务端写入迁移。
  */
 import Taro from '@tarojs/taro';
 import { ordersListOwn } from './cloudOrders';
@@ -48,11 +33,6 @@ export function readEntitlement(): Entitlement {
 /** 是否会员 —— **只认服务端结论**，不读 localStorage */
 export function hasProEntitlement(): boolean {
   return current.active;
-}
-
-/** 门禁注入口：仅供断言构造服务端结论，业务代码不要调用 */
-export function _setEntitlementForTest(next: Entitlement): void {
-  current = next;
 }
 
 function todayStr(): string {
