@@ -84,8 +84,10 @@ function parseArgs(argv) {
     else if (a === '--head-repo') o.headRepo = path.resolve(argv[++i]);
     else if (a === '--ack-catalog-change') o.ackCatalogChange = true;
     else if (a === '--help' || a === '-h') {
-      console.log('用法: node .tools/startup-perf/measure-startup.mjs [--runs N] [--repo DIR] [--dist DIR] [--out DIR] [--catalog FILE]');
+      console.log('用法: node .tools/startup-perf/measure-startup.mjs [--gate] [--threshold KB] [--runs N] [--repo DIR] [--dist DIR] [--out DIR] [--catalog FILE]');
       console.log('      npm run measure:startup');
+      console.log('      npm run measure:startup:gate');
+      console.log('      npm run measure:startup:gate -- --threshold 345   # 临时覆盖阈值（默认取 catalog.gate.defaultThresholdKB=339）');
       process.exit(0);
     }
   }
@@ -1190,7 +1192,20 @@ const state = { catalog: null };
   fs.writeFileSync(path.join(args.out, 'latest.json'), JSON.stringify(json, null, 2));
   console.log(`\nJSON              ${jsonPath}`);
 
-  console.log('\n（report 模式：只报告，不判达标）');
+  if (args.gate) {
+    const threshold = json.gate.thresholdKB;
+    const over = med.mainBytes / KB - threshold;
+    console.log('\n── 门禁 ──────────────────────────────────────────────────');
+    if (over > 0) {
+      console.log(`✗ 超标：主指标 ${kb(med.mainBytes)} KB > 阈值 ${threshold} KB，超出 ${over.toFixed(1)} KB（${((over / threshold) * 100).toFixed(1)}%）`);
+      console.log(`  默认阈值来自 catalog.gate.defaultThresholdKB（基线 ${catalog.baseline.remeasuredMainKB} 向下取整）；收紧阈值请同时修改 catalog，不要用脚本自动放宽。`);
+      console.log('  临时覆盖：npm run measure:startup:gate -- --threshold 345');
+      process.exit(1);
+    }
+    console.log(`✓ 通过：主指标 ${kb(med.mainBytes)} KB ≤ 阈值 ${threshold} KB（余量 ${Math.abs(over).toFixed(1)} KB）`);
+    process.exit(0);
+  }
+  console.log('\n（report 模式：不判达标；判据请用 npm run measure:startup:gate）');
 })().catch((e) => {
   if (e instanceof Invalid) {
     console.error(`\n✗ 无法测量：${e.message}`);
