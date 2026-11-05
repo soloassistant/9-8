@@ -22,7 +22,8 @@
  * 用法: node .tools/verify-util-logic.mjs
  * 退出码: 0 = 全绿；1 = 有断言失败；2 = harness 自身出错
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
@@ -465,6 +466,66 @@ assert(
     /process\.env\.TARO_ENV === 'weapp'[\s\S]{0,200}data\.localOnlyBody/.test(mineSrc) &&
     /process\.env\.TARO_ENV === 'weapp'[\s\S]{0,200}data\.vaultNote/.test(prefsSrc)
 );
+
+/* ================================================================== */
+/* K. 「今日已读完」必须按本地日算（UTC 日会让北京 00:00–08:00 丢徽章）   */
+/* ================================================================== */
+section('K. 「今日已读完」判据用本地日期，不是 UTC 日');
+
+const briefingSrc = readFileSync(path.join(ROOT, 'src/pages/briefing/index.tsx'), 'utf8');
+// 只取「今日已读完」那个 useMemo 块（页面里还有别的 const today，别抓错靶子）
+const viewedBlock = briefingSrc.slice(
+  briefingSrc.indexOf('const viewedToday'),
+  briefingSrc.indexOf('}, [briefing]')
+);
+const todayExprMatch = viewedBlock.match(/const today = ([^;]+);/);
+assert('K0 briefing 页真的有「const today = …」判据（否则本组断言失去靶子）', !!todayExprMatch);
+
+if (todayExprMatch) {
+  // 把 pages/briefing 里真实的日期表达式拿出来，在「系统时区 Asia/Shanghai + 模拟 UTC 21:00
+  // （= 北京次日 05:00）」下求值 —— 不复制一份实现来测，测的就是页面那一行。
+  const builtDate = await esbuild.build({
+    entryPoints: [path.join(ROOT, 'src/utils/date.ts')],
+    bundle: true,
+    write: false,
+    format: 'cjs',
+    platform: 'node',
+    target: 'node18',
+    logLevel: 'silent'
+  });
+  const tmpDate = path.join(ROOT, '.tools', `.tmp-daykey-${process.pid}.cjs`);
+  writeFileSync(tmpDate, builtDate.outputFiles[0].text);
+  const childCode = `
+    const m = require(${JSON.stringify(tmpDate)});
+    const FIXED = '2026-11-05T21:00:00Z';
+    const RealDate = Date;
+    class FakeDate extends RealDate {
+      constructor(...a) { if (a.length === 0) super(FIXED); else super(...a); }
+      static now() { return RealDate.parse(FIXED); }
+    }
+    // 页面里的 dayKey() 无参调用 → 用同一实现按固定时刻求值（仍是真实实现，变异会跟着变红）
+    const dayKey = () => m.dayKey(new RealDate(FIXED));
+    const get = new Function('dayKey', 'Date', 'return (' + ${JSON.stringify(todayExprMatch[1])} + ')');
+    process.exit(get(dayKey, FakeDate) === '2026-11-06' ? 0 : 1);
+  `;
+  const child = spawnSync(process.execPath, ['-e', childCode], {
+    env: { ...process.env, TZ: 'Asia/Shanghai' },
+    encoding: 'utf8'
+  });
+  try {
+    unlinkSync(tmpDate);
+  } catch {
+    // 临时文件清理失败不影响断言结果
+  }
+  assert(
+    'K1 Asia/Shanghai 下 UTC 21:00（北京次日 05:00）算作 2026-11-06（不修时页面给出 2026-11-05）',
+    child.status === 0
+  );
+  assert(
+    'K2 briefing 的「今日」不再用 toISOString 取日（该写法固定是 UTC 日）',
+    !/toISOString\(\)\.slice\(0, 10\)/.test(todayExprMatch[1])
+  );
+}
 
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);
