@@ -2,19 +2,21 @@
 /**
  * verify-modal-text —— Taro.showModal 按钮文案上限门禁（2026-11-05）
  *
- * 防的是什么事故（真机实测抓到的）：
- *   H5 端 `Taro.showModal` 对 confirmText / cancelText 有硬校验：
- *     text.replace(/[\u0391-\uFFE5]/g, 'aa').length > 8  →  showModal:fail
- *   即「中文最多 4 个汉字，非中文最多 8 个字符」。
- *   定位链路的 `perm.locCrossAgree = 同意并继续`（5 个汉字 → 归一化 10）因此
- *   每次都在建 DOM 前被拒，Promise 直接 reject，定位永远失败，
- *   而页面却提示「未授权定位」。这不是文案小问题，是功能可用性缺陷。
+ * 防的是什么（真机实测）：H5 端 Taro.showModal 对 confirmText / cancelText 硬校验
+ *   text.replace(/[\u0391-\uFFE5]/g, 'aa').length > 8  →  showModal:fail
+ * 即「中文最多 4 个汉字，非中文最多 8 个字符」。定位链路 perm.locCrossAgree
+ * 「同意并继续」（5 汉字 → 10）每次在 DOM 创建前被拒，Promise 直接 reject，
+ * 定位永远失败，页面却提示「未授权定位」——功能可用性缺陷，不是文案小问题。
  *
  * 判据（与 Taro 实现逐字一致）：
- *   - confirmText / cancelText 在 H5 上即使 showCancel:false 也会被校验（Taro 先校验后判断）；
- *   - 缺省值按 Taro 默认：confirmText='确定'、cancelText='取消'；
- *   - 从 i18n 取值的必须能解析到 zh / en 两个实际值，两边都要 ≤8；
- *     解析不到（变量、模板拼接、key 不存在）按失败处理 —— 猜不出来就不许绿。
+ *   - confirmText / cancelText 即使 showCancel:false 也会先校验；缺省值按 Taro
+ *     默认 confirmText='确定'、cancelText='取消'；i18n 取值两边都要解析且 ≤8。
+ *
+ * 支持的取值形态（resolveLangs 实现）：
+ *   字面量 '确定' / t('perm.agree') / t('perm.agree').slice(0,2) /
+ *   lang === 'zh' ? A : B（A/B 递归解析，可嵌套上述形态）。
+ * 不支持（解析不到一律按失败，不放行）：变量或函数返回值（含 t(keyVar)）、
+ *   模板拼接、跨文件常量、缺 key、字典值为表达式、.replace() 等其它链式调用。
  *
  * 用法：
  *   node .tools/verify-modal-text.mjs           # 只列失败项
