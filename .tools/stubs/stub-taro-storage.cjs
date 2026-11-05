@@ -40,14 +40,4 @@ module.exports = {
     globalThis.__AUTH_SETTING__ = globalThis.__AUTH_SETTING__ || {};
     return Promise.resolve({ authSetting: globalThis.__AUTH_SETTING__ });
   },
-  // ── 小程序云函数调用（entitlement 的 weapp 分支用；其余脚本不受影响）──
-  // 结果由用例通过 globalThis.__CLOUD_CALL__ 控制：{ result } / { reject:true }
-  cloud: {
-    callFunction: function () {
-      var v = globalThis.__CLOUD_CALL__;
-      if (!v) return Promise.reject({ errMsg: 'cloud not configured' });
-      if (v.reject) return Promise.reject({ errMsg: 'cloud call failed' });
-      return Promise.resolve({ result: v.result });
-    }
-  },
 };
