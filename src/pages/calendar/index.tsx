@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
+import { useSyncRefresh } from '@/hooks/useSyncRefresh';
 import dayjs, { Dayjs } from 'dayjs';
 import classnames from 'classnames';
 import EmptyState from '@/components/EmptyState';
@@ -72,6 +73,9 @@ function CalendarPage() {
     if (Date.now() - lastBriefingAt.current < LOAD_FRESH_MS) return;
     void loadBriefing();
   });
+
+  // 另一台设备改日程/待办 → 非编辑态重拉；编辑弹窗打开时延后，避免覆盖正在改的字段
+  useSyncRefresh(['dailyPlanStore'], () => void loadBriefing(), { editing: () => editing !== null });
 
   // 已勾选态必须从服务端状态回填（2026-10-24 审计，与 briefing 页 :517-521 同范式）。
   // 缺陷：doneIds 初始为空且只在 handleToggleTodo 里更新，briefing.todos[].status==='done'

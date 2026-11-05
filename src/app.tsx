@@ -15,7 +15,7 @@ import { hasAgreedConsent } from '@/data/legal';
 import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/language';
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
 import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
-import { initCloudSync } from '@/services/cloudSync';
+import { initCloudSync, subscribeSyncApplied } from '@/services/cloudSync';
 import { syncHealthSyncExclusion } from '@/services/healthConsent';
 import { restoreSubscriptionFromOrders } from '@/services/subscription';
 import { useUserStore } from '@/store/user';
@@ -86,6 +86,13 @@ void initCloudSync().then(() => {
     });
 });
 
+// 打开态下另一端改了语言/主题/字号：启动时已经重放过一次，但轮询拉回的新值同样要立刻生效。
+// 只处理这三个键的变化，业务数据由各页面自己的 useSyncRefresh 重读。
+subscribeSyncApplied((keys) => {
+  if (!keys.some((k) => k === LANG_KEY || k === THEME_KEY || k === UI_SCALE_KEY)) return;
+  rehydrateStoresAfterCloudPull();
+});
+
 /**
  * 云端恢复**重放**（2026-10-05 实测缺陷）：ESM 会把被 import 的 store 模块体求值提到
  * 上面 `initCloudSync()` 之前 —— 三个 store 在创建时读到的是「恢复前」的 storage，
@@ -98,12 +105,20 @@ void initCloudSync().then(() => {
  */
 function rehydrateStoresAfterCloudPull(): void {
   try {
+    // 先比当前值：setLang/setTheme/setScale 会**无条件写 storage**，
+    // 不比较就会在每次拉到后重新 markDirty 抬时间戳、多推一轮（打开态轮询下会反复发生）。
     const lang = Taro.getStorageSync(LANG_KEY);
-    if (lang === 'zh' || lang === 'en') useLanguageStore.getState().setLang(lang);
+    if ((lang === 'zh' || lang === 'en') && lang !== useLanguageStore.getState().lang) {
+      useLanguageStore.getState().setLang(lang);
+    }
     const theme = Taro.getStorageSync(THEME_KEY);
-    if (typeof theme === 'string' && theme) useThemeStore.getState().setTheme(theme);
+    if (typeof theme === 'string' && theme && theme !== useThemeStore.getState().theme.id) {
+      useThemeStore.getState().setTheme(theme);
+    }
     const scale = Taro.getStorageSync(UI_SCALE_KEY);
-    if (typeof scale === 'string' && scale) useUiScaleStore.getState().setScale(scale);
+    if (typeof scale === 'string' && scale && scale !== useUiScaleStore.getState().id) {
+      useUiScaleStore.getState().setScale(scale);
+    }
   } catch (err) {
     // 用 console.error：生产构建只保留 console.error（stripConsoleExceptError），
     // 这里失败 = 云端拉回的用户设置没落到 store（跨设备改过的语言/主题/字号首刷不生效），

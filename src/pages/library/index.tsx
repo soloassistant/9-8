@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Input, Image, Button } from '@tarojs/components';
 import Taro, { useShareAppMessage, useDidHide, useDidShow } from '@tarojs/taro';
 import { isPageForeground } from '@/utils/pageRoute';
+import { useSyncRefresh } from '@/hooks/useSyncRefresh';
 import dayjs from 'dayjs';
 import classnames from 'classnames';
 import TagChip from '@/components/TagChip';
@@ -562,6 +563,12 @@ function LibraryPage() {
     // 60s 新鲜窗口：页面没卸载时数据仍在，每次切回都重拉只会闪骨架 + 白耗一次热点请求。
     // 首次进入 lastLoadedAt=0，必然加载；失败不更新时间，下次切回会重试。
     if (Date.now() - lastLoadedAt.current < LOAD_FRESH_MS) return;
+    void load();
+  });
+
+  // 另一台设备改收藏/浏览历史 → 本页直接重读（本页无编辑态，reload 只更新列表 state）
+  useSyncRefresh(['collectionStore', 'browseHistory'], () => {
+    refreshRecent();
     void load();
   });
 
