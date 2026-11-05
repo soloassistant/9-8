@@ -21,6 +21,7 @@ import { openExternalPage } from '@/utils/externalLink';
 import { logActivity } from '@/utils/activityLog';
 import type { CollectionItem, HistoryEntry, HotspotNews } from '@/types';
 import { useT } from '@/store/language';
+import { useVirtualNewsList } from '@/hooks/useVirtualNewsList';
 import { readPrefs } from '@/utils/prefs';
 import { getPersonalization, setPersonalization } from '@/utils/permission';
 import { categoryOf, categoryLabel } from '@/utils/categoryLabel';
@@ -1189,7 +1190,12 @@ function LibraryPage() {
     const alsoFrom = (item as { alsoFrom?: unknown }).alsoFrom;
     const multiSourceCount = Array.isArray(alsoFrom) ? alsoFrom.length : 0;
     return (
-      <View key={item.id} className={styles.newsCard} onClick={() => handleNewsTap(item)}>
+      <View
+        key={item.id}
+        data-news-id={item.id}
+        className={styles.newsCard}
+        onClick={() => handleNewsTap(item)}
+      >
         {item.image ? (
           // 资讯卡缩略图同样走 SafeImage：thumbUrl 缩到 480w（框高 280rpx），
           // 失败时换占位且**不挂**预览点击（预览一张 403 图没有意义），
@@ -1290,6 +1296,13 @@ function LibraryPage() {
       </View>
     );
   };
+
+  // 热点流虚拟化：筛选/搜索/刷新（长度/首条/标签变化）回到首窗
+  const activeNewsList = searchMode ? searchResults : newsFiltered;
+  const win = useVirtualNewsList(
+    activeNewsList,
+    `${searchMode ? 's' : 'n'}|${searchMode ? keyword : activeNewsTag}|${activeNewsList.length}|${activeNewsList[0]?.id || ''}`
+  );
 
   return (
     <View className={styles.page} style={brandVars(theme)}>
@@ -1550,7 +1563,28 @@ function LibraryPage() {
               <Text className={styles.searchingText}>{t('library.searchSearching')}</Text>
             </View>
           ) : null}
-          {(searchMode ? searchResults : newsFiltered).map((item) => renderNewsCard(item, false))}
+          <View
+            className={styles.virtualList}
+            data-news-list='1'
+            data-total-count={win.total}
+            data-rendered-start={win.start}
+            data-rendered-end={win.end}
+            data-last-title={activeNewsList[activeNewsList.length - 1]?.title || ''}
+          >
+            {win.topH > 0 ? (
+              <View className={styles.virtualSpacer} style={{ height: `${win.topH}px` }} aria-hidden='true' />
+            ) : null}
+            <View className={styles.virtualSentinel} data-sentinel='top' aria-hidden='true' />
+            {win.slice.map((item) => renderNewsCard(item, false))}
+            <View className={styles.virtualSentinel} data-sentinel='bottom' aria-hidden='true' />
+            {win.end < win.total ? (
+              // 键盘/读屏的分段入口：Tab 到这里按 Enter 继续扩窗（视觉用户由哨兵自动扩窗）
+              <Button className={styles.loadMore} onClick={win.loadMore}>{`载入更多（还剩 ${win.total - win.end} 条）`}</Button>
+            ) : null}
+            {win.bottomH > 0 ? (
+              <View className={styles.virtualSpacer} style={{ height: `${win.bottomH}px` }} aria-hidden='true' />
+            ) : null}
+          </View>
           {/* 竞品分析 L3：资讯列表底部常驻免责声明（次级色、小号、居中） */}
           <View className={styles.disclaimerFooter}>
             <Text className={styles.disclaimerText}>{t('common.disclaimer')}</Text>
