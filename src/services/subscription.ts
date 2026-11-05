@@ -15,8 +15,7 @@
  * paid_at 升序，从最早一笔的日期起逐笔顺延 months×30 天。纯函数，可单测。
  */
 
-import { readH5Subscription, setH5SubscriptionExpiry } from '@/utils/promo';
-import { ordersListOwn, type CloudOrder } from './cloudOrders';
+import { type CloudOrder } from './cloudOrders';
 
 /** 是否计入订阅回放：已支付且未退款（退款中也不算 —— 宁可先停权益再恢复） */
 function isPaidAndActive(order: CloudOrder): boolean {
@@ -73,24 +72,26 @@ export interface RestoreResult {
 }
 
 /**
- * 登录态下回放订单表，本地订阅凭证落后则恢复。
- * 进会员中心 / 应用启动时静默调用 —— 这是「支付后的订阅」跨设备成立的那一环。
+ * 登录态下把订单回放成权益（跨设备恢复）。
+ *
+ * AC-03 改前：这里会把回放出的到期日**写回本地凭证** `h5-subscription`，
+ * 于是本地存储成了事实源（伪造一个 2099 的日期即可永久会员）。
+ * 改后：回放只更新进程内的服务端权益缓存（`services/entitlement`），
+ * **不再写本地凭证** —— 本地存储不再参与任何权益判定。
  */
 export async function restoreSubscriptionFromOrders(): Promise<RestoreResult> {
-  const res = await ordersListOwn(50);
-  if (!res.ok) {
-    return { restored: false, expiredAt: null, reason: res.reason === 'no-session' ? 'no-session' : 'db-error' };
+  // 动态 import：entitlement 静态依赖本文件的纯函数 computeExpiryFromOrders，
+  // 静态互引会形成模块环；这里在调用期才取，环不会在求值阶段被触发。
+  const { refreshEntitlement } = await import('./entitlement');
+  const ent = await refreshEntitlement();
+  if (ent.source === 'unavailable') {
+    return { restored: false, expiredAt: null, reason: 'db-error' };
   }
-  const today = new Date().toISOString().slice(0, 10);
-  const cloudExpiry = computeExpiryFromOrders(res.orders, today);
-  if (!cloudExpiry) return { restored: false, expiredAt: null, reason: 'no-orders' };
-
-  const local = readH5Subscription();
-  if (local && local.expiredAt >= cloudExpiry) {
-    return { restored: false, expiredAt: cloudExpiry, reason: 'up-to-date' };
+  if (ent.source === 'none') {
+    return { restored: false, expiredAt: null, reason: 'no-session' };
   }
-  // 本地没有凭证（清缓存/换设备）或本地更早（在别的设备续过费）→ 都直接写到云端到期日
-  // （不是在本地基础上顺延 —— 顺延会把本地残留多算成额外权益）
-  const ok = setH5SubscriptionExpiry(cloudExpiry);
-  return { restored: ok, expiredAt: cloudExpiry, reason: ok ? 'restored' : 'db-error' };
+  if (!ent.active || !ent.expiredAt) {
+    return { restored: false, expiredAt: null, reason: 'no-orders' };
+  }
+  return { restored: true, expiredAt: ent.expiredAt, reason: 'restored' };
 }

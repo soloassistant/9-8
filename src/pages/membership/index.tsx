@@ -9,7 +9,8 @@ import { useT, useLanguageStore } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiCreateOrder, type CreateOrderPayload } from '@/services/api';
 import { ordersListOwn, type CloudOrder } from '@/services/cloudOrders';
-import { recordPromoOrder, restoreSubscriptionFromOrders } from '@/services/subscription';
+import { recordPromoOrder } from '@/services/subscription';
+import { refreshEntitlement } from '@/services/entitlement';
 import { getPayChannel, getChannelAuth, invokePayment } from '@/services/pay';
 import type { PayChannel, PayOrder } from '@/types';
 import { disabledAttr } from '@/utils/buttonDisabled';
@@ -316,13 +317,10 @@ function MembershipPage() {
     setReadFreezeCards(getReadFreezeCards());
     setRemindOn(readRenewRemindPref());
     void loadOrders();
-    // 订阅回放：登录态下把 orders 表里已支付订单回放成订阅凭证 ——
-    // 换设备/清缓存后订阅自动回来。静默，失败不提示（本地凭证不受影响）。
-    void restoreSubscriptionFromOrders().then((r) => {
-      if (r.restored) {
-        console.error('[MembershipPage] 订阅已从云端订单恢复，到期 ' + r.expiredAt);
-        void init();
-      }
+    // AC-03：进页面先向服务端确认权益（orders 回放），再重建档案。
+    // 无论结果真假都要 init —— 不然「上次是会员、这次没续费」的页面会一直停留在旧状态。
+    void refreshEntitlement().then(() => {
+      void init();
     });
   });
 
@@ -540,18 +538,31 @@ function MembershipPage() {
     setPromoBusy(false);
     setPromoOpen(false);
     setPromoInput('');
-    Taro.showToast({ title: t('mine.promoDone', { date: res.expiredAt || '' }), icon: 'none', duration: 3000 });
-    // 兑换成功 = 一笔真实权益授予 → 落一条 paid 订单（orders 表），
-    // 这样订阅能跨设备回放恢复，与未来支付的订单走同一条链路。
-    // 落库失败不影响本地已生效的兑换（本地权益已在），只记错误日志。
+    // AC-03：兑换成功 = 权益必须先在服务端留下可回放的记录（orders 表）。
+    // 改前：本地写凭证就算「开通」，未登录/落库失败时用户看到「已开通」但服务端什么都没写 ——
+    // 换设备即消失，且本地凭证本身可被伪造。改后：落库失败就不报成功。
+    let recorded = false;
     try {
-      const recorded = await recordPromoOrder(res.days || 30);
-      if (!recorded) console.error('[MembershipPage] 促销码订单未落库（本地权益已生效）');
+      recorded = await recordPromoOrder(res.days || 30);
     } catch (err) {
       console.error('[MembershipPage] recordPromoOrder failed:', err);
     }
+    if (!recorded) {
+      setPromoErr(t('mine.promoUnverified'));
+      Taro.showToast({ title: t('mine.promoUnverified'), icon: 'none', duration: 3000 });
+      await init();
+      await loadOrders();
+      return;
+    }
+    const ent = await refreshEntitlement();
     await init();
     await loadOrders();
+    if (ent.active) {
+      Taro.showToast({ title: t('mine.promoDone', { date: ent.expiredAt || '' }), icon: 'none', duration: 3000 });
+    } else {
+      setPromoErr(t('mine.promoUnverified'));
+      Taro.showToast({ title: t('mine.promoUnverified'), icon: 'none', duration: 3000 });
+    }
   };
 
   /* ---------------- 额度百分比 ---------------- */

@@ -18,6 +18,7 @@ import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
 import { initCloudSync } from '@/services/cloudSync';
 import { syncHealthSyncExclusion } from '@/services/healthConsent';
 import { restoreSubscriptionFromOrders } from '@/services/subscription';
+import { useUserStore } from '@/store/user';
 import { dismissBootSkeletonAfterPaint } from '@/utils/bootSkeleton';
 import { showBootFailure } from '@/utils/bootFailure';
 import { activatePressable, observePressables } from '@/utils/a11y';
@@ -72,9 +73,17 @@ void initCloudSync().then(() => {
   // 首页仍是免费版** —— AI 额度、语音条数、收藏上限全按免费档算，权益等于丢了。
   // 挂到启动链上与云同步同一顺序（先 user_kv 再按 orders 回放到期日）；
   // 未登录时 ordersListOwn 返回 no-session，是正常分支，不报错；失败只留痕，不阻断启动。
-  void restoreSubscriptionFromOrders().catch((err) => {
-    console.error('[app] restore subscription from orders failed:', err);
-  });
+  // AC-03：权益只认服务端（本地凭证已不参与判定）。刷新完成后重建档案，
+  // 否则首刷的 profile.subscribed 会停在上一次的旧值上（页面不会自己重读）。
+  void restoreSubscriptionFromOrders()
+    .then((r) => {
+      // 未登录时重建档案必然抛 no-cloud-session（会弹「初始化失败」），这里跳过；
+      // 登录门禁本身会在登录后触发 init。
+      if (r.reason !== 'no-session') void useUserStore.getState().init();
+    })
+    .catch((err) => {
+      console.error('[app] restore subscription from orders failed:', err);
+    });
 });
 
 /**

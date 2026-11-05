@@ -1,5 +1,5 @@
 import Taro from '@tarojs/taro';
-import { readH5Subscription } from '@/utils/promo';
+import { readEntitlement } from './entitlement';
 import type { UserProfile } from '../types';
 import type { CloudSession, CloudUser } from './cloudAuth';
 
@@ -170,11 +170,11 @@ export function buildProfileFromSession(session: CloudSession | null): UserProfi
     nickname: settings.nickname || maskIdentifier(user) || '晨友',
     briefingTime: settings.briefingTime,
     preferences: settings.preferences,
-    // 订阅态（2026-10-25 起有本地来源）：促销码兑换成功会写 h5-subscription 凭证
-    // （utils/promo.ts，兑换有哈希校验、到期自动失效）。没兑换过/已过期 → 如实未订阅。
-    // 注意这不是编造：凭证的来源是一次通过校验的真实兑换。
-    ...(readH5Subscription()
-      ? { subscribed: true, expiredAt: readH5Subscription()!.expiredAt, isEarlyBird: false }
+    // 订阅态（AC-03）：只认服务端确认（entitlement 缓存），**不再读本地凭证** ——
+    // 改前 localStorage 里写个 expiredAt=2099 就能变成会员，伪造成本为 0。
+    // 缓存未刷新/刷新失败 → 如实未订阅（fail-closed），页面会按免费档渲染。
+    ...(readEntitlement().active
+      ? { subscribed: true, expiredAt: readEntitlement().expiredAt, isEarlyBird: false }
       : { subscribed: false, expiredAt: null, isEarlyBird: false }),
   };
 }

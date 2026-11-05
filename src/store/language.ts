@@ -124,6 +124,7 @@ const zh = {
   'mine.promoBadFormat': '格式不对，应为 PRO-XXXX-XXXX',
   'mine.promoUnknown': '促销码不正确',
   'mine.promoExpired': '该活动已结束',
+  'mine.promoUnverified': '兑换未能登记到云端（未登录或网络异常），权益未开通。请重试或联系客服。',
   'mine.learn': '📚 语言学习',
   'mine.learnDesc': '英/日/韩 · 碎片时间学一门',
 
@@ -1517,6 +1518,7 @@ const en: Record<keyof typeof zh, string> = {
   'mine.promoBadFormat': 'Invalid format, expected PRO-XXXX-XXXX',
   'mine.promoUnknown': 'Code not recognized',
   'mine.promoExpired': 'This campaign has ended',
+  'mine.promoUnverified': 'Redemption could not be recorded in the cloud (not signed in or network error), so PRO was not activated. Please retry or contact support.',
   'mine.learn': '📚 Language Learning',
   'mine.learnDesc': 'EN/JA/KO · learn one in spare minutes',
 
