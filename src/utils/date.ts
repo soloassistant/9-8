@@ -1,4 +1,5 @@
 import dayjs from 'dayjs';
+import { useLanguageStore } from '@/store/language';
 
 /**
  * 原先的 `getGreeting(hour)` 已删除（2026-10-24）。
@@ -18,12 +19,13 @@ import dayjs from 'dayjs';
 export function formatEventTime(time: string): string {
   const d = dayjs(time);
   if (!d.isValid()) return time;
+  const en = useLanguageStore.getState().lang === 'en';
   const today = dayjs().startOf('day');
   const diff = d.diff(today, 'day');
   const hm = d.format('HH:mm');
-  if (diff === 0) return `今天 ${hm}`;
-  if (diff === 1) return `明天 ${hm}`;
-  return d.format('M月D日 HH:mm');
+  if (diff === 0) return en ? `Today ${hm}` : `今天 ${hm}`;
+  if (diff === 1) return en ? `Tomorrow ${hm}` : `明天 ${hm}`;
+  return d.format(en ? 'MMM D HH:mm' : 'M月D日 HH:mm');
 }
 
 /**
@@ -61,7 +63,16 @@ export function currentMonth(now?: Date): string {
 export function formatDate(time: string | Date, withTime = false): string {
   const d = dayjs(time);
   if (!d.isValid()) return String(time);
-  const date = d.year() === dayjs().year() ? d.format('M月D日') : d.format('YYYY年M月D日');
+  // U-04：日期格式也得跟语言走，否则 en 页面上会出现「2026年11月3日」这种中文串
+  const en = useLanguageStore.getState().lang === 'en';
+  const sameYear = d.year() === dayjs().year();
+  const date = en
+    ? sameYear
+      ? d.format('MMM D')
+      : d.format('MMM D, YYYY')
+    : sameYear
+      ? d.format('M月D日')
+      : d.format('YYYY年M月D日');
   return withTime ? `${date} ${d.format('HH:mm')}` : date;
 }
 
@@ -69,13 +80,14 @@ export function formatDate(time: string | Date, withTime = false): string {
 export function fromNow(time: string): string {
   const d = dayjs(time);
   if (!d.isValid()) return time;
+  const en = useLanguageStore.getState().lang === 'en';
   const diffMinutes = dayjs().diff(d, 'minute');
-  if (diffMinutes < 1) return '刚刚';
-  if (diffMinutes < 60) return `${diffMinutes} 分钟前`;
+  if (diffMinutes < 1) return en ? 'just now' : '刚刚';
+  if (diffMinutes < 60) return en ? `${diffMinutes} min ago` : `${diffMinutes} 分钟前`;
   const diffHours = dayjs().diff(d, 'hour');
-  if (diffHours < 24) return `${diffHours} 小时前`;
+  if (diffHours < 24) return en ? `${diffHours} h ago` : `${diffHours} 小时前`;
   const diffDays = dayjs().diff(d, 'day');
-  if (diffDays < 30) return `${diffDays} 天前`;
+  if (diffDays < 30) return en ? `${diffDays} d ago` : `${diffDays} 天前`;
   return formatDate(d.toDate());
 }
 

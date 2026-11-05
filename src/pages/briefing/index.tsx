@@ -1049,11 +1049,11 @@ function BriefingPage() {
       if (!ref) return;
       Taro.showModal({
         title: group.title,
-        content: `${ref.text}\n\n来源：${ref.source}`,
+        content: `${ref.text}\n\n${t('briefing.refSource', { source: ref.source })}`,
         showCancel: false
       });
     },
-    [intelResolved]
+    [intelResolved, t]
   );
 
   /* ---------------- F21 晨报自适应 ---------------- */
@@ -1113,21 +1113,35 @@ function BriefingPage() {
     }
     if (!briefing) return;
     const lines: string[] = [briefing.greeting];
-    if (adaptive?.focusTodo) lines.push(`先办「${adaptive.focusTodo}」`);
+    if (adaptive?.focusTodo) lines.push(t('briefing.ttsFocus', { text: adaptive.focusTodo }));
     if (briefing.intel?.weather) lines.push(briefing.intel.weather.text);
     if (todayEvents.length) {
-      lines.push('今日日程');
+      lines.push(t('briefing.ttsAgenda'));
       todayEvents.forEach((e) =>
-        lines.push(`${formatEventTime(e.startTime)}，${e.title}${e.location ? `，地点${e.location}` : ''}`)
+        lines.push(
+          e.location
+            ? t('briefing.ttsEventWithPlace', {
+                time: formatEventTime(e.startTime),
+                title: e.title,
+                location: e.location
+              })
+            : t('briefing.ttsEvent', { time: formatEventTime(e.startTime), title: e.title })
+        )
       );
     }
     const pendingTodos = briefing.todos.filter((td) => !doneIds.has(td.id));
     if (pendingTodos.length) {
-      lines.push('待办事项');
-      pendingTodos.forEach((td) => lines.push(`${td.dueDate ? `${formatEventTime(td.dueDate)}，` : ''}${td.title}`));
+      lines.push(t('briefing.ttsTodos'));
+      pendingTodos.forEach((td) =>
+        lines.push(
+          td.dueDate
+            ? t('briefing.ttsTodoWithTime', { time: formatEventTime(td.dueDate), title: td.title })
+            : td.title
+        )
+      );
     }
     if (briefing.digest.length) {
-      lines.push('昨日收藏精选');
+      lines.push(t('briefing.ttsDigest'));
       briefing.digest.forEach((d) => lines.push(d));
     }
     // V-07：晨报场景走场景音色表（22:00–07:00 自动切 night 柔和音色）；用户固定音色由 tts.ts 内的持久化偏好决定
@@ -1176,7 +1190,12 @@ function BriefingPage() {
               // pressableProps（data-pressable 标记 + aria-label），由 a11y.ensureFocusable
               // 运行时补 tabindex="0"。2026-10-29 实测：加之前 1440 下 focusables 为空，
               // 屏幕上 6 行导航键盘一个都到不了。
-              {...pressableProps(`${t(nav.labelKey as never)}（${i === 0 ? '当前页' : '前往'}）`)}
+              {...pressableProps(
+                t('briefing.navA11y', {
+                  name: t(nav.labelKey as never),
+                  state: i === 0 ? t('briefing.navCurrent') : t('briefing.navGo')
+                })
+              )}
               onClick={() => {
                 // 第一项就是当前页（晨报），点了不动作；其余按 nav.tab 分流 ——
                 // tabBar 页只能 switchTab（navigateTo 会直接抛错），二级页只能 navigateTo。
@@ -1902,7 +1921,7 @@ function BriefingPage() {
                   {/* 播放角标 + 时长：相对封面容器（position:relative）内绝对定位，
                       徽章自身只做背景+圆角，无变换/裁剪，双端渲染一致 */}
                   <View className={styles.videoCoverBadge}>
-                    <Text className={styles.videoCoverBadgeText}>▶ {v.duration || '视频'}</Text>
+                    <Text className={styles.videoCoverBadgeText}>▶ {v.duration || t('briefing.videoFallback')}</Text>
                   </View>
                 </View>
                 <View className={styles.videoBody}>
