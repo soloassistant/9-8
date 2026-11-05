@@ -528,6 +528,7 @@ function CalendarPage() {
           <Input
             className={styles.qaTime}
             value={addTime}
+            placeholder='09:00'
             maxlength={5}
             onInput={(e) => setAddTime(e.detail.value)}
             onConfirm={handleQuickAdd}
