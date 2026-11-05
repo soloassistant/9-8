@@ -264,11 +264,19 @@ function httpGetJson(host, path, authorization) {
 const ENTITLEMENT_STALE_MS = 2 * 60 * 1000;
 const MS_PER_MONTH = 30 * 24 * 3600 * 1000;
 
+/** B3 状态机：只有这三个状态允许进入「置 paid」流程；closed/refunded 等终态一律拒绝 */
+const PAYABLE_STATUSES = ['created', 'pending', 'failed'];
+
 async function reconcileOrder(order, q) {
   // 幂等：只有权益已发放才算完成（仅 paid 不能早退，否则 failed 的订单永远补不发）
   if (order.status === 'paid' && order.entitlementStatus === 'applied') {
     console.log('[queryOrder] 订单已 paid 且权益已发放，跳过对账:', order.orderId);
     return { orderId: order.orderId, alreadyPaid: true };
+  }
+
+  // B3 状态机：已关闭/已退款的终态订单不得被对账「复活」为 paid
+  if (order.status !== 'paid' && !PAYABLE_STATUSES.includes(order.status)) {
+    throw new Error('[queryOrder] 订单状态不可入账（禁止 closed→paid）: ' + order.status);
   }
 
   // 预检：权益接收方必须存在。**必须放在置 paid 之前** —— 否则订单已 paid 而权益永远发不出去
@@ -316,7 +324,8 @@ async function acquireEntitlementLock(order, extra) {
   const base = { _id: order._id };
   const candidates = [];
   if (order.status !== 'paid') {
-    candidates.push(Object.assign({}, base, { status: order.status }));
+    // B3：CAS 候选限定 created/pending/failed（closed/refunded 永远匹配不到）
+    candidates.push(Object.assign({}, base, { status: _.in(PAYABLE_STATUSES) }));
   } else if (order.entitlementStatus === 'failed') {
     candidates.push(Object.assign({}, base, { status: 'paid', entitlementStatus: 'failed' }));
   } else if (order.entitlementStatus === 'applying') {

@@ -109,6 +109,8 @@ exports.main = async (event) => {
     if (channelResult.ok) {
       await db.collection('orders').doc(order._id).update({
         data: {
+          // B3：退款成功写 status 终态（refunded），同时保留 refundStatus 兼容旧读取
+          status: 'refunded',
           refundStatus: 'refunded',
           refundChannelNo: channelResult.refundNo || null,
           refundFinishTime: new Date().toISOString()
