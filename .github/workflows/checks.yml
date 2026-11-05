@@ -390,6 +390,14 @@ jobs:
         # 零网络：启动时主动清空 LLM_*/WEATHER_*/PAY_*/*_TEMPLATE_ID，外部能力全部走「必须明确失败」断言。
         run: npm run verify:cloudflow
 
+      - name: 权益回滚失败对账回归
+        # 退款两段提交的收尾：refundOrder 已把退款事实写对，但扣权益失败时只留
+        # entitlementRollbackStatus='failed'，此前**没有任何东西会去扫它** —— 用户被退了钱
+        # 却仍保有权益，且失败记录永久躺平。这里守对账任务的三件事：failed 跑一次必须
+        # 变 rolled_back（且只扣一次）、永久失败第 3 次必须转 manual_required、
+        # 已扣到位重跑不许二次扣（崩溃恢复幂等）。全程内存库，不连云。
+        run: npm run verify:rollbacks
+
       - name: 晨报首屏结构与状态机回归
         # 守 2026-10-24 审计发现并修掉的 6 个「手感」缺陷：记账卡被粘进右上角图标按钮行内
         # （卡片在 flex 行里撑开、压垮问候语列）、hasContent 不看情报（有情报却显示

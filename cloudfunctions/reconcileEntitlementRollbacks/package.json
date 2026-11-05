@@ -1,0 +1,9 @@
+{
+  "name": "reconcileEntitlementRollbacks",
+  "version": "1.0.0",
+  "description": "权益回滚失败对账 — 定时扫 entitlementRollbackStatus=failed，重试回滚并收敛状态",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}
