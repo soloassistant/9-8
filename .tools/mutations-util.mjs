@@ -45,5 +45,26 @@ export default [
     from: "      console.error('[cloudStorage] upload avatar failed:', res.error.code || '', res.error.message || '');\n      return { ok: false, reason: 'failed' };",
     to: '      return { ok: true, path };',
     cmd: 'node .tools/verify-util-logic.mjs'
+  },
+  {
+    label: '小程序端记忆声明改回「同步到你的账号」（虚假告知）',
+    file: 'src/store/language.ts',
+    from: '记忆仅保存在本机，不会同步到账号',
+    to: '记忆保存在本设备，并同步到你的账号以便跨设备延续',
+    cmd: 'node .tools/verify-util-logic.mjs'
+  },
+  {
+    label: '数据保存说明改回云端口径（说会自动云端备份）',
+    file: 'src/store/language.ts',
+    from: '当前微信小程序版本未开放跨设备同步。',
+    to: '数据会自动云端备份。',
+    cmd: 'node .tools/verify-util-logic.mjs'
+  },
+  {
+    label: '我的页记忆声明不再按端取键（小程序端仍显示「同步到账号」）',
+    file: 'src/pages/mine/index.tsx',
+    from: "            {process.env.TARO_ENV === 'weapp' ? t('settings.memoryPrivacyWeapp') : t('settings.memoryPrivacy')}",
+    to: "            {t('settings.memoryPrivacy')} /* MUT: no per-end copy */",
+    cmd: 'node .tools/verify-util-logic.mjs'
   }
 ];

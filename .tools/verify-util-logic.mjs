@@ -421,5 +421,50 @@ globalThis.__DB__ = null;
 const h4 = await subMod2.recordPromoOrder('PRO-AAAA-BBBB');
 assert('H4 数据库不可用 → 返回 false（fail-closed）', h4 === false);
 
+/* ================================================================== */
+/* I. 小程序端「数据只在本机」文案：不能残留云端口径                      */
+/* ================================================================== */
+section('I. 小程序端按端文案（记忆/数据保存/保险箱）');
+
+const { mod: langMod } = await loadModule('src/store/language.ts');
+const D = langMod.dict;
+const mineSrc = readFileSync(path.join(ROOT, 'src/pages/mine/index.tsx'), 'utf8');
+const prefsSrc = readFileSync(path.join(ROOT, 'src/pages/prefs/index.tsx'), 'utf8');
+
+assert(
+  'I1 小程序端记忆声明写「仅保存在本机、不同步到账号」，且 H5 口径仍是同步',
+  D.zh['settings.memoryPrivacyWeapp'].includes('仅保存在本机') &&
+    D.zh['settings.memoryPrivacyWeapp'].includes('不会同步到账号') &&
+    !D.zh['settings.memoryPrivacyWeapp'].includes('并同步到你的账号') &&
+    D.zh['settings.memoryPrivacy'].includes('同步到你的账号')
+);
+
+assert(
+  'I2 小程序端记忆声明英文同样不承诺同步，H5 英文仍写同步',
+  D.en['settings.memoryPrivacyWeapp'].includes('not synced to your account') &&
+    !D.en['settings.memoryPrivacyWeapp'].includes('synced to your account so they carry') &&
+    D.en['settings.memoryPrivacy'].includes('synced to your account')
+);
+
+assert(
+  'I3 数据保存说明写「未开放跨设备同步」「仅保存在本机」，不出现「云端备份」',
+  D.zh['data.localOnlyBody'].includes('未开放跨设备同步') &&
+    D.zh['data.localOnlyBody'].includes('仅保存在本机') &&
+    !D.zh['data.localOnlyBody'].includes('云端备份')
+);
+
+assert(
+  'I4 英文数据保存说明同样不承诺云端备份',
+  D.en['data.localOnlyBody'].includes('is not available in the WeChat mini-program yet') &&
+    !D.en['data.localOnlyBody'].toLowerCase().includes('backed up')
+);
+
+assert(
+  'I5 我的页/偏好页真的按端取这些键（键存在但页面不用 = 文案没生效）',
+  /process\.env\.TARO_ENV === 'weapp'[\s\S]{0,200}settings\.memoryPrivacyWeapp/.test(mineSrc) &&
+    /process\.env\.TARO_ENV === 'weapp'[\s\S]{0,200}data\.localOnlyBody/.test(mineSrc) &&
+    /process\.env\.TARO_ENV === 'weapp'[\s\S]{0,200}data\.vaultNote/.test(prefsSrc)
+);
+
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);

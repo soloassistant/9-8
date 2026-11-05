@@ -1371,6 +1371,18 @@ function MinePage() {
 
       <Text className={styles.groupLabel}>{t('mine.groupSettings')}</Text>
 
+      {/* ===== 数据保存说明（仅小程序端）=====
+          小程序端 cloudSync.initCloudSync 非 H5 直接 return：44 个 SYNC_KEYS 全部不参与同步。
+          此处如实告知“本机保存 / 不同步”，不承诺换机恢复，也不提“云端备份”。
+          网页版与小程序版账号体系不同（auth.uid() vs openid），所以另加一句跨端不互通。 */}
+      {process.env.TARO_ENV === 'weapp' ? (
+        <View className={styles.card}>
+          <Text className={styles.cardTitle}>{t('data.localOnlyTitle')}</Text>
+          <Text className={styles.valueHint}>{t('data.localOnlyBody')}</Text>
+          <Text className={styles.valueHint}>{t('data.crossEndNote')}</Text>
+        </View>
+      ) : null}
+
       {/* ===== 偏好设置入口（2026-10-26）=====
           原 366px 通用设置卡（称呼 / 推送时间 / 提醒 / 城市 / 语速 / 音色，共 6 行）
           已整体移入 pages/prefs。这里只留一行门 —— 但门必须显眼，
@@ -1477,7 +1489,9 @@ function MinePage() {
             </Text>
           </View>
           {/* L4 记忆隐私声明：合规要求逐字展示键值，纯声明不可交互 */}
-          <Text className={styles.memoryPrivacy}>{t('settings.memoryPrivacy')}</Text>
+          <Text className={styles.memoryPrivacy}>
+            {process.env.TARO_ENV === 'weapp' ? t('settings.memoryPrivacyWeapp') : t('settings.memoryPrivacy')}
+          </Text>
         </View>
         {renderRow(
           t('mine.hotNews'),

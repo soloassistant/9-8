@@ -445,6 +445,8 @@ const zh = {
   //   （src/services/cloudSync.ts:32），H5 上会随其他数据一起推送至 /api/user/sync。
   //   这与《隐私政策》一.6「浏览历史仅保存在你的设备本地」是同一类错误，一并改正。
   'settings.memoryPrivacy': '记忆保存在本设备，并同步到你的账号以便跨设备延续；仅用于对话上下文与任务连续性，不用于模型训练或用户画像；关闭后停止收集并删除。',
+  // 小程序端没有 KV 同步层（cloudSync.initCloudSync 非 H5 直接 return），不能沿用上面那句
+  'settings.memoryPrivacyWeapp': '记忆仅保存在本机，不会同步到账号；仅用于对话上下文与任务连续性，不用于模型训练或用户画像；关闭后停止收集并删除本机记忆。',
   'subscribe.renew': '订阅即将到期，请续订以继续接收晨报提醒',
   /* ---- 竞品改进收尾：X11 未成年人横幅 / X6 周末版说明 / X3 免打扰激活 / 家长密码弹层 ---- */
   'library.minorBanner': '未成年人模式已开启',
@@ -655,6 +657,12 @@ const zh = {
   'prefs.vaultImportNothing': "备份里没有可导入的数据（已跳过 {m} 个不受支持的键）",
   'prefs.vaultImportBad': "不是有效的晨报备份",
   'prefs.vaultDropped': "有 {n} 项数据无法备份，已跳过",
+  // 小程序端同步说明（设置区常驻卡）。事实依据：cloudSync.ts:1290 非 H5 直接 resolve，
+  // 44 个 SYNC_KEYS 在 weapp 全部不参与同步；这里只写做得到的事。
+  'data.localOnlyTitle': "关于数据保存",
+  'data.localOnlyBody': "当前微信小程序版本未开放跨设备同步。学习进度、记账、运动记录、习惯与连续天数、主题与字号、浏览历史与 AI 对话记录仅保存在本机；换手机、卸载重装或清理微信缓存后不会自动恢复。日程、待办、购物清单、收藏等依赖云端的功能，请以页面内实际显示的状态为准。可在「我的 → 偏好设置 → 数据保险箱」导出本机备份。",
+  'data.crossEndNote': "网页版与小程序版使用不同账号体系，两端数据暂不互通；本机备份只在本端有效。",
+  'data.vaultNote': "小程序端导出会把备份复制到剪贴板；导入只在本机恢复，不会上传云端。备份含你的个人数据，请勿转发给他人。",
   'prefs.watchTitle': "追踪关键词",
   'prefs.watchCount': "已设 {n} 个词",
   'prefs.watchOff': "未设置",
@@ -1820,6 +1828,7 @@ const en: Record<keyof typeof zh, string> = {
   'settings.parentPin': 'Parent PIN',
   'settings.parentPinSet': 'Parent PIN set',
   'settings.memoryPrivacy': 'Memories are stored on this device and synced to your account so they carry across devices; they are used only for conversation context and task continuity, never for model training or profiling, and are deleted when the feature is disabled.',
+  'settings.memoryPrivacyWeapp': 'Memories are stored only on this device and are not synced to your account; they are used only for conversation context and task continuity, never for model training or profiling, and local memories are deleted when the feature is disabled.',
   'subscribe.renew': 'Subscription is expiring — renew to keep receiving morning brief alerts',
   /* ---- Competitor improvements wrap-up: X11 minor banner / X6 weekend edition desc / X3 DND active / parent PIN ---- */
   'library.minorBanner': 'Minor mode is on',
@@ -2018,6 +2027,10 @@ const en: Record<keyof typeof zh, string> = {
   'prefs.vaultImportNothing': "No importable data in this backup (skipped {m} unsupported keys)",
   'prefs.vaultImportBad': "Not a valid Morning Brief backup",
   'prefs.vaultDropped': "{n} items could not be exported and were skipped",
+  'data.localOnlyTitle': "About data storage",
+  'data.localOnlyBody': "Cross-device sync is not available in the WeChat mini-program yet. Learning progress, ledger, running records, habits and streaks, theme and font size, browsing history and AI chat logs are stored only on this device; they will not be restored after switching phones, reinstalling or clearing WeChat cache. For cloud-backed features such as schedule, to-dos, shopping list and saved items, rely only on the status shown on their pages. You can export a local backup under Me → Preferences → Data vault.",
+  'data.crossEndNote': "The web version and the mini-program use separate account systems, so data is not shared between them; a local backup only works on this device.",
+  'data.vaultNote': "In the mini-program, export copies the backup to the clipboard, and import restores it locally; it is never uploaded to the cloud. The backup contains your personal data, so do not forward it to others.",
   'prefs.watchTitle': "Watch keywords",
   'prefs.watchCount': "{n} keywords set",
   'prefs.watchOff': "Not set",
