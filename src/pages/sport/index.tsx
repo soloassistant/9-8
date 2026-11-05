@@ -440,6 +440,12 @@ export default function SportPage() {
           : t('sport.subEmpty');
 
   const maxBarKm = Math.max(1, ...buckets.map((b) => b.km));
+  const last7Buckets = buckets.slice(-7);
+  // 轨迹/配速 SVG 逐点拼字符串 + 整串 encodeURIComponent，属于纯函数的重活。
+  // 记录中每 500ms 定时器重渲染一次；不起缓存的话每次渲染都会重算两遍。
+  const recordingRouteUrl = useMemo(() => routeSvgUrl(samples), [samples]);
+  const detailRouteUrl = useMemo(() => (detail ? routeSvgUrl(detail.samples) : null), [detail]);
+  const detailPaceUrl = useMemo(() => (detail ? paceCurveSvgUrl(detail.samples) : null), [detail]);
 
   return (
     <View className={styles.page} style={brandVars(theme)}>
@@ -499,14 +505,14 @@ export default function SportPage() {
               </Text>
             </View>
             <View className={styles.weekBars}>
-              {buckets.slice(-7).map((b, i) => (
+              {last7Buckets.map((b, i) => (
                 <View
                   key={b.start}
                   className={styles.weekBarWrap}
                   style={{ height: `${Math.max(8, (b.km / maxBarKm) * 100)}%` }}
                 >
                   <View
-                    className={i === buckets.slice(-7).length - 1 ? styles.weekBarActive : styles.weekBar}
+                    className={i === last7Buckets.length - 1 ? styles.weekBarActive : styles.weekBar}
                   />
                 </View>
               ))}
@@ -611,11 +617,11 @@ export default function SportPage() {
               <Text className={styles.cardLabel}>{t('sport.route')}</Text>
               <Text className={styles.cardAccent}>{distanceM > 0 ? `${formatKm(distanceM)} km` : '—'}</Text>
             </View>
-            {routeSvgUrl(samples) ? (
+            {recordingRouteUrl ? (
               <View className={styles.mapBox}>
                 <Image
                   className={styles.mapImg}
-                  src={routeSvgUrl(samples) as string}
+                  src={recordingRouteUrl}
                   mode='aspectFit'
                   nativeProps={isH5 ? { decoding: 'async' } : undefined}
                 />
@@ -673,11 +679,11 @@ export default function SportPage() {
               <Text className={styles.cardLabel}>{t('sport.route')}</Text>
               <Text className={styles.cardAccent}>{detail.distanceKnown ? `${formatKm(detail.distanceM)} km` : '—'}</Text>
             </View>
-            {routeSvgUrl(detail.samples) ? (
+            {detailRouteUrl ? (
               <View className={styles.mapBox}>
                 <Image
                   className={styles.mapImg}
-                  src={routeSvgUrl(detail.samples) as string}
+                  src={detailRouteUrl}
                   mode='aspectFit'
                   nativeProps={isH5 ? { decoding: 'async' } : undefined}
                 />
@@ -689,11 +695,11 @@ export default function SportPage() {
 
           <View className={styles.card}>
             <Text className={styles.cardLabel}>{t('sport.paceCurve')}</Text>
-            {paceCurveSvgUrl(detail.samples) ? (
+            {detailPaceUrl ? (
               <View className={styles.curveBox}>
                 <Image
                   className={styles.curveImg}
-                  src={paceCurveSvgUrl(detail.samples) as string}
+                  src={detailPaceUrl}
                   mode='aspectFit'
                   nativeProps={isH5 ? { decoding: 'async' } : undefined}
                 />
