@@ -459,6 +459,9 @@ jobs:
         # C 文档里的数字必须等于现查值。新增「踩过的错话」直接加进 B 组。
         run: npm run verify:docs
 
+      - name: 学习模块整合（静态，3 条）
+        run: npm run verify:learn-sources
+
       - name: 门禁自身的变异覆盖审计（7 条）
         # 2026-10-24 新增。起因：这两轮里我写坏判据的次数比写坏代码的次数多 ——
         # indexOf 命中超串 / \b 在 - 前也成立 / '.x' 拼成 '../x' / 按整个文件判 openid，
