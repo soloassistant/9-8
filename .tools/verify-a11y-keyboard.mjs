@@ -8,6 +8,10 @@
  * 判据三层（只验源码里有 role 字样毫无意义）：
  *   A 机制：utils/a11y.ts 的 pressableProps / activatePressable 在，且三条让路规则齐
  *     （输入框 / 修饰键 / IME 组字）；app.tsx 挂了全局 keydown 代理；app.scss 有 focus-visible 环。
+ *   A16b/A16d **真行为**（esbuild 直编源码 + 真 Chrome，2026-11-05 改）：
+ *     只有自己挂了 click 的节点被标成可操作（遮罩/吞点击容器不该变按钮）；
+ *     首屏扫完后动态插入的子树也必须被扫到。原来是「源码逐行字面」断言，
+ *     #48 做等价重写就被误判成红 —— 源码长什么样不是行为。
  *   A' 采纳：桌面导航、AI 发送、登录页签与主按钮**真的**展开了 pressableProps（框到文件与调用）。
  *   B 真浏览器（1440，桌面导航可见，落到 /pages/library/index 真实列表页）：
  *     B-2 页面正文真的渲染了（原来测的 `pages/hotspot/index` 路由不存在，
@@ -70,14 +74,15 @@ assert('A16 自动识别机制存在（包装 addEventListener 记录 Taro 元�
 assert('A16a 包装只记 click、只记 TARO-* 元素（不污染 React 根委托/其他库）',
   /^[ \t]*if \(type === 'click'\) \{$/m.test(a11y) &&
   a11y.includes("el.tagName.indexOf('TARO-') === 0"));
-assert('A16b 只有自己挂了 click 才标记（遮罩/弹层这类吞点击节点不该变成按钮）',
-  /^[ \t]*if \(!clickBound\.has\(el\)\) continue;(?:[ \t]*\/\/.*)?$/m.test(a11y));
+// A16b / A16d 已从「源码逐行字面」改成**真行为断言**（见下方 A16 真行为段）。
+// 原因（2026-11-05）：#48 把 markClickableAsPressable 重写成「候选收集 → markOne」，
+// 语义完全没变，但原断言盯的是 `if (!clickBound.has(el)) continue;` 与
+// `for (const el of batch) markClickableAsPressable(el);` 两行原文 —— 换一种等价写法就假红。
+// 「源码里有没有那行」不是行为：门禁必须看**渲染后 DOM 上到底有没有 data-pressable**。
 assert('A16c 包装必须在首屏扫描之前接上（否则首屏那批元素的监听已经挂完，看不见）',
   /^[ \t]*patchClickTracking\(\);$/m.test(a11y) &&
   /^[ \t]*markClickableAsPressable\(document\.body\);$/m.test(a11y) &&
   a11y.indexOf('patchClickTracking();') < a11y.indexOf('markClickableAsPressable(document.body);'));
-assert('A16d 新增子树也扫（动态列表才覆盖得到）',
-  /^[ \t]*for \(const el of batch\) markClickableAsPressable\(el\);$/m.test(a11y));
 
 /* ───────────── A'. 采纳 ───────────── */
 const nav = read('src/components/DesktopNav/index.tsx');
@@ -169,6 +174,144 @@ assert(
 const CHROME = process.env.CHROME_BIN || 'C:\\Users\\geral\\.agent-browser\\browsers\\chrome-154.0.8037.92\\chrome.exe';
 const DIST = path.join(ROOT, 'dist');
 const NO_BROWSER = process.argv.includes('--no-browser');
+
+/* ───────────── A16b / A16d. 真行为（esbuild 直编 src/utils/a11y.ts + 真 Chrome）─────────
+ * 语义（不许弱化）：
+ *   A16b —— 只有**自己挂了 click** 的节点才该被标成可操作。遮罩/弹层这种只用来吞点击的
+ *           容器如果也变成按钮，读屏用户会撞上一串无名按钮、Tab 序列被无效停靠点塞满。
+ *   A16d —— 首屏扫完之后**动态插入**的子树（列表数据到位）也必须被扫到，否则新卡片又只剩鼠标可用。
+ *
+ * 做法：用 esbuild 把**当前源码**编成 bundle（不是 dist 产物），真 Chrome 里加载，
+ * 构造两种子树，断言 `data-pressable` 的真实存在与否。
+ *   · 直接编源码 = 变异测试能生效（改坏 src 不用重建 dist 就能让断言转红）；
+ *   · 判别力由 mutations-a11y 的两条变异守着：去 clickBound 判断 → A16b 红；
+ *     去新增子树扫描 → A16d 红。
+ */
+async function runA16Behavior() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'a11y-a16-'));
+  let server = null;
+  try {
+    const esbuild = await import('esbuild');
+    const ENTRY = `
+import { markClickableAsPressable, observePressables } from './a11y';
+
+window.__runA16 = async function () {
+  const out = {};
+  const sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  const mk = function () { return document.createElement('taro-view-core'); };
+  const NOOP = function () {};
+
+  // A16b：自己挂了 click 的节点 vs 只吞点击的容器（遮罩 / 弹层）
+  const host = mk();
+  const mask = mk();
+  const btn = mk();
+  btn.addEventListener('click', NOOP); // 走 a11y 包装过的 addEventListener → clickBound 记一笔
+  mask.appendChild(btn);
+  host.appendChild(mask);
+  document.body.appendChild(host);
+  markClickableAsPressable(host);     // 真实公开 API 的同步路径
+  out.A16b = {
+    buttonMarked: btn.getAttribute('data-pressable') === '1',
+    buttonTabindex: btn.getAttribute('tabindex'),
+    maskMarked: mask.hasAttribute('data-pressable'),
+    containerMarked: host.hasAttribute('data-pressable')
+  };
+
+  // A16d：首屏扫完之后「动态插入」的新子树（模拟列表数据到位）必须被扫到
+  const stop = observePressables();
+  await sleep(30);
+  const list = mk();
+  const items = [mk(), mk(), mk()];
+  items.forEach(function (it) { it.addEventListener('click', NOOP); });
+  items.forEach(function (it) { list.appendChild(it); });
+  document.body.appendChild(list);
+  let marked = 0;
+  for (let i = 0; i < 40; i++) {      // rIC 兜底 200ms → 2s 足够
+    marked = items.filter(function (it) { return it.getAttribute('data-pressable') === '1'; }).length;
+    if (marked === items.length) break;
+    await sleep(50);
+  }
+  out.A16d = { total: items.length, marked: marked };
+  stop();
+  document.body.innerHTML = '';
+  return JSON.stringify(out);
+};
+`;
+    const built = await esbuild.build({
+      stdin: { contents: ENTRY, resolveDir: path.join(ROOT, 'src', 'utils'), loader: 'ts', sourcefile: 'a16-entry.ts' },
+      bundle: true,
+      format: 'iife',
+      target: 'es2020',
+      write: false
+    });
+    fs.writeFileSync(path.join(tmp, 'bundle.js'), built.outputFiles[0].text);
+    fs.writeFileSync(
+      path.join(tmp, 'index.html'),
+      '<!doctype html><meta charset="utf-8"><body><script src="./bundle.js"></script></body>'
+    );
+    server = await new Promise((resolve) => {
+      const s = http.createServer((req, res) => {
+        const rel = (req.url || '/').split('?')[0] === '/' ? 'index.html' : (req.url || '').replace(/^\//, '');
+        const f = path.join(tmp, rel);
+        if (!f.startsWith(tmp) || !fs.existsSync(f)) { res.writeHead(404).end('nf'); return; }
+        res.writeHead(200, { 'Content-Type': path.extname(f) === '.js' ? 'text/javascript' : 'text/html; charset=utf-8' });
+        res.end(fs.readFileSync(f));
+      });
+      s.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const port = server.address().port;
+    // 子进程跑 cdp-probe（它会自己拉起独立 headless Chrome）。必须异步 spawn：
+    // 本进程若被 spawnSync 堵住，静态服务就不应答，Page.navigate 会超时（verify-compress 踩过）。
+    const probe = await new Promise((resolve) => {
+      const child = spawn(process.execPath, [
+        path.join(ROOT, '.tools', 'cdp-probe.mjs'),
+        `http://127.0.0.1:${port}/`, '1280', '800',
+        '--wait', '400', '--expr', 'window.__runA16()'
+      ], { cwd: ROOT, env: process.env });
+      let buf = '';
+      let err = '';
+      const timer = setTimeout(() => { try { child.kill(); } catch { /* 已退出 */ } }, 150_000);
+      // ⚠️ stdout 与 stderr 必须分开收：Node 自己会往 stderr 打废弃警告，
+      // 拼进同一个串会让 JSON.parse 直接失败（看起来像断言红，其实是解析被噪声打断）。
+      child.stdout.on('data', (d) => (buf += d));
+      child.stderr.on('data', (d) => (err += d));
+      child.on('close', () => { clearTimeout(timer); resolve({ out: buf, err }); });
+    });
+    let value = null;
+    try {
+      value = JSON.parse(probe.out).value;
+    } catch {
+      /* 下面是断言失败，detail 里带原始输出 */
+    }
+    return { value, raw: `${probe.out}${probe.err}` };
+  } finally {
+    if (server) server.close();
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* 临时目录删不掉不影响结果 */ }
+  }
+}
+
+if (NO_BROWSER) {
+  console.log('（--no-browser：跳过 A16b/A16d 真行为断言）');
+} else if (!fs.existsSync(CHROME)) {
+  console.log(`（找不到 Chrome：${CHROME} —— 跳过 A16b/A16d 真行为断言）`);
+} else {
+  const r = await runA16Behavior();
+  const v = r.value && r.value.A16b && r.value.A16d ? r.value : null;
+  const b = v ? v.A16b : {};
+  const d = v ? v.A16d : {};
+  assert('A16b 只有自己挂了 click 才标记（遮罩/吞点击容器不该变成按钮）',
+    v !== null && b.maskMarked === false && b.containerMarked === false,
+    v ? JSON.stringify(b) : String(r.raw).slice(-400));
+  assert('A16b2 正例：自己挂了 click 的节点确实被标成可操作（含 tabindex）',
+    v !== null && b.buttonMarked === true && b.buttonTabindex === '0',
+    v ? JSON.stringify(b) : String(r.raw).slice(-400));
+  assert('A16d 渲染后动态插入的子树会被扫到（动态列表才覆盖得到）',
+    v !== null && d.marked > 0 && d.total > 0,
+    v ? JSON.stringify(d) : String(r.raw).slice(-400));
+  assert('A16d2 新增子树里的每一张都标记（不是只扫到第一个）',
+    v !== null && d.total > 0 && d.marked === d.total,
+    v ? JSON.stringify(d) : String(r.raw).slice(-400));
+}
 
 if (NO_BROWSER) {
   console.log('（--no-browser：跳过 B 组真浏览器断言）');
