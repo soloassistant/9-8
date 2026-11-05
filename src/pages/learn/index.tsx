@@ -109,6 +109,13 @@ function LearnPage() {
     }
   };
 
+  /** 题库入口：列表 → 搜索/筛选 → 答题 → 结果 → 错题本，入口统一从学习页进 */
+  const openQuestionBank = () => {
+    Taro.navigateTo({ url: '/pages/questionBank/index' }).catch((err) =>
+      console.warn('[LearnPage] question bank navigate failed:', err)
+    );
+  };
+
   /**
    * 明确的返回入口：H5 的 TabRouter 不渲染原生导航栏，二级页没有返回键会走进死路。
    * 优先 navigateBack（保留来源页状态），栈里只剩本页时兜底 reLaunch 回晨报。
@@ -184,6 +191,15 @@ function LearnPage() {
       <Text className={styles.progressHint}>
         {t('learn.progressHint', { percent: stats.percent, done: stats.coursesDone, total: stats.coursesTotal })}
       </Text>
+
+      {/* 题库入口（接入批次 6/6）：本机题库；列表/搜索/答题/错题本都在这个二级页内 */}
+      <View className={styles.recCard} onClick={openQuestionBank}>
+        <View className={styles.recHeader}>
+          <Text className={styles.recTitle}>📚 {t('qb.learnEntryTitle')}</Text>
+          <Text className={styles.recGo}>›</Text>
+        </View>
+        <Text className={styles.recHint}>{t('qb.learnEntryHint')}</Text>
+      </View>
 
       {/* 冻结卡 + 补签（L-01 / L-02） */}
       <View className={styles.streakToolbar}>

@@ -193,6 +193,9 @@ const zh = {
   'qb.progressFailedHint': '这不代表没有错题：本机答题记录可能损坏或版本不兼容。',
   'qb.wrongTimes': '错 {n} 次',
   'qb.redo': '重做',
+  // 学习页入口（接入批次 6/6）
+  'qb.learnEntryTitle': '题库练习',
+  'qb.learnEntryHint': '按体系与学科刷题，答错自动进入错题本。',
   'learn.courseMissing': '课程不存在或已下架',
   'learn.backToPick': '回到课程列表重新选择',
   'learn.tapToFlip': '点卡片查看释义与例句',
@@ -1655,6 +1658,9 @@ const en: Record<keyof typeof zh, string> = {
   'qb.progressFailedHint': 'This does not mean there are none: local answer records may be corrupt or from an incompatible version.',
   'qb.wrongTimes': 'Missed {n}×',
   'qb.redo': 'Redo',
+  // Learn page entry (batch 6/6)
+  'qb.learnEntryTitle': 'Question bank practice',
+  'qb.learnEntryHint': 'Practise by exam system and subject; missed questions go to your mistakes book.',
   'learn.courseMissing': 'Course missing or removed',
   'learn.backToPick': 'Back to course list',
   'learn.tapToFlip': 'Tap card for meaning & example',
