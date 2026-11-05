@@ -114,6 +114,13 @@ export function readRuns(): RunRecord[] {
     .sort((a, b) => b.startedAt - a.startedAt);
 }
 
+/** SP-03：一次跑步至少 30 秒才值得落库（显式结束与离开页面同一门槛） */
+export const MIN_SAVE_SEC = 30;
+
+export function isRunWorthSaving(durationSec: number): boolean {
+  return durationSec >= MIN_SAVE_SEC;
+}
+
 /**
  * 净活动时长（秒）：总经过时长 − 已暂停总时长 − **当前进行中的暂停**。
  * SP-01：暂停时 `pausedTotalMs` 尚未累加（恢复时才加），若公式不额外扣掉当前这段，

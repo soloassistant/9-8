@@ -310,5 +310,11 @@ assert('E2 暂停中过 5 秒：净时长不增加（仍是 10 秒，不是 15 �
 assert('E3 暂停 5 秒后恢复再走 5 秒 → 净时长 15 秒（暂停时长被扣掉）',
   sportMod.activeElapsedSec(T_START, T_START + 20000, 5000, 0) === 15);
 
+/* ================================================================== */
+/* F. 运动最短时长门槛（SP-03）                                          */
+/* ================================================================== */
+assert('F1 11 秒的垃圾记录不落库', sportMod.isRunWorthSaving(11) === false);
+assert('F2 30 秒整算达标（边界包含）', sportMod.isRunWorthSaving(30) === true && sportMod.MIN_SAVE_SEC === 30);
+
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);
