@@ -161,6 +161,8 @@ function alipayNotify(over) {
   p.sign = signer.sign(alipayKeys.privateKey, 'base64');
   return { body: Object.keys(p).map((k) => k + '=' + encodeURIComponent(p[k])).join('&') };
 }
+/** 云函数上下文桩：默认模拟「云开发平台回调来源」（非小程序客户端） */
+const wxCtx = { OPENID: 'buyer-openid', SOURCE: 'wx_server' };
 
 Module._load = function (request) {
   if (request === 'wx-server-sdk') {
@@ -168,7 +170,7 @@ Module._load = function (request) {
       DYNAMIC_CURRENT_ENV: 'test',
       init() {},
       database: () => dbStub,
-      getWXContext: () => ({ OPENID: 'buyer-openid' }),
+      getWXContext: () => ({ ...wxCtx }),
       cloudPay: cloudPayStub
     };
   }
@@ -230,9 +232,14 @@ function seedUser(openid, over) {
   return u;
 }
 
-/** 模拟微信 cloudPay 回调（detectChannel 认 payment.paySign） */
-const fireCallback = (orderId) =>
-  payCallback.main({ payment: { paySign: 'stub' }, outTradeNo: orderId, transactionId: 'T1' }, {});
+/** 模拟微信 cloudPay 回调（detectChannel 认 payment.paySign；金额取订单价） */
+const fireCallback = (orderId) => {
+  const order = state.orders.find((o) => o.orderId === orderId) || {};
+  return payCallback.main(
+    { payment: { paySign: 'stub' }, outTradeNo: orderId, transactionId: 'T1', totalFee: order.price },
+    {}
+  );
+};
 
 const queriesAllUseOpenid = () =>
   state.userQueries.length > 0 &&
@@ -398,10 +405,11 @@ const hasValidExpiredAt = () => {
   assert('X7/UI/提供重新核对入口', /handleRecheck/.test(uiSrc) && /重新核对/.test(uiSrc));
   assert('X7/UI/卡片真实渲染（不是只存 state）', /reconcileIssue \? \(/.test(uiSrc) && /reconcileCard/.test(uiSrc));
 
+  const cbSrc = fs.readFileSync(path.join(ROOT, 'cloudfunctions', 'pay-callback', 'index.js'), 'utf8');
+
   /* ---------- 12. A2：支付宝回调必须校验商户身份 ---------- */
   // 改前：验签通过就入账，从不读 params.app_id / seller_id ⇒ 他人应用的合法通知
   // 只要 out_trade_no 撞上本站订单号，也能把本站订单置为 paid。
-  const cbSrc = fs.readFileSync(path.join(ROOT, 'cloudfunctions', 'pay-callback', 'index.js'), 'utf8');
   const alipayBlock = cbSrc.slice(cbSrc.indexOf('async function handleAlipay'), cbSrc.indexOf('function assertAlipayMerchant'));
   const posSign = alipayBlock.indexOf('verifyAlipayNotifySign');
   const posMerchant = alipayBlock.indexOf('assertAlipayMerchant(params)');
@@ -442,6 +450,92 @@ const hasValidExpiredAt = () => {
   const alNoApp = await payCallback.main(alipayNotify({ app_id: undefined }), {});
   assert('A2/缺 app_id/返回 400', !!alNoApp && alNoApp.httpCode === 400 && alNoApp.body === 'fail');
   assert('A2/缺 app_id/订单未变', state.orderUpdates.length === 0 && state.orders[0].status === 'pending');
+  /* ---------- 11. A1：微信回调伪造/验签/金额（客户端直调必须打不进来） ---------- */
+  // 改前：只要 event.payment.paySign 存在就入账，且微信分支 amountFen 恒为 undefined
+  // 跳过金额比对 ⇒ 小程序端 callFunction 可直接把任意订单改成 paid。
+  const wechatBlock = cbSrc.slice(cbSrc.indexOf('async function handleWeChat'), cbSrc.indexOf('function assertWechatPlatformInvocation'));
+  assert(
+    'A1/源码锚点/微信分支先做来源校验再写库',
+    wechatBlock.indexOf('assertWechatPlatformInvocation()') >= 0 &&
+      wechatBlock.indexOf('assertWechatPlatformInvocation()') < wechatBlock.indexOf('confirmOrderPaid({')
+  );
+  assert(
+    'A1/源码锚点/微信分支调用验签且验签在建单前',
+    wechatBlock.indexOf('verifyWechatNotify(event)') >= 0 &&
+      wechatBlock.indexOf('verifyWechatNotify(event)') < wechatBlock.indexOf('confirmOrderPaid({')
+  );
+  assert(
+    'A1/源码锚点/微信分支把金额透传给 confirmOrderPaid',
+    /resolveWechatAmountFen\(event, orderId\)/.test(wechatBlock) && /amountFen\s*\n?/.test(wechatBlock) &&
+      /confirmOrderPaid\([^)]*amountFen/s.test(wechatBlock)
+  );
+  assert('A1/源码锚点/来源校验显式拒绝 wx_client', /source === 'wx_client'/.test(cbSrc));
+
+  // 11.1 小程序客户端来源（SOURCE=wx_client）伪造回调 → 拒绝且不写库
+  reset();
+  seedOrder({ orderId: 'ORDER-SPOOF' });
+  seedUser('buyer-openid');
+  wxCtx.SOURCE = 'wx_client';
+  const rSpoof = await fireCallback('ORDER-SPOOF');
+  wxCtx.SOURCE = 'wx_server';
+  assert('A1/客户端直调/返回失败', !!rSpoof && rSpoof.code === -1);
+  assert('A1/客户端直调/订单未被置 paid', state.orderUpdates.length === 0);
+  assert('A1/客户端直调/用户权益未被发放', state.userUpdates.length === 0);
+
+  // 11.2 无 SOURCE 但带用户 OPENID（客户端伪造的另一形态）→ 拒绝
+  reset();
+  seedOrder({ orderId: 'ORDER-SPOOF2' });
+  seedUser('buyer-openid');
+  const savedSource = wxCtx.SOURCE;
+  delete wxCtx.SOURCE;
+  const rSpoof2 = await fireCallback('ORDER-SPOOF2');
+  wxCtx.SOURCE = savedSource;
+  assert('A1/无来源带 OPENID/返回失败', !!rSpoof2 && rSpoof2.code === -1);
+  assert('A1/无来源带 OPENID/订单未被置 paid', state.orderUpdates.length === 0);
+
+  // 11.3 金额不一致 → 拒绝入账
+  reset();
+  seedOrder({ orderId: 'ORDER-CHEAP', price: 900 });
+  seedUser('buyer-openid');
+  const rCheap = await payCallback.main(
+    { payment: { paySign: 'stub' }, outTradeNo: 'ORDER-CHEAP', transactionId: 'T1', totalFee: 1 },
+    {}
+  );
+  assert('A1/金额不一致/返回失败', !!rCheap && rCheap.code === -1);
+  assert('A1/金额不一致/订单未被置 paid', state.orderUpdates.length === 0);
+
+  // 11.4 回调缺金额 → 主动查单；查单也没 total_fee → 拒绝（fail-closed）
+  reset();
+  seedOrder({ orderId: 'ORDER-NOFEE' });
+  seedUser('buyer-openid');
+  const rNoFee = await payCallback.main(
+    { payment: { paySign: 'stub' }, outTradeNo: 'ORDER-NOFEE', transactionId: 'T1' },
+    {}
+  );
+  assert('A1/缺金额且查单无 total_fee/返回失败', !!rNoFee && rNoFee.code === -1);
+  assert('A1/缺金额且查单无 total_fee/订单未被置 paid', state.orderUpdates.length === 0);
+
+  // 11.5 带微信签名头但未配置平台公钥 → 拒绝（有签名头就必须验过）
+  reset();
+  seedOrder({ orderId: 'ORDER-SIGNED' });
+  seedUser('buyer-openid');
+  const rSigned = await payCallback.main(
+    {
+      payment: { paySign: 'stub' },
+      outTradeNo: 'ORDER-SIGNED',
+      transactionId: 'T1',
+      totalFee: 900,
+      body: '{}',
+      headers: {
+        'Wechatpay-Signature': 'ZmFrZQ==',
+        'Wechatpay-Timestamp': String(Math.floor(Date.now() / 1000)),
+        'Wechatpay-Nonce': 'n1'
+      }
+    },
+    {}
+  );
+  assert('A1/带签名头但无公钥/返回失败', !!rSigned && rSigned.code === -1 && /signature invalid/.test(String(rSigned.error)));
+  assert('A1/带签名头但无公钥/订单未被置 paid', state.orderUpdates.length === 0);
 
   /* ---------- 汇总 ---------- */
   console.log(`\n通过 ${pass} / 失败 ${failures.length}`);

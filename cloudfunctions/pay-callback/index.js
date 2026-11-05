@@ -8,7 +8,7 @@
  *   - 抖音：HTTP 触发器 POST JSON → event.body 为 JSON 字符串 → handleDouyin()
  *
  * 安全要素（每个通道都必须做到）：
- *   1. 验签（微信云开发自动做，支付宝/抖音自己验）
+ *   1. 验签（支付宝/抖音自己验；微信：带签名头必须验签，原生回调靠来源校验）
  *   2. 要素一致性校验（orderId, 金额, 状态）
  *   3. 幂等（检查订单当前状态再更新）
  *   4. 回写：orders.status→paid + users.expiredAt 延长 + 早鸟标记
@@ -27,8 +27,15 @@ const cfg = {
   alipayAppId: process.env.PAY_ALIPAY_APP_ID || '',              // 本站支付宝应用 APP_ID（回调必须属于它）
   alipaySellerId: process.env.PAY_ALIPAY_SELLER_ID || '',        // 可选：收款商户 PID，配置了就必须一致
   douyinPublicKey: process.env.PAY_DY_PUBLIC_KEY || '',          // 抖音支付平台证书公钥（验签）
-  douyinEncryptKey: process.env.PAY_DY_ENCRYPT_KEY || ''        // 接口加密密钥（AES-256-GCM 解密）
+  douyinEncryptKey: process.env.PAY_DY_ENCRYPT_KEY || '',       // 接口加密密钥（AES-256-GCM 解密）
+  wechatPlatformKey: process.env.PAY_WX_PLATFORM_PUBLIC_KEY || '' // 微信支付平台证书公钥（有签名头时必验）
 };
+
+// 微信回调的可信来源（云开发平台触发）。小程序客户端 callFunction 的 SOURCE 恒为 wx_client。
+const WX_TRUSTED_SOURCES = ['wx_server', 'wx_trigger', 'wx_cloudpay'];
+
+/** 微信侧签名头允许的时间偏差（秒），防重放 */
+const WX_SIGN_MAX_SKEW_S = 300;
 
 // ========== 主入口：微信 cloudPay 自动回调 ==========
 // wx.cloud.cloudPay.unifiedOrder({ functionName: 'payCallback' }) 时云开发自动调用
@@ -68,21 +75,129 @@ function detectChannel(event) {
 }
 
 // ========== 1. 微信 cloudPay 回调 ==========
+// A1 缺陷（最严重）：原实现只要 event.payment.paySign 存在就认微信通道（客户端
+// callFunction 可伪造），且微信分支 amountFen 恒为 undefined 直接跳过金额比对。
 async function handleWeChat(event) {
-  // 云开发已自动验签，event 结构：{ payment, outTradeNo, transactionId, ... }
-  const orderId = event.outTradeNo;
-  const transactionId = event.transactionId;
+  // ① 来源校验：必须在任何写库动作之前。客户端 callFunction 拿不到可信来源。
+  assertWechatPlatformInvocation();
 
+  // ② 验签：请求携带了 Wechatpay 签名头就必须验过；失败直接拒绝、不写库。
+  const sig = verifyWechatNotify(event);
+  if (sig.present && !sig.valid) {
+    console.warn('[wechat] 验签失败，拒绝处理:', sig.reason);
+    return { code: -1, message: 'fail', error: 'wechat signature invalid: ' + sig.reason };
+  }
+
+  const orderId = event.outTradeNo || event.out_trade_no;
+  const transactionId = event.transactionId || event.transaction_id;
   if (!orderId) throw new Error('微信回调缺少 outTradeNo');
+
+  // 非付款成功事件：按平台约定返回成功，但不写库
+  if (event.resultCode && event.resultCode !== 'SUCCESS') {
+    console.log('[wechat] 非付款成功事件 resultCode=', event.resultCode);
+    return { code: 0, message: 'success', data: { ignored: true } };
+  }
+
+  // ③ 金额：回调字段或主动查单 total_fee（单位分），不一致由 confirmOrderPaid 拒绝
+  const amountFen = await resolveWechatAmountFen(event, orderId);
 
   const result = await confirmOrderPaid({
     orderId,
     channel: 'wechat',
-    channelTradeNo: transactionId
+    channelTradeNo: transactionId,
+    amountFen
   });
 
   // 微信 cloudPay 回调只需要返回成功 JSON 给云开发
   return { code: 0, message: 'success', data: result };
+}
+
+/**
+ * A1-① 调用来源校验。
+ * 平台回调由云开发服务端触发：SOURCE 非 wx_client、且没有终端用户 OPENID。
+ * 小程序客户端 callFunction：SOURCE === 'wx_client' 且必带 OPENID ⇒ 一律拒绝。
+ */
+function assertWechatPlatformInvocation() {
+  const ctx = cloud.getWXContext() || {};
+  const source = String(ctx.SOURCE || '');
+  if (source === 'wx_client') {
+    throw new Error('[wechat] 拒绝小程序客户端直接调用支付回调');
+  }
+  if (!source && ctx.OPENID) {
+    throw new Error('[wechat] 拒绝带用户 OPENID 的非平台来源调用支付回调');
+  }
+  if (source && !WX_TRUSTED_SOURCES.includes(source)) {
+    throw new Error('[wechat] 拒绝非白名单来源调用支付回调: ' + source);
+  }
+}
+
+/**
+ * A1-② 微信支付 v3 平台签名验签：签名串 = timestamp\nnonce\nbody\n。
+ * 原生 cloudPay 回调由平台验签后传入、不带 HTTP 头（present=false），此时由来源校验兜底；
+ * 只要带了签名头（HTTP 触发器直投），就必须验签通过。
+ */
+function verifyWechatNotify(event) {
+  const headers = event.headers || event.header || {};
+  const pick = (name) => {
+    const lower = String(name).toLowerCase();
+    const hit = Object.keys(headers).find((k) => k.toLowerCase() === lower);
+    return hit ? String(headers[hit] || '') : '';
+  };
+  const signature = pick('Wechatpay-Signature');
+  const timestamp = pick('Wechatpay-Timestamp');
+  const nonce = pick('Wechatpay-Nonce');
+  if (!signature && !timestamp && !nonce) return { present: false, valid: false, reason: 'no-sign-headers' };
+  if (!signature || !timestamp || !nonce) return { present: true, valid: false, reason: 'missing-sign-headers' };
+  if (!cfg.wechatPlatformKey) return { present: true, valid: false, reason: 'platform-key-not-configured' };
+
+  const tsNum = Number(timestamp);
+  if (!Number.isFinite(tsNum) || Math.abs(Date.now() / 1000 - tsNum) > WX_SIGN_MAX_SKEW_S) {
+    return { present: true, valid: false, reason: 'timestamp-out-of-range' };
+  }
+
+  const body = Buffer.isBuffer(event.body) ? event.body.toString('utf-8') : String(event.body || '');
+  const message = `${timestamp}\n${nonce}\n${body}\n`;
+  try {
+    const verifier = crypto.createVerify('RSA-SHA256');
+    verifier.update(message, 'utf8');
+    verifier.end();
+    const valid = verifier.verify(formatPemPublicKey(cfg.wechatPlatformKey), signature, 'base64');
+    return { present: true, valid: !!valid, reason: valid ? 'ok' : 'signature-invalid' };
+  } catch (e) {
+    console.warn('[wechat] 验签异常:', e.message);
+    return { present: true, valid: false, reason: 'verify-error' };
+  }
+}
+
+/**
+ * A1-③ 取微信侧金额（分）：优先回调字段 totalFee；缺失则主动查单取 total_fee。
+ * 两者都拿不到 → 抛错拒绝入账（宁可漏发不可错发，补救走主动查单）。
+ */
+async function resolveWechatAmountFen(event, orderId) {
+  const raw = event.totalFee != null ? event.totalFee : (event.payment && event.payment.totalFee);
+  if (raw != null) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+
+  const res = await cloud.cloudPay.queryOrder({
+    sub_mch_id: process.env.PAY_WX_SUB_MCH_ID || '',
+    out_trade_no: orderId,
+    nonce_str: genNonceStr()
+  });
+  if (!res || res.returnCode !== 'SUCCESS' || res.trade_state !== 'SUCCESS') {
+    throw new Error('[wechat] 查单未确认支付，拒绝入账: ' + orderId);
+  }
+  const fee = res.total_fee != null ? Number(res.total_fee) : NaN;
+  if (!Number.isFinite(fee) || fee <= 0) {
+    throw new Error('[wechat] 查单缺 total_fee，拒绝入账: ' + orderId);
+  }
+  return fee;
+}
+
+/** 查单用随机串（32 位内） */
+function genNonceStr() {
+  return crypto.randomBytes(16).toString('hex');
 }
 
 // ========== 2. 支付宝 form POST 回调 ==========
@@ -375,9 +490,9 @@ async function confirmOrderPaid({ orderId, channel, channelTradeNo, amountFen })
     console.warn(`[pay-callback] order.channel=${order.channel} 与回调 channel=${channel} 不一致`);
   }
 
-  // 3.5 金额一致性校验（回调金额 vs 订单金额，单位分）。
-  // 仅对回调携带金额的通道强制（alipay/douyin）；微信金额由我们自己的 unifiedOrder 设定、
-  // cloudPay 已验签，故不参与。缺金额字段按不一致处理——宁可漏发不可错发，补救走主动查单。
+  // 3.5 金额一致性校验（回调金额 vs 订单金额，单位分）。三个通道一律强制：
+  // 微信取回调 totalFee 或查单 total_fee（A1-③ 已保证调用到这里时 amountFen 必有值）。
+  // 缺金额字段按不一致处理——宁可漏发不可错发，补救走主动查单。
   if (amountFen !== undefined) {
     if (!Number.isFinite(Number(amountFen)) || Number(amountFen) !== order.price) {
       console.error(`[pay-callback] 金额不一致：回调 ${amountFen} vs 订单 ${order.price}（分），orderId=${orderId}`);
