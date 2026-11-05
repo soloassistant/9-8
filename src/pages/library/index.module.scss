@@ -408,6 +408,36 @@
   padding: 0 $page-padding;
 }
 
+/* 热点流虚拟列表：占位自己补偿高度，关掉浏览器滚动锚定避免两套机制互拉 */
+.virtualList {
+  overflow-anchor: none;
+}
+
+.virtualSpacer {
+  width: 100%;
+  pointer-events: none;
+}
+
+.virtualSentinel {
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* 窗口尾部「载入更多」：键盘/读屏的分段入口 */
+.loadMore {
+  display: block;
+  margin: 0 $page-padding $spacing-md;
+  padding: 0 $spacing-lg;
+  height: $button-height-md;
+  line-height: $button-height-md;
+  text-align: center;
+  font-size: $font-size-md;
+  color: var(--brand-primary, #ee5a29);
+  background: var(--brand-soft, rgba(0, 0, 0, 0.04));
+  border-radius: $radius-md;
+}
+
 .card {
   background: $color-bg-card;
   border-radius: $radius-lg;
