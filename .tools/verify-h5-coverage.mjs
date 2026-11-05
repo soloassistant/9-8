@@ -90,7 +90,10 @@ const DEVICE_ONLY_KEYS = {
   'library-search-history': '检索历史（设备级缓存，换设备无意义）',
   'health-data-consent': '健康数据单独同意（合规，设备级，不可上云）',
   // 2026-11-05：题库本地仓储（PR-2 只落本地层；跨端同步留待单独 PR 接入 SYNC_KEYS）
-  questionBank: '题库本地仓储，PR-2 只做本地 CRUD 与迁移骨架，尚未接入 cloudSync'
+  // ⏳ **到期条件（不是永久豁免）**：题库接入 cloudSync / SYNC_KEYS 的那一笔 PR 必须**同时删除本条目**
+  //    并把它挪进 CROSS_DEVICE_KEYS —— 否则题库会永久跳过「换设备是否失忆」的覆盖检查。
+  //    约束写在 AGENTS.md §6.2「豁免必须带到期条件」。
+  questionBank: '题库本地仓储，PR-2 只做本地 CRUD 与迁移骨架、尚未接入 cloudSync（到期条件见上方注释）'
 };
 
 const syncSrc = read('src/services/cloudSync.ts');

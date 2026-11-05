@@ -43,8 +43,8 @@ export default [
     // L 组：正文兜底被砍（content 缺失的旧缓存条目会渲染空白）
     label: '站内正文不再退回 summary（content 缺失即空白）',
     file: 'src/pages/library/index.tsx',
-    from: '{item.content || item.summary}',
-    to: '{item.content}',
+    from: '{digestText(item.content || item.summary, digestMode)}',
+    to: '{digestText(item.content, digestMode)}',
     cmd: 'node .tools/verify-interaction-fixes.mjs'
   },
   {

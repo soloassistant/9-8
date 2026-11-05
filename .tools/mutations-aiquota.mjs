@@ -39,8 +39,8 @@ export default [
   {
     label: '订阅回放从启动链移除（换设备后付费用户退回免费版）',
     file: 'src/app.tsx',
-    from: '  void restoreSubscriptionFromOrders().catch((err) => {',
-    to: '  if (false) void restoreSubscriptionFromOrders().catch((err) => {',
+    from: '  void restoreSubscriptionFromOrders()',
+    to: '  if (false) void restoreSubscriptionFromOrders()',
     cmd: 'node .tools/verify-ai-quota.mjs'
   },
   {

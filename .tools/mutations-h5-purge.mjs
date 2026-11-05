@@ -12,11 +12,14 @@ export default [
     cmd: 'node .tools/verify-h5-purge.mjs'
   },
   {
-    // 失败被说成成功 = 用户以为三表清了，实际还在（I3b 的原始事故形态）
-    label: '真失败被谎报成 ok',
-    file: 'src/services/cloudDb.ts',
-    from: "    console.error('[cloudDb] purge_my_h5_data failed:', res.error.code || '', res.error.message || '');\n    return 'failed';",
-    to: "    return 'ok';",
+    // 窄不变式（2026-11-05）：注销完成文案不得宣称「数据已删除」。
+    // 为什么不再锚 cloudDb：purge 失败分支已被更强的状态机覆盖（返回值本来就是状态），
+    // 删掉那句 console.error 不再产生可观察行为差异；而注销流程正在改成页内工单，
+    // 断言必须锚在**用户可见文案**上，工单改造落地后仍然成立。
+    label: '注销完成文案宣称已删除全部数据（H5 云端残留仍在）',
+    file: 'src/store/language.ts',
+    from: "  'mine.deleteDoneH5': '注销已完成；用量与反馈记录仍保留，详见「联系客服」',",
+    to: "  'mine.deleteDoneH5': '注销已完成，已删除全部数据。',",
     cmd: 'node .tools/verify-h5-purge.mjs'
   },
 ];
