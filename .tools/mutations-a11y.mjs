@@ -49,11 +49,13 @@ export default [
     // 2026-10-29 第二轮：不校验「自己挂了 click」之后，凡是被扫到的 Taro 元素都会被标成按钮 ——
     // 包括只用来吞点击的遮罩/弹层（stopPropagation）。它们没有可读名字，
     // 读屏用户会撞上一串无名按钮，且 Tab 序列被这些无效停靠点塞满。
+    // 2026-11-05：A16b 改成真行为断言（#48 重写后旧字面锚点已不存在），
+    // 所以 cmd 必须带浏览器 —— 只跑 --no-browser 的话这条变异抓不到。
     label: '不再校验「自己挂了 click」（遮罩/弹层变成无名按钮）',
     file: 'src/utils/a11y.ts',
-    from: '    if (!clickBound.has(el)) continue;',
-    to: '    if (false) continue;',
-    cmd: 'node .tools/verify-a11y-keyboard.mjs --no-browser'
+    from: '  if (!clickBound.has(el)) return false;',
+    to: '  if (false) return false;',
+    cmd: 'node .tools/verify-a11y-keyboard.mjs'
   },
   {
     label: '首屏不再自动标记（内容区回到「只有鼠标能用」）',
@@ -63,11 +65,13 @@ export default [
     cmd: 'node .tools/verify-a11y-keyboard.mjs --no-browser'
   },
   {
+    // 2026-11-05：A16d 改成真行为断言（#48 重写后旧的 `for (const el of batch)` 已不存在），
+    // 锚点换成新的「新增子树入队」那一行；同样必须带浏览器。
     label: '新增子树不再扫描（动态列表里的卡片又只剩鼠标可用）',
     file: 'src/utils/a11y.ts',
-    from: '    for (const el of batch) markClickableAsPressable(el);',
-    to: '    for (const el of batch) void el;',
-    cmd: 'node .tools/verify-a11y-keyboard.mjs --no-browser'
+    from: '    for (const el of collectCandidates(root)) workQueue.push(el);',
+    to: '    for (const el of collectCandidates(root)) void el;',
+    cmd: 'node .tools/verify-a11y-keyboard.mjs'
   },
   {
     // 包装器漏了 click 过滤 = 把所有 TARO 元素的任何监听都当成可点击证据，
