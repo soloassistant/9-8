@@ -392,7 +392,7 @@ H5 直挂 `window.onerror` / `unhandledrejection` → `log_client_error`。
 node .tools/test-trust-filter.js          # 内容信任过滤：常拦 + 必放（precision）双清单
 node .tools/test-trust-filter-incident.js # 真实投毒语料
 node .tools/test-trust-cache-guard.js     # 空结果不入缓存
-node .tools/test-chat-seccheck.js         # chat 的 msgSecCheck（输入/输出/fail-open）
+node .tools/test-chat-seccheck.js         # chat/extract 的 msgSecCheck（输入/输出/fail-closed + 留证）
 node .tools/test-trust-filter-corpus.js <语料.json>   # 对真实语料跑，防过度修复
 node .tools/verify-intel-degraded-semantics.cjs
 node .tools/cdp-probe.mjs <url> <w> <h> [--init-script …] [--block-url …] [--dismiss-splash] [--expr …] [--png …]
