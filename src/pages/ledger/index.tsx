@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { View, Text, Input, Button, ScrollView } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
+import { useSyncRefresh } from '@/hooks/useSyncRefresh';
 import EmptyState from '@/components/EmptyState';
 import PromptModal from '@/components/PromptModal';
 import { brandVars, useThemeStore } from '@/store/theme';
@@ -83,6 +84,12 @@ function LedgerPage() {
 
   useDidShow(() => {
     void reload();
+  });
+
+  // 另一台设备增删改账目/分类/预算 → 非编辑态直接重读；
+  // 正在编辑既有账目时延后，退出编辑后由 useDidShow 补上，避免把编辑目标抽走。
+  useSyncRefresh(['ledgerEntries', 'ledger-categories', 'ledgerBudget'], () => void reload(), {
+    editing: () => editingId !== null
   });
 
   const today = todayStr();

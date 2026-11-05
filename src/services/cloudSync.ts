@@ -29,7 +29,7 @@ import { classifyPull, mergeConflicts, withoutConflicts, valueHash, type SyncCon
 const META_KEY = 'cloud-sync-meta'; // { [storageKey]: ts } 本地各 key 最后一次确认同步的时间
 const CONFIRM_KEY = 'cloud-sync-confirm'; // { [storageKey]: hash } 各 key 上次成功推送的值哈希（冲突检测用）
 const CONFLICT_KEY = 'cloud-sync-conflict'; // SyncConflict[] 待用户裁决的同步冲突（持久化，刷新不丢提示）
-const SYNC_INTERVAL = 30_000; // 兜底轮询：每 30 秒推一次变更
+const SYNC_INTERVAL = 30_000; // 兜底轮询：每 30 秒「先拉一次、再推一次」（2026-11-05 SY-03）
 const DEBOUNCE = 1500; // 写入后防抖 1.5 秒再推，合并连续写入
 const PULL_TIMEOUT_MS = 8000; // 启动拉取超时（SDK 请求自行 abort，避免悬挂）
 
@@ -298,7 +298,7 @@ export async function retrySync(): Promise<boolean> {
   syncDisabledState = { disabled: false, reason: '', at: 0, failures: 0 };
   emitSyncDisabled();
   if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(() => void pushNow(), SYNC_INTERVAL);
+  pollTimer = setInterval(() => void pollTick(), SYNC_INTERVAL);
   await pullRemote();
   await pushNow();
   if (hardFailures > 0) {
@@ -1040,6 +1040,38 @@ export async function syncNow(forceEmptyKeys: string[] = []): Promise<void> {
 }
 
 /**
+ * 远端变更「已应用到本机」事件（2026-11-05，SY-03 配套）。
+ *
+ * 事故：轮询只推不拉 ⇒ 打开着的页面看不到另一台设备的改动；补上拉取后还有第二个缺口 ——
+ * `applyRemoteData` 只写 localStorage，页面/store 仍停在旧内存值，用户必须切页或刷新才看到。
+ *
+ * 修法：把**真正写进本机的 key** 广播出去，由页面按白名单自行重读。
+ * 只广播 key 集合、不广播值：值已经在 storage 里，订阅方重读即可，避免事件携带大对象。
+ */
+export type SyncAppliedHandler = (keys: string[]) => void;
+const appliedListeners = new Set<SyncAppliedHandler>();
+
+function emitApplied(keys: string[]): void {
+  if (keys.length === 0) return;
+  const snapshot = keys.slice();
+  appliedListeners.forEach((cb) => {
+    try {
+      cb(snapshot);
+    } catch (err) {
+      console.warn('[cloudSync] applied listener failed:', err);
+    }
+  });
+}
+
+/** 订阅「远端变更已写入本机」（不立即回调）；返回取消订阅函数 */
+export function subscribeSyncApplied(cb: SyncAppliedHandler): () => void {
+  appliedListeners.add(cb);
+  return () => {
+    appliedListeners.delete(cb);
+  };
+}
+
+/**
  * 纯函数：把远端数据合并进本地（只认 SYNC_KEYS，且只覆盖 clientTs 比本地已确认值更新的 key）。
  * 按 Taro 信封格式写入本地，页面 getStorageSync 才能读到。返回本次恢复的 key 数。
  *
@@ -1053,6 +1085,8 @@ function applyRemoteData(remote: KvRow[]): number {
   const confirm = readConfirm();
   const newConflicts: SyncConflict[] = [];
   let restored = 0;
+  /** 本次真正写进本机的 key（2026-11-05 SY-03）：供「已应用」事件通知页面重读 */
+  const appliedKeys: string[] = [];
   for (const row of remote) {
     if (!row || typeof row.key !== 'string' || !('value' in row)) continue;
     // 缺陷 B3：墓碑行（`<key>#deletedAt`）——显式删除的唯一可信来源。
@@ -1087,6 +1121,7 @@ function applyRemoteData(remote: KvRow[]): number {
         meta[base] = remoteTs;
         confirm[base] = valueHash(placeholder);
         restored++;
+        appliedKeys.push(base);
         console.warn('[cloudSync] 已应用远端删除标记:', base);
       } catch (err) {
         console.warn('[cloudSync] apply tombstone failed for', base, err);
@@ -1127,6 +1162,7 @@ function applyRemoteData(remote: KvRow[]): number {
       meta[row.key] = remoteTs; // 与远端对齐，避免下轮把旧值又推回去
       confirm[row.key] = valueHash(row.value);
       restored++;
+      appliedKeys.push(row.key);
     } catch (err) {
       console.warn('[cloudSync] apply failed for', row.key, err);
     }
@@ -1142,6 +1178,7 @@ function applyRemoteData(remote: KvRow[]): number {
     );
     emitConflicts();
   }
+  emitApplied(appliedKeys);
   return restored;
 }
 
@@ -1193,6 +1230,8 @@ export async function resolveSyncConflicts(choice: 'local' | 'remote', keys?: st
   conflictCache = withoutConflicts(conflictCache, targets.map((c) => c.key));
   writeConflicts(conflictCache);
   emitConflicts();
+  // 采用云端后 UI 要立刻变（否则要等切页/刷新，与本次修复的「打开态不更新」是同一问题）
+  if (choice === 'remote') emitApplied(targets.map((c) => c.key));
   if (choice === 'local') schedulePush(0); // 保留本机：立刻推上去，别等下一个防抖/轮询
 }
 
@@ -1231,6 +1270,35 @@ async function pullRemote(): Promise<void> {
     clearTimeout(timer);
     pulling = false;
   }
+}
+
+/**
+ * 一次轮询 tick（2026-11-05 SY-03）。
+ *
+ * 原实现只调 pushNow，于是「另一端删了、这一端已打开的页面」永远收不到，必须刷新/重登才生效。
+ * 改成可见时「先拉后推」：拉取按 per-key 新者赢 + 冲突判定落地，幂等且不会覆盖本地未推送的修改；
+ * 随后推送时 meta 已对齐到远端 ts，同 ts 在服务端写 0 行，不会把刚拉下来的值盖回去。
+ *
+ * 页面隐藏时保持原行为（只推）：后台标签页不该在用户看不见时改本机数据；切回可见会补一轮。
+ */
+async function pollTick(): Promise<void> {
+  if (syncDisabled) return;
+  const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+  if (hidden) {
+    await pushNow();
+    return;
+  }
+  try {
+    await pullRemote();
+    await pushNow();
+  } catch (err) {
+    console.warn('[cloudSync] poll tick failed:', err);
+  }
+}
+
+/** 立即拉取一次（手动刷新、验证脚本用）。内部有重入保护与 8s 超时。 */
+export async function pullNow(): Promise<void> {
+  await pullRemote();
 }
 
 /** 劫持本地写入：任何 SYNC_KEYS 的写/删都触发防抖推送（不改动任何业务代码）。
@@ -1310,11 +1378,12 @@ export function initCloudSync(): Promise<void> {
     void pullRemote().then(() => pushNow());
   });
   if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(() => void pushNow(), SYNC_INTERVAL);
-  // 页面隐藏/关闭前兜底推送一次
+  pollTimer = setInterval(() => void pollTick(), SYNC_INTERVAL);
+  // 页面隐藏/关闭前兜底推送一次；切回可见立即补一轮「拉 + 推」，不用等下一个 30 秒
   try {
     window.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') void pushNow();
+      else void pollTick();
     });
   } catch (err) {
     // 注册失败不阻断主流程（30s 轮询仍在），但值得留痕：否则「关页前不推送」将无从排查。

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
+import { useSyncRefresh } from '@/hooks/useSyncRefresh';
 import classnames from 'classnames';
 import { LEARN_LANGS, LearnLangId, LearnCourse } from '@/data/learn';
 import {
@@ -60,6 +61,9 @@ function LearnPage() {
     }
     refresh();
   });
+
+  // 另一台设备的打卡/进度/成就 → 本页重读（refresh 只重算展示数据，不碰路由与弹层）
+  useSyncRefresh(['learnStore', 'learnAchievements', 'learnNickname'], refresh);
 
   /** 补签最近漏打卡日（每月 1 次） */
   const handleMakeup = () => {
