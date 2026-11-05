@@ -27,10 +27,9 @@
 
 .navButton {
   @include button-reset;
-  // 2026-11-04：32×32 低于 44px 触控下限；视觉保持 32，用透明外扩补到 44×44
-  @include hit-expand(12rpx, 12rpx);
-  width: 64rpx;
-  height: 64rpx;
+  // U-03：33×33 低于 44px 触控下限；把实际盒子提到 44，而不是只靠透明外扩
+  width: 88rpx;
+  height: 88rpx;
   border-radius: $radius-round;
   background: #fff;
   color: $color-text-primary;

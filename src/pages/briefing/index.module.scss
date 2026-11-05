@@ -26,8 +26,9 @@
 
 .searchButton {
   @include button-reset;
-  width: 72rpx; // 显式定宽：taro-button-core 默认 width:100%
-  height: 72rpx;
+  // U-03：37×37 低于 44px 触控下限，提到 88rpx（44px）
+  width: 88rpx;
+  height: 88rpx;
   flex-shrink: 0;
   border-radius: $radius-round;
   background: rgba(255, 255, 255, 0.85);

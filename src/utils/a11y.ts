@@ -216,6 +216,48 @@ function runIdle(fn: () => void): void {
   else setTimeout(fn, 16);
 }
 
+/* ---------- 原生输入框命名（U-03）----------
+ * Taro 的 Input/Switch 组件不透传 `aria-label`（props 白名单把 aria-* 丢掉，实测原生
+ * input 上 aria-label 为空），键盘/读屏用户 Tab 到这些框时听到的是「输入框」，等于无名。
+ * 这里在运行时给原生 input/textarea 补名字：优先 placeholder，其次取最近容器里第一个
+ * 短文本（页面已用 Text 把字段名放在输入框旁边）。只读 textContent，不碰布局。
+ */
+const NATIVE_FIELD_SELECTOR = 'input, textarea';
+
+function nameNativeField(el: Element): boolean {
+  if (el.getAttribute('aria-label') || el.getAttribute('data-a11y-name')) return false;
+  let label = (el.getAttribute('placeholder') || '').replace(/\s+/g, ' ').trim();
+  if (!label) {
+    let box = el.parentElement;
+    for (let depth = 0; depth < 3 && box; depth += 1, box = box.parentElement) {
+      const texts = Array.from(box.querySelectorAll('taro-text-core'))
+        .map((t) => (t.textContent || '').replace(/\s+/g, ' ').trim())
+        .filter((s) => s && s.length <= 24);
+      // 同一行最多 3 段短文本时取第一段当字段名（「微信 / 4 个来源」取「微信」）
+      if (texts.length > 0 && texts.length <= 3) {
+        label = texts[0];
+        break;
+      }
+    }
+  }
+  if (!label) return false;
+  el.setAttribute('aria-label', label);
+  el.setAttribute('data-a11y-named', '1');
+  return true;
+}
+
+/** 给 root 子树里还没有名字的原生输入框补 aria-label。返回补了几个。 */
+export function nameNativeFields(root: ParentNode = document): number {
+  let n = 0;
+  if (root instanceof Element && root.matches(NATIVE_FIELD_SELECTOR)) {
+    if (nameNativeField(root)) n += 1;
+  }
+  root.querySelectorAll(NATIVE_FIELD_SELECTOR).forEach((el) => {
+    if (nameNativeField(el)) n += 1;
+  });
+  return n;
+}
+
 /**
  * 收集 root 子树里「可能可操作」的候选元素（只是 querySelectorAll，不标任何东西）。
  * 拆出来是为了让标注能**按元素切片**：一次 commit 插入 392 张卡时，
@@ -298,6 +340,8 @@ export function observePressables(): () => void {
   const enqueueRoot = (root: Element) => {
     // 手工标过 data-pressable 但漏了 tabindex 的少数元素，仍在这一批里补上
     ensureFocusable(root);
+    // 新出现的输入框同步补名字（读的是 textContent，几个节点，代价可忽略）
+    nameNativeFields(root);
     for (const el of collectCandidates(root)) workQueue.push(el);
     if (workQueue.length > 0) scheduleWork();
   };
@@ -305,6 +349,7 @@ export function observePressables(): () => void {
   // 首屏已存在的节点扫一遍（app 刚启动，子树很小，同步即可）；之后只看新增子树
   markClickableAsPressable(document.body);
   ensureFocusable();
+  nameNativeFields(document.body);
   // 名字还没算到的元素被 Tab / 读屏聚焦时，立刻补一个（只算这一个）
   document.addEventListener('focusin', onNameFocusIn, true);
 
