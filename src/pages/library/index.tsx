@@ -8,6 +8,7 @@ import TagChip from '@/components/TagChip';
 import EmptyState from '@/components/EmptyState';
 import DemoDataHint from '@/components/DemoDataHint';
 import { NewsCardSkeleton } from '@/components/Skeleton';
+import SafeImage from '@/components/SafeImage';
 import { apiGetLibrary, apiGetHotspot, apiNewsSearch, apiVideoNews } from '@/services/api';
 import { removeCollection } from '@/data/collectionStore';
 import { syncNow } from '@/services/cloudSync';
@@ -1070,16 +1071,17 @@ function LibraryPage() {
       <View key={item.id} className={styles.videoCard} onClick={() => handleNewsTap(item)}>
         <View className={styles.videoCoverWrap}>
           {item.image ? (
-            <Image
+            // 封面走 SafeImage（与晨报页同一套机制，不另起一套）：
+            //  · thumbUrl 把 hdslb 原图（1920~2560px，单张 ~300KB）改写成
+            //    @480w_270h_1c.webp（卡片框 420rpx≈218px，2x DPR 取 480）；
+            //  · no-referrer 绕开 B 站防盗链（无 Referer 200 / 带本应用 Referer 403）；
+            //  · onError 卸载 <img> 换同尺寸占位，不再出裂图。
+            <SafeImage
               src={item.image}
+              source={item.source}
+              alt={item.title}
               mode='aspectFill'
-              lazyLoad
               className={styles.videoCover}
-              // B 站 CDN（i0/i1.hdslb.com）见到非自家 Referer 直接 403 —— 实测：
-              // 无 Referer 200 / 带本应用域名 403。浏览器默认会带 origin，于是视频封面
-              // 对所有人都是破图。http 侧只能靠 no-referrer 绕开（行情 logo 同理，
-              // 见 utils/quotes.ts 的同一处处理）。
-              nativeProps={isH5 ? { referrerPolicy: 'no-referrer' } : undefined}
             />
           ) : null}
           {item.duration ? <Text className={styles.videoDuration}>{item.duration}</Text> : null}
@@ -1189,16 +1191,15 @@ function LibraryPage() {
     return (
       <View key={item.id} className={styles.newsCard} onClick={() => handleNewsTap(item)}>
         {item.image ? (
-          <Image
+          // 资讯卡缩略图同样走 SafeImage：thumbUrl 缩到 480w（框高 280rpx），
+          // 失败时换占位且**不挂**预览点击（预览一张 403 图没有意义），
+          // 点占位块会冒泡到卡片 → 仍能打开文章。
+          <SafeImage
             src={item.image}
+            source={item.source}
+            alt={item.title}
             mode='aspectFill'
-            lazyLoad
             className={styles.newsImage}
-            // 无障碍（2026-10-12）：配图是**独立可点**的预览入口，读屏用户需要名字。
-            // Taro 的 Image 没有 alt 属性，H5 端唯一能透传到真实 <img> 的入口是 nativeProps
-            // （见 @tarojs/components/dist/esm/image-*.js 的 render：h("img", {...nativeProps})），
-            // 且 nativeProps 仅 h5 支持，故只在 H5 端传。取新闻标题作为等价文本。
-            nativeProps={isH5 ? { alt: item.title, referrerPolicy: 'no-referrer' } : undefined}
             onClick={(e) => {
               e.stopPropagation();
               handleNewsImageTap(item);
