@@ -16,17 +16,17 @@
  *   - 时间戳格式：yyyy-MM-dd HH:mm:ss
  *
  * @param {object} event
- *   - planId           套餐 ID（earlybird_monthly / monthly / yearly）
  *   - orderId          本地订单号（createOrder 返回的 ord_xxx）
- *   - totalAmount      金额，单位：分（createOrder 返回的 price * 100）
- *   - subject          订单标题，默认「晨报订阅」
- *   - buyerId          必填，支付宝 userId，2088 开头（my.getAuthCode → 服务端换）
+ *   - internalToken    必填，createOrder 用 PAY_INTERNAL_TOKEN 签发的 HMAC（客户端无法伪造）
  *   - timeoutExpress   可选，超时表达式，默认 30m（格式 1m～15d）
  *   - attach           可选，附加数据，通知中原样返回
+ *   金额 / 套餐 / buyerId 一律从 orders 读，入参里的 totalAmount / planId / buyerId 会被忽略
  */
 
 const cloud = require('wx-server-sdk');
+const crypto = require('crypto');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
+const db = cloud.database();
 
 const PLANS = {
   earlybird_monthly: { price: 690, months: 1, label: '晨报·早鸟月付' },
@@ -90,21 +90,65 @@ function getAlipayConfig() {
   };
 }
 
+/**
+ * A3：金额/套餐/买家一律以 orders 为准，入参 totalAmount / planId / buyerId 全部忽略。
+ * 客户端 callFunction 直调无法伪造 internalToken（HMAC 密钥只在云环境变量里）。
+ */
+function signInternalToken(orderId) {
+  const secret = process.env.PAY_INTERNAL_TOKEN || '';
+  if (!secret) return '';
+  return crypto.createHmac('sha256', secret).update('pay:' + orderId).digest('hex');
+}
+
+function verifyInternalToken(orderId, token) {
+  const expect = signInternalToken(orderId);
+  const got = String(token || '');
+  if (!expect || got.length !== expect.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(got, 'utf8'), Buffer.from(expect, 'utf8'));
+  } catch (e) {
+    return false;
+  }
+}
+
+async function loadOrderForPayment(event, ctxOpenid, channel) {
+  const orderId = event && event.orderId;
+  if (!orderId) throw new Error('orderId required');
+  if (!verifyInternalToken(orderId, event.internalToken)) {
+    throw new Error('拒绝未授权调用：internalToken 无效（仅允许 createOrder 内部调用）');
+  }
+  const snap = await db.collection('orders').where({ orderId }).get();
+  const order = snap.data && snap.data[0];
+  if (!order) throw new Error('订单不存在: ' + orderId);
+  if (order.channel && order.channel !== channel) {
+    throw new Error('订单通道不匹配: order=' + order.channel + ' fn=' + channel);
+  }
+  if (ctxOpenid && order.openid !== ctxOpenid) {
+    throw new Error('订单归属不匹配');
+  }
+  const fee = Number(order.price);
+  if (!Number.isFinite(fee) || fee < 1) throw new Error('订单金额异常: ' + order.price);
+  return order;
+}
+
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
-  const { planId, orderId, totalAmount, subject, buyerId, timeoutExpress = '30m', attach } = event;
+  const { orderId, timeoutExpress = '30m', attach } = event || {};
 
-  // ========== 1. 基础校验 ==========
+  // ========== 1. 基础校验（只信 orderId） ==========
   if (!orderId) throw new Error('orderId required');
+
+  const order = await loadOrderForPayment(event, OPENID, 'alipay');
+  const buyerId = order.buyerId;
   if (!buyerId || !/^2088\d{12,14}$/.test(buyerId)) {
-    throw new Error('buyerId 必须是 2088 开头的支付宝 userId');
+    throw new Error('订单缺少合法 buyerId（2088 开头，createOrder 时写入）');
   }
 
-  const plan = PLANS[planId];
-  if (!plan) throw new Error('invalid planId: ' + planId);
+  const plan = PLANS[order.planId];
+  const subject = plan ? plan.label : '晨报订阅';
 
   // 金额：分 → 元（Decimal，保留两位）
-  const yuan = (Number(totalAmount) / 100).toFixed(2);
+  const yuan = (Number(order.price) / 100).toFixed(2);
 
   // ========== 2. 构造 biz_content ==========
   const cfg = getAlipayConfig();

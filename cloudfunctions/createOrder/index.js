@@ -14,6 +14,7 @@
  */
 
 const cloud = require('wx-server-sdk');
+const crypto = require('crypto');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 
@@ -82,7 +83,7 @@ exports.main = async (event) => {
   const addRes = await db.collection('orders').add({ data: order });
 
   // ========== 3. 路由到对应支付云函数 ==========
-  const channelPayload = buildChannelPayload({ channel, order, plan, event, totalAmountFen });
+  const channelPayload = buildChannelPayload({ channel, order, plan });
   let payResult;
   try {
     payResult = await cloud.callFunction({
@@ -119,21 +120,21 @@ exports.main = async (event) => {
   };
 };
 
-/** 构造各通道支付云函数入参 */
-function buildChannelPayload({ channel, order, plan, event, totalAmountFen }) {
-  const base = {
-    planId: order.planId,
+/** A3：签发内部调用 token，证明「这次支付下单来自 createOrder（已校验归属）」 */
+function signInternalToken(orderId) {
+  const secret = process.env.PAY_INTERNAL_TOKEN || '';
+  if (!secret) return '';
+  return crypto.createHmac('sha256', secret).update('pay:' + orderId).digest('hex');
+}
+
+/** 构造各通道支付云函数入参（pay-* 只认 orderId + internalToken，金额一律回库读） */
+function buildChannelPayload({ channel, order, plan }) {
+  return {
     orderId: order.orderId,
-    totalAmount: totalAmountFen,                              // 统一传分，通道内部自行转元
+    internalToken: signInternalToken(order.orderId),
     subject: plan.label,
     attach: JSON.stringify({ orderId: order.orderId, months: order.months })
   };
-  if (channel === 'alipay') base.buyerId = event.buyerId;
-  if (channel === 'douyin') base.openid = event.openid;
-  // wechat：云函数间 cloud.callFunction 拿不到 WXContext，必须显式把 openid 传给 pay-wechat
-  //（否则 pay-wechat 的 OPENID 校验必抛 'no openid'，微信支付整链在第 3 步挂掉）
-  if (channel === 'wechat') base.openid = order.openid;
-  return base;
 }
 
 /** 构造前端消费的统一 payment 结构 */
