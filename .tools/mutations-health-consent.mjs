@@ -29,5 +29,33 @@ export default [
     from: '  await flushPendingPurges();',
     to: '  /* MUT: no retry */',
     cmd: 'node .tools/verify-health-consent.mjs'
+  },
+  {
+    label: '同意弹窗不再按端选文案（小程序端沿用「同步到云端备份」）',
+    file: 'src/services/healthConsent.ts',
+    from: "  const body = process.env.TARO_ENV === 'weapp' ? t('health.consentBodyWeapp') : t('health.consentBody');",
+    to: "  const body = t('health.consentBody'); /* MUT: no per-end copy */",
+    cmd: 'node .tools/verify-health-consent.mjs'
+  },
+  {
+    label: '小程序端同意文案改回「同步到云端备份」',
+    file: 'src/store/language.ts',
+    from: '当前小程序端不会上传云端',
+    to: '并同步到云端备份',
+    cmd: 'node .tools/verify-health-consent.mjs'
+  },
+  {
+    label: '撤回弹窗不再按端选文案（小程序端沿用「云端副本将被删除」）',
+    file: 'src/services/healthConsent.ts',
+    from: "      content: process.env.TARO_ENV === 'weapp' ? t('health.withdrawBodyWeapp') : t('health.withdrawBody'),",
+    to: "      content: t('health.withdrawBody'), /* MUT: no per-end copy */",
+    cmd: 'node .tools/verify-health-consent.mjs'
+  },
+  {
+    label: '小程序端撤回文案改回「云端副本将被删除」',
+    file: 'src/store/language.ts',
+    from: '没有云端副本需要删除',
+    to: '云端副本将被删除',
+    cmd: 'node .tools/verify-health-consent.mjs'
   }
 ];

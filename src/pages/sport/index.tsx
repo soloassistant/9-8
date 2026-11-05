@@ -391,12 +391,15 @@ export default function SportPage() {
       if (result === 'cancelled') return;
       setHealthOk(false);
       // 三种结果都要明确告知（尤其是删除失败，不能让用户以为云端副本已经没了）
+      // 小程序端没有 KV 同步层：purge 恒返回 'no-session'，不能沿用“未登录”的说法
       const msg =
-        result === 'deleted'
-          ? t('health.withdrawnCloudDeleted')
-          : result === 'failed'
-            ? t('health.withdrawnPurgeFailed')
-            : t('health.withdrawnLocalOnly');
+        process.env.TARO_ENV === 'weapp'
+          ? t('health.withdrawnWeapp')
+          : result === 'deleted'
+            ? t('health.withdrawnCloudDeleted')
+            : result === 'failed'
+              ? t('health.withdrawnPurgeFailed')
+              : t('health.withdrawnLocalOnly');
       Taro.showToast({ title: msg, icon: 'none' }).catch(() => undefined);
     });
   }, [healthOk, t]);

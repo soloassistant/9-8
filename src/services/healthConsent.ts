@@ -39,6 +39,7 @@ export interface HealthConsentRecord {
 type HealthDictKey =
   | 'health.consentTitle'
   | 'health.consentBody'
+  | 'health.consentBodyWeapp'
   | 'health.consentAgree'
   | 'health.consentDecline'
   | 'health.consentDenied'
@@ -46,6 +47,7 @@ type HealthDictKey =
   | 'health.statusPrompt'
   | 'health.withdrawTitle'
   | 'health.withdrawBody'
+  | 'health.withdrawBodyWeapp'
   | 'health.withdrawConfirm'
   | 'health.withdrawn'
   | 'common.cancel';
@@ -76,7 +78,8 @@ export function hasHealthConsent(): boolean {
 export async function ensureHealthConsent(): Promise<boolean> {
   if (hasHealthConsent()) return true;
   const title = t('health.consentTitle');
-  const body = t('health.consentBody');
+  // 小程序端没有云端同步层（cloudSync 非 H5 不执行），不能沿用“同步到云端备份”那句
+  const body = process.env.TARO_ENV === 'weapp' ? t('health.consentBodyWeapp') : t('health.consentBody');
   // 文案缺失时不能弹空框让人点同意（等于没有告知）——按不同意处理
   if (!title || !body) {
     console.warn('[healthConsent] 同意文案缺失，已拒绝写入运动数据');
@@ -145,7 +148,7 @@ export async function confirmWithdrawHealthConsent(): Promise<'cancelled' | Heal
   try {
     const res = await Taro.showModal({
       title: t('health.withdrawTitle'),
-      content: t('health.withdrawBody'),
+      content: process.env.TARO_ENV === 'weapp' ? t('health.withdrawBodyWeapp') : t('health.withdrawBody'),
       confirmText: t('health.withdrawConfirm'),
       cancelText: t('common.cancel')
     });
