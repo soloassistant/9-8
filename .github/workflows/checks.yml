@@ -427,6 +427,12 @@ jobs:
         # 这里逐调用点解析字面量与 i18n 实际值，超限即红。
         run: npm run verify:modal-text
 
+      - name: 定位失败文案分类门禁
+        # 拒绝 / 永久拒绝 / 非安全上下文 / 超时 必须给不同文案：原来 geolocation 的
+        # 所有失败都被吞成 false，页面只会说「未授权定位」，用户照着去改系统权限也永远修不好。
+        # 这里断言六类 key 齐全、文案两两不同，且非安全上下文文案不得出现「未授权」。
+        run: npm run verify:locate-copy
+
       - name: 对比度静态门禁（109 条）
         # 2026-10-24 审计指出「verify:contrast 写好了却没接 CI」—— 这里补上。
         # 它与 verify:buttons 是**两层**：buttons 守「属性渲染方式」，这一步守「配色算出来能不能读」

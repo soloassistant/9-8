@@ -1,5 +1,5 @@
 import Taro from '@tarojs/taro'
-import { ensurePermission } from '@/utils/permission'
+import { classifyLocationError, ensurePermission, getLastLocateFailure, markLocateFailure } from '@/utils/permission'
 import { dict, useLanguageStore } from '@/store/language'
 
 /* ---------------- 坐标出境单独同意（PIPL 第 39 条） ---------------- */
@@ -93,15 +93,20 @@ async function ensureCrossBorderConsent(): Promise<boolean> {
  * 系统级确认框（这是法定义务，不能省），其余 UI 不碰。
  */
 export async function locateCity(): Promise<string | null> {
+  // 本次尝试先清空上一次的失败类别，避免页面读到过期的原因
+  markLocateFailure(null)
   try {
     // 权限闸门：已同意则直接通过（weapp 顺带与系统授权对账）；未同意 / 已达拒绝上限 → 返回 null
     const granted = await ensurePermission('location')
     if (!granted) {
+      // ensurePermission 内已按类别 mark（denied / blocked / insecure / timeout / unavailable）
+      if (!getLastLocateFailure()) markLocateFailure('denied')
       console.warn('[Location] 位置权限未授权，已跳过定位（不发起 getLocation）')
       return null
     }
     // 出境单独同意闸门：未同意 → 不采集坐标、不向第三方发起任何请求
     if (!(await ensureCrossBorderConsent())) {
+      markLocateFailure('denied')
       console.warn('[Location] 未取得坐标出境单独同意，已跳过定位（不发起 getLocation）')
       return null
     }
@@ -110,13 +115,20 @@ export async function locateCity(): Promise<string | null> {
     const res = await fetch(
       `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=zh`
     )
-    if (!res.ok) return null
+    if (!res.ok) {
+      markLocateFailure('unavailable')
+      return null
+    }
     const data = await res.json()
     const city = String(data.city || data.locality || data.principalSubdivision || '').trim()
-    if (!city) return null
+    if (!city) {
+      markLocateFailure('unavailable')
+      return null
+    }
     Taro.setStorageSync('user-city', city)
     return city
   } catch (err) {
+    markLocateFailure(classifyLocationError(err))
     console.warn('[Location] locateCity failed:', err)
     return null
   }
