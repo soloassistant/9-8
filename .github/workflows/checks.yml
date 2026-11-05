@@ -60,7 +60,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           # 与 refresh-data.yml 保持一致
-          node-version: 20
+          node-version: 22
           cache: yarn
 
       - name: 安装依赖
