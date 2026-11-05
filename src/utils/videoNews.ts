@@ -11,6 +11,8 @@
  *    的内容带注入」，而视频条目直出前端渲染纯文本，不进任何模型。
  */
 
+import { isDroppableImage } from './imageUrl';
+
 /** 视频新闻条目（云端 videoNews 契约） */
 export interface VideoNewsItem {
   /** `bili-<bvid>` */
@@ -88,7 +90,10 @@ export function normalizeVideoItems(raw: unknown): VideoNewsItem[] {
     if (!title) continue;
     const url = typeof obj.url === 'string' ? obj.url.trim() : '';
     if (!BILI_URL_RE.test(url)) continue;
-    const image = safeMediaUrl(obj.image);
+    // 配图：入库即剔除 1×1 追踪像素与已知永久失效源（npr.brightspotcdn.com 等），
+    // 否则每一屏都会为一个必败 URL 发一次请求，再走 onError 兜底 —— 白付延迟。
+    const imageRaw = safeMediaUrl(obj.image);
+    const image = imageRaw && !isDroppableImage(imageRaw) ? imageRaw : undefined;
     const duration = safeDuration(obj.duration);
     const author = typeof obj.author === 'string' && obj.author.trim() ? obj.author.trim().slice(0, 30) : undefined;
     const play = Number.isInteger(obj.play) && (obj.play as number) >= 0 ? (obj.play as number) : undefined;

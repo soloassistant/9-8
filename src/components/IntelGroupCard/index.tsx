@@ -1,8 +1,9 @@
-import { View, Text, Image, Button } from '@tarojs/components';
+import { View, Text, Button } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { splitLeadSegments } from '@/utils/intelGroups';
 import type { IntelGroup, IntelLeadSegment, IntelSourceRef } from '@/utils/intelGroups';
 import { openExternalPage } from '@/utils/externalLink';
+import SafeImage from '@/components/SafeImage';
 import styles from './index.module.scss';
 
 const isWeapp = process.env.TARO_ENV === 'weapp';
@@ -125,10 +126,13 @@ export function IntelItemRow({ item, index }: { item: IntelSourceRef; index?: nu
           </Text>
         </View>
         {item.image ? (
-          <Image
+          // 缩略图：失败时 SafeImage 换同尺寸占位，且**不挂** previewImage（预览一张 403 图无意义）；
+          // 点占位块不触发任何回调，会冒泡到条目容器，不会把点击吞掉。
+          <SafeImage
             src={item.image}
+            source={item.source}
+            alt={item.text}
             mode='aspectFill'
-            lazyLoad
             className={styles.itemThumb}
             onClick={handleImageTap}
           />

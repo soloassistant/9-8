@@ -46,6 +46,9 @@ import {
 } from '@/services/healthConsent';
 import styles from './index.module.scss';
 
+/** H5 才透传 `decoding`（Taro 的 nativeProps 仅 h5 生效；weapp 走原生图片解码） */
+const isH5 = process.env.TARO_ENV === 'h5';
+
 type ViewName = 'home' | 'recording' | 'detail' | 'records';
 type GeoState = 'idle' | 'waiting' | 'ok' | 'denied' | 'unsupported';
 
@@ -610,7 +613,12 @@ export default function SportPage() {
             </View>
             {routeSvgUrl(samples) ? (
               <View className={styles.mapBox}>
-                <Image className={styles.mapImg} src={routeSvgUrl(samples) as string} mode='aspectFit' />
+                <Image
+                  className={styles.mapImg}
+                  src={routeSvgUrl(samples) as string}
+                  mode='aspectFit'
+                  nativeProps={isH5 ? { decoding: 'async' } : undefined}
+                />
               </View>
             ) : (
               <Text className={styles.emptyHint}>{t('sport.routeEmpty')}</Text>
@@ -667,7 +675,12 @@ export default function SportPage() {
             </View>
             {routeSvgUrl(detail.samples) ? (
               <View className={styles.mapBox}>
-                <Image className={styles.mapImg} src={routeSvgUrl(detail.samples) as string} mode='aspectFit' />
+                <Image
+                  className={styles.mapImg}
+                  src={routeSvgUrl(detail.samples) as string}
+                  mode='aspectFit'
+                  nativeProps={isH5 ? { decoding: 'async' } : undefined}
+                />
               </View>
             ) : (
               <Text className={styles.emptyHint}>{t('sport.routeEmpty')}</Text>
@@ -678,7 +691,12 @@ export default function SportPage() {
             <Text className={styles.cardLabel}>{t('sport.paceCurve')}</Text>
             {paceCurveSvgUrl(detail.samples) ? (
               <View className={styles.curveBox}>
-                <Image className={styles.curveImg} src={paceCurveSvgUrl(detail.samples) as string} mode='aspectFit' />
+                <Image
+                  className={styles.curveImg}
+                  src={paceCurveSvgUrl(detail.samples) as string}
+                  mode='aspectFit'
+                  nativeProps={isH5 ? { decoding: 'async' } : undefined}
+                />
               </View>
             ) : (
               <Text className={styles.emptyHint}>{t('sport.curveEmpty')}</Text>

@@ -595,7 +595,7 @@ function InboxPage() {
                       className={styles.imagePic}
                       src={src}
                       mode='aspectFill'
-                      nativeProps={isH5 ? { alt: `已上传截图 ${idx + 1}` } : undefined}
+                      nativeProps={isH5 ? { alt: `已上传截图 ${idx + 1}`, decoding: 'async' } : undefined}
                     />
                     <View className={styles.imageRemove} onClick={() => removeImage(idx)}>
                       <Text className={styles.imageRemoveText}>×</Text>

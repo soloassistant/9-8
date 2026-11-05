@@ -15,6 +15,8 @@
  * 渲染（weapp 与 H5 均支持）；**不使用 HTML / dangerouslySetInnerHTML**（小程序端不支持）。
  */
 
+import { isDroppableImage } from './imageUrl';
+
 /* ---------------- 常量（禁止魔法数字） ---------------- */
 
 /** 组数上限：过多分组会稀释「导语」价值，参考 Readless 取 2-4 组 */
@@ -147,7 +149,8 @@ function normalizeRef(raw: unknown): IntelSourceRef | null {
   const source = isNonEmptyString(obj.source) ? String(obj.source).trim() : '综合';
   const ref: IntelSourceRef = { text, source };
   const image = safeMediaUrl(obj.image);
-  if (image) ref.image = image;
+  // 入库即剔除 1×1 追踪像素 / 已知永久失效源：不留「必败请求」点位
+  if (image && !isDroppableImage(image)) ref.image = image;
   const url = safeMediaUrl(obj.url);
   if (url) ref.url = url;
   return ref;
