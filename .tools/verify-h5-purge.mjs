@@ -115,6 +115,21 @@ const PGRST202 = { code: 'PGRST202', message: 'Could not find the function publi
   check('PG5', '切片含 PGRST202 灰度分支（防回归：删了它会让 SQL 未上线时注销报错）',
     /PGRST202/.test(slice));
 
+  // ── ⑥ 窄不变式：注销完成文案不得宣称云端记录已删除 ──
+  // 为什么锚文案而不是流程：注销流程正在改成页内工单（「提交工单后 15 个工作日」），
+  // 流程断言会被下一次改造打红；但「不能说谎」是跨改造的不变式。
+  const langSrc = fs.readFileSync(path.join(ROOT, 'src', 'store', 'language.ts'), 'utf8');
+  const doneCopies = [...langSrc.matchAll(/['"]mine\.deleteDoneH5['"]\s*:\s*'([^']*)'/g)].map((m) => m[1]);
+  const FORBID_CLAIM = /已删除全部数据|数据已删除|云端.*(已删|已清除)|all data (has been )?deleted|data has been deleted/i;
+  check(
+    'PG6',
+    '注销完成文案 mine.deleteDoneH5 不宣称云端记录已删除（中英各一份，违规时指名键名）',
+    doneCopies.length === 2 && doneCopies.every((s) => !FORBID_CLAIM.test(s))
+  );
+  if (doneCopies.some((s) => FORBID_CLAIM.test(s))) {
+    out('  ↳ 违规键: mine.deleteDoneH5（文案谎报「已删除」，而 purge 可能 not-deployed/failed）');
+  }
+
   console.log(`\nPASS ${passes} / FAIL ${failures}`);
   process.exit(failures === 0 ? 0 : 1);
 })();
