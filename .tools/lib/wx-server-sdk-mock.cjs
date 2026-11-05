@@ -565,7 +565,26 @@ function createMockCloud(options = {}) {
       return { result: await mod.main(data) };
     },
     cloudPay: unsupported('cloudPay'),
-    openapi: unsupported('openapi'),
+    // 内容安全是 chat/extract 的强制依赖（config.json 已声明）：桩必须显式返回 pass，
+    // 否则 fail-closed 会让本 harness 的 chat/extract 场景全线红。其余 openapi 能力仍「未实现即抛」。
+    openapi: new Proxy(
+      {
+        security: {
+          async msgSecCheck(payload) {
+            record({ kind: 'openapi', surface: 'security.msgSecCheck', payload: deepClone(payload) });
+            return { result: { suggest: 'pass', label: 10001 } };
+          }
+        }
+      },
+      {
+        get: (target, prop) =>
+          prop === 'then' || prop === 'toJSON'
+            ? undefined
+            : Object.prototype.hasOwnProperty.call(target, prop)
+              ? target[prop]
+              : unsupported(`openapi.${String(prop)}`)
+      }
+    ),
     getTempFileURL: unsupported('getTempFileURL'),
     uploadFile: unsupported('uploadFile'),
     downloadFile: unsupported('downloadFile'),

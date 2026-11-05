@@ -1,4 +1,5 @@
 const cloud = require('wx-server-sdk');
+const crypto = require('crypto');
 const { callLLM, callLLMWebSearch } = require('./llm');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
@@ -538,35 +539,70 @@ async function handleApplyPlan(openid, event) {
 /** 内容安全拒答话术（命中 msgSecCheck 时使用）。不暴露具体命中原因，避免被用来试探规则。 */
 const CHAT_REFUSE_REPLY = '抱歉，这条内容我不能处理。请换一个说法，或者换个话题聊聊？';
 
+/** 「无法判定」话术：接口超时/5xx 时既不说用户违规，也不把内部错误码抛给用户 */
+const CHAT_UNAVAILABLE_REPLY = '内容暂时无法校验，请稍后再试。';
+
+const MODERATION_COLLECTION = 'moderation_failures';
+
+/** 文本指纹：sha256 前 32 位。同一段文本可归因，但无法还原原文。 */
+function textHash(text) {
+  return crypto.createHash('sha256').update(String(text || '')).digest('hex').slice(0, 32);
+}
+
 /**
- * 内容安全：过微信 msgSecCheck。返回 true=放行，false=命中违规需拒答。
- *
- * 【为什么必须加】本函数是**深度合成（AI 问答）**的主要出口，微信《小程序深度合成服务运营指引》
- * 把「用户输入内容」与「深度合成输出内容」的内容安全检测列为**强制项**，也是代码审核的
- * 常见驳回原因。extract / getBriefing 早已接入（见各自 config.json 声明的
- * `security.msgSecCheck` 权限），chat 此前**完全缺失** —— 审核会因「输入/输出存在安全风险」驳回。
- *
- * 【异常时 fail-open】与 extract 的既有做法一致：接口抖动时不阻断主流程，只告警。
- * 理由是聊天是主交互路径，因安全接口超时把整条对话打断，用户损失大于收益；
- * 代价是异常窗口内的内容不过检 —— 已在日志里显式标出（`skipped`），便于事后归因。
+ * 失败留证：写一条 moderation_failures + 一行 console.error。生产构建会剔除 console.warn，
+ * 改前的 fail-open 在线上连痕迹都没有；记录里只有 textHash（留证不能变成第二份内容副本）。
+ * 写库失败不影响主流程（请求已拒绝），但必须再打一条 error，不能静默。
  */
-async function securityCheck(content, openid) {
-  const text = String(content || '').slice(0, 2500);
-  if (!text.trim()) return true;
+async function recordModerationFailure(openid, action, reason, errCode, detail, text) {
+  const hash = textHash(text);
+  const ts = new Date().toISOString();
+  console.error(`[chat] moderation ${reason}: action=${action} errCode=${errCode} detail=${detail}`);
   try {
-    const res = await cloud.openapi.security.msgSecCheck({
-      version: 2,
-      openid,
-      scene: 1,
-      content: text
-    });
-    if (res && res.result && res.result.suggest && res.result.suggest !== 'pass') {
-      return false;
-    }
-    return true;
+    // openid 直接写在载荷里：注销清单静态对齐脚本按「写入片段是否含 openid」识别
+    await db.collection(MODERATION_COLLECTION).add({ data: { openid, action, reason, errCode, detail, ts, textHash: hash } });
   } catch (err) {
-    console.warn('[chat] msgSecCheck skipped:', err && err.errMsg);
-    return true;
+    console.error('[chat] moderation record write failed:', err && (err.errMsg || err.message));
+  }
+}
+
+/**
+ * msgSecCheck 异常归类 —— 两类结论不得混成一句：
+ * `violation`：87014（接口以异常形式返回的明确违规）；`unavailable`：超时/5xx/系统繁忙 = 拿不到结论。
+ * 两类都 fail-closed（拒绝），但 reason/errCode/detail 能区分「内容有问题」还是「接口有问题」。
+ */
+function classifyModerationError(err) {
+  const rawCode = err && (err.errCode !== undefined ? err.errCode : err.code);
+  const errCode = typeof rawCode === 'number' || typeof rawCode === 'string' ? rawCode : null;
+  if (errCode === 87014) return { reason: 'violation', errCode: 87014, detail: 'violation' };
+  const msg = String((err && (err.errMsg || err.message)) || '');
+  const timeout = /timeout|timed out|ETIMEDOUT|ESOCKETTIMEDOUT|ECONNRESET|ENOTFOUND|socket hang up/i.test(msg);
+  const server = errCode === -1 || errCode === 500 || /\b5\d\d\b/.test(msg); // -1 = 微信「系统繁忙」
+  return { reason: 'unavailable', errCode, detail: timeout ? 'timeout' : server ? 'server' : 'unknown' };
+}
+
+/**
+ * 内容安全：过微信 msgSecCheck，返回 `{ ok, reason }`。本函数是深度合成（AI 问答）的主要出口，
+ * 输入/输出两侧过检是微信类目强制项（见 config.json 的 security.msgSecCheck）。
+ * 【异常时 fail-closed】改前 catch 里 `return true`（超时即全量放行）；拿不到结论时**不放行**并留证。
+ */
+async function securityCheck(content, openid, action) {
+  const text = String(content || '').slice(0, 2500);
+  if (!text.trim()) return { ok: true };
+  try {
+    const res = await cloud.openapi.security.msgSecCheck({ version: 2, openid, scene: 1, content: text });
+    const result = (res && res.result) || {};
+    if (result.suggest && result.suggest !== 'pass') {
+      // 明确违规：label 是平台的风险类别号（如 20001 广告），不是原文；errCode 留 null（结论来自正常返回）
+      const label = typeof result.label === 'number' ? result.label : null;
+      await recordModerationFailure(openid, action, 'violation', null, `suggest:${result.suggest}/label:${label}`, text);
+      return { ok: false, reason: 'violation' };
+    }
+    return { ok: true };
+  } catch (err) {
+    const verdict = classifyModerationError(err);
+    await recordModerationFailure(openid, action, verdict.reason, verdict.errCode, verdict.detail, text);
+    return { ok: false, reason: verdict.reason };
   }
 }
 
@@ -661,8 +697,11 @@ exports.main = async (event) => {
   if (!message) throw new Error('message is required');
 
   // 用户输入过内容安全（深度合成类目强制项）。放在额度校验之前：违规内容不该消耗用户语音额度。
-  if (!(await securityCheck(message, OPENID))) {
-    return { reply: CHAT_REFUSE_REPLY, action: 'chat' };
+  // 两种拒绝各自给用户看得懂的话：明确违规 = 换说法；接口不可用 = 稍后再试（不透出错误码）。
+  const inputCheck = await securityCheck(message, OPENID, 'input');
+  if (!inputCheck.ok) {
+    const reply = inputCheck.reason === 'unavailable' ? CHAT_UNAVAILABLE_REPLY : CHAT_REFUSE_REPLY;
+    return { reply, action: 'chat' };
   }
 
   // 额度校验：订阅用户不限次
@@ -847,8 +886,9 @@ exports.main = async (event) => {
 
   // 深度合成**输出**侧内容安全（与输入侧同为类目强制项）。放在最后一道禁语防线之后、
   // 组装 payload 之前 —— 此处 replyText 已是最终将要返回给用户的文本（含联网改写、截断、配图追加）。
-  if (!(await securityCheck(replyText, OPENID))) {
-    replyText = CHAT_REFUSE_REPLY;
+  const outputCheck = await securityCheck(replyText, OPENID, 'output');
+  if (!outputCheck.ok) {
+    replyText = outputCheck.reason === 'unavailable' ? CHAT_UNAVAILABLE_REPLY : CHAT_REFUSE_REPLY;
   }
 
   const payload = { reply: replyText, action: result.action || 'chat', image };
