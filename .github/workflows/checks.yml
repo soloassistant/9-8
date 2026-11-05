@@ -396,6 +396,12 @@ jobs:
         # 与 verify:cloudflow 互补：那边没有第三方调用计数，结构上看不见「重试打了第二笔」。
         run: npm run verify:funds
 
+      - name: refund_attempts 清理策略回归
+        # 该集合的 _id 同时是退款并发闸门。清理任务必须只删 180 天前的 failed：
+        # accepted 是审计凭据要永久保留，pending 是锁、按龄删会让同一退款重新拿到发起权。
+        # 断言用内存库真实执行，直接看「删了哪几条、留了哪几条」。
+        run: npm run verify:purge
+
       - name: 晨报首屏结构与状态机回归
         # 守 2026-10-24 审计发现并修掉的 6 个「手感」缺陷：记账卡被粘进右上角图标按钮行内
         # （卡片在 flex 行里撑开、压垮问候语列）、hasContent 不看情报（有情报却显示

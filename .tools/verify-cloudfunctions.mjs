@@ -326,7 +326,7 @@ for (const name of withConfig) {
   }
   ok('[' + name + '] config.json 合法（openapi 数组 / timer 7 段 cron）', problems.length === 0, problems.join('; '));
 }
-ok('config.json 覆盖数（chat/closeOrder/extract/getBriefing/webSearch 共 5 个）', withConfig.length === 5,
+ok('config.json 覆盖数（chat/closeOrder/extract/getBriefing/purgeRefundAttempts/webSearch 共 6 个）', withConfig.length === 6,
   '实际 ' + withConfig.length + ' 个: ' + withConfig.join(', '));
 
 /* 扫描数量对齐：防止「漏扫」造成的整体假绿 */
@@ -334,7 +334,7 @@ const allDirs = fs.readdirSync(FN_DIR).filter((n) => fs.statSync(path.join(FN_DI
 const noIndex = allDirs.filter((n) => !fs.existsSync(path.join(FN_DIR, n, 'index.js')));
 ok('目录数与已校验函数数一致（没有「有目录没 index.js」被静默跳过）', noIndex.length === 0 && names.length === allDirs.length,
   '目录 ' + allDirs.length + ' / 已校验 ' + names.length + (noIndex.length ? '；缺 index.js: ' + noIndex.join(', ') : ''));
-ok('函数总数与非空目录数相等（当前应为 26）', names.length === 26, '实际 ' + names.length);
+ok('函数总数与非空目录数相等（当前应为 27）', names.length === 27, '实际 ' + names.length);
 
 /* ---------- B. 可加载性 ---------- */
 section('B. 可加载性（vm 加载 + exports.main 是函数）');

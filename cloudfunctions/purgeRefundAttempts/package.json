@@ -1,0 +1,9 @@
+{
+  "name": "purgeRefundAttempts",
+  "version": "1.0.0",
+  "description": "refund_attempts 保留策略 — 只删 180 天前的 failed，accepted 永久、pending 永不按龄删",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

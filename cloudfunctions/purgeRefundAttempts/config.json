@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "openapi": []
+  },
+  "triggers": [
+    {
+      "name": "purgeRefundAttempts",
+      "type": "timer",
+      "config": "0 45 3 * * * *"
+    }
+  ]
+}
