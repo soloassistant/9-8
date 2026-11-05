@@ -107,41 +107,160 @@ export function patchClickTracking(): void {
   } as typeof EventTarget.prototype.addEventListener;
 }
 
-/** 读屏名字：优先 aria-label，其次元素自身文字（截断 60 字，卡片标题常常很长） */
+/**
+ * 读屏名字。三条铁律：
+ *   1. 优先显式 `aria-label` / `data-a11y-name` —— 一次 getAttribute，不碰布局；
+ *   2. 兜底**只能用 `textContent`，绝对不能再用 `innerText`**。`innerText` 每次读取都会
+ *      强制同步布局（读回排版结果），热点页 392 张卡时近似 O(n²)：
+ *      实测占非 idle 时间 35.8%（1x）/ 44.6%（4x），6x 降档下形成单个 13.75s 长任务；
+ *   3. 跳过 `aria-hidden` 子树，别把「视觉隐藏」的文字念出来。
+ *
+ * ⚠️ `textContent` 与 `innerText` 的语义差异（接受这些退化，换掉强制布局）：
+ *   · `textContent` **包含**隐藏元素（display:none / visibility:hidden）里的文字，
+ *     `innerText` 不含 —— 所以这里显式挡掉 `aria-hidden="true"` 子树，隐藏文案宁可漏读；
+ *   · `textContent` **不做换行合并**，`<div>a</div><div>b</div>` 得到「ab」而 `innerText`
+ *     得到「a\nb」—— 这里靠 `replace(/\s+/g, ' ')` 兜底，但块级元素无换行时可能粘字；
+ *   · `textContent` 不受 CSS `text-transform` 影响，读到的永远是源文本。
+ *   要拿到与 `innerText` 等价的「人眼看到的文本」，唯一零成本的办法是**让作者在数据层
+ *   预生成 `aria-label`**，本管线正是优先走这条路。
+ */
 function readableName(el: Element): string {
-  const own = el.getAttribute('aria-label');
-  if (own && own.trim()) return own.trim();
-  const raw = (el as HTMLElement).innerText || el.textContent || '';
+  const explicit = el.getAttribute('aria-label') || el.getAttribute('data-a11y-name');
+  if (explicit && explicit.trim()) return explicit.trim();
+  if (el.closest('[aria-hidden="true"]')) return '';
+  const raw = el.textContent || '';
   const s = raw.replace(/\s+/g, ' ').trim();
   if (!s) return '';
   return s.length > 60 ? `${s.slice(0, 60)}…` : s;
+}
+
+/* ---------- 名称管线（2026-11-05 性能降载）----------
+ * 属性（role / tabindex / data-pressable）仍在 rAF flush 里同步写完，代价可忽略；
+ * 名字（要遍历子树取文本）改到「进入视口才排队 + 空闲期 8ms 切片」：
+ *   · 视口判定交给 IntersectionObserver（rootMargin 200px），**不用 getBoundingClientRect**
+ *     —— 392 次 gBCR 本身就是又一轮同步布局，等于把 innerText 的坑换个位置踩；
+ *   · 滚动时 IO 自动回调新进入 ±200px 的元素 = 增量补算，不做一次性全量扫描；
+ *   · 切片上限 8ms，避免「降载手段自己又造长任务」。
+ */
+const pendingNames = new WeakSet<Element>(); // WeakSet：路由切走/卡片回收后不留强引用
+const nameQueue: Element[] = [];
+let nameObserver: IntersectionObserver | null = null;
+let namesScheduled = false;
+
+function applyName(el: Element): void {
+  if (!pendingNames.has(el)) return;
+  pendingNames.delete(el);
+  if (!el.isConnected) return;
+  const label = readableName(el);
+  if (label) el.setAttribute('aria-label', label);
+  el.setAttribute('data-a11y-named', '1'); // 门禁/测试的等待锚点
+}
+
+function pumpNames(): void {
+  namesScheduled = false;
+  const now0 = typeof performance !== 'undefined' ? () => performance.now() : () => Date.now();
+  const t0 = now0();
+  while (nameQueue.length > 0) {
+    applyName(nameQueue.shift() as Element);
+    if (now0() - t0 > 8) break; // 8ms 一片
+  }
+  if (nameQueue.length > 0) scheduleNames();
+  else if (typeof document !== 'undefined') document.documentElement.setAttribute('data-a11y-named', '1');
+}
+
+function scheduleNames(): void {
+  if (namesScheduled) return;
+  namesScheduled = true;
+  runIdle(pumpNames);
+}
+
+function enqueueName(el: Element): void {
+  if (!pendingNames.has(el)) return;
+  if (typeof IntersectionObserver !== 'function') {
+    // 没有 IO 的极老环境：直接排队，仍然不读 innerText，也不做全量同步扫描
+    nameQueue.push(el);
+    scheduleNames();
+    return;
+  }
+  if (!nameObserver) {
+    nameObserver = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue; // 离屏元素不观察、不计算，等滚动进来再说
+          nameObserver?.unobserve(e.target);
+          nameQueue.push(e.target);
+        }
+        if (nameQueue.length > 0) scheduleNames();
+      },
+      { rootMargin: '200px' } // 视口 ±200px：滚入前名字就绪，避免读屏临时抓空
+    );
+  }
+  nameObserver.observe(el);
+}
+
+/** 键盘兜底：Tab / 读屏聚焦到一个还没算名字的元素时，只为这**一个**同步算一次 */
+function onNameFocusIn(e: Event): void {
+  const el = (e.target as Element | null)?.closest?.('[data-pressable]');
+  if (el && pendingNames.has(el)) applyName(el);
+}
+
+/** 空闲期调度：优先 requestIdleCallback（200ms 兜底超时），否则退到 setTimeout */
+function runIdle(fn: () => void): void {
+  const ric =
+    typeof window !== 'undefined'
+      ? (window as unknown as {
+          requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+        }).requestIdleCallback
+      : undefined;
+  if (typeof ric === 'function') ric(fn, { timeout: 200 });
+  else setTimeout(fn, 16);
+}
+
+/**
+ * 收集 root 子树里「可能可操作」的候选元素（只是 querySelectorAll，不标任何东西）。
+ * 拆出来是为了让标注能**按元素切片**：一次 commit 插入 392 张卡时，
+ * 子树整体处理会在一个任务里跑完（6x 实测 300~450ms），必须拆成 8ms 小片。
+ */
+function collectCandidates(root: ParentNode): Element[] {
+  const out: Element[] = [];
+  if (root instanceof Element && root.matches(CLICKABLE_SELECTOR)) out.push(root);
+  root.querySelectorAll(CLICKABLE_SELECTOR).forEach((el) => out.push(el));
+  return out;
+}
+
+/** 标单个元素。返回是否真的标上了（已标过的、没挂 click 的都返回 false） */
+function markOne(el: Element): boolean {
+  if (el.hasAttribute('data-pressable')) return false; // 手工标过的别再动，尊重作者写的 aria-label
+  if (!clickBound.has(el)) return false; // 没挂 click = 不是可操作元素（含遮罩/弹层的吞点击节点）
+
+  // 便宜的三件套：同步写完，不读任何文本、不碰布局
+  el.setAttribute('role', 'button');
+  el.setAttribute('data-pressable', '1');
+  el.setAttribute('tabindex', '0');
+
+  // 名字：数据层已预生成的就直接用；否则入队，等它进视口 ±200px 后在空闲期算
+  const explicit = el.getAttribute('aria-label') || el.getAttribute('data-a11y-name');
+  if (explicit && explicit.trim()) {
+    el.setAttribute('aria-label', explicit.trim());
+    el.setAttribute('data-a11y-named', '1');
+  } else {
+    pendingNames.add(el);
+    enqueueName(el);
+  }
+  return true;
 }
 
 /**
  * 把 root 子树里「自己挂了 click 但还没被标记」的元素标成可操作。
  * 返回新标记的数量（门禁与调试用）。
  *
- * ⚠️ 不要用「扫过就永久跳过」的 WeakSet：元素可能先插入 DOM、后挂监听，
- *    一次性跳过会把它们永久漏掉。代价是每次新增子树都重扫一遍，
- *    但扫描范围只有这次新增的子树，不是整页。
+ * 这个同步版本仍给首屏 / 手工调用用；批量路径（MutationObserver）走
+ * observePressables 里的 8ms 切片，避免一次 commit 跑成 300ms+ 的长任务。
  */
 export function markClickableAsPressable(root: ParentNode = document): number {
   if (typeof document === 'undefined') return 0;
-  const roots: Element[] = [];
-  if (root instanceof Element && root.matches(CLICKABLE_SELECTOR)) roots.push(root);
-  root.querySelectorAll(CLICKABLE_SELECTOR).forEach((el) => roots.push(el));
-
   let n = 0;
-  for (const el of roots) {
-    if (el.hasAttribute('data-pressable')) continue; // 手工标过的别再动，尊重作者写的 aria-label
-    if (!clickBound.has(el)) continue; // 没挂 click = 不是可操作元素（含遮罩/弹层的吞点击节点）
-    el.setAttribute('role', 'button');
-    el.setAttribute('data-pressable', '1');
-    el.setAttribute('tabindex', '0');
-    const label = readableName(el);
-    if (label) el.setAttribute('aria-label', label);
-    n += 1;
-  }
+  for (const el of collectCandidates(root)) if (markOne(el)) n += 1;
   return n;
 }
 
@@ -155,36 +274,52 @@ export function markClickableAsPressable(root: ParentNode = document): number {
 export function observePressables(): () => void {
   if (typeof document === 'undefined' || typeof MutationObserver !== 'function') return () => {};
   patchClickTracking();
-  const pending = new Set<Element>();
-  let scheduled = false;
-  const flush = () => {
-    scheduled = false;
-    const batch = [...pending];
-    pending.clear();
-    for (const el of batch) markClickableAsPressable(el);
-    ensureFocusable();
+
+  // 新增子树 → 候选元素队列 → 空闲期 8ms 一片地标。
+  // 为什么不能一次标完：热点页 392 张卡在**一次 commit** 里插入，子树整体处理
+  // 会在单个任务里跑完（6x 降档实测 300~450ms）；按元素切片后单片只花个位数毫秒。
+  const workQueue: Element[] = [];
+  let workScheduled = false;
+  const nowMs = typeof performance !== 'undefined' ? () => performance.now() : () => Date.now();
+  const pumpPressables = () => {
+    workScheduled = false;
+    const t0 = nowMs();
+    while (workQueue.length > 0) {
+      markOne(workQueue.shift() as Element);
+      if (nowMs() - t0 > 8) break;
+    }
+    if (workQueue.length > 0) scheduleWork();
   };
-  const schedule = () => {
-    if (scheduled) return;
-    scheduled = true;
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
-    else setTimeout(flush, 16);
+  const scheduleWork = () => {
+    if (workScheduled) return;
+    workScheduled = true;
+    runIdle(pumpPressables);
+  };
+  const enqueueRoot = (root: Element) => {
+    // 手工标过 data-pressable 但漏了 tabindex 的少数元素，仍在这一批里补上
+    ensureFocusable(root);
+    for (const el of collectCandidates(root)) workQueue.push(el);
+    if (workQueue.length > 0) scheduleWork();
   };
 
-  // 首屏已存在的节点扫一遍；之后只看新增子树（React 每次插入的都在里面）
+  // 首屏已存在的节点扫一遍（app 刚启动，子树很小，同步即可）；之后只看新增子树
   markClickableAsPressable(document.body);
   ensureFocusable();
+  // 名字还没算到的元素被 Tab / 读屏聚焦时，立刻补一个（只算这一个）
+  document.addEventListener('focusin', onNameFocusIn, true);
 
   const mo = new MutationObserver((records) => {
     for (const r of records) {
       r.addedNodes.forEach((n) => {
-        if (n.nodeType === 1) pending.add(n as Element);
+        if (n.nodeType === 1) enqueueRoot(n as Element);
       });
     }
-    if (pending.size) schedule();
   });
   mo.observe(document.body, { childList: true, subtree: true });
-  return () => mo.disconnect();
+  return () => {
+    mo.disconnect();
+    document.removeEventListener('focusin', onNameFocusIn, true);
+  };
 }
 
 /** 焦点是否落在输入类元素上（这些元素自己就该吃空格/回车，不能被代理抢走） */
