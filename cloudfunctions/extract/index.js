@@ -1,6 +1,8 @@
 const cloud = require('wx-server-sdk');
+const crypto = require('crypto');
 const { callLLM } = require('./llm');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
+const db = cloud.database();
 
 const SYSTEM_PROMPT = `你是私人晨报助理的提取引擎。分析用户转发的微信消息/文章，输出 JSON（不要输出任何其他文本）：
 {
@@ -23,7 +25,47 @@ const SYSTEM_PROMPT = `你是私人晨报助理的提取引擎。分析用户转
 8. 无法归类的内容放进 note；
 9. 全部字段使用简体中文（vocabularies.word 保留原文）。`;
 
-/** 内容安全：过微信 msgSecCheck，命中则拒绝 */
+/** 「无法判定」话术：接口超时/5xx 时既不说用户违规，也不把内部错误码抛给用户 */
+const SECURITY_UNAVAILABLE_MSG = '内容暂时无法校验，请稍后再试。';
+/** 明确违规话术（不透露具体命中类别） */
+const SECURITY_VIOLATION_MSG = '内容未通过安全检查，请修改后再试。';
+const MODERATION_COLLECTION = 'moderation_failures';
+
+/** 文本指纹：sha256 前 32 位。同一段文本可归因，但无法还原原文。 */
+function textHash(text) {
+  return crypto.createHash('sha256').update(String(text || '')).digest('hex').slice(0, 32);
+}
+
+/**
+ * 失败留证（与 chat 同款，云函数各自部署故各自实现）：写一条 moderation_failures + 一行
+ * console.error，**绝不存原文**；写库失败不影响主流程，但必须再打一条 error。
+ */
+async function recordModerationFailure(openid, reason, errCode, detail, text) {
+  const hash = textHash(text);
+  const ts = new Date().toISOString();
+  console.error(`[extract] moderation ${reason}: errCode=${errCode} detail=${detail}`);
+  try {
+    await db.collection(MODERATION_COLLECTION).add({ data: { openid, action: 'extract', reason, errCode, detail, ts, textHash: hash } });
+  } catch (err) {
+    console.error('[extract] moderation record write failed:', err && (err.errMsg || err.message));
+  }
+}
+
+/** msgSecCheck 异常归类：`violation` = 87014 明确违规；`unavailable` = 超时/5xx/系统繁忙（拿不到结论） */
+function classifyModerationError(err) {
+  const rawCode = err && (err.errCode !== undefined ? err.errCode : err.code);
+  const errCode = typeof rawCode === 'number' || typeof rawCode === 'string' ? rawCode : null;
+  if (errCode === 87014) return { reason: 'violation', errCode: 87014, detail: 'violation' };
+  const msg = String((err && (err.errMsg || err.message)) || '');
+  const timeout = /timeout|timed out|ETIMEDOUT|ESOCKETTIMEDOUT|ECONNRESET|ENOTFOUND|socket hang up/i.test(msg);
+  const server = errCode === -1 || errCode === 500 || /\b5\d\d\b/.test(msg);
+  return { reason: 'unavailable', errCode, detail: timeout ? 'timeout' : server ? 'server' : 'unknown' };
+}
+
+/**
+ * 内容安全：过微信 msgSecCheck，命中则拒绝。返回 `{ ok, reason }`。
+ * 异常时 **fail-closed**：改前 catch 里 `return true`，超时/抖动即全量放行且线上无痕迹。
+ */
 async function securityCheck(content, openid) {
   try {
     const res = await cloud.openapi.security.msgSecCheck({
@@ -32,14 +74,18 @@ async function securityCheck(content, openid) {
       scene: 1,
       content: content.slice(0, 2500)
     });
-    if (res && res.result && res.result.suggest && res.result.suggest !== 'pass') {
-      return false;
+    const result = (res && res.result) || {};
+    if (result.suggest && result.suggest !== 'pass') {
+      // errCode 留 null：结论来自正常返回而非异常，别和接口错误码混用同一个字段
+      const label = typeof result.label === 'number' ? result.label : null;
+      await recordModerationFailure(openid, 'violation', null, `suggest:${result.suggest}/label:${label}`, content);
+      return { ok: false, reason: 'violation' };
     }
-    return true;
+    return { ok: true };
   } catch (err) {
-    // 内容安全接口异常时不阻断主流程，仅记录
-    console.warn('[extract] msgSecCheck skipped:', err && err.errMsg);
-    return true;
+    const verdict = classifyModerationError(err);
+    await recordModerationFailure(openid, verdict.reason, verdict.errCode, verdict.detail, content);
+    return { ok: false, reason: verdict.reason };
   }
 }
 
@@ -75,9 +121,10 @@ exports.main = async (event) => {
   if (content.length > 5000) throw new Error('content too long (max 5000)');
 
   // TODO：图片内容安全走 security.imgSecCheck（需 base64 -> Buffer），当前先检查文字部分
-  const safe = await securityCheck(content || '截图提取', OPENID);
-  if (!safe) {
-    throw new Error('content failed security check');
+  const check = await securityCheck(content || '截图提取', OPENID);
+  if (!check.ok) {
+    // 两种拒绝给不同的话术：明确违规 = 改内容；接口不可用 = 稍后再试（不透出错误码）
+    throw new Error(check.reason === 'unavailable' ? SECURITY_UNAVAILABLE_MSG : SECURITY_VIOLATION_MSG);
   }
 
   const now = new Date();
