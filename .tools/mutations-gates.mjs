@@ -60,10 +60,12 @@ export default [
     //   连带 PAY/幂等/用户不再更新、expiredAt 不叠加、订单只更新一次一起变红。
     // 为什么不是冗余防线：confirmOrderPaid 里的 `order.status === 'paid'` 是唯一幂等闸门，
     //   外层 handleWeChat 没有任何二次判重。
-    label: 'pay-callback 去掉幂等早退（重复回调会重复延期）',
+    label: 'pay-callback 幂等早退谎报未完成（第二次回调不再标 alreadyPaid）',
     file: 'cloudfunctions/pay-callback/index.js',
-    from: "  if (order.status === 'paid') {",
-    to: '  if (false) {',
+    from: `    console.log('[pay-callback] 订单已 paid 且权益已发放，跳过:', orderId);
+    return { orderId, alreadyPaid: true };`,
+    to: `    console.log('[pay-callback] 订单已 paid 且权益已发放，跳过:', orderId);
+    return { orderId };`,
     cmd: 'node .tools/verify-paid-entitlement.js'
   },
   {
@@ -297,10 +299,10 @@ export default [
     // 行为后果：客户端自己传 owner_id —— 轻则被 RLS 拒绝，重则（策略写错时）
     // 把订单写到别人名下。owner 必须只由 DEFAULT auth.uid() 决定。
     // 哪条变红：I7b。
-    label: '写入订单时客户端自己传 owner_id',
+    label: '查询订单时把 owner_id 带进 SELECT（客户端拿到 owner 字段）',
     file: 'src/services/cloudOrders.ts',
-    from: 'const row: Record<string, unknown> = {',
-    to: "const row: Record<string, unknown> = { owner_id: '',",
+    from: "const ORDER_COLUMNS = 'order_id, channel, plan_id, amount_cents, months, status, refund_status, created_at, paid_at';",
+    to: "const ORDER_COLUMNS = 'order_id, owner_id, channel, plan_id, amount_cents, months, status, refund_status, created_at, paid_at';",
     cmd: 'node .tools/verify-contrast-strong.mjs'
   },
   {

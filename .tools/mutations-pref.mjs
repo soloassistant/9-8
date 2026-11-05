@@ -29,7 +29,7 @@ export default [
     // 函数写好了但没人调 —— 这类"死代码"在本项目反复出现，必须守
     label: 'getBriefing 改回 slice(0, 3) 硬切（偏好不再参与）',
     file: 'src/services/cloud.ts',
-    from: '          const picked = selectByPreference(hotspot.items, prefs, 3)',
+    from: '          const picked = selectForDisplay(hotspot.items, prefs, 3)',
     to: '          const picked = hotspot.items.slice(0, 3)',
     cmd: 'node .tools/verify-pref-select.js'
   },
