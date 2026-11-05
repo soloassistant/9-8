@@ -24,6 +24,7 @@ import {
   formatPace,
   haversineM,
   isRunWorthSaving,
+  activeElapsedSec,
   paceDeltaSec,
   paceSecPerKm,
   readGoalKm,
@@ -228,8 +229,8 @@ export default function SportPage() {
     setView('recording');
 
     tickRef.current = setInterval(() => {
-      const base = pausedTotalRef.current;
-      setElapsed(Math.floor((Date.now() - startedAtRef.current - base) / 1000));
+      // SP-01：暂停期间计时表必须停走（把「当前这段暂停」也扣掉）
+      setElapsed(activeElapsedSec(startedAtRef.current, Date.now(), pausedTotalRef.current, pausedAtRef.current));
     }, 500);
 
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -285,7 +286,8 @@ export default function SportPage() {
 
   const finish = useCallback(() => {
     const startedAt = startedAtRef.current;
-    const durSec = Math.max(0, Math.round((Date.now() - startedAt - pausedTotalRef.current) / 1000));
+    // SP-01：结束在暂停状态下时，必须把这段暂停也扣掉（否则暂停 5 秒白送 5 秒）
+    const durSec = activeElapsedSec(startedAt, Date.now(), pausedTotalRef.current, pausedAtRef.current);
     stopTick();
     stopWatch();
     // SP-03：显式结束此前无最短门槛，11 秒 / 0.2km 的记录会直接入账并让周跑量 +1；

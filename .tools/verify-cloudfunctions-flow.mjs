@@ -1009,6 +1009,21 @@ async function caseOrders() {
     eq('通道状态不确定 → 不得关单（资损安全优先）', cloud.__docs('orders').find((o) => o._id === 'o-old').status, 'created');
     eq('本单不计入 closed', res.closed, 0);
   }
+  {
+    // G22：客户端直调（SOURCE=wx_client）必须拒绝，且不得关任何单
+    const stale2 = isoFromNow(-60 * 60 * 1000);
+    const { cloud, main } = boot('closeOrder', {
+      context: { OPENID: OWNER, SOURCE: 'wx_client' },
+      seed: {
+        orders: [
+          { _id: 'o-old2', orderId: 'ord_old2', openid: OWNER, channel: 'wechat', price: 990, months: 1, status: 'created', createTime: stale2 }
+        ]
+      }
+    });
+    const r = await capture(() => main({}));
+    threwWith('G22/客户端直调 closeOrder → 拒绝', r, /拒绝客户端调用/);
+    eq('G22/客户端直调 → 订单仍是 created', cloud.__docs('orders')[0].status, 'created');
+  }
 }
 
 /* ================================================================== *
