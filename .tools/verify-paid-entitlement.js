@@ -537,6 +537,38 @@ const hasValidExpiredAt = () => {
   assert('A1/带签名头但无公钥/返回失败', !!rSigned && rSigned.code === -1 && /signature invalid/.test(String(rSigned.error)));
   assert('A1/带签名头但无公钥/订单未被置 paid', state.orderUpdates.length === 0);
 
+  /* ---------- 13. 支付宝回调只解码一次（%25/中文/篡改） ---------- */
+  // 改前：querystring.parse 已解码一次，notifyRsaCheck 又 decodeURIComponent 一次
+  // ⇒ 合法值 `100%`（传输为 100%25）二次解码抛 URIError，验签恒 false，用户付款后拿不到权益。
+  const posDoubleDecode = cbSrc.indexOf('decodeURIComponent(value)');
+  assert('DECODE/源码锚点/notifyRsaCheck 只解码一次（无二次 decode）', posDoubleDecode < 0);
+
+  // 13.1 值里含 %25（即原始 `100%`）→ 验签通过
+  reset();
+  seedOrder({ orderId: 'AL-1', channel: 'alipay' });
+  seedUser('buyer-openid');
+  const alPercent = await payCallback.main(alipayNotify({ subject: '100%' }), {});
+  assert('DECODE/含 %25/验签通过并返回 200', !!alPercent && alPercent.httpCode === 200 && alPercent.body === 'success');
+  assert('DECODE/含 %25/订单置为 paid', state.orders[0].status === 'paid');
+
+  // 13.2 值里含中文（%E4%B8%9C 这类）→ 验签通过（签名覆盖的是解码后的真实值）
+  reset();
+  seedOrder({ orderId: 'AL-1', channel: 'alipay' });
+  seedUser('buyer-openid');
+  const alCn = await payCallback.main(alipayNotify({ subject: '东方明珠' }), {});
+  assert('DECODE/中文/验签通过并返回 200', !!alCn && alCn.httpCode === 200 && alCn.body === 'success');
+  assert('DECODE/中文/订单置为 paid', state.orders[0].status === 'paid');
+
+  // 13.3 篡改任一字段 → 验签失败 400 且不写库
+  reset();
+  seedOrder({ orderId: 'AL-1', channel: 'alipay' });
+  seedUser('buyer-openid');
+  const signed = alipayNotify({ subject: 'abc' });
+  const tampered = { body: signed.body.replace('subject=abc', 'subject=abd') };
+  const alTampered = await payCallback.main(tampered, {});
+  assert('DECODE/篡改字段/返回 400', !!alTampered && alTampered.httpCode === 400 && alTampered.body === 'fail');
+  assert('DECODE/篡改字段/订单未变', state.orderUpdates.length === 0 && state.orders[0].status === 'pending');
+
   /* ---------- 汇总 ---------- */
   console.log(`\n通过 ${pass} / 失败 ${failures.length}`);
   if (failures.length) {

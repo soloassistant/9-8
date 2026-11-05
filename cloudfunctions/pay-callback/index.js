@@ -283,7 +283,7 @@ function assertAlipayMerchant(params) {
  * 这里按 alipay-sdk@3 的 checkNotifySign + notifyRSACheck 同等规则直接验签
  * （与下方抖音通道的 crypto.createVerify 风格一致）：
  *   1. 签名取 params.sign；sign_type 缺省 RSA2（RSA-SHA256，RSA = RSA-SHA1）
- *   2. 第一次：剔除 sign、把 sign_type 加回待签串；键排序、值 decodeURIComponent、& 连接
+ *   2. 第一次：剔除 sign、把 sign_type 加回待签串；键排序、值**原样**（已由 querystring 解码一次）、& 连接
  *   3. 第二次：删掉 sign_type 再验（SDK 对商户自行删除 sign_type 的兼容行为）
  */
 function verifyAlipayNotifySign(params, alipayPublicKey) {
@@ -300,7 +300,10 @@ function verifyAlipayNotifySign(params, alipayPublicKey) {
   return notifyRsaCheck(signArgs, signStr, algorithm, key);
 }
 
-/** 对齐 alipay-sdk notifyRSACheck：键排序 + 值 decodeURIComponent + & 连接后验签 */
+/** 对齐 alipay-sdk notifyRSACheck：键排序 + & 连接后验签。
+ *  ⚠️ 这里**只解码一次**：event.body 是原始 form 串，上面的 querystring.parse 已完成
+ *  URL 解码（`%25`→`%`、`+`/`%20`→空格、`%E4%B8%9C`→中文）。再 decodeURIComponent
+ *  会二次解码：`100%` 这类值直接抛 URIError ⇒ 验签恒 false ⇒ 正常付款用户拿不到权益。 */
 function notifyRsaCheck(signArgs, signStr, algorithm, key) {
   const signContent = Object.keys(signArgs).sort().filter((k) => k)
     .map((k) => {
@@ -308,7 +311,7 @@ function notifyRsaCheck(signArgs, signStr, algorithm, key) {
       if (Object.prototype.toString.call(value) !== '[object String]') {
         value = JSON.stringify(value);
       }
-      return k + '=' + decodeURIComponent(value);
+      return k + '=' + value;
     })
     .join('&');
   try {
