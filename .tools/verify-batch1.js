@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const { readI18nSource } = require('./lib/i18n-source.cjs');
 /**
  * verify-batch1.js —— 第 ① 批（A 返回键 / B 订阅分叉 / C tab 新鲜窗口）静态断言。
  *
@@ -201,7 +202,7 @@ assert(
 );
 
 // B-6 i18n：中英各 5 个 key 必须齐全（en 的类型是 Record<keyof typeof zh, string>）
-const lang = read('src/store/language.ts');
+const lang = readI18nSource(ROOT);
 const zhStart = at(lang, 'const zh = {');
 const enStart = at(lang, 'const en: Record<keyof typeof zh, string> = {');
 const zhSrc = lang.slice(zhStart, enStart);

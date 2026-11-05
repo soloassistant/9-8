@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import i18nLib from './lib/i18n-source.cjs';
 /**
  * verify-h5-purge.mjs —— H5 注销清偿客户端契约回归（2026-11-01）。
  *
@@ -118,7 +119,7 @@ const PGRST202 = { code: 'PGRST202', message: 'Could not find the function publi
   // ── ⑥ 窄不变式：注销完成文案不得宣称云端记录已删除 ──
   // 为什么锚文案而不是流程：注销流程正在改成页内工单（「提交工单后 15 个工作日」），
   // 流程断言会被下一次改造打红；但「不能说谎」是跨改造的不变式。
-  const langSrc = fs.readFileSync(path.join(ROOT, 'src', 'store', 'language.ts'), 'utf8');
+  const langSrc = i18nLib.readI18nSource(ROOT);
   const doneCopies = [...langSrc.matchAll(/['"]mine\.deleteDoneH5['"]\s*:\s*'([^']*)'/g)].map((m) => m[1]);
   const FORBID_CLAIM = /已删除全部数据|数据已删除|云端.*(已删|已清除)|all data (has been )?deleted|data has been deleted/i;
   check(

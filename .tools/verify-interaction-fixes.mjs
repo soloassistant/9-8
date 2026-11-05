@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import i18nLib from './lib/i18n-source.cjs';
 /**
  * 交互修复门禁（2026-10-24）
  *
@@ -132,7 +133,7 @@ ok(
   ok('L6 H5 静态管线同步 content 字段', /content: desc \? clampText\(desc, 1000\)/.test(read('.tools/fetch-data.js')));
   // ⚠️ 别断言 tsx 里的注释（stripComments 会剥掉，2026-10-25 实测 NOT 找到）——
   //    合规口径的落地锚点是**用户可见的来源说明文案**（language.ts），不是开发者注释。
-  ok('L7 合规口径落在用户可见文案（源摘要 + 引导原文）', /以上为来源媒体在其订阅源中发布的摘要/.test(read('src/store/language.ts')));
+  ok('L7 合规口径落在用户可见文案（源摘要 + 引导原文）', /以上为来源媒体在其订阅源中发布的摘要/.test(i18nLib.readI18nSource(ROOT)));
 }
 
 /* ---------------- M. 我的页功能宫格（2026-10-25） ----------------
@@ -604,7 +605,7 @@ ok('R3 前提可复现：fromNow(undefined) 确实返回「刚刚」', dateMod.f
 ok('R4 前提可复现：fromNow(合法 ISO) 不会退化成「刚刚」',
   dateMod.fromNow(new Date(Date.now() - 3 * 3600 * 1000).toISOString()) === '3 小时前');
 
-const langSrc = stripComments(read('src/store/language.ts'));
+const langSrc = stripComments(i18nLib.readI18nSource(ROOT));
 const fullQuotes = langSrc.match(/'briefing\.quoteFull':\s*'([^']*)'/g) || [];
 ok('R5 自选满额文案中英各一处，且都用 {max} 占位符（不写死 8）',
   fullQuotes.length === 2 && fullQuotes.every((l) => l.includes('{max}')));

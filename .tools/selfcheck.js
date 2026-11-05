@@ -6,6 +6,7 @@
  *
  * 用法：node .tools/selfcheck.js   （在项目根执行；exit 0 = 全过，1 = 有失败项）
  */
+const { readI18nSource } = require('./lib/i18n-source.cjs');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -71,7 +72,7 @@ check('Q-01 DrillShared 被三个练习组件共同引用', 'Q-01', () => {
 
 /* ---------- 5. L3-08 learn.* 30+2 键 zh/en 双语齐备 ---------- */
 check('L3-08 learn 键 zh/en 双语齐备（30+1）', 'L3-08', () => {
-  const lang = read('src/store/language.ts');
+  const lang = readI18nSource(ROOT);
   if (!lang) return { pass: false, detail: 'language.ts 不存在' };
   const enStart = lang.indexOf("const en:");
   if (enStart < 0) return { pass: false, detail: '找不到 en 字典' };
@@ -124,7 +125,7 @@ check('F-04 晨报当日缓存 + force 重拉入口', 'F-04', () => {
 /* ---------- 8. C3-01 音频 AI 标识：默认场景开关 + 声明文案 ---------- */
 check('C3-01 音频 AI 标识（learning 除外默认开）', 'C3-01', () => {
   const aiLabel = read('src/utils/aiLabel.ts');
-  const lang = read('src/store/language.ts');
+  const lang = readI18nSource(ROOT);
   if (!aiLabel) return { pass: false, detail: 'aiLabel.ts 不存在' };
   const sceneGate = /learning/.test(aiLabel) && /!==\s*['"]learning['"]|===\s*['"]learning['"]/.test(aiLabel);
   const enStart = lang ? lang.indexOf('const en:') : -1;
@@ -235,7 +236,7 @@ check('D 晨报负载条 busyMinutes 双端在位', '战役D', () => {
 /* ---------- 16. E 记忆溯源（memoryCount 渲染 + ai.memoryUsed 双语键） ---------- */
 check('E 记忆溯源 memoryCount + ai.memoryUsed 双语', '战役E', () => {
   const ui = read('src/components/AiAssistant/index.tsx');
-  const lang = read('src/store/language.ts');
+  const lang = readI18nSource(ROOT);
   if (!ui) return { pass: false, detail: 'AiAssistant/index.tsx 不存在' };
   if (!lang) return { pass: false, detail: 'language.ts 不存在' };
   const uiOk = /memoryCount/.test(ui);

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const { readI18nSource } = require('./lib/i18n-source.cjs');
 /**
  * verify-briefing-structure.js —— 晨报页「首屏结构 / 状态机 / 细节」静态断言。
  *
@@ -48,7 +49,7 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const count = (src, s) => src.split(s).length - 1;
 
 const PAGE = read('src/pages/briefing/index.tsx');
-const LANG = read('src/store/language.ts');
+const LANG = readI18nSource(ROOT);
 
 /* ============================================================
  * 一、记账卡的位置：必须在 header 之外，且不在 headerActions 里

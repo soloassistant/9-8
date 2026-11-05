@@ -59,9 +59,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # 必须与 package.json 的 engines.node（>=22）对齐：低于 22 时 yarn 在
-          # 「Validating package.json」就报 incompatible module，连门禁都没跑到。
-          node-version: 22
+          # 与 refresh-data.yml 保持一致
+          node-version: 20
           cache: yarn
 
       - name: 安装依赖

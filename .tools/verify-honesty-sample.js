@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const { readI18nSource } = require('./lib/i18n-source.cjs');
 /**
  * verify-honesty-sample.js —— 「假数据 / 假能力」回归闸门。
  *
@@ -101,7 +102,7 @@ ok('A10 scss 定义 .sampleNote', /\.sampleNote\s*\{/.test(communityScss));
  * 云端账号；小程序端才是仅本机。继续要求降级横幅，等于把「如实告知」判成回归。
  * 现在改为按端核对文案：H5 说清同步去向与可见范围，小程序只说本机，且旧假话零残留。
  */
-const langSrc = read('src/store/language.ts');
+const langSrc = readI18nSource(ROOT);
 const communityCode = stripComments(community);
 const langCode = stripComments(langSrc);
 
@@ -163,7 +164,7 @@ const mockHits = srcFiles.filter((f) => {
 });
 ok('C6 MOCK_TRANSCRIPTS / mockIndexRef 在 src/ 下零命中', mockHits.length === 0);
 
-const locale = read('src/store/language.ts');
+const locale = readI18nSource(ROOT);
 ok(
   'C7 briefing.voiceWeappOnly 中英各一条',
   (locale.match(/'briefing\.voiceWeappOnly'/g) || []).length === 2 &&

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import i18nLib from './lib/i18n-source.cjs';
 /**
  * verify-hotkeys.mjs —— 桌面端键盘快捷键门禁（2026-10-27）。
  *
@@ -224,7 +225,7 @@ assert(`D5 跳转目标必须是 tabBar 页（switchTab 打不开非 tab 页：$
 const nonNavWithRoute = hk.HOTKEYS.filter((h) => h.group !== 'navigate' && h.route);
 assert('D6 非跳转键不许带 route（带了说明表写错了组）', nonNavWithRoute.length === 0);
 
-const langSrc = read('src/store/language.ts');
+const langSrc = i18nLib.readI18nSource(ROOT);
 const enStart = langSrc.indexOf('const en: Record<keyof typeof zh, string> = {');
 const langKeyEnd = langSrc.indexOf('export type LangKey');
 const zhKeys = new Set([...langSrc.slice(0, enStart).matchAll(/'([a-zA-Z0-9_.]+)':/g)].map((m) => m[1]));

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import i18nLib from './lib/i18n-source.cjs';
 /**
  * verify-login-errors.mjs —— 登录错误**按 kind 分流**门禁（2026-10-29 审计复检 P1）
  *
@@ -38,7 +39,7 @@ function assert(name, cond, detail = '') {
 }
 
 const login = read('src/pages/login/index.tsx');
-const lang = read('src/store/language.ts');
+const lang = i18nLib.readI18nSource(ROOT);
 
 /* ───────────── A. sdkDownText 的分流结构 ───────────── */
 const m = /function sdkDownText\(([\s\S]*?)\n\}/.exec(login);

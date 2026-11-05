@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import i18nLib from './lib/i18n-source.cjs';
 /**
  * verify-util-logic.mjs —— utils 纯逻辑回归（2026-10-24 审计后新增）。
  *
@@ -191,7 +192,7 @@ section('C. 晨报头部问候：不谎报 + 双语');
 
 const BRIEFING = readFileSync(path.join(ROOT, 'src/pages/briefing/index.tsx'), 'utf8');
 const DATE_TS = readFileSync(path.join(ROOT, 'src/utils/date.ts'), 'utf8');
-const LANG = readFileSync(path.join(ROOT, 'src/store/language.ts'), 'utf8');
+const LANG = i18nLib.readI18nSource(ROOT);
 
 // C1 原 getGreeting 在 12–14 点写死「下午的日程在这」，当天没日程就是谎报；且硬编码中文。
 // 只看 import 语句：源码注释里会解释「原 getGreeting 如何谎报」，用 includes 会误伤注释。

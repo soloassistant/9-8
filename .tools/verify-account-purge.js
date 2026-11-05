@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const { readI18nSource } = require('./lib/i18n-source.cjs');
 /**
  * verify-account-purge.js —— X10「匿名 SELECT / 注销残余」回归闸门。
  *
@@ -66,7 +67,7 @@ ok('kvClear 调用位置在 signOut 之前', kvAt > 0 && signOutAt > kvAt);
 ok('H5 注销不调用只认 OPENID 的 deleteAccount', /process\.env\.TARO_ENV === 'h5'/.test(mine));
 
 console.log('\n── 3.5 注销完成文案（窄不变式） ──');
-const lang = read('src/store/language.ts');
+const lang = readI18nSource(ROOT);
 const doneCopies = [...lang.matchAll(/['"]mine\.deleteDone['"]\s*:\s*'([^']*)'/g)].map((m) => m[1]);
 const FORBID_CLAIM = /已删除全部数据|云端.{0,8}(已删|已清除)|all data (has been )?deleted/i;
 ok('注销完成文案 mine.deleteDone 不宣称已删除全部数据（中英各一份，违规时指名键名）', doneCopies.length === 2 && doneCopies.every((s) => !FORBID_CLAIM.test(s)));

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import i18nLib from './lib/i18n-source.cjs';
 /**
  * verify-contrast-strong.mjs —— 对比度定点修复的静态门禁。
  *
@@ -308,7 +309,7 @@ try {
 // ============ I. 订阅记录：三态分明 + 云端通道（2026-10-27 改走 WorkBuddy 云） ============
 try {
   const src = read('src/pages/membership/index.tsx');
-  const lang = read('src/store/language.ts');
+  const lang = i18nLib.readI18nSource(ROOT);
   const svc = read('src/services/cloudOrders.ts');
 
   ok('I2 渲染分支区分 ordersError 与 orders.length===0', /ordersError && orders\.length === 0/.test(src));

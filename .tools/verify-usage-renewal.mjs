@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import i18nLib from './lib/i18n-source.cjs';
 /**
  * verify-usage-renewal.mjs —— 「功能记账 + 续费管理」的行为回归（2026-10-24 新增）
  *
@@ -368,7 +369,7 @@ section('D. 会员中心 UI 与配色');
 
 {
   // D3 i18n 中英齐全：逐个 key 在 zh/en 各出现一次，且值不相同（防"英文里写中文"）
-  const langSrc = read('src/store/language.ts');
+  const langSrc = i18nLib.readI18nSource(ROOT);
   const keys = [
     'mine.usageTitle', 'mine.usageToday', 'mine.usageWeek', 'mine.usageEmpty', 'mine.usageNote',
     'mine.fUsageChat', 'mine.fUsageExtract', 'mine.fUsageVoice', 'mine.fUsageSearch',
