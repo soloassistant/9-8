@@ -324,8 +324,18 @@ const RENDER_KEYS = ['PRIVACY_TEXT', 'TERMS_TEXT', 'AI_SERVICES_TEXT'];
 ok('E1 首启同意弹窗渲染三份文本（写了不渲染 = 用户根本看不到）',
   RENDER_KEYS.every((k) => gateSrc.includes(k)));
 ok('E1 「我的」半屏查看层也渲染三份（同意之后仍需可查）', RENDER_KEYS.every((k) => mineSrc.includes(k)));
-ok('E2 同意记录按 LEGAL_VERSION 比对（改文案不递增 = 对老用户静默改条款）',
-  consentSrc.includes('rec.version === LEGAL_VERSION'));
+const hasAgreedFn = (/export function hasAgreedConsent\(\)[\s\S]*?\n\}/.exec(consentSrc) || [''])[0];
+const saveConsentFn = (/export function saveConsent\(\)[\s\S]*?\n\}/.exec(consentSrc) || [''])[0];
+const copyVer = (/export const LEGAL_VERSION = '([^']+)'/.exec(consentSrc) || [])[1] || '';
+const consentVer = (/export const LEGAL_CONSENT_VERSION = '([^']+)'/.exec(consentSrc) || [])[1] || '';
+ok('E2 同意逻辑（hasAgreedConsent / saveConsent）只比对 LEGAL_CONSENT_VERSION，不读 LEGAL_VERSION',
+  hasAgreedFn.includes('rec.version === LEGAL_CONSENT_VERSION') &&
+    saveConsentFn.includes('version: LEGAL_CONSENT_VERSION') &&
+    !/LEGAL_VERSION/.test(hasAgreedFn + saveConsentFn));
+ok('E2b 未签字文案版本不得驱动复同意（LEGAL_VERSION 带 PENDING-SIGNATURE，且与 LEGAL_CONSENT_VERSION 不同值）',
+  copyVer.endsWith('-PENDING-SIGNATURE') &&
+    !consentVer.includes('PENDING-SIGNATURE') &&
+    copyVer !== consentVer);
 
 /* ================================================================== */
 /* E3. 敏感个人信息（运动/健康）的单独同意闸门                            */

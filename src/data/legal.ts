@@ -1,7 +1,8 @@
 /**
  * 法务文本（正式版）：用户服务协议 / 隐私政策 / 第三方 AI 服务说明
  * 「我的」页半屏查看层与 H5 首启同意弹窗共用。
- * 文本更新时递增 LEGAL_VERSION，并让旧同意记录失效（重新弹窗）。
+ * 文本更新时递增 LEGAL_VERSION（文案版本，供审计/门禁），但**用户复同意只看
+ * `LEGAL_CONSENT_VERSION`** —— 未签字定稿前不推进它，避免用户为草稿条文反复同意。
  */
 // 同意记录的实现已拆到 legal-consent.ts（首屏只需要那个布尔值，正文留在异步 chunk）。
 import { LEGAL_VERSION } from './legal-consent';
@@ -10,7 +11,8 @@ export { CONSENT_KEY, hasAgreedConsent, saveConsent } from './legal-consent';
 export type { ConsentRecord } from './legal-consent';
 
 /**
- * ★ 版本历史（改文案必须同步递增本常量，否则旧同意记录不会失效 —— 等于对老用户静默改条款）
+ * ★ 版本历史（改文案必须同步递增 LEGAL_VERSION；仅**签字定稿**才推进 LEGAL_CONSENT_VERSION ——
+ *   后者才让旧同意记录失效，未签字草稿不得驱动复同意）
  * - v1.3-20260915 初版
  * - v1.4-20261013 事实纠错：登录标识由「手机号」改为「邮箱（Web）/ 微信 openid（小程序）」；
  *                 数据分级对象同步更正；《第三方 AI 服务说明》第 9 条补「派生摘要与用量计数会落库」。
@@ -89,6 +91,9 @@ export type { ConsentRecord } from './legal-consent';
  *                 写入 support_tickets（三类记录全选），完成页展示工单号；插入失败不阻断注销，
  *                 完成页明确写「工单未提交成功」，可重新登录后在「补提交注销工单」补提。
  *                 原文「注销后请到『提交注销工单』提交请求」已与链路不符，故改。
+ *                 ★ 2026-11-05 拆分：LEGAL_VERSION = 文案版本（v1.12-20261105-PENDING-SIGNATURE，
+ *                 未签字恒带后缀）；LEGAL_CONSENT_VERSION = 同意版本（保持 v1.10-20261104）。
+ *                 首启/复同意只比对后者；签字定稿时才推进它（清单见 docs/legal/07）。
  */
 export const TERMS_TEXT = `《用户服务协议》
 版本：${LEGAL_VERSION}
