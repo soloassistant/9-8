@@ -19,6 +19,14 @@ module.exports = {
   removeStorageSync: function (k) { S.delete(k); },
   // cloudSync 的「单键超限」提示会弹 toast（缺陷 X5）；其余脚本不受影响。
   showToast: function () { return Promise.resolve(); },
+  // 弹窗桩（verify-health-consent 的运行时断言用）：记录每次 showModal 参数，
+  // 确认结果由 globalThis.__MODAL_CONFIRM__ 控制（默认确认）。
+  showModal: function (o) {
+    var log = (globalThis.__MODAL_LOG__ = globalThis.__MODAL_LOG__ || []);
+    log.push(o);
+    var ok = globalThis.__MODAL_CONFIRM__ !== false;
+    return Promise.resolve({ confirm: ok, cancel: !ok });
+  },
   // localProfile 不直接用下面这些，但保留以免将来 import 面变大：
   getStorage: function (o) { var v = module.exports.getStorageSync(o.key); return v === '' ? Promise.reject({ errMsg: 'data not found' }) : Promise.resolve({ data: v }); },
   setStorage: function (o) { module.exports.setStorageSync(o.key, o.data); return Promise.resolve(); },

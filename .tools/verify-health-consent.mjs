@@ -9,9 +9,18 @@
  * 端到端事实（撤回后 60s 内零请求含 sportRuns、云端行确已删除）仍需在 H5 真机上跑一次。
  */
 import fs from 'node:fs';
+import path from 'node:path';
+import vm from 'node:vm';
+import { createRequire } from 'node:module';
+import esbuild from 'esbuild';
 
 const root = new URL('..', import.meta.url);
 const read = (p) => fs.readFileSync(new URL(p, root), 'utf8');
+
+const ROOT = path.resolve(import.meta.dirname, '..');
+const TARO_STUB = path.join(ROOT, '.tools', 'stubs', 'stub-taro-storage.cjs');
+const SYNC_STUB = path.join(ROOT, '.tools', 'stubs', 'stub-cloud-sync-health.cjs');
+const nodeRequire = createRequire(import.meta.url);
 
 const sync = read('src/services/cloudSync.ts');
 const db = read('src/services/cloudDb.ts');
@@ -124,6 +133,116 @@ ok(
 ok(
   'E2 弹窗 confirmText 引用该文案（不是硬编码长串）',
   /confirmText: t\('health\.consentAgree'\)/.test(health)
+);
+
+// ── F. 按端选文案：运行时真跑（不是 grep 源码）──
+// weapp 没有 KV 同步层，沿用「同步到云端备份」就是虚假告知。把 TARO_ENV 定义成 weapp、
+// 用桩 Taro 捕获 showModal 的 content，断言用词与实际能力一致；文案一改回旧口径立刻红。
+async function loadHealthModule(weapp, lang = 'zh') {
+  const built = await esbuild.build({
+    entryPoints: [path.join(ROOT, 'src/services/healthConsent.ts')],
+    bundle: true,
+    write: false,
+    format: 'cjs',
+    platform: 'node',
+    target: 'node18',
+    alias: { '@tarojs/taro': TARO_STUB, '@': path.join(ROOT, 'src') },
+    define: { 'process.env.TARO_ENV': JSON.stringify(weapp ? 'weapp' : 'h5') },
+    plugins: [
+      {
+        name: 'health-sync-stub',
+        setup(build) {
+          build.onResolve({ filter: /^\.\/cloudSync$/ }, () => ({ path: SYNC_STUB, external: true }));
+        }
+      }
+    ],
+    logLevel: 'silent'
+  });
+  // 桩状态必须挂在 **vm 沙箱** 的 globalThis 上（桩代码在 vm 内执行，读的是它自己的 globalThis）
+  const seed = new Map();
+  if (lang === 'en') seed.set('app-lang', JSON.stringify({ data: 'en' }));
+  const sandbox = {
+    module: { exports: {} },
+    exports: {},
+    require: nodeRequire,
+    console: { log: () => {}, warn: () => {}, error: () => {}, info: () => {}, debug: () => {} },
+    process,
+    setTimeout,
+    clearTimeout,
+    Date,
+    Promise,
+    JSON,
+    Math,
+    __STORE__: seed,
+    __MODAL_LOG__: [],
+    __MODAL_CONFIRM__: true
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(built.outputFiles[0].text, sandbox, { filename: 'healthConsent.ts' });
+  return { mod: sandbox.module.exports, sandbox };
+}
+
+let lastSandbox = null;
+const lastModal = () => ((lastSandbox && lastSandbox.__MODAL_LOG__) || [])[0] || {};
+async function loadHealth(weapp, lang = 'zh') {
+  const loaded = await loadHealthModule(weapp, lang);
+  lastSandbox = loaded.sandbox;
+  return loaded.mod;
+}
+
+const zhWeappConsent = await loadHealth(true, 'zh');
+await zhWeappConsent.ensureHealthConsent();
+const zhAgreeModal = lastModal();
+ok(
+  'F1 小程序端同意弹窗写「不会上传云端」，不写「同步到云端备份」',
+  typeof zhAgreeModal.content === 'string' &&
+    zhAgreeModal.content.includes('不会上传云端') &&
+    !zhAgreeModal.content.includes('同步到云端备份')
+);
+
+const zhWeappWithdraw = await loadHealth(true, 'zh');
+await zhWeappWithdraw.confirmWithdrawHealthConsent();
+const zhWithdrawModal = lastModal();
+ok(
+  'F2 小程序端撤回弹窗写「没有云端副本需要删除」，不写「云端副本将被删除」',
+  typeof zhWithdrawModal.content === 'string' &&
+    zhWithdrawModal.content.includes('没有云端副本需要删除') &&
+    !zhWithdrawModal.content.includes('云端副本将被删除')
+);
+
+const enWeappConsent = await loadHealth(true, 'en');
+await enWeappConsent.ensureHealthConsent();
+const enAgreeModal = lastModal();
+ok(
+  'F3 小程序端英文同意文案不承诺上传云端',
+  typeof enAgreeModal.content === 'string' &&
+    enAgreeModal.content.includes('does not upload them to the cloud') &&
+    !enAgreeModal.content.includes('back up these records to the cloud')
+);
+
+const enWeappWithdraw = await loadHealth(true, 'en');
+await enWeappWithdraw.confirmWithdrawHealthConsent();
+const enWithdrawModal = lastModal();
+ok(
+  'F4 小程序端英文撤回文案写「no cloud copy to delete」',
+  typeof enWithdrawModal.content === 'string' &&
+    enWithdrawModal.content.includes('no cloud copy to delete') &&
+    !enWithdrawModal.content.includes('the cloud copy is deleted')
+);
+
+const h5Consent = await loadHealth(false, 'zh');
+await h5Consent.ensureHealthConsent();
+const h5AgreeModal = lastModal();
+ok(
+  'F5 H5 仍然如实告知「同步到云端备份」（不能被小程序文案误伤）',
+  typeof h5AgreeModal.content === 'string' && h5AgreeModal.content.includes('同步到云端备份')
+);
+
+ok(
+  'F6 运动页撤回提示在小程序端走「本机无云端副本」，不再说「未登录」',
+  /process\.env\.TARO_ENV === 'weapp'[\s\S]{0,160}t\('health\.withdrawnWeapp'\)/.test(sport) &&
+    !/health\.withdrawnWeapp'[^,]*未登录/.test(lang)
 );
 
 console.log(`\n[health-consent] PASS ${pass} / FAIL ${fail}`);
