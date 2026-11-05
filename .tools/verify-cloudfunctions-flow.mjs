@@ -317,6 +317,9 @@ async function caseMockSemantics() {
   // msgSecCheck 已在 mock 里显式桩成 pass（见 wx-server-sdk-mock.cjs），这里换一个仍未实现的 openapi 能力验证「未实现即抛」
   const oa = await capture(() => cloud.openapi.subscribeMessage.send({}));
   ok('openapi 未实现 → 抛 mock-unsupported，不伪装成功', oa.threw === true && /mock-unsupported/.test(String(oa.error.message)), json(oa.error && oa.error.message));
+  // msgSecCheck 不能是「未实现」：chat/extract 已 fail-closed。防止桩退化（有人把 stub 删掉 → 全量误拒）
+  const sec = await capture(() => cloud.openapi.security.msgSecCheck({ content: 'x' }));
+  ok('openapi.security.msgSecCheck 有显式桩且返回 pass', sec.threw === false && sec.value.result.suggest === 'pass', json(sec.value));
 
   // 集合不存在 → -502005（deleteAccount 的 skip 分支依赖它）
   const missingCol = await capture(() => db.collection('never_created').where({ a: 1 }).get());
