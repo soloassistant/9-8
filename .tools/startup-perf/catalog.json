@@ -1,0 +1,45 @@
+{
+  "$comment": [
+    "口径唯一真源：主指标只按「角色」解析（entry-js / vendor-js / route-js / entry-css），角色解析是唯一匹配规则。",
+    "chunk id 每次构建都会变（本次实测历史 506 / 357 在当前构建里已不存在），禁止用 chunk id 做判据；historicalChunkId 仅供报告注释，不参与匹配。",
+    "主指标衡量「代码体积」= 4 个 chunk 的 gzip 之和；副指标衡量「用户真实等待」= 导航→首个交互的全部请求 gzip 之和（含接口数据/图片），只记趋势。",
+    "单位 KB = 1024 B；gzip = CDP encodedDataLength（含响应头）。",
+    "默认阈值 = 基线 remeasuredMainKB 339.5 向下取整（339）。要收紧到 330 的那一天，由改包体的人同时改这里，脚本不许自己悄悄放宽。"
+  ],
+  "id": "startup-main-v1",
+  "unit": "KB = 1024 B",
+  "metric": "gzip",
+  "expect": {
+    "count": 4,
+    "aliases": ["app.js", "506", "357", "app.css"],
+    "roles": ["entry-js", "vendor-js", "route-js", "entry-css"]
+  },
+  "mainSet": {
+    "members": [
+      { "alias": "app.js", "role": "entry-js", "historicalChunkId": null, "desc": "index.html 中 defer 的应用入口脚本 app.<hash>.js" },
+      { "alias": "506", "role": "vendor-js", "historicalChunkId": 506, "desc": "index.html 中与入口同批 defer 的 vendor 脚本（506 仅为历史 id 注释）" },
+      { "alias": "357", "role": "route-js", "historicalChunkId": 357, "desc": "首屏 route chunk：启动期拉取的最大非入口脚本（357 仅为历史 id 注释）" },
+      { "alias": "app.css", "role": "entry-css", "historicalChunkId": null, "desc": "index.html 中 rel=stylesheet 的应用样式表 app.<hash>.css" }
+    ]
+  },
+  "baseline": {
+    "date": "2026-11-05",
+    "mainKB": 340.9,
+    "remeasuredMainKB": 339.5,
+    "source": "D:/Agent/.tmp-u-audit/bundle2.json mainTotal=338.9（app.js+506+357+app.css 四文件口径）"
+  },
+  "gate": {
+    "defaultThresholdKB": 339,
+    "note": "= 基线 remeasuredMainKB 339.5 向下取整；收紧阈值必须改这里，脚本不自动放宽"
+  },
+  "firstScreenSources": [
+    "src/index.html",
+    "src/app.tsx",
+    "src/app.scss",
+    "src/pages/briefing/index.tsx",
+    "src/pages/briefing/index.module.scss",
+    "src/components/Splash/index.tsx",
+    "src/components/ConsentGate/index.tsx",
+    "src/utils/a11y.ts"
+  ]
+}
