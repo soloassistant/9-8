@@ -116,6 +116,15 @@ ok(
   'D4 同意文案与实现一致（撤回后不再上传、云端副本删除）',
   lang.includes('撤回后不再记录、也不再上传任何记录，云端副本会被删除')
 );
+ok(
+  'E1 同意按钮文案 ≤ 4 字（Taro/微信 showModal 超长会 fail，授权弹窗永不出现）',
+  /^  'health\.consentAgree': '([^']*)',$/m.test(lang) &&
+    [...(lang.match(/^  'health\.consentAgree': '([^']*)',$/m) || [])[1] || ''].length <= 4
+);
+ok(
+  'E2 弹窗 confirmText 引用该文案（不是硬编码长串）',
+  /confirmText: t\('health\.consentAgree'\)/.test(health)
+);
 
 console.log(`\n[health-consent] PASS ${pass} / FAIL ${fail}`);
 if (fail > 0) {
