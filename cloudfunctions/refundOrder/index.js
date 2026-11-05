@@ -11,8 +11,10 @@
  *   1. 归属校验：退款单必须是当前 openid 的订单（防越权）
  *   2. 状态校验：只有 paid 状态才能退款，已退款/已关闭直接拒绝
  *   3. 金额校验：退款金额 ≤ 订单金额（防超额退款）
- *   4. 通道幂等：微信用 outRefundNo（订单号 + 退款序号），支付宝用 out_request_no
- *   5. 退款成功 → 扣减订阅到期时间（months 按比例折算；简化处理：直接置 expiredAt 为订阅前值）
+ *   4. 幂等：refundNo = R<orderId>-<attempt> 确定性派生，重试/接管永远同一单号（微信 outRefundNo / 支付宝 out_request_no）
+ *   5. 调用前落库：refund_attempts._id = refundNo，插入成功才拿到「发起权」，并发只放一个进
+ *   6. 10 分钟 stale：接管必须先查通道真实状态；查不清转人工，绝不盲发第二笔
+ *   7. 退款成功 → 先落退款事实，再扣减订阅；权益失败不回写退款状态
  *
  * @param {object} event
  *   - orderId     必填，本地订单号 ord_xxx
@@ -35,6 +37,8 @@ const cfg = {
 const ALIPAY_GATEWAY = cfg.alipayEnv === 'sandbox'
   ? 'https://openapi-sandbox.dl.alipaydev.com/gateway.do'
   : 'https://openapi.alipay.com/gateway.do';
+const REFUND_STALE_MS = 10 * 60 * 1000; // stale 接管阈值：10 分钟
+const ATTEMPTS = 'refund_attempts';
 
 // ========== 主入口 ==========
 exports.main = async (event) => {
@@ -56,12 +60,20 @@ exports.main = async (event) => {
     return { ok: false, error: '无权限操作此订单' };
   }
 
-  // ========== 3. 状态校验 ==========
+  // ========== 3. 状态校验（R4 状态机）==========
+  if (order.status === 'refunded' || order.refundStatus === 'refunded') {
+    return { ok: true, orderId, alreadyRefunded: true }; // 幂等：已退款不再触达通道
+  }
   if (order.status !== 'paid') {
     return { ok: false, error: '订单未支付或已处理' };
   }
-  if (order.refundStatus === 'refunded' || order.refundStatus === 'refunding') {
-    return { ok: false, error: '订单退款处理中或已退款' };
+  const now = Date.now();
+  if (order.refundStatus === 'refunding') {
+    const lockAt = Date.parse(order.refundLockAt || order.refundTime || '');
+    // 锁未过期 → 处理中；过期 → 走 stale 接管（复用旧单号，先查单）
+    if (Number.isFinite(lockAt) && now - lockAt < REFUND_STALE_MS) {
+      return { ok: false, error: '订单退款处理中或已退款', processing: true };
+    }
   }
 
   // ========== 4. 金额校验 ==========
@@ -74,14 +86,30 @@ exports.main = async (event) => {
     return { ok: false, error: '退款金额超过订单金额' };
   }
 
-  // ========== 5. 按通道路由 ==========
+  // ========== 5. 幂等键 + 调用前落库 ==========
   const channel = order.channel || 'wechat';
-  const refundNo = `refund_${orderId}_${Date.now()}`;
+  const prevAttempt = Number(order.refundAttempt) || 0;
+  // 上次已把单号发往通道（失败/超时）→ 复用同一单号；只有确认通道无此单才 +1
+  const reuse = !!order.refundNo && (order.refundStatus === 'refund_failed' || order.refundStatus === 'refunding');
+  const attempt = reuse ? prevAttempt : prevAttempt + 1;
+  const refundNo = reuse ? order.refundNo : deriveRefundNo(orderId, attempt);
   const refundReason = (reason || '用户申请退款').slice(0, 200);
 
-  // 先把订单标记为 refunding（避免并发重复退款）
+  // refund_attempts._id 唯一 = 并发锁：插入成功才允许发起通道调用
+  const reservation = await reserveAttempt({
+    orderId, openid: OPENID, channel, attempt, refundNo,
+    amountFen: refundAmount, status: 'pending', createTime: new Date(now).toISOString()
+  });
+  if (!reservation.created) {
+    const handled = await handleExistingAttempt(reservation.existing, { order, refundNo, refundAmount, now });
+    if (handled) return handled;
+  }
+
   await db.collection('orders').doc(order._id).update({
-    data: { refundStatus: 'refunding', refundNo, refundAmount, refundReason, refundTime: new Date().toISOString() }
+    data: {
+      refundStatus: 'refunding', refundAttempt: attempt, refundNo, refundAmount, refundReason,
+      refundTime: order.refundTime || new Date(now).toISOString(), refundLockAt: new Date(now).toISOString()
+    }
   });
 
   try {
@@ -97,6 +125,7 @@ exports.main = async (event) => {
         // 抖音支付暂不开放退款接口 → 返回人工指引
         channelResult = { ok: false, manualRefund: true, message: '抖音支付暂不支持小程序自动退款，请联系客服处理' };
         // 抖音的 refundStatus 改回 pending（未退款），让订单仍处于 paid 状态
+        await markAttempt(refundNo, { status: 'failed', lastError: 'douyin manual refund' });
         await db.collection('orders').doc(order._id).update({
           data: { refundStatus: 'pending', refundNo: null, refundAmount: null, refundReason: null, refundTime: null }
         });
@@ -105,37 +134,24 @@ exports.main = async (event) => {
         throw new Error('未知支付通道: ' + channel);
     }
 
-    // ========== 6. 退款成功回写 ==========
-    if (channelResult.ok) {
+    // ========== 6. 通道明确失败 ==========
+    if (!channelResult.ok) {
+      await markAttempt(refundNo, { status: 'failed', lastError: String(channelResult.message || '通道退款失败').slice(0, 200) });
       await db.collection('orders').doc(order._id).update({
-        data: {
-          // B3：退款成功写 status 终态（refunded），同时保留 refundStatus 兼容旧读取
-          status: 'refunded',
-          refundStatus: 'refunded',
-          refundChannelNo: channelResult.refundNo || null,
-          refundFinishTime: new Date().toISOString()
-        }
+        data: { refundStatus: 'refund_failed', refundError: channelResult.message || '通道退款失败', refundLockAt: null }
       });
-      // 扣减订阅权益：简化处理——重置用户 expiredAt 为订阅前值
-      // 精确计算应结合 extendUserExpiredAt 的实际延长；这里用最保守策略
-      if (order.months) {
-        await rollbackUserSubscription(OPENID, order.months);
-      }
-      return { ok: true, orderId, channel, refundAmount, refundNo };
+      return { ok: false, error: channelResult.message || '通道退款失败', channel };
     }
 
-    // 通道返回失败：回滚 refundStatus
-    await db.collection('orders').doc(order._id).update({
-      data: { refundStatus: 'pending', refundNo: null, refundAmount: null, refundReason: null }
-    });
-    return { ok: false, error: channelResult.message || '通道退款失败', channel };
+    // ========== 7. 两段提交：先落退款事实，再算权益 ==========
+    await markAttempt(refundNo, { status: 'accepted', thirdPartyNo: channelResult.refundNo || refundNo, finishTime: new Date().toISOString() });
+    await finalizeRefunded(order, refundNo, channelResult.refundNo);
+    return { ok: true, orderId, channel, refundAmount, refundNo };
   } catch (err) {
-    console.error('[refundOrder] 异常:', err.message);
-    // 异常时保持 refunding 状态 + 记录错误日志，便于人工排查
-    await db.collection('orders').doc(order._id).update({
-      data: { refundStatus: 'refund_failed', refundError: err.message || String(err) }
-    });
-    return { ok: false, error: err.message || String(err), channel };
+    // 结果未知（可能已发到通道）：保持 refunding + pending，绝不写成「一键重试」的失败态
+    console.error('[refundOrder] 通道结果未知:', err.message);
+    await markAttempt(refundNo, { lastError: String(err.message || err).slice(0, 200), lastAttemptAt: new Date().toISOString() });
+    return { ok: false, error: err.message || String(err), channel, unknown: true };
   }
 };
 
@@ -222,4 +238,118 @@ async function rollbackUserSubscription(openid, monthsToRollback) {
       updatedAt: new Date().toISOString()
     }
   });
+}
+
+// ========== R4 幂等：尝试记录 / 确定性单号 / stale 查单 ==========
+
+/** 确定性派生：同一订单同一 attempt 永远同一单号（≤64 字节） */
+function deriveRefundNo(orderId, attempt) {
+  const safe = String(orderId).replace(/[^A-Za-z0-9_-]/g, '');
+  return `R${safe}-${String(attempt).padStart(2, '0')}`.slice(0, 64);
+}
+
+/** 调用前插入尝试记录；_id 冲突 = 已有尝试，返回 existing */
+async function reserveAttempt(meta) {
+  try {
+    await db.collection(ATTEMPTS).add({ data: Object.assign({ _id: meta.refundNo }, meta) });
+    return { created: true, existing: null };
+  } catch (err) {
+    const msg = String((err && err.message) || err);
+    if (err && (err.errCode === -1 || /duplicate|主键冲突|已存在/i.test(msg))) {
+      let existing = null;
+      try {
+        existing = (await db.collection(ATTEMPTS).doc(meta.refundNo).get()).data || null;
+      } catch (e) {
+        if (e && e.errCode !== -1) throw e;
+      }
+      return { created: false, existing };
+    }
+    throw err;
+  }
+}
+
+async function markAttempt(refundNo, patch) {
+  await db.collection(ATTEMPTS).doc(refundNo).update({ data: patch }).catch((err) => {
+    console.error('[refundOrder] 尝试记录回写失败:', refundNo, err.message);
+  });
+}
+
+/**
+ * 已存在尝试：accepted → 补写终态并幂等返回；pending 未超时 → 处理中；
+ * pending 已超时 → 先查通道，查不清转人工；failed / 确认无此单 → 同号重发（通道幂等）。
+ * @returns 已处理则返回业务结果；null 表示可以继续发起
+ */
+async function handleExistingAttempt(existing, { order, refundNo, refundAmount, now }) {
+  if (!existing) return null;
+  if (existing.status === 'accepted') {
+    await finalizeRefunded(order, refundNo, existing.thirdPartyNo);
+    return { ok: true, orderId: order.orderId, alreadyRefunded: true, refundNo };
+  }
+  const createdAt = Date.parse(existing.createTime || existing.lastAttemptAt || '');
+  if (existing.status === 'pending' && Number.isFinite(createdAt) && now - createdAt < REFUND_STALE_MS) {
+    return { ok: false, error: '订单退款处理中或已退款', processing: true };
+  }
+  if (existing.status !== 'pending') return null;
+
+  const snap = await queryRefundState(existing.channel || order.channel, order, refundNo);
+  if (snap.state === 'accepted') {
+    await markAttempt(refundNo, { status: 'accepted', thirdPartyNo: snap.thirdPartyNo, finishTime: new Date().toISOString() });
+    await finalizeRefunded(order, refundNo, snap.thirdPartyNo);
+    return { ok: true, orderId: order.orderId, recovered: true, refundNo };
+  }
+  if (snap.state !== 'not_found') {
+    return { ok: false, manualReconcile: true, error: '退款结果未知，需人工对账后再处理（未发起第二笔）', refundNo };
+  }
+  return null; // 通道确认无此单 → 同号重发，不会产生第二笔
+}
+
+/** 查通道退款真实状态：accepted / not_found / unknown（unknown 一律不重发） */
+async function queryRefundState(channel, order, refundNo) {
+  try {
+    // 支付宝查询需要额外 SDK 调用，当前一律转人工（宁可不动钱）
+    if (channel !== 'wechat') return { state: 'unknown' };
+    if (typeof cloud.cloudPay.queryRefund === 'function') {
+      const res = await cloud.cloudPay.queryRefund({
+        outRefundNo: refundNo,
+        subMchId: process.env.PAY_WX_SUB_MCH_ID || '',
+        envId: cloud.DYNAMIC_CURRENT_ENV
+      });
+      const code = String((res && (res.errCode || res.err_code)) || '');
+      if (res && res.status === 'SUCCESS') return { state: 'accepted', thirdPartyNo: res.refundId };
+      if (/NOT[_-]?FOUND|NOT[_-]?EXIST/i.test(code + String((res && res.errMsg) || ''))) return { state: 'not_found' };
+      return { state: 'unknown' };
+    }
+    // 退到查单：REFUND 是全额退款终态，其余一律"未知"（不能据此重发）
+    const res = await cloud.cloudPay.queryOrder({
+      outTradeNo: order.orderId,
+      subMchId: process.env.PAY_WX_SUB_MCH_ID || '',
+      nonce_str: String(Date.now())
+    });
+    const state = (res && (res.trade_state || res.tradeState)) || '';
+    return state === 'REFUND' ? { state: 'accepted', thirdPartyNo: res.transactionId } : { state: 'unknown' };
+  } catch (err) {
+    console.error('[refundOrder] 查退款状态失败:', err.message);
+    return { state: 'unknown' };
+  }
+}
+
+/** 退款事实落地 + 权益回滚（第二段，权益失败不得改写退款状态） */
+async function finalizeRefunded(order, refundNo, thirdPartyNo) {
+  await db.collection('orders').doc(order._id).update({
+    data: {
+      status: 'refunded',
+      refundStatus: 'refunded',
+      refundChannelNo: thirdPartyNo || refundNo,
+      refundFinishTime: new Date().toISOString(),
+      refundLockAt: null
+    }
+  });
+  try {
+    if (order.months) await rollbackUserSubscription(order.openid, order.months);
+  } catch (err) {
+    console.error('[refundOrder] 权益回滚失败（交对账重试）:', err.message);
+    await db.collection('orders').doc(order._id).update({
+      data: { entitlementRollbackStatus: 'failed', entitlementRollbackError: String(err.message || err).slice(0, 200) }
+    }).catch(() => {});
+  }
 }
