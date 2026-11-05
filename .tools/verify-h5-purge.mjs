@@ -115,6 +115,22 @@ const PGRST202 = { code: 'PGRST202', message: 'Could not find the function publi
   check('PG5', '切片含 PGRST202 灰度分支（防回归：删了它会让 SQL 未上线时注销报错）',
     /PGRST202/.test(slice));
 
+  // ── ⑥ SQL 资产：函数执行权必须显式收紧（三主体收回 → 只授回 authenticated） ──
+  // 为什么放在这条门禁里：PG1 的「静默跳过」只说明客户端不因未部署而报错，**不**说明
+  // 函数上线后别人调不到它。执行权不收紧，SECURITY DEFINER 就成了任何持 anon key 的
+  // 访客都能按自己的 uid 删数据的通道。判据在**剥离 `--` 注释后的正文**上做：
+  // 说明文字里也写着 REVOKE/GRANT，不剥注释会让顺序断言假绿。
+  const sqlCode = fs.readFileSync(path.join(ROOT, '.tools', 'sql', 'v3-h5-purge.sql'), 'utf8')
+    .replace(/--[^\n]*/g, '');
+  const rvk = sqlCode.match(/REVOKE\s+ALL\s+ON\s+FUNCTION\s+public\.purge_my_h5_data\(\)\s+FROM\s+([^;]+);/i);
+  const rvkWho = rvk ? rvk[1].split(',').map((s) => s.trim().toLowerCase()) : [];
+  const grt = sqlCode.match(/GRANT\s+EXECUTE\s+ON\s+FUNCTION\s+public\.purge_my_h5_data\(\)\s+TO\s+authenticated\s*;/i);
+  check('PG6', 'v3 SQL：REVOKE 三个主体齐全（PUBLIC / anon / authenticated）',
+    Boolean(rvk) && ['public', 'anon', 'authenticated'].every((x) => rvkWho.includes(x)));
+  check('PG7', 'v3 SQL：GRANT EXECUTE 只授回 authenticated', Boolean(grt));
+  check('PG8', 'v3 SQL：REVOKE 在 GRANT 之前（先收回再授回）',
+    Boolean(rvk && grt) && rvk.index < grt.index);
+
   console.log(`\nPASS ${passes} / FAIL ${failures}`);
   process.exit(failures === 0 ? 0 : 1);
 })();
