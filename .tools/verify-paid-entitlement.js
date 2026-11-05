@@ -405,6 +405,33 @@ const hasValidExpiredAt = () => {
   assert('X7/UI/提供重新核对入口', /handleRecheck/.test(uiSrc) && /重新核对/.test(uiSrc));
   assert('X7/UI/卡片真实渲染（不是只存 state）', /reconcileIssue \? \(/.test(uiSrc) && /reconcileCard/.test(uiSrc));
 
+  /* ---------- 15. B3：订单状态机（禁 closed→paid，退款写 refunded 终态） ---------- */
+  const paySrc2 = fs.readFileSync(path.join(ROOT, 'cloudfunctions', 'pay-callback', 'index.js'), 'utf8');
+  const qSrc2 = fs.readFileSync(path.join(ROOT, 'cloudfunctions', 'queryOrder', 'index.js'), 'utf8');
+  const refSrc2 = fs.readFileSync(path.join(ROOT, 'cloudfunctions', 'refundOrder', 'index.js'), 'utf8');
+  assert(
+    'B3/源码锚点/入账前校验状态白名单（pay-callback）',
+    /if \(order\.status !== 'paid' && !PAYABLE_STATUSES\.includes\(order\.status\)\)/.test(paySrc2)
+  );
+  assert(
+    'B3/源码锚点/CAS 候选限定 created/pending/failed（两端）',
+    /status: _\.in\(PAYABLE_STATUSES\)/.test(paySrc2) && /status: _\.in\(PAYABLE_STATUSES\)/.test(qSrc2)
+  );
+  assert(
+    'B3/源码锚点/退款写 status=refunded 终态且保留 refundStatus',
+    /status: 'refunded'/.test(refSrc2) && /refundStatus: 'refunded'/.test(refSrc2)
+  );
+
+  // 行为：已关闭订单收到回调 → 拒绝入账，订单仍是 closed、不发权益
+  reset();
+  seedOrder({ orderId: 'ORDER-CLOSED' });
+  state.orders[0].status = 'closed';
+  seedUser('buyer-openid');
+  const rClosed = await fireCallback('ORDER-CLOSED');
+  assert('B3/closed 单回调/返回失败', !!rClosed && rClosed.code === -1);
+  assert('B3/closed 单回调/仍是 closed 且无写库', state.orders[0].status === 'closed' && state.orderUpdates.length === 0);
+  assert('B3/closed 单回调/未发放权益', state.userUpdates.length === 0);
+
   /* ---------- 14. A3：pay-* 金额服务端化 + 内部调用 token ---------- */
   // 改前：pay-wechat/pay-alipay/pay-douyin 的金额与 planId 全取自 event，
   // 且 pay-wechat 还接受 event.openid ⇒ 客户端直调即可「1 分钱买年付」。
