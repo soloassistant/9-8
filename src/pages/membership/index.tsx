@@ -27,6 +27,7 @@ import {
   readLockedPrice
 } from '@/utils/subscription';
 import type { LockedPriceInfo, PriceChangeNotice } from '@/utils/subscription';
+import { TERMS_TEXT, PRIVACY_TEXT } from '@/data/legal';
 import { FEATURES } from '@/utils/featureUsage';
 import type { FeatureKey, UsageSummary } from '@/utils/featureUsage';
 import { readUsageSummary } from '@/utils/usageLog';
@@ -171,6 +172,8 @@ function MembershipPage() {
   const [readStreak, setReadStreak] = useState(0);
   const [readFreezeCards, setReadFreezeCards] = useState(0);
   const [promoOpen, setPromoOpen] = useState(false);
+  /** U-11：支付前可读的条款/隐私弹层 */
+  const [docView, setDocView] = useState<'terms' | 'privacy' | null>(null);
   const [promoInput, setPromoInput] = useState('');
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoErr, setPromoErr] = useState('');
@@ -732,6 +735,19 @@ function MembershipPage() {
           <Text className={styles.lockLose}>{t('mine.lockRise')}</Text>
         </View>
 
+        {/* U-11：支付按钮上方前置条款与续费说明（红线是「付款前可读」） */}
+        <View className={styles.payLegal}>
+          <Text className={styles.payLegalText}>{t('mine.payTermsPrefix')}</Text>
+          <Text className={styles.payLegalLink} onClick={() => setDocView('terms')}>
+            {t('mine.terms')}
+          </Text>
+          <Text className={styles.payLegalText}>{t('mine.payTermsJoin')}</Text>
+          <Text className={styles.payLegalLink} onClick={() => setDocView('privacy')}>
+            {t('mine.privacy')}
+          </Text>
+        </View>
+        <Text className={styles.renewNoAuto}>{t('mine.payRenewNote')}</Text>
+
         {/* ③ 支付按钮 + 通道提示 */}
         <View className={styles.subButtonRow}>
           <View className={styles.subButtonGroup}>
@@ -985,6 +1001,23 @@ function MembershipPage() {
                 {t('mine.promoSubmit')}
               </Button>
             </View>
+          </View>
+        </View>
+      ) : null}
+      {/* U-11：条款/隐私原文弹层（复用 mine 的半屏语言） */}
+      {docView ? (
+        <View className={styles.docMask} onClick={() => setDocView(null)}>
+          <View className={styles.docPanel} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.docTitle}>{docView === 'terms' ? t('mine.terms') : t('mine.privacy')}</Text>
+            <ScrollView scrollY className={styles.docBody}>
+              <Text className={styles.docText}>
+                {lang === 'en' ? `${t('legal.langNotice')}\n\n` : ''}
+                {docView === 'terms' ? TERMS_TEXT : PRIVACY_TEXT}
+              </Text>
+            </ScrollView>
+            <Button className={styles.docClose} onClick={() => setDocView(null)}>
+              {t('mine.docRead')}
+            </Button>
           </View>
         </View>
       ) : null}
