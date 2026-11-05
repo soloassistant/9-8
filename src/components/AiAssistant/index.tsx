@@ -820,6 +820,7 @@ function AiAssistant({ context = '', activeHint, offset = 0, embedded = false }:
                       mode='aspectFill'
                       lazyLoad
                       className={styles.msgImage}
+                      nativeProps={isH5 ? { decoding: 'async' } : undefined}
                       onClick={() => previewImage(m.image)}
                     />
                   ) : null}

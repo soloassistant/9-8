@@ -11,6 +11,18 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
     <title>私人晨报助理</title>
     <!--
+      首屏必现图标抢优先级（2026-11-05）：Taro H5 的 tabBar 由运行时渲染成
+      <img class="weui-tabbar__icon">，我们拿不到那个节点、也就没法从组件侧设
+      fetchPriority。这里用 preload 把 5 个未选中态图标提前到 high 优先级，
+      避免它们排在懒加载图片后面（tabBar 是首屏 chrome，空了会比图片慢更显眼）。
+      选中态图标不加：只有切换 tab 时才用得到。
+    -->
+    <link rel="preload" as="image" fetchpriority="high" href="./static/images/assets/tabbar-png/briefing.png" />
+    <link rel="preload" as="image" fetchpriority="high" href="./static/images/assets/tabbar-png/inbox.png" />
+    <link rel="preload" as="image" fetchpriority="high" href="./static/images/assets/tabbar-png/library.png" />
+    <link rel="preload" as="image" fetchpriority="high" href="./static/images/assets/tabbar-png/calendar.png" />
+    <link rel="preload" as="image" fetchpriority="high" href="./static/images/assets/tabbar-png/mine.png" />
+    <!--
       WorkBuddy 云服务 SDK（认证用）—— **自托管**，不再从 jsdelivr CDN 拉取。
       原因（2026-10-14 修复线上 "cloud sdk unavailable / 登录服务连不上"）：
         1) 此前从 cdn.jsdelivr.net 加载 IIFE 全局 WorkBuddyCloud；该 CDN 在中国大陆

@@ -1170,7 +1170,7 @@ function MinePage() {
                   className={styles.avatarImg}
                   src={avatar}
                   mode='aspectFill'
-                  nativeProps={isH5 ? { alt: t('mine.avatarAlt') } : undefined}
+                  nativeProps={isH5 ? { alt: t('mine.avatarAlt'), decoding: 'async' } : undefined}
                 />
               )
             ) : (

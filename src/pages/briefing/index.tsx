@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Button, Image } from '@tarojs/components';
+import { View, Text, Button } from '@tarojs/components';
 import Taro, { usePullDownRefresh, useDidShow, useDidHide, useShareAppMessage } from '@tarojs/taro';
 import { pressableProps } from '@/utils/a11y';
 import dayjs from 'dayjs';
@@ -7,6 +7,7 @@ import classnames from 'classnames';
 import EmptyState from '@/components/EmptyState';
 import PermissionDialog from '@/components/PermissionDialog';
 import IntelGroupCard, { IntelItemRow } from '@/components/IntelGroupCard';
+import SafeImage from '@/components/SafeImage';
 import HabitGuardBar from '@/components/HabitGuardBar';
 import PlanProposalCard from '@/components/PlanProposalCard';
 import { BriefingSkeleton } from '@/components/Skeleton';
@@ -1888,13 +1889,16 @@ function BriefingPage() {
                 }}
               >
                 <View className={styles.videoCoverWrap}>
-                  {cover ? (
-                    <Image src={cover} mode='aspectFill' lazyLoad className={styles.videoCover} />
-                  ) : (
-                    <View className={styles.videoCoverFallback}>
-                      <Text className={styles.videoCoverFallbackIcon}>🎬</Text>
-                    </View>
-                  )}
+                  {/* 封面：统一走 SafeImage —— 403/网络失败时卸载 <img> 换同尺寸占位，
+                      不留破图图标；source 让占位写明「来自哔哩哔哩」。
+                      lazy 保留：视频区在首屏之外，滚动到附近才请求。 */}
+                  <SafeImage
+                    src={cover}
+                    source={v.source}
+                    alt={v.title}
+                    mode='aspectFill'
+                    className={styles.videoCover}
+                  />
                   {/* 播放角标 + 时长：相对封面容器（position:relative）内绝对定位，
                       徽章自身只做背景+圆角，无变换/裁剪，双端渲染一致 */}
                   <View className={styles.videoCoverBadge}>

@@ -46,7 +46,12 @@ function Splash({ onGone }: SplashProps) {
           className={styles.logo}
           src={require('@/assets/logo.png')}
           mode='aspectFit'
-          nativeProps={isH5 ? { alt: '', 'aria-hidden': true } : undefined}
+          // 首屏必现的图：eager + high priority（默认懒加载会把它排到后面，开屏第一帧就空一块）
+          nativeProps={
+            isH5
+              ? { alt: '', 'aria-hidden': true, decoding: 'async', loading: 'eager', fetchPriority: 'high' }
+              : undefined
+          }
         />
         <Text className={styles.title}>私人晨报助理</Text>
         <Text className={styles.slogan}>今天的事，晨报先知道</Text>
