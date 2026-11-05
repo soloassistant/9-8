@@ -35,8 +35,8 @@ export interface SafeImageProps {
   fallbackLabel?: string;
   /** 失败占位的来源标注（如「哔哩哔哩」→ 显示「来自哔哩哔哩」） */
   source?: string;
-  /** 点击图片（仅在加载成功时挂载） */
-  onClick?: () => void;
+  /** 点击图片（仅在加载成功时挂载；失败态不挂，点占位块会冒泡到外层卡片） */
+  onClick?: (e: any) => void;
 }
 
 export default function SafeImage({
