@@ -816,6 +816,14 @@ function MinePage() {
    */
   const handleSignOut = () => {
     void (async () => {
+      const confirmRes = await Taro.showModal({
+        title: t('mine.signOutConfirmTitle'),
+        content: t('mine.signOutConfirmContent'),
+        confirmText: t('mine.signOutConfirmOk'),
+        cancelText: t('common.cancel'),
+        confirmColor: '#B42318',
+      });
+      if (!confirmRes.confirm) return;
       try {
         await signOut();
         // 清「下次自动登录」偏好：既然用户主动登出了，下次不该再被自动记住。
