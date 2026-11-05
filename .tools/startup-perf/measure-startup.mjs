@@ -839,17 +839,28 @@ function checkConsistency(repo, artifact, catalog) {
 // ── 环境指纹 ─────────────────────────────────────────────────────────────────
 function resolveHead(headRepo) {
   try {
-    const gitDir = path.join(headRepo, '.git');
-    if (!fs.existsSync(gitDir)) return { head: null, note: '无 .git' };
+    const dotgit = path.join(headRepo, '.git');
+    if (!fs.existsSync(dotgit)) return { head: null, note: '无 .git' };
+    let gitDir = dotgit;
+    let commonDir = dotgit;
+    if (fs.statSync(dotgit).isFile()) {
+      // linked worktree：.git 是文件，内容为 "gitdir: <path>"
+      const m = fs.readFileSync(dotgit, 'utf8').match(/^gitdir:\s*(.+)$/m);
+      if (!m) return { head: null, note: '.git 文件无 gitdir' };
+      gitDir = path.resolve(headRepo, m[1].trim());
+      const cFile = path.join(gitDir, 'commondir');
+      commonDir = fs.existsSync(cFile) ? path.resolve(gitDir, fs.readFileSync(cFile, 'utf8').trim()) : gitDir;
+    }
     const headFile = path.join(gitDir, 'HEAD');
     if (!fs.existsSync(headFile)) return { head: null, note: '无 .git/HEAD' };
     const head = fs.readFileSync(headFile, 'utf8').trim();
     if (/^ref: refs\//.test(head)) {
-      const refPath = path.join(gitDir, head.replace(/^ref:\s*/, ''));
+      const refName = head.replace(/^ref:\s*/, '');
+      const refPath = path.join(commonDir, refName);
       if (fs.existsSync(refPath)) return { head: fs.readFileSync(refPath, 'utf8').trim(), note: 'ref' };
-      const packed = path.join(gitDir, 'packed-refs');
+      const packed = path.join(commonDir, 'packed-refs');
       if (fs.existsSync(packed)) {
-        const line = fs.readFileSync(packed, 'utf8').split('\n').find((l) => l.includes(head.replace(/^ref:\s*/, '')));
+        const line = fs.readFileSync(packed, 'utf8').split('\n').find((l) => l.includes(refName));
         if (line) return { head: line.split(' ')[0], note: 'packed-refs' };
       }
       return { head: null, note: 'ref 不存在' };
