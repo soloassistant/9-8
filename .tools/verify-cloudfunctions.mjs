@@ -72,6 +72,7 @@ const OPENID_GUARDED = [
 /** 读取微信上下文但**允许** OPENID 为空的函数 —— 每条必须写明理由 */
 const OPENID_OPTIONAL = {
   queryOrder: '前端直连必带 OPENID 且做归属校验；closeOrder 内部扫描调用拿不到 WXContext，为空时跳过校验',
+  closeOrder: '定时器/内部对账专用（G22 拒绝 wx_client 与带 OPENID 的调用），本身不需要终端用户 OPENID',
   'pay-alipay': '预留通道，当前 src/ 下无调用方；接入前必须先补 OPENID 归属校验（见 docs/云函数部署指南.md）',
   'pay-douyin': '仅由 createOrder 经 cloud.callFunction 调用（无 WXContext），鉴权靠 internalToken；有 OPENID 时额外校验归属',
   'pay-callback': '支付平台回调来源没有终端用户 OPENID，空 OPENID 才是正常形态；带 OPENID 的调用按 A1 来源校验拒绝'
@@ -362,7 +363,7 @@ ok('读取 WXContext 的函数全部已分类（新增函数必须显式登记�
   undeclared.length ? '未登记: ' + undeclared.join(', ') : '');
 ok('分类表没有过期条目（声明的函数确实读了 WXContext）', stale.length === 0,
   stale.length ? '过期: ' + stale.join(', ') : '');
-ok('分类覆盖数 = 实际读取数（23）', actualReaders.length === declared.size && actualReaders.length === 23,
+ok('分类覆盖数 = 实际读取数（24）', actualReaders.length === declared.size && actualReaders.length === 24,
   '实际读取 ' + actualReaders.length + ' / 声明 ' + declared.size);
 
 /* C2. OPENID_GUARDED 的函数在缺 OPENID 时必须明确拒绝（行为断言，不靠 grep） */

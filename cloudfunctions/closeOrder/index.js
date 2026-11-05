@@ -31,7 +31,32 @@ const BATCH_LIMIT = 50;       // 单轮扫描上限，防止一次拉太多
 // 这些通道状态下「无法确认未支付」，一律不关单，留给下一轮
 const UNKNOWN_STATUSES = ['query_failed', 'amount_mismatch', 'reconcile_failed', 'unconfigured', 'unsupported'];
 
-exports.main = async () => {
+/**
+ * G22 调用来源校验：关单是批量写操作，只能由定时器或云函数内部触发。
+ * 小程序客户端 callFunction：SOURCE 恒为 'wx_client' 且必带 OPENID ⇒ 直接拒绝；
+ * 定时器 / 内部调用：SOURCE 非 wx_client、没有终端用户 OPENID ⇒ 放行。
+ * 另支持显式 INTERNAL_CALL_TOKEN（与 getBriefing/webSearch 同一约定）。
+ */
+function assertTrustedInvocation(event) {
+  const ctx = cloud.getWXContext() || {};
+  const source = String(ctx.SOURCE || '');
+  if (source === 'wx_client') {
+    throw new Error('[closeOrder] 拒绝客户端调用（仅限定时器/内部对账）');
+  }
+  if (!source && ctx.OPENID) {
+    throw new Error('[closeOrder] 拒绝带用户 OPENID 的调用（仅限定时器/内部对账）');
+  }
+  const token = String((event && event.internalToken) || '');
+  const expected = process.env.INTERNAL_CALL_TOKEN || '';
+  if (token && expected && token !== expected) {
+    throw new Error('[closeOrder] internalToken 不匹配');
+  }
+}
+
+exports.main = async (event) => {
+  // G22：本函数是定时器/内部对账专用，客户端 callFunction 不得触发关单
+  assertTrustedInvocation(event);
+
   const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString();
   const _ = db.command;
 
@@ -48,6 +73,7 @@ exports.main = async () => {
     closed: 0,
     paidReconciled: 0,
     skippedUnknown: 0,
+    skippedChanged: 0,
     failed: 0
   };
 
@@ -73,13 +99,21 @@ exports.main = async () => {
       }
 
       // 通道明确未支付 → 关单
-      await db.collection('orders').doc(order._id).update({
-        data: {
-          status: 'closed',
-          closedReason: 'timeout',
-          closedTime: new Date().toISOString()
-        }
-      });
+      // CF-03：CAS 只允许 created → closed，避免扫描与关单之间回调已置 paid 时被覆盖成 closed
+      const closedRes = await db.collection('orders')
+        .where({ _id: order._id, status: 'created' })
+        .update({
+          data: {
+            status: 'closed',
+            closedReason: 'timeout',
+            closedTime: new Date().toISOString()
+          }
+        });
+      if (!closedRes || !closedRes.stats || closedRes.stats.updated !== 1) {
+        summary.skippedChanged++;
+        console.log('[closeOrder] 状态已变更（可能已支付），跳过关闭:', order.orderId);
+        continue;
+      }
       summary.closed++;
       console.log('[closeOrder] 已关单:', order.orderId, 'channelStatus=', res.channelStatus);
     } catch (e) {
