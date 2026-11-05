@@ -11,8 +11,8 @@ export default [
   {
     label: '删掉入口卡 min-height → 44px 热区断言必红',
     file: 'src/components/LearnSources/index.module.scss',
-    from: '  min-height: 88rpx;\n',
-    to: '',
+    from: '  min-height: 88rpx; margin: 0 $page-padding $spacing-md;',
+    to: '  margin: 0 $page-padding $spacing-md;',
     cmd: 'node .tools/verify-learn-sources.mjs'
   },
   {
