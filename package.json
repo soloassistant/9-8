@@ -61,6 +61,7 @@
     "verify:buttons": "node .tools/verify-button-disabled.mjs",
     "verify:contrast": "node .tools/verify-contrast-strong.mjs",
     "verify:util": "node .tools/verify-util-logic.mjs",
+    "test:question-bank": "node .tools/test-question-bank.mjs",
     "verify:interaction": "node .tools/verify-interaction-fixes.mjs",
     "verify:usage": "node .tools/verify-usage-renewal.mjs",
     "verify:legal": "node .tools/verify-legal.mjs",
