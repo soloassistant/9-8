@@ -224,11 +224,36 @@ const realMutFiles = fs.readdirSync(path.join(ROOT, '.tools')).filter((f) => /^m
 //     改成"变异资产必须存在且被 verify:mutation 收录"，这才是真判据。
 const mutCmd = scripts['verify:mutation'] || '';
 const mutFilesOnDisk = fs.readdirSync(path.join(ROOT, '.tools')).filter((f) => /^mutations-.*\.mjs$/.test(f));
-const mutNotWired = mutFilesOnDisk.filter((f) => !mutCmd.includes(f));
+// 2026-11-05：verify:mutation 可以是自动发现 runner（.tools/verify-mutation-all.mjs）。
+// 这时不能拿「文件名字符串是否出现在那一行」判 —— 跑 runner 的 `--list` **实测**发现集合，
+// 再和磁盘集合逐项比对（漏一个/多一个照样红）。
+let c2ok = mutFilesOnDisk.length > 0;
+let c2detail = '';
+if (mutCmd.includes('verify-mutation-all.mjs')) {
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync(process.execPath, [path.join(ROOT, '.tools', 'verify-mutation-all.mjs'), '--list'], {
+    cwd: ROOT,
+    encoding: 'utf8'
+  });
+  const disc = (r.stdout || '')
+    .split(/\r?\n/)
+    .filter((l) => l.startsWith('.tools/'))
+    .map((l) => l.replace('.tools/', ''));
+  const missing = mutFilesOnDisk.filter((f) => !disc.includes(f));
+  const extra = disc.filter((f) => !mutFilesOnDisk.includes(f));
+  c2ok = r.status === 0 && missing.length === 0 && extra.length === 0 && mutFilesOnDisk.length === disc.length;
+  c2detail = `runner 发现 ${disc.length} / 磁盘 ${mutFilesOnDisk.length}` +
+    (missing.length ? `；漏 ${missing.join(', ')}` : '') +
+    (extra.length ? `；多 ${extra.join(', ')}` : '');
+} else {
+  const mutNotWired = mutFilesOnDisk.filter((f) => !mutCmd.includes(f));
+  c2ok = c2ok && mutNotWired.length === 0;
+  c2detail = mutNotWired.join(', ');
+}
 ok(
-  mutFilesOnDisk.length > 0 && mutNotWired.length === 0,
-  `C2 变异资产存在且全部接进 verify:mutation（${realMutFiles} 个文件）`,
-  mutNotWired.join(', ')
+  c2ok,
+  `C2 变异资产存在且全部接进 verify:mutation（${realMutFiles} 个文件${mutCmd.includes('verify-mutation-all.mjs') ? '，自动发现实测' : ''}）`,
+  c2detail
 );
 
 console.log('\n── D. 两份文档的硬事实不许互相矛盾 ──');
