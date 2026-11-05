@@ -130,6 +130,18 @@ const PGRST202 = { code: 'PGRST202', message: 'Could not find the function publi
     out('  ↳ 违规键: mine.deleteDoneH5（文案谎报「已删除」，而 purge 可能 not-deployed/failed）');
   }
 
+  // ── ⑦ 注销工单（support_tickets）：表/RLS/客户端/文案一处都不许松 ──
+  {
+    const sql = fs.readFileSync(path.join(ROOT, '.tools/sql/v7-support-tickets.sql'), 'utf8').replace(/--.*$/gm, '');
+    const page = fs.readFileSync(path.join(ROOT, 'src/pages/mine/index.tsx'), 'utf8');
+    const legal = fs.readFileSync(path.join(ROOT, 'src/data/legal.ts'), 'utf8');
+    const doc = fs.readFileSync(path.join(ROOT, 'docs/legal/07-账号注销与数据删除指引.md'), 'utf8');
+    check('ST1', '建表 + RLS + authenticated 只能插/读自己的行', /CREATE TABLE IF NOT EXISTS public\.support_tickets/.test(sql) && /ENABLE ROW LEVEL SECURITY/.test(sql) && /WITH CHECK \(owner_id = auth\.uid\(\)\)/.test(sql) && /USING \(owner_id = auth\.uid\(\)\)/.test(sql));
+    check('ST2', 'authenticated 无 TRUNCATE/REFERENCES/TRIGGER 授权', !/GRANT[^;]*?(TRUNCATE|REFERENCES|TRIGGER)/.test(sql) && /GRANT INSERT, SELECT ON TABLE public\.support_tickets TO authenticated/.test(sql));
+    check('ST3', '客户端插入 + 页面调用 + 失败可重试（不静默成功）', /supportTicketInsert/.test(src) && /supportTicketInsert\(/.test(page) && /ticketRetry/.test(page));
+    check('ST4', '无邮件残留 + 三处同一口径 + 待签字占位 + 中英同步', !/mailto:|SUPPORT_EMAIL/.test(page + legal) && /mine\.ticketEta[^\n]*15 个工作日/.test(langSrc) && /mine\.ticketEta[^\n]*15 business days/.test(langSrc) && /提交注销工单/.test(legal) && /15 个工作日/.test(legal) && /提交注销工单/.test(doc) && /PENDING-SIGNATURE/.test(doc));
+  }
+
   console.log(`\nPASS ${passes} / FAIL ${failures}`);
   process.exit(failures === 0 ? 0 : 1);
 })();

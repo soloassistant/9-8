@@ -205,6 +205,35 @@ export async function feedbackInsert(input: FeedbackInput): Promise<boolean> {
   return unwrap(res, 'feedback insert') !== null;
 }
 
+/** 注销工单（H5）。owner_id 由 DEFAULT auth.uid() 填充，RLS 只允许插入自己的行。 */
+export interface SupportTicketInput {
+  ticketNo: string;
+  userRef: string;
+  localDeletedAt?: string;
+  recordKinds: Array<'llm_events' | 'feedback' | 'client_errors'>;
+  note?: string;
+  contact?: string;
+}
+
+/** duplicate = 同号工单已落库（网络重试场景），对用户应视为提交成功。 */
+export type SupportTicketResult = 'ok' | 'duplicate' | 'failed' | 'no-db';
+
+export async function supportTicketInsert(input: SupportTicketInput): Promise<SupportTicketResult> {
+  const db = await getCloudDatabase();
+  if (!db) return 'no-db';
+  const res = await db.from('support_tickets').insert({
+    ticket_no: input.ticketNo,
+    request_type: 'delete_cloud_records',
+    user_ref: input.userRef,
+    local_deleted_at: input.localDeletedAt || null,
+    record_kinds: input.recordKinds,
+    note: input.note || '',
+    contact: input.contact || ''
+  });
+  if (res.error?.code === '23505') return 'duplicate';
+  return unwrap(res, 'support_tickets insert') !== null ? 'ok' : 'failed';
+}
+
 /** 客户端崩溃上报的一条内容（字段与 `log_client_error` 入参一一对应） */
 export interface ClientErrorInput {
   message: string;
