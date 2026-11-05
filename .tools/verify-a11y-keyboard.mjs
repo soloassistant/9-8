@@ -402,7 +402,10 @@ if (NO_BROWSER) {
   let pageSettled = false;
   for (let i = 0; i < 30 && !pageSettled; i++) {
     const n = Number(await ev(`document.querySelectorAll('taro-view-core,taro-text-core').length`));
-    if (n > 300) { pageSettled = true; break; }
+    // 虚拟化后节点数常年 < 300（首屏约 300）：只等节点会白等 21s。内容就绪的另一个信号是
+    // 「已布局的新闻卡 ≥ 10」，两者任一成立即可采样 —— 原来的判据保留，没有放松。
+    const cards = Number(await ev(`[...document.querySelectorAll('[class*="newsCard"]')].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length`));
+    if (n > 300 || cards >= 10) { pageSettled = true; break; }
     await new Promise((r) => setTimeout(r, 700));
   }
   await new Promise((r) => setTimeout(r, 1500));
@@ -419,17 +422,115 @@ if (NO_BROWSER) {
 
   // 页面正文真的渲染了 —— 这一条是补上的，因为原来测的路由不存在：
   // 空壳页里 DesktopNav 照样渲染，B 组 21 条全绿，但「键盘能不能操作页面内容」从未被验过。
-  // 判据用 Taro 节点数（空壳约 40，真实列表页上千）+ 正文字数，双条件挡假绿。
-  const pageShape = JSON.parse(String(await ev(`(() => {
+  //
+  // 2026-11-05 换判据：原来用 `Taro 节点数 > 300` 当「不是空壳」的代理。虚拟化把首屏 DOM
+  // 从 5391 降到 ~300，这条把**正常页面**判成空壳（实测 298）。节点数是「渲染量」的代理，
+  // 不是「有没有内容」：空壳也能靠装饰节点凑够，而虚拟化下真页面本来就不该有上千节点。
+  // 把 300 调成 150/250 只是放松阈值，不是换判据。新判据直接看**用户能读到的内容**：
+  //   · 正文仍 > 200 字（保留）；
+  //   · 已布局的新闻卡 ≥ 10（列表真的渲染出来了，不是骨架/空容器）；
+  //   · 每张已布局的卡都有非空标题文本；
+  //   · 卡片里至少 3 个可点击元素带非空 aria-label（读屏有名字可念）；
+  //   · 至少 1 张卡片配图有真实 src 且 naturalWidth > 0（图真的解码了，不是破图/占位）。
+  // 判别力由「空壳页变异」守着：临时让页面只渲染容器、不渲染任何卡片/正文时，
+  // 下面 5 条必须全红（实测 PASS 35 / FAIL 6，其中 B-2..B-2e 全红）；恢复后 PASS 41 / FAIL 0。
+  const pageShape = JSON.parse(String(await ev(`(async () => {
     const nodes = document.querySelectorAll('taro-page-core, taro-view-core, taro-text-core').length;
     const txt = ((document.getElementById('app') || document.body).innerText || '').replace(/\\s+/g, ' ').trim();
-    return JSON.stringify({ nodes, textLen: txt.length,
+    const laidOut = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const cards = [...document.querySelectorAll('[class*="newsCard"]')].filter(laidOut);
+    const titled = cards.filter((c) => {
+      const t = c.querySelector('[class*="newsTitle"]');
+      return !!t && (t.textContent || '').trim().length > 0;
+    }).length;
+    const labelled = cards.reduce((n, c) => n + [...c.querySelectorAll('[data-pressable]')].filter((el) => {
+      const l = (el.getAttribute('aria-label') || '').trim();
+      return l.length > 0 && laidOut(el) && !/前往|当前页/.test(l);
+    }).length, 0);
+    // 配图是 lazy 的（Taro H5 Image 在 IntersectionObserver 触发前**不写 src 属性**，
+    // src: lazyLoad && !didLoad ? undefined : src），所以要滚到**第一张真的有 <img> 的卡**，
+    // 而不是第一张卡（首卡可能没有配图，滚到它观察器永远不触发）。
+    // 虚拟化后首窗只有十几张卡，数据前几条恰好可能都没配图（实测虚拟化分支首窗 14 张有图 0），
+    // 这是数据分布不是页面坏了：逐屏往下滚，让窗口滑动到第一张带 <img> 的卡（最多 20 屏）。
+    // Taro H5 的 Image 是 web component（taro-image-core），真实 img 元素可能在其 shadowRoot 里，
+    // document.querySelectorAll('img') 不穿透 shadow —— 必须递归找，否则把「图在 shadow 里」
+    // 误判成「没有图」。
+    const deepImgs = (root) => {
+      const out = [];
+      const visit = (node) => {
+        if (!node || !node.querySelectorAll) return;
+        node.querySelectorAll('img').forEach((i) => out.push(i));
+        node.querySelectorAll('*').forEach((el) => {
+          if (el.shadowRoot) visit(el.shadowRoot);
+        });
+      };
+      visit(root);
+      return out;
+    };
+    const cardHasImg = (c) => deepImgs(c).length > 0;
+    let imgCard = null;
+    const trace = [];
+    // 虚拟化靠底部 sentinel 的 IntersectionObserver 扩窗 / 距底 300px 切尾窗。
+    // 一次滚到底会直接 seekTail 跳到末尾，跳过中间窗口（实测前 42 条与末尾 42 条恰好都没配图）；
+    // 逐屏推进（每次一屏高）让窗口自然滑动，扫过中间的带图条目再停。
+    const scroller = (() => {
+      const doc = document.scrollingElement || document.documentElement;
+      if (doc.scrollHeight > doc.clientHeight + 10) return doc;
+      const p = [...document.querySelectorAll('.taro_page')].find(
+        (x) => x.scrollHeight > x.clientHeight + 10
+      );
+      return p || doc;
+    })();
+    for (let i = 0; i < 30; i++) {
+      const now = [...document.querySelectorAll('[class*="newsCard"]')].filter(laidOut);
+      trace.push(now.length + ':' + (now.length ? Math.round(now[now.length - 1].getBoundingClientRect().top) : '-'));
+      imgCard = now.find((c) => cardHasImg(c)) || null;
+      if (imgCard) break;
+      scroller.scrollTop = Math.min(
+        scroller.scrollTop + scroller.clientHeight,
+        scroller.scrollHeight
+      );
+      await new Promise((r) => setTimeout(r, 350));
+    }
+    if (imgCard) imgCard.scrollIntoView({ block: 'center' });
+    const imgCards = [...document.querySelectorAll('[class*="newsCard"]')].filter(
+      (c) => laidOut(c) && cardHasImg(c)
+    ).length;
+    const pickImgs = () => {
+      const out = [];
+      document.querySelectorAll('[class*="newsCard"]').forEach((c) => out.push(...deepImgs(c)));
+      return out;
+    };
+    const hasSrc = (m) => (m.getAttribute('src') || '').length > 0;
+    let cardImgs = pickImgs();
+    let srcCount = cardImgs.filter(hasSrc).length;
+    let imgOk = cardImgs.filter((m) => hasSrc(m) && m.naturalWidth > 0).length;
+    for (let i = 0; i < 50 && imgOk === 0; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      cardImgs = pickImgs();
+      srcCount = cardImgs.filter(hasSrc).length;
+      imgOk = cardImgs.filter((m) => hasSrc(m) && m.naturalWidth > 0).length;
+    }
+    const firstImg = cardImgs.find(hasSrc) || cardImgs[0];
+    return JSON.stringify({ nodes, textLen: txt.length, cards: cards.length, titled, labelled,
+      imgCards, cardImgs: cardImgs.length, srcCount, imgOk,
+      trace: trace.join(','),
+      imgSample: firstImg ? String(firstImg.getAttribute('src') || '').slice(0, 80) : '',
       overlay: !!document.getElementById('wb-boot-failure'),
       skeleton: !!document.getElementById('boot-skeleton'),
       head: txt.slice(0, 50) });
   })()`)));
-  assert('B-2 页面正文真的渲染了（不是空壳页：节点 > 300 且正文 > 200 字）',
-    pageShape.nodes > 300 && pageShape.textLen > 200, `nodes=${pageShape.nodes} textLen=${pageShape.textLen}`);
+  const shapeText = `nodes=${pageShape.nodes} textLen=${pageShape.textLen} cards=${pageShape.cards} titled=${pageShape.titled} labelled=${pageShape.labelled} imgCards=${pageShape.imgCards} imgs=${pageShape.cardImgs} withSrc=${pageShape.srcCount} decoded=${pageShape.imgOk} trace=${pageShape.trace} sample=${pageShape.imgSample}`;
+  assert('B-2 页面正文真的渲染了（正文 > 200 字；不再是空壳）',
+    pageShape.textLen > 200, shapeText);
+  assert('B-2b 首屏已布局的新闻卡 ≥ 10（列表真的渲染出来，不是骨架/空容器）',
+    pageShape.cards >= 10, shapeText);
+  assert('B-2c 每张已布局的新闻卡都有非空标题文本',
+    pageShape.cards >= 10 && pageShape.titled === pageShape.cards, shapeText);
+  assert('B-2d 卡片里至少 3 个可点击元素带非空 aria-label（读屏有名字可念）',
+    pageShape.labelled >= 3, shapeText);
+  assert('B-2e 至少 1 张卡片配图有真实 src 且 naturalWidth > 0（不是破图/占位）',
+    pageShape.imgOk >= 1, shapeText);
 
   // B5：输入框能正常取得焦点（让路逻辑不能把输入框也一起 ban 掉）。
   // ⚠️ 这一条必须跑在「按 Enter 切页」之前：切页后 DOM 换了一茬，
