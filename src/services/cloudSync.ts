@@ -22,8 +22,8 @@
  */
 import Taro from '@tarojs/taro';
 import { getSession, onAuthStateChange } from './cloudAuth';
-import { kvDeleteKeys, kvGetAll, kvSetMany } from './cloudDb';
-import type { KvRow } from './cloudDb';
+import { kvDeleteKeys, kvGetAll, kvGetVersions, kvSetMany } from './cloudDb';
+import type { KvRow, KvVersion } from './cloudDb';
 import { classifyPull, mergeConflicts, withoutConflicts, valueHash, type SyncConflict } from '../utils/syncConflict';
 
 const META_KEY = 'cloud-sync-meta'; // { [storageKey]: ts } 本地各 key 最后一次确认同步的时间
@@ -794,6 +794,19 @@ export function subscribeSyncConflicts(cb: (list: SyncConflict[]) => void): () =
 /** 墓碑行后缀：`<业务键>#deletedAt`，value 存删除时的 ts。用于「删除最后一条」跨端生效。 */
 const TOMBSTONE_SUFFIX = '#deletedAt';
 
+/**
+ * 版本门禁（PR-3）：远端所有行的 client_ts 都不比本地 meta 新时，没必要再拉 value。
+ * 墓碑行按 base key 比较，与 applyRemoteData 的 `remoteTs <= metaTs` 口径保持一致。
+ */
+function hasNewerRemote(versions: KvVersion[], meta: Record<string, number>): boolean {
+  for (const v of versions) {
+    const base = v.key.endsWith(TOMBSTONE_SUFFIX) ? v.key.slice(0, -TOMBSTONE_SUFFIX.length) : v.key;
+    if (!(SYNC_KEYS as readonly string[]).includes(base)) continue;
+    if (v.clientTs > (Number(meta[base]) || 0)) return true;
+  }
+  return false;
+}
+
 /** 收集本地需推送的 key → [{ key, value, ts }]；ts 取本地记录时间（无记录用 1 兜底，输给远端真实版本） */
 function collectLocal(forceEmptyKeys: string[] = []): Array<{ key: string; value: unknown; ts: number }> {
   const meta = readMeta();
@@ -1254,6 +1267,11 @@ async function pullRemote(): Promise<void> {
       console.error('[cloudSync] pull aborted: 本机数据归属与当前会话不一致');
       return;
     }
+    // 2026-11-05（PR-3）：先拿版本，没有更新的行就不拉 value —— 打开态每 30 秒拉一次时，
+    // 全量 value（browseHistory / sportRuns / ai-memory 可达数百 KB）省下来，只有 key+ts 的往返。
+    const versions = await kvGetVersions(controller.signal);
+    if (versions === null) return; // 真故障，kvGetVersions 内已 warn
+    if (!hasNewerRemote(versions, readMeta())) return; // 远端没有更新：本轮无需全量拉
     const rows = await kvGetAll(controller.signal);
     if (rows === null) return; // 真故障，kvGetAll 内已 warn
     const afterOwner = (await getSession())?.user?.id || null;

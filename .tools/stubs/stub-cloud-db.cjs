@@ -12,10 +12,23 @@ module.exports = {
     if (globalThis.__KV_FAIL__) return Promise.resolve(null);
     var o = owner();
     if (!o) return Promise.reject(new Error('no session'));
+    DB.fullReads = (DB.fullReads || 0) + 1;
     var bucket = DB.rows[o] || {};
     return Promise.resolve(
       Object.keys(bucket).map(function (k) {
         return { key: k, value: bucket[k].value, clientTs: bucket[k].clientTs };
+      })
+    );
+  },
+  kvGetVersions: function () {
+    if (globalThis.__KV_FAIL__) return Promise.resolve(null);
+    var o = owner();
+    if (!o) return Promise.reject(new Error('no session'));
+    DB.versionReads = (DB.versionReads || 0) + 1;
+    var bucket = DB.rows[o] || {};
+    return Promise.resolve(
+      Object.keys(bucket).map(function (k) {
+        return { key: k, clientTs: bucket[k].clientTs };
       })
     );
   },
