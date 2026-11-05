@@ -185,6 +185,21 @@ const REMOVE_PLACEHOLDER: Record<string, unknown> = {
   'mb_renew_remind': false
 };
 
+/** 用户把某个数组键写成 `[]` 时自动视为显式删除：下一轮推送允许推空并产生墓碑（2026-11-05，SY-05）。
+ *
+ *  为什么需要：shoppingList / browseHistory / intel-watchlist / ledger-categories 等没有页面级
+ *  `syncNow(force)` 调用点，删最后一条后 `collectLocal` 会跳过空数组 ⇒ 删除只在本地生效，
+ *  换设备后云端旧值又把它拉回来（「删了又复活」）。
+ *
+ *  只覆盖数组：对象空值本来就会推；标量 `''` 的墓碑化会改变「清空城市」等语义，留待单独评审（PR-5）。
+ */
+const autoForceEmptyKeys = new Set<string>();
+
+/** 与 collectLocal 的跳过口径对齐：只把「空数组」视为需要强制删除 */
+function isSyncEmptyValue(v: unknown): boolean {
+  return Array.isArray(v) && v.length === 0;
+}
+
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let pulling = false;
@@ -964,7 +979,8 @@ async function doPush(forceEmptyKeys: string[] = []): Promise<void> {
     return;
   }
 
-  const items = collectLocal(forceEmptyKeys);
+  const forcedKeys = new Set([...forceEmptyKeys, ...autoForceEmptyKeys]);
+  const items = collectLocal([...forcedKeys]);
   if (items.length === 0) return;
   // 缺陷 X5：云端单键上限 512KB（SQL `pg_column_size(value) < 524288`），超限行会被服务端
   // **静默丢弃**。客户端先按 UTF-8 字节预筛：超限键不发送、不落确认，并明确告知用户。
@@ -1017,6 +1033,10 @@ async function doPush(forceEmptyKeys: string[] = []): Promise<void> {
     }
     writeMeta(meta);
     writeConfirm(confirm);
+    // 「写入空数组」的强制意图已经落地（含墓碑），清掉自动标记，避免后续每轮都按删除处理。
+    // 只清本次真正发出的键：超限/被冲突跳过的键保留意图，下一轮继续尝试。
+    const sentKeys = new Set(sendable.map((it) => it.key));
+    for (const k of forcedKeys) if (sentKeys.has(k)) autoForceEmptyKeys.delete(k);
   } catch (err) {
     // 网络失败等瞬时错误：下一轮轮询再试，不计入硬失败
     console.warn('[cloudSync] push failed (transient):', err);
@@ -1193,7 +1213,18 @@ export async function resolveSyncConflicts(choice: 'local' | 'remote', keys?: st
   conflictCache = withoutConflicts(conflictCache, targets.map((c) => c.key));
   writeConflicts(conflictCache);
   emitConflicts();
-  if (choice === 'local') schedulePush(0); // 保留本机：立刻推上去，别等下一个防抖/轮询
+  if (choice === 'local') {
+    // 本机选择「保留」时若该键恰好被用户清空，普通推送会被 collectLocal 跳过空数组，
+    // 云端旧值下次登录又拉回来。这里只对空数组补 force，非空值仍走普通推送。
+    const emptyKeys = targets
+      .filter((c) => {
+        const raw = rawGet(c.key);
+        return raw ? isSyncEmptyValue(taroUnwrap(raw)) : false;
+      })
+      .map((c) => c.key);
+    if (emptyKeys.length > 0) void pushNow(emptyKeys);
+    else schedulePush(0); // 保留本机：立刻推上去，别等下一个防抖/轮询
+  }
 }
 
 /**
@@ -1249,11 +1280,15 @@ function hookStorage(): void {
     const ls = window.localStorage;
     const origSet = ls.setItem.bind(ls);
     const origRemove = ls.removeItem.bind(ls);
-    const markDirty = (key: string) => {
+    const markDirty = (key: string, value?: unknown) => {
       if (!(SYNC_KEYS as readonly string[]).includes(key)) return;
       // 2026-11-04（P0）：被排除的键**不抬时间戳、不排推送**。
       // 即使有别的代码路径在撤回后仍写了一次 sportRuns，也不会触发一次出网。
       if (runtimeExcludedKeys.has(key)) return;
+      // 空数组 = 用户删空了这个列表：记入自动强制，否则 collectLocal 会跳过它（SY-05）。
+      // 写回非空值时撤销标记，避免「删空又新建」后仍按删除推送墓碑。
+      if (isSyncEmptyValue(value)) autoForceEmptyKeys.add(key);
+      else autoForceEmptyKeys.delete(key);
       const meta = readMeta();
       meta[key] = Date.now(); // 本地写入即计时；推送确认后更新为确认时间
       writeMeta(meta);
@@ -1261,7 +1296,7 @@ function hookStorage(): void {
     };
     ls.setItem = (key: string, value: string) => {
       origSet(key, value);
-      if (!internalStorageWrite) markDirty(key);
+      if (!internalStorageWrite) markDirty(key, taroUnwrap(value));
     };
     ls.removeItem = (key: string) => {
       origRemove(key);
@@ -1270,10 +1305,7 @@ function hookStorage(): void {
       if (runtimeExcludedKeys.has(key)) return;
       // 删除后写入与该 key 类型一致的占位值（见 REMOVE_PLACEHOLDER），保证删除动作同步到云端
       rawSet(key, JSON.stringify({ data: REMOVE_PLACEHOLDER[key] }));
-      const meta = readMeta();
-      meta[key] = Date.now();
-      writeMeta(meta);
-      schedulePush();
+      markDirty(key, REMOVE_PLACEHOLDER[key]);
     };
   } catch (err) {
     console.warn('[cloudSync] hook failed:', err);
