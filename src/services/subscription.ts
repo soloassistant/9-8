@@ -54,18 +54,19 @@ export function computeExpiryFromOrders(orders: CloudOrder[], today: string): st
  * 兑换成功后登记一条 promo 订单。
  *
  * A-1：客户端不再直插 `orders` 表（那条路径可被任何登录用户伪造），改为调用服务端
- * 函数 `record_promo_order(p_days)` —— 订单号/渠道/金额/状态/到期全由服务端生成。
+ * 函数 `redeem_promo_order(p_code)` —— **只传兑换码，不传天数**：天数、码的有效期、
+ * 是否已用过全部由服务端查表判定（改前传 p_days 等于把后门换成另一扇门）。
  * 返回 false 时调用方必须如实提示「未登记」，不能报成功（见 membership 页）。
  * SQL 未执行时这里会收到 PGRST202，同样返回 false。
  */
-export async function recordPromoOrder(days: number): Promise<boolean> {
+export async function recordPromoOrder(code: string): Promise<boolean> {
   if (!(await getSession())) return false;
   const db = await getCloudDatabase();
   if (!db) return false;
   try {
-    const res = await db.rpc('record_promo_order', { p_days: Math.max(1, Math.round(days)) });
+    const res = await db.rpc('redeem_promo_order', { p_code: code.trim().toUpperCase() });
     if (res.error) {
-      console.error('[subscription] record_promo_order failed:', res.error.code || '', res.error.message || '');
+      console.error('[subscription] redeem_promo_order failed:', res.error.code || '', res.error.message || '');
       return false;
     }
     return true;

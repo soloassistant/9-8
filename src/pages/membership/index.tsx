@@ -521,7 +521,9 @@ function MembershipPage() {
     if (promoBusy) return;
     setPromoErr('');
     setPromoBusy(true);
-    const res = redeemPromo(promoInput);
+    // 服务端只认码：客户端本地校验只是提前反馈，权益天数由服务端按码查表决定
+    const code = promoInput.trim().toUpperCase();
+    const res = redeemPromo(code);
     if (!res.ok) {
       setPromoBusy(false);
       setPromoErr(
@@ -543,7 +545,7 @@ function MembershipPage() {
     // 换设备即消失，且本地凭证本身可被伪造。改后：落库失败就不报成功。
     let recorded = false;
     try {
-      recorded = await recordPromoOrder(res.days || 30);
+      recorded = await recordPromoOrder(code);
     } catch (err) {
       console.error('[MembershipPage] recordPromoOrder failed:', err);
     }

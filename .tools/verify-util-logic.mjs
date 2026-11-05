@@ -398,23 +398,27 @@ globalThis.__DB__ = {
   }
 };
 
-const h1 = await subMod2.recordPromoOrder(30);
-assert('H1 兑换登记走服务端函数 record_promo_order（参数 p_days=30）',
-  h1 === true && calls.length === 1 && calls[0].fn === 'record_promo_order' && calls[0].params.p_days === 30);
+const h1 = await subMod2.recordPromoOrder('pro-aaaa-bbbb');
+assert('H1 兑换只传码 redeem_promo_order(p_code)，且参数里没有天数',
+  h1 === true &&
+    calls.length === 1 &&
+    calls[0].fn === 'redeem_promo_order' &&
+    calls[0].params.p_code === 'PRO-AAAA-BBBB' &&
+    !('p_days' in calls[0].params));
 
 globalThis.__RPC_RES__ = { data: null, error: { code: 'PGRST202', message: 'function not found' } };
-const h2 = await subMod2.recordPromoOrder(30);
+const h2 = await subMod2.recordPromoOrder('PRO-AAAA-BBBB');
 assert('H2 服务端函数未部署/执行失败 → 返回 false（调用方必须提示失败，不得假装成功）', h2 === false);
 
 globalThis.__SESSION__ = null;
 calls.length = 0;
 globalThis.__RPC_RES__ = { data: {}, error: null };
-const h3 = await subMod2.recordPromoOrder(30);
+const h3 = await subMod2.recordPromoOrder('PRO-AAAA-BBBB');
 assert('H3 未登录 → 不调用 RPC、返回 false', h3 === false && calls.length === 0);
 
 globalThis.__SESSION__ = { user: { id: 'u1' } };
 globalThis.__DB__ = null;
-const h4 = await subMod2.recordPromoOrder(30);
+const h4 = await subMod2.recordPromoOrder('PRO-AAAA-BBBB');
 assert('H4 数据库不可用 → 返回 false（fail-closed）', h4 === false);
 
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);

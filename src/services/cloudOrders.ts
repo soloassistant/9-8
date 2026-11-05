@@ -8,9 +8,9 @@
  * 订单改落 WorkBuddy 云数据库：客户端**只读**自己的行。
  *
  * ## 安全边界（改这里之前先读完）
- * - A-1（2026-11-05）：客户端**没有任何写入口**。`v5-orders-server-write.sql` 收回
- *   authenticated/anon 的 INSERT/UPDATE/DELETE，唯一写入通道是服务端函数
- *   `record_promo_order()`（SECURITY DEFINER，天数/状态/金额全由服务端生成）。
+ * - A-1（2026-11-05）：客户端**没有任何写入口**。`v6-promo-server-codes.sql` 收回
+ *   PUBLIC/authenticated/anon 的 INSERT/UPDATE/DELETE，唯一写入通道是服务端函数
+ *   `redeem_promo_order(p_code)`（SECURITY DEFINER，只收码；天数/状态/金额全由服务端生成）。
  *   改前 INSERT 策略是 `WITH CHECK (owner_id = auth.uid())` —— 「插自己的一行」是合法写入，
  *   任何登录用户直插 `status:'paid', months:120` 就能回放成 10 年 PRO。
  * - 表**只 GRANT 给 `authenticated`，没有给 `anon`**。原因不是洁癖：匿名会话的
