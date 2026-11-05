@@ -198,6 +198,49 @@ async function caseStaleNotFound() {
 }
 
 /* ================================================================== *
+ * 6. 部分退款必须被拒绝，且不留下任何发起痕迹
+ *    （状态机只有整单 refunded，权益按 months 全额回滚 → 部分退款会造成
+ *      「退 1 分却撤全部权益」，剩余金额也因终态再也退不了）
+ * ================================================================== */
+async function casePartialRefundRejected() {
+  out('\n[6] 部分退款被拒绝');
+  const userExpiredAt = new Date(Date.now() + MS_DAY).toISOString();
+  const { cloud, calls, main } = boot({
+    seed: { orders: paidOrder(), users: aUser(userExpiredAt) }
+  });
+
+  const res = await main({ orderId: ORDER_ID, refundAmountFen: 100 });
+  out(`  结果: ${json(res)}`);
+  ok('部分退款被拒绝且提示仅支持全额', res.ok === false && res.error === '仅支持全额退款', json(res));
+  const order = cloud.__docs('orders')[0];
+  ok('订单未被写：仍 paid 且无 refundStatus/refundNo',
+    order.status === 'paid' && order.refundStatus === undefined && order.refundNo === undefined, json(order));
+  ok('通道调用 0 次', calls.refund.length === 0, `refundCalls=${calls.refund.length}`);
+  ok('未创建退款尝试记录（没拿到发起权）', cloud.__docs('refund_attempts').length === 0,
+    json(cloud.__docs('refund_attempts').map((d) => d._id)));
+  ok('权益未被动过', cloud.__docs('users')[0].expiredAt === userExpiredAt, json(cloud.__docs('users')[0].expiredAt));
+}
+
+/* ================================================================== *
+ * 7. 不传金额 → 仍按全额退款成功（确认「禁部分退款」没有误伤正常路径）
+ * ================================================================== */
+async function caseFullRefundByDefault() {
+  out('\n[7] 不传金额仍全额退款');
+  const userExpiredAt = new Date(Date.now() + 31 * MS_DAY).toISOString();
+  const { cloud, calls, main } = boot({
+    seed: { orders: paidOrder(), users: aUser(userExpiredAt) }
+  });
+
+  const res = await main({ orderId: ORDER_ID });
+  out(`  结果: ${json(res)}`);
+  ok('全额退款成功', res.ok === true && res.refundAmount === 990, json(res));
+  ok('通道恰好调用 1 次且 refundFee=订单金额',
+    calls.refund.length === 1 && calls.refund[0].refundFee === 990, json(calls.refund.map((c) => c.refundFee)));
+  const order = cloud.__docs('orders')[0];
+  ok('订单进入 refunded 终态', order.status === 'refunded' && order.refundStatus === 'refunded', json(order));
+}
+
+/* ================================================================== *
  * 5. 变异验证：改坏必红（在内存里改源码，不写文件）
  * ================================================================== */
 async function mutationChecks() {
@@ -253,6 +296,8 @@ await caseSequential();
 await caseConcurrent();
 await caseStale();
 await caseStaleNotFound();
+await casePartialRefundRejected();
+await caseFullRefundByDefault();
 await mutationChecks();
 const elapsed = Date.now() - t0;
 out(`\nPASS ${passCount} / FAIL ${failures.length}（${elapsed}ms）`);

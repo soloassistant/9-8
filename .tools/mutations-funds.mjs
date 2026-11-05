@@ -14,5 +14,12 @@ export default [
     from: "    await db.collection(ATTEMPTS).add({ data: Object.assign({ _id: meta.refundNo }, meta) });",
     to: "    void meta.refundNo;",
     cmd: 'node .tools/verify-funds-idempotency.mjs'
+  },
+  {
+    label: '删掉「仅支持全额退款」判断（部分退款被静默按全额执行）',
+    file: 'cloudfunctions/refundOrder/index.js',
+    from: "  if (refundAmountFen !== undefined && refundAmountFen !== null && Number(refundAmountFen) !== orderAmount) {",
+    to: "  if (false) {",
+    cmd: 'node .tools/verify-funds-idempotency.mjs'
   }
 ];

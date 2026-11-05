@@ -18,7 +18,7 @@
  *
  * @param {object} event
  *   - orderId     必填，本地订单号 ord_xxx
- *   - refundAmountFen  可选，退款金额（分），默认全额
+ *   - refundAmountFen  可选；**只接受等于订单金额**，其他一律拒绝（仅支持全额退款）
  *   - reason      可选，退款原因（最长 200 字，通道原样记录）
  */
 
@@ -76,14 +76,17 @@ exports.main = async (event) => {
     }
   }
 
-  // ========== 4. 金额校验 ==========
+  // ========== 4. 金额校验：仅支持全额退款 ==========
+  // 当前状态机只有一个 refunded 终态，权益也按整单 months 全额回滚；
+  // 允许部分退款会造成「退 1 分却撤全部权益」，且剩余金额因终态再也退不了。
+  // 因此显式拒绝任何非全额请求，且必须在写订单 / 落尝试记录 / 调通道之前返回。
   const orderAmount = Number(order.price); // 分
-  const refundAmount = refundAmountFen ? Number(refundAmountFen) : orderAmount;
+  if (refundAmountFen !== undefined && refundAmountFen !== null && Number(refundAmountFen) !== orderAmount) {
+    return { ok: false, error: '仅支持全额退款' };
+  }
+  const refundAmount = orderAmount;
   if (!refundAmount || refundAmount < 1) {
     return { ok: false, error: '退款金额无效' };
-  }
-  if (refundAmount > orderAmount) {
-    return { ok: false, error: '退款金额超过订单金额' };
   }
 
   // ========== 5. 幂等键 + 调用前落库 ==========
@@ -127,7 +130,10 @@ exports.main = async (event) => {
         // 抖音的 refundStatus 改回 pending（未退款），让订单仍处于 paid 状态
         await markAttempt(refundNo, { status: 'failed', lastError: 'douyin manual refund' });
         await db.collection('orders').doc(order._id).update({
-          data: { refundStatus: 'pending', refundNo: null, refundAmount: null, refundReason: null, refundTime: null }
+          data: {
+            refundStatus: 'pending', refundNo: null, refundAmount: null, refundReason: null, refundTime: null,
+            refundManualReason: 'douyin 通道不支持自动退款，需人工'
+          }
         });
         return channelResult;
       default:
@@ -151,6 +157,10 @@ exports.main = async (event) => {
     // 结果未知（可能已发到通道）：保持 refunding + pending，绝不写成「一键重试」的失败态
     console.error('[refundOrder] 通道结果未知:', err.message);
     await markAttempt(refundNo, { lastError: String(err.message || err).slice(0, 200), lastAttemptAt: new Date().toISOString() });
+    // 只落人工对账原因，供后台看见；不加用户侧重试入口
+    await db.collection('orders').doc(order._id).update({
+      data: { refundManualReason: '通道结果未知，需人工对账（未重发）' }
+    }).catch(() => {});
     return { ok: false, error: err.message || String(err), channel, unknown: true };
   }
 };
@@ -298,6 +308,9 @@ async function handleExistingAttempt(existing, { order, refundNo, refundAmount, 
     return { ok: true, orderId: order.orderId, recovered: true, refundNo };
   }
   if (snap.state !== 'not_found') {
+    await db.collection('orders').doc(order._id).update({
+      data: { refundManualReason: '退款结果未知，需人工对账（未发起第二笔）' }
+    }).catch(() => {});
     return { ok: false, manualReconcile: true, error: '退款结果未知，需人工对账后再处理（未发起第二笔）', refundNo };
   }
   return null; // 通道确认无此单 → 同号重发，不会产生第二笔
