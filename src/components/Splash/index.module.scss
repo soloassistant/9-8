@@ -19,6 +19,14 @@
 .fadeOut {
   opacity: 0;
   pointer-events: none;
+  transition-duration: 450ms;
+}
+
+/* 点击跳过：更短的淡出，保证点击后 300ms 内彻底消失 */
+.fadeOutFast {
+  opacity: 0;
+  pointer-events: none;
+  transition-duration: 180ms;
 }
 
 .inner {
@@ -94,5 +102,19 @@
   }
   50% {
     opacity: 0.9;
+  }
+}
+
+/* 减少动态效果：开屏直接切走，不播任何过渡与入场动画 */
+@media (prefers-reduced-motion: reduce) {
+  .splash {
+    transition: none;
+  }
+
+  .splash .inner,
+  .splash .title,
+  .splash .slogan,
+  .splash .skip {
+    animation: none;
   }
 }
