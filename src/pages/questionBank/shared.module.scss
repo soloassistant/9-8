@@ -54,3 +54,43 @@
   cursor: pointer;
 }
 .retryText { color: $color-primary-strong; }
+
+/* 答题页（批次 4/6）：选项 / 填空 / 判断 / 结果。 */
+.questionStem { display: block; margin-bottom: $spacing-md; font-size: $font-size-lg; line-height: 1.7; }
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-md;
+  cursor: pointer;
+}
+.optionActive { border-color: $color-primary-strong; background: $color-bg-hover; }
+.optionKey { flex: 0 0 auto; font-weight: $font-weight-semibold; color: $color-primary-strong; }
+.optionText { flex: 1; min-width: 0; font-size: $font-size-md; line-height: $line-height-normal; }
+.fillInput {
+  height: $button-height-md;
+  margin-bottom: $spacing-sm;
+  padding: 0 $spacing-md;
+  background: $color-bg-card;
+  border: 1rpx solid $color-card-border;
+  border-radius: $radius-button;
+  font-size: $font-size-md;
+  box-sizing: border-box;
+}
+.judgeRow { display: flex; gap: $spacing-sm; margin-bottom: $spacing-md; }
+.judgeBtn { flex: 1; padding: $spacing-sm 0; text-align: center; background: $color-bg-card; border: 1rpx solid $color-card-border; border-radius: $radius-md; cursor: pointer; }
+.primaryBtn { margin-top: $spacing-md; padding: $spacing-md 0; border-radius: $radius-button; background: $color-primary-strong; text-align: center; cursor: pointer; }
+.primaryBtnDisabled { @extend .primaryBtn; opacity: 0.4; cursor: default; }
+.primaryText { color: #fff; font-size: $font-size-md; }
+.secondaryBtn { flex: 1; padding: $spacing-md 0; border: 1rpx solid $color-card-border; border-radius: $radius-button; text-align: center; cursor: pointer; }
+.actions { display: flex; gap: $spacing-sm; margin-top: $spacing-lg; }
+.result { margin-top: $spacing-md; padding: $spacing-md; background: $color-bg-card; border: 1rpx solid $color-card-border; border-radius: $radius-lg; }
+.resultGood { display: block; font-size: $font-size-lg; font-weight: $font-weight-semibold; color: $color-success; }
+.resultBad { display: block; font-size: $font-size-lg; font-weight: $font-weight-semibold; color: $color-error; }
+.answerLine { display: flex; align-items: center; gap: $spacing-xs; margin-top: $spacing-sm; }
+.answerText { font-size: $font-size-md; }
+.explanation { display: block; margin-top: $spacing-xs; font-size: $font-size-sm; color: $color-text-secondary; line-height: $line-height-normal; }
