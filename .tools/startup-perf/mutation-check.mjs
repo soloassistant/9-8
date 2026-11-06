@@ -2,10 +2,11 @@
 /**
  * 变异自检：证明 measure-startup 的门禁/口径校验真的会红，而不是「怎么改都绿」。
  *
- * 三个变异（都只动临时副本，绝不碰仓库 dist / catalog）：
+ * 四个变异（都只动临时副本，绝不碰仓库 dist / catalog）：
  *   ① 往入口 chunk 注入 200KB 不可压缩垃圾 → gate 必须 exit 1，且主指标显著上涨
  *   ② 把主指标集合改成「只算 app.js」→ 必须 exit 2（口径被修改 / 成员数量不符）
  *   ③ 删掉 build-stamp.json 的 builtAt → 必须 exit 2（不许静默跳过）
+ * ④ 参数被吞成 `--gate 320` / `--threshold abc` → 必须 exit 2（不许静默按默认阈值判绿）
  * 另加一条对照：同一份产物用 --threshold 400 → 必须 exit 0（证明门禁能绿，不是永远红）。
  *
  * 用法：npm run verify:startup-perf
@@ -111,6 +112,23 @@ report(
   'builtAt 缺失 → exit 2（拒绝静默跳过）',
   stampOut.code === 2 && /builtAt/.test(stampOut.out),
   `exit=${stampOut.code}\n${stampOut.out.split('\n').filter((l) => /✗ 无法测量|builtAt/.test(l)).join('\n')}`
+);
+
+// ── 变异 ④：参数被吞成歧义形态 ───────────────────────────────────────────────
+console.log('\n[4] 变异：argv 只剩 `--gate 320` / `--threshold abc`（模拟 PowerShell 吞参）');
+const misparse = spawnSync(process.execPath, [MEASURE, '--gate', '320', '--dist', DIST, '--repo', REPO, '--out', R('out')], { cwd: REPO, encoding: 'utf8', timeout: 600000 });
+const misparseOut = (misparse.stdout || '') + (misparse.stderr || '');
+report(
+  '`--gate 320` → exit 2 且报「无法识别的参数」',
+  misparse.status === 2 && /无法识别的参数：--gate 320/.test(misparseOut),
+  `exit=${misparse.status}\n${misparseOut.split('\n').filter((l) => /无法识别|例：/.test(l)).join('\n')}`
+);
+const nanThreshold = spawnSync(process.execPath, [MEASURE, '--gate', '--threshold', 'abc', '--dist', DIST, '--repo', REPO, '--out', R('out')], { cwd: REPO, encoding: 'utf8', timeout: 600000 });
+const nanOut = (nanThreshold.stdout || '') + (nanThreshold.stderr || '');
+report(
+  '`--threshold abc` → exit 2（不静默回退默认阈值）',
+  nanThreshold.status === 2 && /无法识别的参数：--threshold abc/.test(nanOut),
+  `exit=${nanThreshold.status}\n${nanOut.split('\n').filter((l) => /无法识别|例：/.test(l)).join('\n')}`
 );
 
 // ── 汇总 ────────────────────────────────────────────────────────────────────
