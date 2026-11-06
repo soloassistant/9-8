@@ -142,42 +142,6 @@ export function readH5Subscription(): { subscribed: true; expiredAt: string } | 
 }
 
 /**
- * 按天数顺延本地订阅凭证（叠加口径与 redeemPromo 一致：未过期从到期日起算）。
- * 供订阅恢复（orders 表回放）使用 —— 兑换与恢复走同一条叠加路，口径不分叉。
- */
-export function extendH5Subscription(days: number): string | null {
-  if (!Number.isFinite(days) || days <= 0) return null;
-  const current = readH5Subscription();
-  const base = current ? current.expiredAt : todayStr();
-  const expiredAt = addDays(base, Math.round(days));
-  try {
-    // 已废弃账本：仅用于兑换续期叠加，禁止读取判定权益（权益事实源见 services/entitlement.ts）
-    Taro.setStorageSync(H5_SUB_KEY, { expiredAt, redeemedAt: todayStr() });
-  } catch (err) {
-    console.error('[promo] extend subscription failed:', err);
-    return null;
-  }
-  return expiredAt;
-}
-
-/**
- * 直接把本地凭证写到指定到期日（订阅恢复用：云端订单回放出的到期日可能
- * 早于今天很久 —— extendH5Subscription 的「从今天起算」口径不适用于恢复场景）。
- * 只允许写到不早于今天的日期（过期日不落盘，readH5Subscription 会如实判 null）。
- */
-export function setH5SubscriptionExpiry(expiredAt: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiredAt) || expiredAt < todayStr()) return false;
-  try {
-    // 已废弃账本：仅用于兑换续期叠加，禁止读取判定权益（权益事实源见 services/entitlement.ts）
-    Taro.setStorageSync(H5_SUB_KEY, { expiredAt, redeemedAt: todayStr() });
-    return true;
-  } catch (err) {
-    console.error('[promo] set subscription expiry failed:', err);
-    return false;
-  }
-}
-
-/**
  * 兑换促销码。成功写本地凭证并返回新到期日；同一码重复兑换按**续期叠加**处理
  * （促销语义：活动期再兑一次多送 N 天 —— 不叠加会让「复制粘贴两次」的用户困惑）。
  *
