@@ -1,17 +1,18 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import Splash from '@/components/Splash';
 import Onboarding, { hasOnboarded, hasOnboardedFor, markOnboardedFor } from '@/components/Onboarding';
 import DesktopNav from '@/components/DesktopNav';
-import ConsentGate from '@/components/ConsentGate';
+
 import HotkeyHelp from '@/components/HotkeyHelp';
 import { HELP_EVENT, focusSearchBox, useGlobalHotkeys } from '@/hooks/useHotkeys';
 import { hotkeyRoute } from '@/utils/hotkeys';
 import type { HotkeyId } from '@/utils/hotkeys';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
 import { needsAuthGate, getSession, markGateRedirect, getCloudUserId, hasStoredSession } from '@/services/cloudAuth';
-import { hasAgreedConsent } from '@/data/legal';
+// 只依赖「同意读写」小模块：三份法务正文（~11 KB gzip）不该为这一个布尔值进首屏包
+import { hasAgreedConsent } from '@/data/legal-consent';
 import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/language';
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
 import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
@@ -27,6 +28,13 @@ import type { CrashPayload } from '@/services/crashReport';
 import { clientErrorInsert } from '@/services/cloudDb';
 // 全局样式
 import './app.scss';
+
+/**
+ * 首启合规同意层改为按需加载（U-01 首屏字节）：已同意用户永远走不到这条分支，
+ * 于是 `data/legal` 的三份正文（~11 KB gzip）不再进首屏包，只在首启/换版本时拉一个 chunk。
+ * 失败场景沿用站点既有的 chunk 失败兜底（启动期不整页重载）。
+ */
+const ConsentGate = lazy(() => import('@/components/ConsentGate'));
 
 // ========== 崩溃上报（P2） ==========
 // 两条通道按端分派（细节与踩坑记录见 src/services/crashReport.ts 文件头）：
@@ -536,8 +544,12 @@ function App(props: PropsWithChildren) {
           {/* 2026-10-27：全局 AI 悬浮球已移除。全站唯一的 AI 入口是「我的 → AI 助手」
               （pages/assistant）。理由：它和晨报页底部输入条是同一件事的两个入口，
               两套实现各自维护；收敛成一个页面后，页面上不再有悬浮物遮挡正文。 */}
-          {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页 */}
-          {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
+          {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页。
+              fallback=null 是有意的：同意层只在首启出现，此刻 Splash 正盖在上面，
+              不需要额外的加载占位（多渲染一个占位反而会闪）。 */}
+          <Suspense fallback={null}>
+            {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
+          </Suspense>
           {/* 首启引导：必须等隐私同意之后再挂（两个全屏层叠在一起，用户会点不到下面那层），
               也必须等开屏退场（shellReady），否则引导藏在开屏下面等于没出现。 */}
           {consentAgreed && shellReady && !onboarded ? (

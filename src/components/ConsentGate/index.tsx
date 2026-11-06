@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { View, Text, ScrollView, Button } from '@tarojs/components';
 import { useT, useLanguageStore } from '@/store/language';
-import { saveConsent, PRIVACY_TEXT, TERMS_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
+import { saveConsent } from '@/data/legal-consent';
+import { PRIVACY_TEXT, TERMS_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import styles from './index.module.scss';
 
 const isH5 = process.env.TARO_ENV === 'h5';

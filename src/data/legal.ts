@@ -3,7 +3,11 @@
  * 「我的」页半屏查看层与 H5 首启同意弹窗共用。
  * 文本更新时递增 LEGAL_VERSION，并让旧同意记录失效（重新弹窗）。
  */
-import Taro from '@tarojs/taro';
+// 同意记录的实现已拆到 legal-consent.ts（首屏只需要那个布尔值，正文留在异步 chunk）。
+import { LEGAL_VERSION } from './legal-consent';
+
+export { CONSENT_KEY, hasAgreedConsent, saveConsent } from './legal-consent';
+export type { ConsentRecord } from './legal-consent';
 
 /**
  * ★ 版本历史（改文案必须同步递增本常量，否则旧同意记录不会失效 —— 等于对老用户静默改条款）
@@ -81,41 +85,6 @@ import Taro from '@tarojs/taro';
  *                    **如实标注：这是本地护栏，不等同于平台级审核**，网页端仍未接入第三方审核服务。
  *                    小程序端维持 msgSecCheck 不变。
  */
-export const LEGAL_VERSION = 'v1.10-20261104';
-
-/** H5 首启同意记录的 storage key（记录同意时的文本版本，便于版本升级后重新征求同意） */
-export const CONSENT_KEY = 'privacy-consent';
-
-export interface ConsentRecord {
-  agreed: boolean;
-  version: string;
-  time: number;
-  /** 同意发生在哪个端（h5 / weapp）。用于事后核对「这条同意是谁、在哪个载体上作出的」。 */
-  device?: string;
-}
-
-export function hasAgreedConsent(): boolean {
-  try {
-    const rec = Taro.getStorageSync(CONSENT_KEY) as ConsentRecord | '';
-    return !!(rec && rec.agreed && rec.version === LEGAL_VERSION);
-  } catch {
-    return false;
-  }
-}
-
-export function saveConsent(): void {
-  try {
-    Taro.setStorageSync(CONSENT_KEY, {
-      agreed: true,
-      version: LEGAL_VERSION,
-      time: Date.now(),
-      device: process.env.TARO_ENV || 'unknown'
-    } as ConsentRecord);
-  } catch (err) {
-    // 存储失败不阻塞使用，仅放弃记录
-  }
-}
-
 export const TERMS_TEXT = `《用户服务协议》
 版本：${LEGAL_VERSION}
 
