@@ -97,7 +97,25 @@ const DEVICE_ONLY_KEYS = {
   // 2026-11-05：题库答题记录 / 错题本（接入批次 5/6）。与本机题库同源，答题记录先只落本机。
   // ⏳ **到期条件**：题库进度接入 cloudSync / SYNC_KEYS 的那一笔 PR 必须同时删除本条目并挪进
   //    CROSS_DEVICE_KEYS —— 否则错题本会永久跳过「换设备是否失忆」的检查。
-  questionBankProgress: '题库答题记录 / 错题本（设备级，未接入 cloudSync；到期条件见上方注释）'
+  questionBankProgress: '题库答题记录 / 错题本（设备级，未接入 cloudSync；到期条件见上方注释）',
+  // 2026-11-06：注销链在本机留痕的两个键（PR #71/#72 引入；A3 要求逐个登记）
+  // ⏳ **到期条件（不是永久豁免）**：本层（#71）只判复核日期 2026-12-31；
+  //    #72 会叠加「`LEGAL_CONSENT_VERSION` 自 v1.10-20261104 递增」这一触发条件。
+  //    到期处置必须显式做，二选一：① 删掉这两条并挪进 CROSS_DEVICE_KEYS；
+  //    ② 复核后确认仍属本机语义，则显式延后 reviewBy 并写明理由（#72 起还须保持 consentBaseline 初值）。
+  'mb-last-delete-at': '本机专用键，云端同步反而错（注销完成时间只对本机有意义，同步会把「已注销」带到别的设备）',
+  'mb-support-tickets': '本机专用键，云端同步反而错（注销工单留档供本机补提/查询，跨设备同步会泄露注销意图）'
+};
+
+/**
+ * 带**到期条件**的豁免登记（与 DEVICE_ONLY_KEYS 同名条目配套）。
+ * #71 这一层到期表达式只有 `今天 ≥ reviewBy`；#72 会追加
+ * `LEGAL_CONSENT_VERSION ≠ consentBaseline`，二者先到为准。
+ * A3b 负责判：到期仍在豁免表里 ⇒ FAIL（不允许「豁免一旦登记就永久静默」）。
+ */
+const EXPIRING_DEVICE_ONLY = {
+  'mb-last-delete-at': { reviewBy: '2026-12-31' },
+  'mb-support-tickets': { reviewBy: '2026-12-31' }
 };
 
 const syncSrc = read('src/services/cloudSync.ts');
@@ -171,6 +189,31 @@ const syncSet = new Set(syncKeys);
     'A4 豁免表里没有已不存在的键（豁免表本身要跟着代码走）',
     stale.length === 0,
     stale.join(', ')
+  );
+}
+
+// A3b 带到期条件的豁免不得「登记即永久静默」：复核日期到 ⇒ 这里红（#72 会再加同意版本触发）
+{
+  // 按 Asia/Shanghai 判日期：否则 UTC 在到期当天 00:00–08:00 仍算前一天 ⇒ 当天早上会静默 PASS
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  const unregistered = Object.keys(EXPIRING_DEVICE_ONLY).filter((k) => !(k in DEVICE_ONLY_KEYS));
+  const expired = [];
+  const reviews = [...new Set(Object.values(EXPIRING_DEVICE_ONLY).map((r) => r.reviewBy))].join(' / ');
+  for (const [key, rule] of Object.entries(EXPIRING_DEVICE_ONLY)) {
+    if (today >= rule.reviewBy) {
+      expired.push(`${key}（今天 ${today} ≥ 复核日期 ${rule.reviewBy}）`);
+    }
+  }
+  const detail = [
+    unregistered.length ? `未在 DEVICE_ONLY_KEYS 登记：${unregistered.join(', ')}` : '',
+    expired.length
+      ? `已到期，必须删豁免并挪进 CROSS_DEVICE_KEYS（或显式延后 reviewBy 并写明理由）：${expired.join('；')}`
+      : ''
+  ].filter(Boolean).join(' | ');
+  assert(
+    `A3b ${Object.keys(EXPIRING_DEVICE_ONLY).length} 条到期型豁免均未到期且已登记（复核 ${reviews}；到期必须删条目并挪进 CROSS_DEVICE_KEYS）`,
+    unregistered.length === 0 && expired.length === 0,
+    detail
   );
 }
 
