@@ -138,6 +138,6 @@ export function ordersListOwnForReplay(): Promise<OrdersFetch> {
 
 /**
  * ⚠️ 这里**故意没有** orderInsert：客户端写入订单的路径已移除（A-1）。
- * 需要写订单时走服务端函数（`subscription.recordPromoOrder` → `record_promo_order()`），
+ * 需要写订单时走服务端函数（`subscription.recordPromoOrder` → `redeem_promo_order(p_code)`），
  * 不要在这个模块里重新加回 `from('orders').insert(...)`。
  */
