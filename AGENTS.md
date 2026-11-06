@@ -1,4 +1,4 @@
-# AGENTS.md — 私人晨报助理（Personal Morning Brief Assistant）
+﻿# AGENTS.md — 私人晨报助理（Personal Morning Brief Assistant）
 
 > 本文件给在本仓库工作的 AI 代理/开发者。只写**可验证的事实与硬约束**，不写愿景。
 > 最后更新：2026-10-24（新增 `verify:all` / `verify:parity` 与第 11 节上下文纪律；本轮修正了 7 处与仓库现状不符的表述，并加了 `npm run verify:docs` 防再腐烂）
@@ -513,6 +513,32 @@ SPA fallback 把 `index.html` 当 JS 返回，报 `Unexpected token '<'`）。
 **交互事实（写自动化前必读）**：✕ **只在点「管理」进入编辑态后才出现**；删掉一条后
 **自动退出编辑态**（`handleRemoveStock` 末尾 `setQuoteOpen(false)`）。所以脚本必须
 「进管理态 → 删一条 → 重新进管理态」，不能连续查询 ✕。
+
+### 6.4 CI 与分支工具的两个坑（2026-11-06 实测）
+
+**① `setup-node` 的版本必须与 `package.json` 的 `engines` 一致。**
+`engines.node` 是 `>=22`，工作流曾把 `actions/setup-node` 钉在 `20`。`yarn install --frozen-lockfile`
+在 “Validating package.json” 阶段直接失败：
+
+```
+error morning-brief@1.1.0: The engine "node" is incompatible with this module.
+Expected version ">=22.0.0". Got "20.20.2"
+```
+
+后果不是"这一步红"，而是**后面 60 多步全部 skipped**，看起来像"全仓门禁都挂了"。
+所有 PR 与 main 同时红，与当笔改动无关（2026-11-06 亲历，run 42030915391）。
+处置：`checks.yml` / `deploy.yml` 的 `node-version` 与 `engines` 同版本；`refresh-data.yml` 只跑裸 node、
+不装依赖，不受这条约束，可以不同步。
+
+**② GitHub 的 `update-branch` 会把 `checks.yml` 回退成旧版。**
+在 PR 上点 “Update branch”（或调 `PUT /pulls/{n}/update-branch`）把 main 合进来后，实测出现过
+`checks.yml` 被取成**旧版本**（`node-version: 22` → `20`），于是新一轮 CI 又死在安装依赖。
+父提交是对的（确实是新 main），错的是该文件的树内容。2026-11-06 在 #86 上复现。
+
+处置：
+- update-branch 之后**必须核对文件实际内容**：`git diff <新 main> <PR head> -- .github/workflows/`
+  应当只剩本笔应有的差异；一旦被回退，追加一笔**只恢复这一个文件**的提交（内容逐字等于 main）。
+- 不要去重跑整条分支、也不要顺手把别的文件带进这一笔 —— 那会让"纯搬移/单点修复"的 PR 变成混合改动。
 
 ## 7. 合规硬约束（微信小程序发布前必读）
 
