@@ -1,15 +1,18 @@
 /**
- * 题库导入解析（PR-A）：JSON → 结构校验 → 语义校验，产出「可入库候选」。
+ * 题库导入（PR-B）：在 PR-A 的解析/校验之上叠加 CSV、重复检测与分批写入。
  *
  * 身份口径：id 留空按 questionId() 生成；stemHash 一律按 stem 重算，外部显式传
- * stemHash 直接拒绝。本笔只做解析与校验，不写仓储、不做 CSV、不做重复检测 ——
- * 那些在 PR-B 叠加。
+ * stemHash 直接拒绝。重复按 `langCode + stemHash`（既有 + 批内都报），id 撞车
+ * 显式拒绝；批次写盘失败只影响该批，已成功批次不回滚。
  */
 import type { AnswerKey, Board, ExamSystem, LangCode, Level, Question, QuestionOption, QuestionSource, QuestionType } from '../types/questionBank';
 import { BOARDS, EXAM_SYSTEMS, LANG_CODES, LEVELS, QUESTION_SOURCES, QUESTION_TYPES } from '../types/questionBank';
 import { questionId, stemHash, validateQuestion } from '../utils/questionBank';
+import { CsvParseError, parseCsv } from '../utils/questionBankCsv';
+import type { QuestionBankRepo } from './questionBankRepo';
 
-export type RejectionLayer = 'structure' | 'semantic';
+export type RejectionLayer = 'structure' | 'semantic' | 'batch';
+export type ImportFormat = 'json' | 'csv';
 
 export interface ImportRejection {
   /** 数据行号：JSON 数组下标 + 1。0 = 整文件问题。 */
@@ -24,6 +27,7 @@ export interface ImportWarningRow { row: number; field: string; code: string; me
 export interface ParsedQuestion { row: number; question: Question }
 
 export interface ParseResult {
+  format: ImportFormat;
   totalRows: number;
   candidates: ParsedQuestion[];
   rejected: ImportRejection[];
@@ -31,9 +35,43 @@ export interface ParseResult {
 }
 
 export interface ParseOptions {
+  format?: ImportFormat | 'auto';
   now?: () => string;
   /** 测试可注入固定 id；生产用 utils/questionBank 的 questionId。 */
   idFactory?: () => string;
+}
+
+export interface ImportDuplicate {
+  row: number;
+  incomingId: string;
+  /** 库里保留的那条（批内重复时是先进来的那条）。 */
+  matchedId: string;
+  hash: string;
+  langCode: LangCode;
+  reason: 'existing' | 'within-batch' | 'id';
+}
+
+export interface ImportProgress {
+  batch: number;
+  processed: number;
+  total: number;
+  imported: number;
+  rejected: number;
+  duplicates: number;
+}
+
+export interface ImportResult extends ParseResult {
+  imported: number;
+  importedIds: string[];
+  duplicates: ImportDuplicate[];
+  batches: number;
+  failedBatches: number;
+}
+
+export interface ImportOptions extends ParseOptions {
+  /** 每批写入条数，默认 50；只影响落盘批次，不影响校验。 */
+  batchSize?: number;
+  onProgress?: (p: ImportProgress) => void;
 }
 
 interface Draft {
@@ -200,22 +238,75 @@ function draftFromJson(item: unknown): DraftResult {
   });
 }
 
-/**
- * 解析 JSON（数组，或带 questions 数组的对象），逐行做结构 + 语义校验。
- * 语义层复用 validateQuestion：大纲闭集 / 体系自洽 / 答案落在选项内都在那里。
- */
-export function parseQuestionBank(text: string, options: ParseOptions = {}): ParseResult {
-  const now = options.now ?? (() => new Date().toISOString());
-  const idFactory = options.idFactory ?? questionId;
-  const result: ParseResult = { totalRows: 0, candidates: [], rejected: [], warnings: [] };
+interface RawRow { row: number; data: Record<string, unknown> }
 
+/** CSV 单元格里的列表：JSON 数组字面量，或 `a|b|c`（人工在表格里补题用后者）。 */
+function csvList(cell: string): unknown {
+  const t = cell.trim();
+  if (!t) return [];
+  if (t.startsWith('[')) return JSON.parse(t);
+  return t.split('|').map((s) => s.trim()).filter(Boolean);
+}
+
+function csvOptions(cell: string): unknown {
+  const t = cell.trim();
+  if (!t) return [];
+  if (t.startsWith('[')) return JSON.parse(t);
+  // `A|选项文本;B|选项文本`：只按第一个 | 切，选项文本里再有 | 会原样保留
+  return t.split(';').map((s) => s.trim()).filter(Boolean).map((pair) => {
+    const i = pair.indexOf('|');
+    return i < 0 ? { key: pair, text: '' } : { key: pair.slice(0, i).trim(), text: pair.slice(i + 1).trim() };
+  });
+}
+
+function csvAnswer(cell: string, type: string): unknown {
+  const t = cell.trim();
+  if (type === 'single') return t;
+  if (type === 'judge') return t === 'true' ? true : t === 'false' ? false : t;
+  return csvList(t);
+}
+
+function draftFromCsv(cells: Record<string, string>): DraftResult {
+  const typeCell = (cells.type || '').trim();
+  const parseCell = (field: string, fn: (cell: string) => unknown): unknown => {
+    try {
+      return fn(cells[field] || '');
+    } catch (err) {
+      return { __cellError: `${field} 单元格解析失败：${err instanceof Error ? err.message : String(err)}` };
+    }
+  };
+  const options = parseCell('options', csvOptions);
+  const tags = parseCell('knowledgeTags', csvList);
+  const answerKey = cells.answerKey !== undefined ? parseCell('answerKey', (c) => csvAnswer(c, typeCell)) : undefined;
+  for (const [field, value] of [['options', options], ['knowledgeTags', tags], ['answerKey', answerKey]] as const) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && '__cellError' in value) {
+      return { ok: false, issues: [{ field, code: 'structure.invalidCell', message: (value as { __cellError: string }).__cellError }] };
+    }
+  }
+  const numberCell = (field: string): unknown => {
+    const t = (cells[field] || '').trim();
+    return t === '' ? undefined : Number(t);
+  };
+  const text = (field: string): string => (cells[field] || '').trim();
+  return checkDraft({
+    id: text('id'), stem: cells.stem, options, type: typeCell, answerKey,
+    explanation: text('explanation'), examSystem: text('examSystem'), board: text('board'),
+    subject: text('subject'), level: text('level'), syllabusCode: text('syllabusCode'),
+    year: numberCell('year'), paper: text('paper'), knowledgeTags: tags,
+    difficulty: numberCell('difficulty'), source: text('source'), langCode: text('langCode')
+  });
+}
+
+const CSV_REQUIRED = ['stem', 'options', 'type', 'answerKey', 'examSystem', 'board', 'subject', 'level', 'knowledgeTags', 'difficulty', 'langCode'] as const;
+
+function jsonRows(text: string, result: ParseResult): RawRow[] | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text.replace(/^\uFEFF/, ''));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     result.rejected.push({ row: 0, field: 'file', code: 'structure.jsonParse', message: `JSON 解析失败：${message}`, layer: 'structure' });
-    return result;
+    return null;
   }
   const list = Array.isArray(parsed)
     ? parsed
@@ -224,13 +315,65 @@ export function parseQuestionBank(text: string, options: ParseOptions = {}): Par
       : null;
   if (!list) {
     result.rejected.push({ row: 0, field: 'file', code: 'structure.jsonShape', message: 'JSON 顶层必须是数组，或含 questions 数组的对象', layer: 'structure' });
-    return result;
+    return null;
   }
-  result.totalRows = list.length;
+  return list.map((data, i) => ({ row: i + 1, data: data as Record<string, unknown> }));
+}
 
-  list.forEach((item, i) => {
-    const row = i + 1;
-    const parsedRow = draftFromJson(item);
+function csvRows(text: string, result: ParseResult): RawRow[] | null {
+  let table: string[][];
+  try {
+    table = parseCsv(text);
+  } catch (err) {
+    const row = err instanceof CsvParseError ? err.line : 0;
+    result.rejected.push({ row, field: 'file', code: 'structure.csvParse', message: err instanceof Error ? err.message : String(err), layer: 'structure' });
+    return null;
+  }
+  if (table.length === 0 || table[0].every((h) => h.trim() === '')) {
+    result.rejected.push({ row: 1, field: 'file', code: 'csv.empty', message: 'CSV 缺少表头', layer: 'structure' });
+    return null;
+  }
+  const headers = table[0].map((h) => h.trim());
+  const dup = headers.filter((h, i) => h && headers.indexOf(h) !== i);
+  if (dup.length) {
+    result.rejected.push({ row: 1, field: dup[0], code: 'csv.headerDuplicate', message: `表头重复：${dup.join('、')}`, layer: 'structure' });
+    return null;
+  }
+  if (headers.includes('stemHash')) {
+    result.rejected.push({ row: 1, field: 'stemHash', code: 'structure.stemHashNotAllowed', message: 'stemHash 由导入通道按题干重算，CSV 不允许携带该列', layer: 'structure' });
+    return null;
+  }
+  const missing = CSV_REQUIRED.filter((c) => !headers.includes(c));
+  if (missing.length) {
+    result.rejected.push({ row: 1, field: missing[0], code: 'csv.headerMissing', message: `表头缺少列：${missing.join('、')}`, layer: 'structure' });
+    return null;
+  }
+  const rows: RawRow[] = [];
+  table.slice(1).forEach((cells, i) => {
+    if (cells.every((c) => c.trim() === '')) return;
+    const data: Record<string, unknown> = {};
+    headers.forEach((h, idx) => { if (h) data[h] = cells[idx] ?? ''; });
+    rows.push({ row: i + 2, data });
+  });
+  return rows;
+}
+
+/**
+ * 解析 JSON / CSV，逐行做结构 + 语义校验；语义层复用 validateQuestion。
+ */
+export function parseQuestionBank(text: string, options: ParseOptions = {}): ParseResult {
+  const format: ImportFormat = options.format === 'json' || options.format === 'csv'
+    ? options.format
+    : /^\s*[{[]/.test(text.replace(/^\uFEFF/, '')) ? 'json' : 'csv';
+  const result: ParseResult = { format, totalRows: 0, candidates: [], rejected: [], warnings: [] };
+  const rows = format === 'json' ? jsonRows(text, result) : csvRows(text, result);
+  if (!rows) return result;
+  result.totalRows = rows.length;
+  const now = options.now ?? (() => new Date().toISOString());
+  const idFactory = options.idFactory ?? questionId;
+
+  rows.forEach(({ row, data }) => {
+    const parsedRow = format === 'json' ? draftFromJson(data) : draftFromCsv(data as Record<string, string>);
     if (!parsedRow.ok) {
       for (const issue of parsedRow.issues) result.rejected.push({ row, ...issue, layer: 'structure' });
       return;
@@ -267,5 +410,80 @@ export function parseQuestionBank(text: string, options: ParseOptions = {}): Par
     for (const w of verdict.warnings) result.warnings.push({ row, ...w });
     result.candidates.push({ row, question });
   });
+  return result;
+}
+
+/**
+ * 解析 + 判重 + 分批写盘。判重先于写入：既有（langCode + stemHash 命中库里）、
+ * 批内（先进来的那条保留）、id 撞车（库里已有该 id，不覆盖）都进 duplicates 并带上行号。
+ * 某批写盘抛错只把该批各行标 batch.writeFailed，已成功批次不回滚，failedBatches 计数。
+ */
+export function importQuestionBank(repo: QuestionBankRepo, text: string, options: ImportOptions = {}): ImportResult {
+  const parsed = parseQuestionBank(text, options);
+  const result: ImportResult = { ...parsed, imported: 0, importedIds: [], duplicates: [], batches: 0, failedBatches: 0 };
+  if (parsed.candidates.length === 0) return result;
+
+  const batchSize = Math.max(1, Math.floor(options.batchSize ?? 50));
+  const keyOf = (q: Question) => `${q.langCode}:${q.stemHash}`;
+  const existing = repo.list();
+  const seenIds = new Set(existing.map((q) => q.id));
+  const existingHash = new Map<string, string>();
+  for (const q of existing) if (!existingHash.has(keyOf(q))) existingHash.set(keyOf(q), q.id);
+
+  const batchHash = new Map<string, string>();
+  const fresh: ParsedQuestion[] = [];
+  const addDuplicate = (row: number, q: Question, matchedId: string, reason: ImportDuplicate['reason']) => {
+    result.duplicates.push({ row, incomingId: q.id, matchedId, hash: q.stemHash, langCode: q.langCode, reason });
+  };
+
+  for (const cand of parsed.candidates) {
+    const q = cand.question;
+    const key = keyOf(q);
+    if (seenIds.has(q.id)) addDuplicate(cand.row, q, q.id, 'id');
+    else if (existingHash.has(key)) addDuplicate(cand.row, q, existingHash.get(key) as string, 'existing');
+    else if (batchHash.has(key)) addDuplicate(cand.row, q, batchHash.get(key) as string, 'within-batch');
+    else {
+      // 先记账再入队：同批里后面撞上这个 id / 指纹时也能被拦住
+      seenIds.add(q.id);
+      batchHash.set(key, q.id);
+      fresh.push(cand);
+    }
+  }
+
+  for (let i = 0; i < fresh.length; i += batchSize) {
+    const batch = fresh.slice(i, i + batchSize);
+    result.batches += 1;
+    try {
+      const outcome = repo.importQuestions(batch.map((p) => p.question));
+      const addedIds = new Set(outcome.added.map((q) => q.id));
+      const stored = new Set(repo.list().map((q) => q.id));
+      for (const p of batch) {
+        if (addedIds.has(p.question.id) && stored.has(p.question.id)) {
+          result.imported += 1;
+          result.importedIds.push(p.question.id);
+        } else {
+          const leak = addedIds.has(p.question.id) ? 'batch.notPersisted' : 'batch.duplicateLeak';
+          result.rejected.push({
+            row: p.row, field: 'id', code: leak, layer: 'batch',
+            message: addedIds.has(p.question.id)
+              ? `id「${p.question.id}」写入后读不回来`
+              : `仓储层把 id「${p.question.id}」判为重复并丢弃`
+          });
+        }
+      }
+    } catch (err) {
+      result.failedBatches += 1;
+      const message = err instanceof Error ? err.message : String(err);
+      for (const p of batch) result.rejected.push({ row: p.row, field: 'batch', code: 'batch.writeFailed', layer: 'batch', message });
+    }
+    options.onProgress?.({
+      batch: result.batches,
+      processed: Math.min(i + batchSize, fresh.length),
+      total: fresh.length,
+      imported: result.imported,
+      rejected: result.rejected.length,
+      duplicates: result.duplicates.length
+    });
+  }
   return result;
 }
