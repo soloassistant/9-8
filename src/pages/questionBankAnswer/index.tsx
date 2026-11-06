@@ -10,6 +10,7 @@ import { useT } from '@/store/language';
 import { brandVars, useThemeStore } from '@/store/theme';
 import type { Question } from '@/types/questionBank';
 import { loadQuestionBank } from '@/data/questionBankQuery';
+import { createQuestionBankProgress } from '@/data/questionBankProgress';
 import { formatAnswerKey, gradeAnswer, isResponseComplete, type UserResponse } from '@/utils/questionBankGrading';
 import styles from '../questionBank/shared.module.scss';
 
@@ -69,6 +70,18 @@ export default function QuestionBankAnswerPage() {
   const fillValues = Array.isArray(response) ? response : [];
   const multiValues = Array.isArray(response) ? response : [];
   const canSubmit = !!question && isResponseComplete(question, response);
+
+  const submit = () => {
+    if (!question || !canSubmit) return;
+    const correct = gradeAnswer(question, response);
+    setResult(correct);
+    try {
+      createQuestionBankProgress(Taro).record(question.id, correct);
+    } catch (err) {
+      // 记录失败不阻断判分结果；错题本页会以失败态提示读取问题
+      console.error('[QuestionBankAnswer] progress write failed:', err);
+    }
+  };
 
   const chooseOption = (key: string) => {
     if (!question) return;
@@ -198,7 +211,7 @@ export default function QuestionBankAnswerPage() {
           {result === null ? (
             <View>
               {buildBody()}
-              <View className={canSubmit ? styles.primaryBtn : styles.primaryBtnDisabled} onClick={() => canSubmit && setResult(gradeAnswer(question, response))}>
+              <View className={canSubmit ? styles.primaryBtn : styles.primaryBtnDisabled} onClick={submit}>
                 <Text className={styles.primaryText}>{t('qb.submit')}</Text>
               </View>
             </View>

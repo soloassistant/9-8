@@ -93,7 +93,11 @@ const DEVICE_ONLY_KEYS = {
   // ⏳ **到期条件（不是永久豁免）**：题库接入 cloudSync / SYNC_KEYS 的那一笔 PR 必须**同时删除本条目**
   //    并把它挪进 CROSS_DEVICE_KEYS —— 否则题库会永久跳过「换设备是否失忆」的覆盖检查。
   //    约束写在 AGENTS.md §6.2「豁免必须带到期条件」。
-  questionBank: '题库本地仓储，PR-2 只做本地 CRUD 与迁移骨架、尚未接入 cloudSync（到期条件见上方注释）'
+  questionBank: '题库本地仓储，PR-2 只做本地 CRUD 与迁移骨架、尚未接入 cloudSync（到期条件见上方注释）',
+  // 2026-11-05：题库答题记录 / 错题本（接入批次 5/6）。与本机题库同源，答题记录先只落本机。
+  // ⏳ **到期条件**：题库进度接入 cloudSync / SYNC_KEYS 的那一笔 PR 必须同时删除本条目并挪进
+  //    CROSS_DEVICE_KEYS —— 否则错题本会永久跳过「换设备是否失忆」的检查。
+  questionBankProgress: '题库答题记录 / 错题本（设备级，未接入 cloudSync；到期条件见上方注释）'
 };
 
 const syncSrc = read('src/services/cloudSync.ts');
