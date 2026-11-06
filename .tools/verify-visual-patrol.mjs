@@ -35,7 +35,7 @@ const PROBE = path.join(ROOT, '.tools', 'cdp-probe.mjs');
 const SESSION_STUB = path.join(ROOT, '.tools', 'cdp-probe-session.js');
 const INJECT = path.join(ROOT, '.tools', 'patrol-inject.js');
 const OUTDIR = path.join(ROOT, '.tools', '.patrol-shots');
-const LEGAL = path.join(ROOT, 'src', 'data', 'legal.ts');
+const LEGAL = path.join(ROOT, 'src', 'data', 'legal-consent.ts');
 
 const CHROME_CANDIDATES = [
   process.env.CHROME_BIN,
@@ -95,7 +95,7 @@ function serveDist() {
   });
 }
 
-/** 同意键的 storage 种子：版本号从 legal.ts 现读，避免与 LEGAL_VERSION 漂移 */
+/** 同意键的 storage 种子：版本号从 legal-consent.ts 现读，避免与 LEGAL_VERSION 漂移 */
 function buildInit() {
   const legalSrc = fs.readFileSync(LEGAL, 'utf8');
   const version = (legalSrc.match(/LEGAL_VERSION = '([^']+)'/) || [])[1];
