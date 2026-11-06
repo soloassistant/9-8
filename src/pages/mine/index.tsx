@@ -2063,7 +2063,7 @@ function MinePage() {
             )}
             <View className={styles.fbActions}>
               {!isWeapp && !tk.done ? (
-                <Button className={styles.fbSubmit} disabled={tk.sending} onClick={() => void submitTicket()}>
+                <Button className={styles.fbSubmit} disabled={disabledAttr(tk.sending)} onClick={() => void submitTicket()}>
                   {tk.sending ? t('mine.ticketSending') : tk.error ? t('mine.ticketRetry') : t('mine.ticketSubmit')}
                 </Button>
               ) : null}
