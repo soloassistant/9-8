@@ -4,7 +4,7 @@
     "chunk id 每次构建都会变（本次实测历史 506 / 357 在当前构建里已不存在），禁止用 chunk id 做判据；historicalChunkId 仅供报告注释，不参与匹配。",
     "主指标衡量「代码体积」= 4 个 chunk 的 gzip 之和；副指标衡量「用户真实等待」= 导航→首个交互的全部请求 gzip 之和（含接口数据/图片），只记趋势。",
     "单位 KB = 1024 B；gzip = CDP encodedDataLength（含响应头）。",
-    "默认阈值 = 基线 remeasuredMainKB 339.5 向下取整（339）。要收紧到 330 的那一天，由改包体的人同时改这里，脚本不许自己悄悄放宽。"
+    "默认阈值 = 335（当前 main 实测 331.0，留 4KB 波动余量）。要收紧或放宽阈值，由改包体的人同时改这里，脚本不许自己悄悄放宽。"
   ],
   "id": "startup-main-v1",
   "unit": "KB = 1024 B",
@@ -29,8 +29,8 @@
     "source": "D:/Agent/.tmp-u-audit/bundle2.json mainTotal=338.9（app.js+506+357+app.css 四文件口径）"
   },
   "gate": {
-    "defaultThresholdKB": 339,
-    "note": "= 基线 remeasuredMainKB 339.5 向下取整；收紧阈值必须改这里，脚本不自动放宽"
+    "defaultThresholdKB": 335,
+    "note": "= 335：当前 main 实测 331.0，留 4KB 波动余量（2026-11-06 由 339 收紧）；收紧阈值必须改这里，脚本不自动放宽"
   },
   "firstScreenSources": [
     "src/index.html",

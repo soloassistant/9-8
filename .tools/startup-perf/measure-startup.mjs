@@ -84,8 +84,10 @@ function parseArgs(argv) {
     else if (a === '--head-repo') o.headRepo = path.resolve(argv[++i]);
     else if (a === '--ack-catalog-change') o.ackCatalogChange = true;
     else if (a === '--help' || a === '-h') {
-      console.log('用法: node .tools/startup-perf/measure-startup.mjs [--runs N] [--repo DIR] [--dist DIR] [--out DIR] [--catalog FILE]');
+      console.log('用法: node .tools/startup-perf/measure-startup.mjs [--gate] [--threshold KB] [--runs N] [--repo DIR] [--dist DIR] [--out DIR] [--catalog FILE]');
       console.log('      npm run measure:startup');
+      console.log('      npm run measure:startup:gate');
+      console.log('      npm run measure:startup:gate -- --threshold 335   # 临时覆盖阈值（默认取 catalog.gate.defaultThresholdKB=335）');
       process.exit(0);
     }
   }
@@ -837,17 +839,28 @@ function checkConsistency(repo, artifact, catalog) {
 // ── 环境指纹 ─────────────────────────────────────────────────────────────────
 function resolveHead(headRepo) {
   try {
-    const gitDir = path.join(headRepo, '.git');
-    if (!fs.existsSync(gitDir)) return { head: null, note: '无 .git' };
+    const dotgit = path.join(headRepo, '.git');
+    if (!fs.existsSync(dotgit)) return { head: null, note: '无 .git' };
+    let gitDir = dotgit;
+    let commonDir = dotgit;
+    if (fs.statSync(dotgit).isFile()) {
+      // linked worktree：.git 是文件，内容为 "gitdir: <path>"
+      const m = fs.readFileSync(dotgit, 'utf8').match(/^gitdir:\s*(.+)$/m);
+      if (!m) return { head: null, note: '.git 文件无 gitdir' };
+      gitDir = path.resolve(headRepo, m[1].trim());
+      const cFile = path.join(gitDir, 'commondir');
+      commonDir = fs.existsSync(cFile) ? path.resolve(gitDir, fs.readFileSync(cFile, 'utf8').trim()) : gitDir;
+    }
     const headFile = path.join(gitDir, 'HEAD');
     if (!fs.existsSync(headFile)) return { head: null, note: '无 .git/HEAD' };
     const head = fs.readFileSync(headFile, 'utf8').trim();
     if (/^ref: refs\//.test(head)) {
-      const refPath = path.join(gitDir, head.replace(/^ref:\s*/, ''));
+      const refName = head.replace(/^ref:\s*/, '');
+      const refPath = path.join(commonDir, refName);
       if (fs.existsSync(refPath)) return { head: fs.readFileSync(refPath, 'utf8').trim(), note: 'ref' };
-      const packed = path.join(gitDir, 'packed-refs');
+      const packed = path.join(commonDir, 'packed-refs');
       if (fs.existsSync(packed)) {
-        const line = fs.readFileSync(packed, 'utf8').split('\n').find((l) => l.includes(head.replace(/^ref:\s*/, '')));
+        const line = fs.readFileSync(packed, 'utf8').split('\n').find((l) => l.includes(refName));
         if (line) return { head: line.split(' ')[0], note: 'packed-refs' };
       }
       return { head: null, note: 'ref 不存在' };
@@ -1176,7 +1189,7 @@ const state = { catalog: null };
     diff,
     gate: {
       thresholdKB: args.threshold == null ? catalog.gate.defaultThresholdKB : args.threshold,
-      thresholdSource: args.threshold == null ? `catalog.gate.defaultThresholdKB=${catalog.gate.defaultThresholdKB}（基线 ${catalog.baseline.remeasuredMainKB} 向下取整）` : '--threshold 命令行覆盖',
+      thresholdSource: args.threshold == null ? `catalog.gate.defaultThresholdKB=${catalog.gate.defaultThresholdKB}（门禁线 ≤335，当前 main 实测 331.0，留 4KB 波动余量）` : '--threshold 命令行覆盖',
       over: med.mainBytes / KB > (args.threshold == null ? catalog.gate.defaultThresholdKB : args.threshold)
     },
     generatedAt: new Date().toISOString()
@@ -1190,7 +1203,20 @@ const state = { catalog: null };
   fs.writeFileSync(path.join(args.out, 'latest.json'), JSON.stringify(json, null, 2));
   console.log(`\nJSON              ${jsonPath}`);
 
-  console.log('\n（report 模式：只报告，不判达标）');
+  if (args.gate) {
+    const threshold = json.gate.thresholdKB;
+    const over = med.mainBytes / KB - threshold;
+    console.log('\n── 门禁 ──────────────────────────────────────────────────');
+    if (over > 0) {
+      console.log(`✗ 超标：主指标 ${kb(med.mainBytes)} KB > 阈值 ${threshold} KB，超出 ${over.toFixed(1)} KB（${((over / threshold) * 100).toFixed(1)}%）`);
+      console.log(`  默认阈值来自 catalog.gate.defaultThresholdKB=335（当前 main 实测 331.0 + 4KB 波动余量）；收紧阈值请同时修改 catalog，不要用脚本自动放宽。`);
+      console.log('  临时覆盖：npm run measure:startup:gate -- --threshold 345');
+      process.exit(1);
+    }
+    console.log(`✓ 通过：主指标 ${kb(med.mainBytes)} KB ≤ 阈值 ${threshold} KB（余量 ${Math.abs(over).toFixed(1)} KB）`);
+    process.exit(0);
+  }
+  console.log('\n（report 模式：不判达标；判据请用 npm run measure:startup:gate）');
 })().catch((e) => {
   if (e instanceof Invalid) {
     console.error(`\n✗ 无法测量：${e.message}`);
