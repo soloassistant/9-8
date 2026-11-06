@@ -76,6 +76,8 @@ const sentencesOf = (text) =>
     .filter(Boolean);
 
 const legalSrc = read('src/data/legal.ts');
+// 同意读写已拆到 legal-consent.ts（首屏只依赖这个小模块），E2 的断言跟着源码走
+const consentSrc = read('src/data/legal-consent.ts');
 /** 三份文本的源码（含 ${LEGAL_VERSION} 插值，不执行） */
 const TERMS = /export const TERMS_TEXT = `([\s\S]*?)`;/.exec(legalSrc)?.[1] ?? '';
 const PRIVACY = /export const PRIVACY_TEXT = `([\s\S]*?)`;/.exec(legalSrc)?.[1] ?? '';
@@ -323,7 +325,7 @@ ok('E1 首启同意弹窗渲染三份文本（写了不渲染 = 用户根本看�
   RENDER_KEYS.every((k) => gateSrc.includes(k)));
 ok('E1 「我的」半屏查看层也渲染三份（同意之后仍需可查）', RENDER_KEYS.every((k) => mineSrc.includes(k)));
 ok('E2 同意记录按 LEGAL_VERSION 比对（改文案不递增 = 对老用户静默改条款）',
-  legalSrc.includes('rec.version === LEGAL_VERSION'));
+  consentSrc.includes('rec.version === LEGAL_VERSION'));
 
 /* ================================================================== */
 /* E3. 敏感个人信息（运动/健康）的单独同意闸门                            */
