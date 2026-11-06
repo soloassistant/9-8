@@ -95,6 +95,7 @@
     "verify:source-prefs": "node .tools/verify-source-prefs.mjs",
     "verify:visual": "node .tools/verify-visual-patrol.mjs",
     "verify:compress": "node .tools/verify-compress.mjs",
+    "measure:startup": "node .tools/startup-perf/measure-startup.mjs",
     "deploy:cloud": "node .tools/deploy-cloud.mjs",
     "deploy:cloud:check": "node .tools/deploy-cloud.mjs --check",
     "deploy:pages": "node .tools/deploy-gh-pages.mjs",
