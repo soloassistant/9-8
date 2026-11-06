@@ -87,7 +87,7 @@ function parseArgs(argv) {
       console.log('用法: node .tools/startup-perf/measure-startup.mjs [--gate] [--threshold KB] [--runs N] [--repo DIR] [--dist DIR] [--out DIR] [--catalog FILE]');
       console.log('      npm run measure:startup');
       console.log('      npm run measure:startup:gate');
-      console.log('      npm run measure:startup:gate -- --threshold 345   # 临时覆盖阈值（默认取 catalog.gate.defaultThresholdKB=339）');
+      console.log('      npm run measure:startup:gate -- --threshold 335   # 临时覆盖阈值（默认取 catalog.gate.defaultThresholdKB=335）');
       process.exit(0);
     }
   }
@@ -1189,7 +1189,7 @@ const state = { catalog: null };
     diff,
     gate: {
       thresholdKB: args.threshold == null ? catalog.gate.defaultThresholdKB : args.threshold,
-      thresholdSource: args.threshold == null ? `catalog.gate.defaultThresholdKB=${catalog.gate.defaultThresholdKB}（基线 ${catalog.baseline.remeasuredMainKB} 向下取整）` : '--threshold 命令行覆盖',
+      thresholdSource: args.threshold == null ? `catalog.gate.defaultThresholdKB=${catalog.gate.defaultThresholdKB}（门禁线 ≤335，当前 main 实测 331.0，留 4KB 波动余量）` : '--threshold 命令行覆盖',
       over: med.mainBytes / KB > (args.threshold == null ? catalog.gate.defaultThresholdKB : args.threshold)
     },
     generatedAt: new Date().toISOString()
@@ -1209,7 +1209,7 @@ const state = { catalog: null };
     console.log('\n── 门禁 ──────────────────────────────────────────────────');
     if (over > 0) {
       console.log(`✗ 超标：主指标 ${kb(med.mainBytes)} KB > 阈值 ${threshold} KB，超出 ${over.toFixed(1)} KB（${((over / threshold) * 100).toFixed(1)}%）`);
-      console.log(`  默认阈值来自 catalog.gate.defaultThresholdKB（基线 ${catalog.baseline.remeasuredMainKB} 向下取整）；收紧阈值请同时修改 catalog，不要用脚本自动放宽。`);
+      console.log(`  默认阈值来自 catalog.gate.defaultThresholdKB=335（当前 main 实测 331.0 + 4KB 波动余量）；收紧阈值请同时修改 catalog，不要用脚本自动放宽。`);
       console.log('  临时覆盖：npm run measure:startup:gate -- --threshold 345');
       process.exit(1);
     }
