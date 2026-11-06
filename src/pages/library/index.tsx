@@ -21,7 +21,7 @@ import { formatDate, fromNow } from '@/utils/date';
 import { openExternalPage } from '@/utils/externalLink';
 import { logActivity } from '@/utils/activityLog';
 import type { CollectionItem, HistoryEntry, HotspotNews } from '@/types';
-import { useT } from '@/store/language';
+import { useT, useLanguageStore } from '@/store/language';
 import { useVirtualNewsList } from '@/hooks/useVirtualNewsList';
 import { readPrefs } from '@/utils/prefs';
 import { getPersonalization, setPersonalization } from '@/utils/permission';
@@ -85,8 +85,6 @@ const SKELETON_DELAY_MS = 300;
 /** 切回 tab 的数据新鲜窗口（60s）：窗口内不重拉，避免每次切回都闪骨架 + 重拉 73KB 热点 */
 const LOAD_FRESH_MS = 60_000;
 
-/** X9 分享卡片：轻量 AI 标识后缀（XX = 应用名，不引 canvas，分享图降级默认截图） */
-const APP_NAME = '私人晨报助理';
 /** X9 分享回跳：资讯页路径（?kw= 预填搜索关键词） */
 const LIBRARY_PAGE_PATH = '/pages/library/index';
 /** 竞品分析 L1：是否小程序端（决定分享按钮走原生转发还是 H5 复制链接） */
@@ -205,6 +203,7 @@ export function recordBrowseHistory(entry: { id: string; title: string; source?:
 
 function LibraryPage() {
   const t = useT();
+  const { lang } = useLanguageStore();
   const theme = useThemeStore((s) => s.theme);
   const [items, setItems] = useState<CollectionItem[]>([]);
   const [news, setNews] = useState<HotspotNews[]>([]);
@@ -651,7 +650,7 @@ function LibraryPage() {
   const handleCopy = (item: CollectionItem) => {
     Taro.setClipboardData({
       data: `${item.title}\n${item.summary}`,
-      success: () => Taro.showToast({ title: '摘要已复制', icon: 'success' })
+      success: () => Taro.showToast({ title: t('library.summaryCopied'), icon: 'success' })
     }).catch((err) => console.error('[LibraryPage] copy failed:', err));
   };
 
@@ -706,15 +705,15 @@ function LibraryPage() {
    *  只是从 handleNewsTap 挪进文章视图 —— 原实现逻辑原样保留，别在重构里丢行为。 */
   const handleReadOriginal = (item: HotspotNews) => {
     if (!item.url) {
-      Taro.showToast({ title: '该条暂无原文链接', icon: 'none', duration: 1800 });
+      Taro.showToast({ title: t('library.noOriginal'), icon: 'none', duration: 1800 });
       return;
     }
     void openExternalPage(item.url)
       .then((r) => {
         if (r === 'copied') {
-          Taro.showToast({ title: `来源：${item.source}，链接已复制`, icon: 'none', duration: 2200 });
+          Taro.showToast({ title: t('library.sourceCopied', { source: item.source }), icon: 'none', duration: 2200 });
         } else if (r === 'failed') {
-          Taro.showToast({ title: '该条链接无法打开', icon: 'none', duration: 1800 });
+          Taro.showToast({ title: t('library.linkFailed'), icon: 'none', duration: 1800 });
         }
         // 'opened'（H5 新标签已开）：不再弹 toast 干扰
       })
@@ -735,11 +734,11 @@ function LibraryPage() {
    *  「·AI 精选」后缀带门控（合规）：仅 AI 精选面板产出（确经 LLM 挑选）的条目才挂，
    *  与卡片 L1「AI」角标（showAiBadge）同口径；普通 RSS 热点摘掉该后缀，避免虚假归因。 */
   const handleShareNewsH5 = (item: HotspotNews, aiPicked: boolean) => {
-    const from = aiPicked ? `（来自${APP_NAME}·AI 精选）` : `（来自${APP_NAME}）`;
+    const from = aiPicked ? t('library.shareFromAi', { app: t('library.appName') }) : t('library.shareFrom', { app: t('library.appName') });
     const text = `${item.title}${from}\n${item.url || ''}`;
     Taro.setClipboardData({
       data: text,
-      success: () => Taro.showToast({ title: '链接已复制，去粘贴分享吧', icon: 'none' })
+      success: () => Taro.showToast({ title: t('library.linkCopied'), icon: 'none' })
     }).catch((err) => console.warn('[LibraryPage] share copy failed:', err));
   };
 
@@ -749,7 +748,7 @@ function LibraryPage() {
     const ds = (res?.target as { dataset?: { newsTitle?: string; newsUrl?: string; newsAi?: string } } | undefined)
       ?.dataset;
     if (ds?.newsTitle) {
-      const from = ds.newsAi === '1' ? `（来自${APP_NAME}·AI 精选）` : `（来自${APP_NAME}）`;
+      const from = ds.newsAi === '1' ? t('library.shareFromAi', { app: t('library.appName') }) : t('library.shareFrom', { app: t('library.appName') });
       return {
         title: `${ds.newsTitle}${from}`,
         path: `${LIBRARY_PAGE_PATH}?kw=${encodeURIComponent(ds.newsTitle)}`
@@ -1070,11 +1069,13 @@ function LibraryPage() {
    *  点击走 handleNewsTap 同一链路（历史/归因/站内文章视图），阅读原文进 B 站页面。 */
   const renderVideoCard = (item: HotspotNews) => {
     const playText =
-      typeof item.play === 'number' && item.play >= 10000
-        ? `${(item.play / 10000).toFixed(1)}万`
-        : typeof item.play === 'number'
-          ? String(item.play)
-          : '';
+      typeof item.play !== 'number'
+        ? ''
+        : item.play >= 10000
+          ? lang === 'en'
+            ? `${(item.play / 1000).toFixed(1)}k`
+            : `${(item.play / 10000).toFixed(1)}万`
+          : String(item.play);
     return (
       <View key={item.id} className={styles.videoCard} onClick={() => handleNewsTap(item)}>
         <View className={styles.videoCoverWrap}>
@@ -1253,7 +1254,7 @@ function LibraryPage() {
           </View>
         ) : null}
         <View className={styles.newsMeta}>
-          <Text className={styles.newsSource}>来源 · {item.source}</Text>
+          <Text className={styles.newsSource}>{t('library.sourceLine')} · {item.source}</Text>
           {/* 同事件多来源标注：仅在 alsoFrom 非空时显示（n = 其他来源数 + 1 个本来源） */}
           {multiSourceCount > 0 ? (
             <Text className={styles.newsSource}>
@@ -1290,11 +1291,11 @@ function LibraryPage() {
                 data-news-url={item.url}
                 data-news-ai={showAiBadge ? '1' : ''}
               >
-                分享
+                {t('library.share')}
               </Button>
             ) : (
               <Text className={styles.shareBtn} onClick={() => handleShareNewsH5(item, showAiBadge)}>
-                分享
+                {t('library.share')}
               </Text>
             )
           ) : null}
@@ -1417,7 +1418,7 @@ function LibraryPage() {
                 <Text className={styles.aiTipText}>
                   {affinityCats.length
                     ? `${t('library.affinityTitle')} · ${t('library.affinityDesc', {
-                        cats: affinityCats.map((c) => categoryLabel(c, t)).join('、')
+                        cats: affinityCats.map((c) => categoryLabel(c, t)).join(lang === 'en' ? ', ' : '、')
                       })}`
                     : t('library.affinityEmpty')}
                 </Text>
@@ -1449,7 +1450,7 @@ function LibraryPage() {
                     {AI_PRESET_INTERESTS.map((tag) => (
                       <TagChip
                         key={tag}
-                        label={tag}
+                        label={categoryLabel(tag, t)}
                         active={aiInterests.includes(tag)}
                         onClick={() => toggleInterest(tag)}
                       />
@@ -1586,7 +1587,7 @@ function LibraryPage() {
             <View className={styles.virtualSentinel} data-sentinel='bottom' aria-hidden='true' />
             {win.end < win.total ? (
               // 键盘/读屏的分段入口：Tab 到这里按 Enter 继续扩窗（视觉用户由哨兵自动扩窗）
-              <Button className={styles.loadMore} onClick={win.loadMore}>{`载入更多（还剩 ${win.total - win.end} 条）`}</Button>
+              <Button className={styles.loadMore} onClick={win.loadMore}>{t('library.loadMoreLeft', { n: win.total - win.end })}</Button>
             ) : null}
             {win.bottomH > 0 ? (
               <View className={styles.virtualSpacer} style={{ height: `${win.bottomH}px` }} aria-hidden='true' />
@@ -1658,7 +1659,7 @@ function LibraryPage() {
             <View className={styles.railTags}>
               {newsTags.slice(1, 7).map((tag) => (
                 <Text key={tag} className={styles.railTag} onClick={() => setActiveNewsTag(tag)}>
-                  {tag}
+                  {categoryLabel(tag, t)}
                 </Text>
               ))}
             </View>

@@ -42,6 +42,13 @@ export const CATEGORY_LABEL_KEYS: Record<string, LangKey> = {
   数码: 'cat.digital',
   影视: 'cat.film',
   国际: 'cat.international',
+  // U-04：筛选条里的「全部」与兴趣/频道标签（数据层是中文串，en 下会直接漏中文）
+  全部: 'cat.all',
+  小程序: 'cat.miniprogram',
+  效率: 'cat.productivity',
+  独立开发: 'cat.indie',
+  生活: 'cat.daily',
+  出行: 'cat.travel',
   [CATEGORY_MIXED]: 'cat.hotlist',
   [CATEGORY_UNKNOWN]: 'cat.unknown'
 };
