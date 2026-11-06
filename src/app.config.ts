@@ -33,6 +33,8 @@ export default defineAppConfig({
     'pages/learn/index',
     'pages/learnDetail/index',
     'pages/learnCommunity/index',
+    // 题库（接入批次 2/5）：列表 / 搜索 / 体系与学科筛选；数据目前只来自本机题库
+    'pages/questionBank/index',
     // 2026-10-28：专业交易终端（黄金/外汇，模拟行情）。仅 H5 渲染终端 UI，
     // weapp 渲染「仅网页版可用」占位；非 tabBar 页（navigateTo 进入）。
     'pages/trade/index',
