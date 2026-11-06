@@ -1462,6 +1462,9 @@ const zh = {
   'trade.feedLabelReal': '真实金价（腾讯行情）',
   'trade.simWatermark': '历史K线：模拟推演',
   'trade.feedLabel': '模拟行情',
+  // 真实行情失败不能静默：明确告诉用户已回退到参考行情，并给可点的重试
+  'trade.feedDown': '实时行情暂不可用，已回到参考行情',
+  'trade.feedRetry': '重试',
   'trade.watchlist': '自选行情',
   'trade.cat.all': '全部',
   'trade.cat.gold': '黄金',
@@ -2869,6 +2872,9 @@ const en: Record<keyof typeof zh, string> = {
   'trade.feedLabelReal': 'Live price feed',
   'trade.simWatermark': 'Candles: simulated replay',
   'trade.feedLabel': 'Simulated feed',
+  // Live-feed failure must be visible, not a silent badge swap
+  'trade.feedDown': 'Live quotes unavailable — using reference prices',
+  'trade.feedRetry': 'Retry',
   'trade.watchlist': 'Watchlist',
   'trade.cat.all': 'All',
   'trade.cat.gold': 'Gold',
