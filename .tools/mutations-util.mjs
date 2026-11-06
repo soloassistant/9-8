@@ -19,8 +19,11 @@ export default [
   {
     label: 'authorizeWeapp 重新在内部记一次拒绝（一次拒绝计 2 次，降级门槛提前触发）',
     file: 'src/utils/permission.ts',
-    from: "    console.error('[permission] authorize denied:', name, err);\n    return false;",
-    to: "    console.error('[permission] authorize denied:', name, err);\n    recordPermissionResult(name, false);\n    return false;",
+    // 2026-11-06：锚点随 #84 同步 —— authorizeWeapp 的 catch 里多了
+    // 「if (name === 'location') markLocateFailure('blocked');」这一行，
+    // 变异意图不变：在同一个 catch 里再记一次拒绝（一次拒绝计 2 次）。
+    from: "    console.error('[permission] authorize denied:', name, err);\n    // weapp 一旦拒绝，authorize 不会再弹框 —— 不等 3 次，直接引导 openSetting\n    if (name === 'location') markLocateFailure('blocked');\n    return false;",
+    to: "    console.error('[permission] authorize denied:', name, err);\n    // weapp 一旦拒绝，authorize 不会再弹框 —— 不等 3 次，直接引导 openSetting\n    if (name === 'location') markLocateFailure('blocked');\n    recordPermissionResult(name, false);\n    return false;",
     cmd: 'node .tools/verify-util-logic.mjs'
   },
   {
