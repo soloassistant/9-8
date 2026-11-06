@@ -165,7 +165,12 @@ const CI_EXEMPT = new Map([
   ['verify:calendar-edit', '专项行为回归（日程编辑落库 + 回读校验，esbuild + stubs），由 verify:all 覆盖'],
   ['verify:local-write', '专项行为回归（账本/购物/收藏写盘失败必须显式失败，stubs），由 verify:all 覆盖'],
   ['verify:account-purge', '专项静态回归（v2 匿名收紧 / v3 注销清偿 SQL 与客户端接线），由 verify:all 覆盖'],
-  ['verify:content-safety', '专项行为回归（H5 AI 红线护栏 + 输入输出接线），由 verify:all 覆盖']
+  ['verify:content-safety', '专项行为回归（H5 AI 红线护栏 + 输入输出接线），由 verify:all 覆盖'],
+  // 2026-11-06 新增：门禁自身的变异自检要反复 spawn 测量，且被测对象是 dist 产物。
+  // checks 工作流不构建产物，CI 上没有可比对的 dist，跑了也只是「产物缺失 → exit 2」。
+  // 到期条件：checks 增加「构建 H5 产物」步骤（或提供可复用的冻结产物）时，
+  // 必须删掉本豁免并把它接进 CI —— 届时「这道门会不会红」才有 CI 级证据。
+  ['verify:startup-perf', '变异自检需 dist 产物（checks 不构建产物）；到期：CI 有构建步骤即删除本豁免并接入']
 ]);
 
 export function checkCiParity(ciText, scripts, exempt = CI_EXEMPT) {
