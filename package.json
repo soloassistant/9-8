@@ -68,6 +68,7 @@
     "test:question-bank-query": "node .tools/test-question-bank-query.mjs",
     "test:question-bank-grading": "node .tools/test-question-bank-grading.mjs",
     "test:question-bank-progress": "node .tools/test-question-bank-progress.mjs",
+    "test:question-bank-import": "node .tools/test-question-bank-import.mjs",
     "verify:interaction": "node .tools/verify-interaction-fixes.mjs",
     "verify:usage": "node .tools/verify-usage-renewal.mjs",
     "verify:legal": "node .tools/verify-legal.mjs",
