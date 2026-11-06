@@ -5,7 +5,7 @@
  * 改不红 = 门禁是假绿的。逐条覆盖用户点名的三条：
  *   ① 筛选条件失效（返回全量）         → test-question-bank-query
  *   ② 读取失败被渲染成「题库 0 题」      → test-question-bank-query
- *   ③ 判分把错判成对                    → test-question-bank-grading（在答题页那一笔加入）
+ *   ③ 判分把错判成对                    → test-question-bank-grading
  */
 export default [
   {
@@ -21,5 +21,12 @@ export default [
     from: "    return { status: 'error', code, message };",
     to: "    return { status: 'ok', questions: [] };",
     cmd: 'node .tools/test-question-bank-query.mjs'
+  },
+  {
+    label: '③ 判分把错判成对：单选永远返回 true',
+    file: 'src/utils/questionBankGrading.ts',
+    from: "      return typeof response === 'string' && typeof expected === 'string' && norm(response) !== '' && norm(response) === norm(expected);",
+    to: '      return true;',
+    cmd: 'node .tools/test-question-bank-grading.mjs'
   }
 ];
