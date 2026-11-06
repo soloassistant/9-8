@@ -5,7 +5,8 @@
  * 改后：本地凭证不再授予权益；小程序读 `users`（getUsage 云函数，服务端时钟），
  * H5 回放 RLS 只回本人的 `orders`（与订阅恢复同一口径）。
  * 拿不到服务端结论 → fail-closed（未订阅 + source='unavailable'），断网不得变成免费解锁。
- * 残余边界：H5 的 orders 允许客户端插自己的行（RLS 只约束 owner_id），彻底收口需服务端写入迁移。
+ * H5 对 orders 只有 SELECT（v6-promo-server-codes.sql 已收回 PUBLIC/authenticated 的
+ * INSERT/UPDATE/DELETE 并 DROP 掉 orders_own_insert，写入只经服务端函数 redeem_promo_order）。
  */
 import Taro from '@tarojs/taro';
 import { ordersListOwnForReplay } from './cloudOrders';
