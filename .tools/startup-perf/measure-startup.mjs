@@ -72,24 +72,49 @@ function parseArgs(argv) {
     headRepo: process.env.STARTUP_PERF_HEAD_REPO ? path.resolve(process.env.STARTUP_PERF_HEAD_REPO) : null,
     ackCatalogChange: false
   };
+  // 参数错误一律 exit 2：不猜用户意思，也不让「参数没传进去」伪装成「验过了」。
+  const dieArg = (raw) => {
+    console.error(`✗ 无法识别的参数：${raw}，请用 --threshold N 或直接调 node --threshold N`);
+    console.error('  例：node .tools/startup-perf/measure-startup.mjs --gate --threshold 335');
+    console.error('  （Windows PowerShell 会把 npm run … -- --threshold 320 里的 --threshold 吞掉，只剩 --gate 320 这种歧义形态。）');
+    process.exit(2);
+  };
+  const positiveNumber = (flag, raw) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) dieArg(`${flag} ${raw}`);
+    return n;
+  };
+
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--gate') o.gate = true;
-    else if (a === '--runs') o.runs = Math.max(1, parseInt(argv[++i], 10) || 3);
-    else if (a === '--threshold') o.threshold = parseFloat(argv[++i]);
-    else if (a === '--repo') o.repo = path.resolve(argv[++i]);
-    else if (a === '--dist') o.dist = path.resolve(argv[++i]);
-    else if (a === '--out') o.out = path.resolve(argv[++i]);
-    else if (a === '--catalog') o.catalog = path.resolve(argv[++i]);
-    else if (a === '--head-repo') o.headRepo = path.resolve(argv[++i]);
+    // 取值类参数统一走这里：缺值直接 exit 2，不把 undefined 喂给 path.resolve/parseFloat
+    const need = (flag) => {
+      const v = argv[++i];
+      if (v == null) dieArg(`${flag} 缺少取值`);
+      return v;
+    };
+    if (a === '--gate') {
+      // 门禁旗标后面跟数字 = `--gate 320`（真实发生过：PowerShell 吃掉了 --threshold）
+      if (i + 1 < argv.length && /^-?\d+(\.\d+)?$/.test(argv[i + 1])) dieArg(`--gate ${argv[i + 1]}`);
+      o.gate = true;
+    }
+    else if (a === '--runs') o.runs = Math.max(1, parseInt(need('--runs'), 10) || 3);
+    else if (a === '--threshold') o.threshold = positiveNumber('--threshold', need('--threshold'));
+    else if (a === '--repo') o.repo = path.resolve(need('--repo'));
+    else if (a === '--dist') o.dist = path.resolve(need('--dist'));
+    else if (a === '--out') o.out = path.resolve(need('--out'));
+    else if (a === '--catalog') o.catalog = path.resolve(need('--catalog'));
+    else if (a === '--head-repo') o.headRepo = path.resolve(need('--head-repo'));
     else if (a === '--ack-catalog-change') o.ackCatalogChange = true;
     else if (a === '--help' || a === '-h') {
       console.log('用法: node .tools/startup-perf/measure-startup.mjs [--gate] [--threshold KB] [--runs N] [--repo DIR] [--dist DIR] [--out DIR] [--catalog FILE]');
       console.log('      npm run measure:startup');
       console.log('      npm run measure:startup:gate');
-      console.log('      npm run measure:startup:gate -- --threshold 335   # 临时覆盖阈值（默认取 catalog.gate.defaultThresholdKB=335）');
+      console.log('      node .tools/startup-perf/measure-startup.mjs --gate --threshold 335   # 临时覆盖阈值');
+      console.log('      ⚠ Windows PowerShell 会吞掉 npm 的 `--` 之后的参数（变成 --gate 335），请直接用上面的 node 写法。');
       process.exit(0);
     }
+    else dieArg(a);
   }
   o.dist = o.dist || path.join(o.repo, 'dist');
   o.catalog = o.catalog || path.join(HERE, 'catalog.json');
@@ -1189,7 +1214,7 @@ const state = { catalog: null };
     diff,
     gate: {
       thresholdKB: args.threshold == null ? catalog.gate.defaultThresholdKB : args.threshold,
-      thresholdSource: args.threshold == null ? `catalog.gate.defaultThresholdKB=${catalog.gate.defaultThresholdKB}（门禁线 ≤335，当前 main 实测 331.0，留 4KB 波动余量）` : '--threshold 命令行覆盖',
+      thresholdSource: args.threshold == null ? `catalog.gate.defaultThresholdKB=${catalog.gate.defaultThresholdKB}（门禁线 ≤${catalog.gate.defaultThresholdKB}）` : '--threshold 命令行覆盖',
       over: med.mainBytes / KB > (args.threshold == null ? catalog.gate.defaultThresholdKB : args.threshold)
     },
     generatedAt: new Date().toISOString()
@@ -1209,8 +1234,8 @@ const state = { catalog: null };
     console.log('\n── 门禁 ──────────────────────────────────────────────────');
     if (over > 0) {
       console.log(`✗ 超标：主指标 ${kb(med.mainBytes)} KB > 阈值 ${threshold} KB，超出 ${over.toFixed(1)} KB（${((over / threshold) * 100).toFixed(1)}%）`);
-      console.log(`  默认阈值来自 catalog.gate.defaultThresholdKB=335（当前 main 实测 331.0 + 4KB 波动余量）；收紧阈值请同时修改 catalog，不要用脚本自动放宽。`);
-      console.log('  临时覆盖：npm run measure:startup:gate -- --threshold 345');
+      console.log(`  阈值来源：${json.gate.thresholdSource}；本次实测 ${kb(med.mainBytes)} KB；收紧阈值请同时修改 catalog，不要用脚本自动放宽。`);
+      console.log('  临时覆盖：node .tools/startup-perf/measure-startup.mjs --gate --threshold 345');
       process.exit(1);
     }
     console.log(`✓ 通过：主指标 ${kb(med.mainBytes)} KB ≤ 阈值 ${threshold} KB（余量 ${Math.abs(over).toFixed(1)} KB）`);
