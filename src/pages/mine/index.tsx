@@ -148,6 +148,45 @@ const readTicketHistory = (): TicketHistoryItem[] => {
 };
 const ticketDeletedAtLabel = (at: string) =>
   at && !Number.isNaN(new Date(at).getTime()) ? new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '';
+interface CloseOutcome { no: string; ok: boolean; }
+
+/**
+ * 注销时自动提单（2026-11-05）。
+ * ⚠️ 顺序铁律：必须在 `signOut()` 之前调用 —— 工单写入依赖当前 `auth.uid()`，
+ *    会话销毁后插入必失败；也不能把「用户重新登录再补提」当成默认路径。
+ * 返回 ok=false 时**不许**吞掉：完成页据此显示「工单未提交成功」，
+ * 失败不阻断注销本身（数据该清的照清，登出照做）。
+ */
+const autoClosureTicket = async (): Promise<CloseOutcome> => {
+  const no = makeTicketNo();
+  let userRef = '';
+  try {
+    const s = await getSession();
+    userRef = s?.user?.id || '';
+  } catch {
+    userRef = '';
+  }
+  if (!userRef) {
+    console.error('[MinePage] close ticket skipped: no session user id');
+    return { no, ok: false };
+  }
+  try {
+    const r = await supportTicketInsert({
+      ticketNo: no,
+      userRef,
+      localDeletedAt: new Date().toISOString(),
+      recordKinds: [...TICKET_KINDS]
+    });
+    if (r !== 'ok' && r !== 'duplicate') {
+      console.error('[MinePage] close ticket insert =', r);
+      return { no, ok: false };
+    }
+    return { no, ok: true };
+  } catch (err) {
+    console.error('[MinePage] close ticket insert threw:', err);
+    return { no, ok: false };
+  }
+};
 const PREF_TAGS = ['科技', '效率工具', '财经', '健康', '出行', '生活', 'AI', '科学', '文化'];
 const REPLY_STYLES = ['简洁', '均衡', '详细'];
 const CUSTOM_SETTINGS_KEY = 'user-settings';
@@ -237,6 +276,8 @@ function MinePage() {
   const [fbSending, setFbSending] = useState(false);
   const [tk, setTk] = useState<TicketForm | null>(null);
   const [tkHistory, setTkHistory] = useState<TicketHistoryItem[]>([]);
+  /** H5 注销完成页（含自动提单结果）；null = 未注销 */
+  const [closeDone, setCloseDone] = useState<CloseOutcome | null>(null);
   // v1.2 新增：C-03 个性化推荐开关 / V-05 V-07 TTS 偏好 / M-01 M-02 记忆 / N-03 屏蔽清单 / B-01 B-02 订阅
   const [personalOn, setPersonalOn] = useState(true);
   const [memory, setMemory] = useState<MemoryStore>({ enabled: true, items: [] });
@@ -956,20 +997,32 @@ function MinePage() {
       return;
     }
     setDeleteOpen(false);
-    // 删除成功后的收尾（清本机数据 → 完成提示 → 回首页），两端共用
-    const finishDelete = () => {
+    // 删除后的收尾：H5 带自动提单结果 → 完成页；weapp 沿用 toast + 回首页
+    const finishDelete = (close?: CloseOutcome) => {
       try {
         Taro.clearStorageSync();
         Taro.setStorageSync(LAST_DELETE_KEY, new Date().toISOString());
       } catch (err) {
         console.error('[MinePage] clear storage failed:', err);
       }
+      if (close) {
+        // 本机留档：自动提的单也要能在「补提交注销工单」里翻到
+        const next = [
+          { no: close.no, at: Date.now(), kinds: [...TICKET_KINDS] as TicketKind[] },
+          ...readTicketHistory()
+        ].slice(0, 5);
+        try {
+          Taro.setStorageSync(TICKET_HISTORY_KEY, next);
+        } catch {
+          /* 留档失败不影响注销结果 */
+        }
+        setCloseDone(close);
+        return;
+      }
       Taro.showToast({
         // ⚠️ 文案必须说真话（2026-10-29 审计）：weapp 的 deleteAccount 是**当场删**，
         //    H5 只清了 user_kv（llm_events / feedback / client_errors 仍在云端）。
-        //    之前两端共用「注销申请已提交，我们将在 15 个工作日内完成处理」——
-        //    而系统里**没有任何受理队列**（全仓没有 deletion_requests 之类的集合），
-        //    这句话两头都不准：weapp 是早就删完了，H5 是压根没提交过。
+        //    H5 的完成页由 finishDelete(close) 单独渲染，不走这条 toast。
         title: t(process.env.TARO_ENV === 'h5' ? 'mine.deleteDoneH5' : 'mine.deleteDone'),
         icon: 'none'
       });
@@ -1020,14 +1073,24 @@ function MinePage() {
         .catch((err) => {
           console.error('[MinePage] kvClear failed:', err);
         })
-        // 无论云端结果如何都继续：signOut 自身吞掉登出失败；
-        // 即便登出异常也继续清本机数据并回到门禁
-        .then(() => signOut())
-        .then(finishDelete)
-        .catch(finishDelete);
+        // 2026-11-05（栈叠 PR）：注销即自动提单 —— 顺序 = 清同步键 → **提单** → 登出 → 完成页。
+        // 前两步都依赖当前 auth.uid()，必须在 signOut 之前；提单失败不阻断注销。
+        .then(async () => {
+          const ticket = await autoClosureTicket();
+          try {
+            await signOut();
+          } catch (err) {
+            console.error('[MinePage] signOut failed:', err);
+          }
+          finishDelete(ticket);
+        })
+        .catch(async (err) => {
+          console.error('[MinePage] delete flow failed:', err);
+          finishDelete({ no: '', ok: false });
+        });
     } else {
       apiDeleteAccount()
-        .then(finishDelete)
+        .then(() => finishDelete())
         .catch((err) => {
           console.error('[MinePage] deleteAccount failed:', err);
           Taro.showToast({ title: '账号没注销成功，数据还在。检查网络后再试一次', icon: 'none', duration: 3000 });
@@ -1127,6 +1190,11 @@ function MinePage() {
       console.error('[MinePage] supportTicketInsert failed:', err);
       patchTk({ sending: false, error: t('mine.ticketFail') });
     }
+  };
+
+  const closeClosureDone = () => {
+    setCloseDone(null);
+    Taro.reLaunch({ url: '/pages/briefing/index' });
   };
 
   const fbCopy = FEEDBACK_TEXT[lang];
@@ -2068,6 +2136,31 @@ function MinePage() {
                 </Button>
               ) : null}
               <Button className={styles.fbCancel} onClick={() => !tk.sending && setTk(null)}>{t('cancel')}</Button>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {closeDone ? (
+        <View className={styles.docMask} onClick={closeClosureDone}>
+          <View className={classnames(styles.docPanel, styles.fbPanel)} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.docTitle}>{t('mine.closureDoneTitle')}</Text>
+            {closeDone.ok ? (
+              <>
+                <Text className={styles.fbLabel}>{t('mine.closureTicketNo')}</Text>
+                <Text className={styles.valueText}>{closeDone.no}</Text>
+                <Text className={styles.fbNote}>{t('mine.closureEta')}</Text>
+              </>
+            ) : (
+              <>
+                <Text className={styles.fbError}>{t('mine.closureTicketFail')}</Text>
+                <Text className={styles.fbNote}>{t('mine.closureTicketFailHint')}</Text>
+              </>
+            )}
+            <View className={styles.fbActions}>
+              <Button className={styles.fbSubmit} onClick={closeClosureDone}>
+                {t('mine.closureDoneBtn')}
+              </Button>
             </View>
           </View>
         </View>
