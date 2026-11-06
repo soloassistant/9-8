@@ -33,6 +33,7 @@
 
 const cloud = require('wx-server-sdk');
 const crypto = require('crypto');
+const maskId = require('./maskId');
 const https = require('https');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
@@ -389,7 +390,7 @@ async function applyEntitlement(openid, planId) {
   if (planId === 'earlybird_monthly') patch.isEarlyBird = true;
 
   await users.doc(user._id).update({ data: patch });
-  console.log('[queryOrder] 用户订阅延长至:', next, 'openid=', openid);
+  console.log('[queryOrder] 用户订阅延长至:', next, 'openid=', maskId(openid));
 }
 
 async function replayExpiry(openid) {

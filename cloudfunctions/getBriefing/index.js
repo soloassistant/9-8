@@ -1,4 +1,5 @@
 const cloud = require('wx-server-sdk');
+const maskId = require('./maskId');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const _ = db.command;
@@ -536,7 +537,7 @@ async function runScheduled(event) {
     } catch (err) {
       failed += 1;
       // errMsg 是微信 SDK 错误的字段，普通 Error 没有 —— 两者都要取，否则失败原因恒为 undefined
-      console.error('[getBriefing.scheduled] user failed:', user.openid, err && (err.errMsg || err.message));
+      console.error('[getBriefing.scheduled] user failed:', maskId(user.openid), err && (err.errMsg || err.message));
     }
   };
 

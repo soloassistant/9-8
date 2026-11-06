@@ -17,6 +17,7 @@
 
 const cloud = require('wx-server-sdk');
 const crypto = require('crypto');
+const maskId = require('./maskId');
 const querystring = require('querystring');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
@@ -647,7 +648,7 @@ async function applyEntitlement(openid, planId) {
   if (planId === 'earlybird_monthly') patch.isEarlyBird = true;
 
   await users.doc(user._id).update({ data: patch });
-  console.log('[pay-callback] 用户订阅延长至:', next, 'openid:', openid);
+  console.log('[pay-callback] 用户订阅延长至:', next, 'openid:', maskId(openid));
 }
 
 /** 按 paidTime 顺序回放所有已支付订单，返回确定性到期时间戳（ms） */

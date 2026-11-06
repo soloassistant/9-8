@@ -21,6 +21,7 @@
 
 const cloud = require('wx-server-sdk');
 const https = require('https');
+const maskId = require('./maskId');
 const cloudInit = cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
 const appId = process.env.PAY_DY_APP_ID || '';
@@ -77,10 +78,10 @@ exports.main = async (event) => {
     }
     const openid = data.openid;
     if (!openid) {
-      console.warn('[auth-douyin] 无 openid:', JSON.stringify(res));
+      console.warn('[auth-douyin] 无 openid:', res && res.message, res && res.errcode);
       return { ok: false, error: 'no openid in response', raw: res };
     }
-    console.log('[auth-douyin] ✅ openid=' + openid);
+    console.log('[auth-douyin] ✅ openid=' + maskId(openid));
     return {
       ok: true,
       openid,
