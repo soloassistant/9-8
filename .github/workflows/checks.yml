@@ -420,6 +420,13 @@ jobs:
         # 任何 <Button> 带 disabled 就必须是 disabledAttr(...)。CSS 层无法区分真禁用/没禁用。
         run: npm run verify:buttons
 
+      - name: showModal 按钮文案上限门禁
+        # Taro H5 对 confirmText / cancelText 有硬校验（中文 ≤4 个汉字 / 非中文 ≤8 字符，
+        # 超限直接 showModal:fail，弹窗根本不建 DOM）。2026-11 实测：定位出境同意按钮
+        # 「同意并继续」（5 汉字）让定位在真机上永远失败，页面却提示「未授权定位」。
+        # 这里逐调用点解析字面量与 i18n 实际值，超限即红。
+        run: npm run verify:modal-text
+
       - name: 对比度静态门禁（109 条）
         # 2026-10-24 审计指出「verify:contrast 写好了却没接 CI」—— 这里补上。
         # 它与 verify:buttons 是**两层**：buttons 守「属性渲染方式」，这一步守「配色算出来能不能读」
