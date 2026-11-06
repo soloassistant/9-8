@@ -7,4 +7,11 @@ module.exports = {
     if (v.reject) throw new Error('orders stub rejected');
     return v;
   },
+  // 订阅回放入口（与展示列表返回同一形状；门禁只关心 entitlement 走哪条读取路径）
+  ordersListOwnForReplay: async function () {
+    var v = globalThis.__ORDERS_RESP__;
+    if (!v) return { ok: true, orders: [] };
+    if (v.reject) throw new Error('orders stub rejected');
+    return v;
+  },
 };

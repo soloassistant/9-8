@@ -69,5 +69,14 @@ export default [
     from: "            {process.env.TARO_ENV === 'weapp' ? t('settings.memoryPrivacyWeapp') : t('settings.memoryPrivacy')}",
     to: "            {t('settings.memoryPrivacy')} /* MUT: no per-end copy */",
     cmd: 'node .tools/verify-util-logic.mjs'
+  },
+  {
+    // 行为后果：第 51 笔订单进来时最老一笔掉出窗口 → 回放少一个月，到期日倒退。
+    // 哪条变红：J1（只拿到 50 笔）、J2（到期日比全量少 30 天）。
+    label: '订阅回放改回 created_at desc 前 50 条（51 笔起少算一个月）',
+    file: 'src/services/cloudOrders.ts',
+    from: "  return listOwn({ orderBy: 'paid_at', ascending: true });",
+    to: "  return listOwn({ orderBy: 'created_at', ascending: false, limit: 50 });",
+    cmd: 'node .tools/verify-util-logic.mjs'
   }
 ];

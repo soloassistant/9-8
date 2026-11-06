@@ -89,6 +89,7 @@ async function loadModule(relPath, { weapp = false, plugins = [], taroExternal =
     process,
     setTimeout,
     clearTimeout,
+    AbortController,
     Date,
     Promise,
     JSON,
@@ -420,6 +421,97 @@ globalThis.__SESSION__ = { user: { id: 'u1' } };
 globalThis.__DB__ = null;
 const h4 = await subMod2.recordPromoOrder('PRO-AAAA-BBBB');
 assert('H4 数据库不可用 → 返回 false（fail-closed）', h4 === false);
+
+/* ================================================================== */
+/* J. 订阅回放窗口：51 笔订单不能被「desc 前 50 条」截断（2026-11-05）   */
+/* ================================================================== */
+section('J. 订阅回放必须取全量订单（51 笔不掉到期）');
+
+const REPLAY_TODAY = '2026-01-01';
+const pad2 = (i) => String(i).padStart(2, '0');
+const paidRows = Array.from({ length: 51 }, (_, i) => ({
+  order_id: 'o' + i,
+  channel: 'promo',
+  plan_id: 'promo',
+  amount_cents: 0,
+  months: 1,
+  status: 'paid',
+  refund_status: 'none',
+  created_at: `2026-01-01T00:00:${pad2(i)}Z`,
+  paid_at: `2026-01-01T00:00:${pad2(i)}Z`
+}));
+
+/** 忠实查询桩：真的按 order/limit 排序截断 —— 只记录口径的桩测不出窗口 bug */
+function makeOrdersDb(rows) {
+  const q = {
+    _orderBy: null,
+    _ascending: true,
+    _limit: null,
+    select() {
+      return q;
+    },
+    order(col, opts) {
+      q._orderBy = col;
+      q._ascending = !!(opts && opts.ascending);
+      return q;
+    },
+    limit(n) {
+      q._limit = n;
+      return q;
+    },
+    abortSignal() {
+      let out = rows.slice().sort((a, b) => {
+        const av = a[q._orderBy];
+        const bv = b[q._orderBy];
+        if (av === bv) return 0;
+        return (av < bv ? -1 : 1) * (q._ascending ? 1 : -1);
+      });
+      if (q._limit !== null) out = out.slice(0, q._limit);
+      return Promise.resolve({ data: out, error: null });
+    }
+  };
+  return {
+    from() {
+      return q;
+    }
+  };
+}
+
+function add30(base) {
+  const d = new Date(base + 'T00:00:00');
+  d.setDate(d.getDate() + 30);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const ordersMod = (
+  await loadModule('src/services/cloudOrders.ts', { plugins: [stubOrderWritePlugin], taroExternal: true })
+).mod;
+const subModForReplay = (
+  await loadModule('src/services/subscription.ts', { plugins: [stubOrderWritePlugin], taroExternal: true })
+).mod;
+
+globalThis.__SESSION__ = { user: { id: 'u1' } };
+globalThis.__DB__ = makeOrdersDb(paidRows);
+const replay = await ordersMod.ordersListOwnForReplay();
+assert('J1 回放查询拿到全部 51 笔（升序、不设业务窗口）', replay.ok === true && replay.orders.length === 51);
+
+let expectedExpiry = REPLAY_TODAY;
+for (let i = 0; i < 51; i++) expectedExpiry = add30(expectedExpiry);
+let expectedExpiry50 = REPLAY_TODAY;
+for (let i = 0; i < 50; i++) expectedExpiry50 = add30(expectedExpiry50);
+
+const actualExpiry = subModForReplay.computeExpiryFromOrders(replay.ok ? replay.orders : [], REPLAY_TODAY);
+assert('J2 51 笔订单的到期日 = 全部订单按时间升序顺延的结果', actualExpiry === expectedExpiry);
+
+// 对照：旧口径（created_at desc 前 50 条）= 丢掉最老一笔 —— 必须真的少一个月，J2 才有判别力
+const brokenExpiry = subModForReplay.computeExpiryFromOrders(
+  paidRows.slice(1).map((r) => ordersMod.toCloudOrder(r)),
+  REPLAY_TODAY
+);
+assert(
+  'J3 对照：丢掉最老一笔会让到期日少 30 天（旧 desc+50 窗口的真实后果）',
+  brokenExpiry === expectedExpiry50 && brokenExpiry !== expectedExpiry
+);
 
 /* ================================================================== */
 /* I. 小程序端「数据只在本机」文案：不能残留云端口径                      */

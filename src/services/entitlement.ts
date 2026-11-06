@@ -8,7 +8,7 @@
  * 残余边界：H5 的 orders 允许客户端插自己的行（RLS 只约束 owner_id），彻底收口需服务端写入迁移。
  */
 import Taro from '@tarojs/taro';
-import { ordersListOwn } from './cloudOrders';
+import { ordersListOwnForReplay } from './cloudOrders';
 import { computeExpiryFromOrders } from './subscription';
 
 export type EntitlementSource = 'none' | 'server-orders' | 'server-weapp' | 'unavailable';
@@ -72,7 +72,7 @@ async function fetchWeapp(): Promise<Entitlement> {
 
 /** H5：orders 表（RLS 只回本人）回放到期日；无会话 = 确定未订阅，其余失败 = 拿不到 */
 async function fetchH5(): Promise<Entitlement> {
-  const res = await ordersListOwn(50);
+  const res = await ordersListOwnForReplay();
   if (!res.ok) {
     return {
       active: false,
