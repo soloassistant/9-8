@@ -228,6 +228,9 @@ function BriefingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [briefing]);
   const intelCount = briefing?.intel?.intelItems?.length ?? 0;
+  // U-05：degraded 只由 cloud.ts 的失败 catch 置位；此时 intelCount=0 是「没取到」，
+  // 不是「今天是 0 条」，概览与空态都不能按 0 渲染。
+  const intelFailed = Boolean(briefing?.intel?.degraded);
 
   // ===== 追踪命中（2026-10-31，产品评估 §7.2 E）=====
   // 用户在 prefs 里盯的词，在本批资讯里命中的条目。词表进云同步（intel-watchlist），
@@ -1411,9 +1414,9 @@ function BriefingPage() {
               <Text className={styles.overviewTitle}>{t('briefing.sectionOverview')}</Text>
               {todayRead ? (
                 <Text className={styles.overviewPillDone}>✓ {t('briefing.readDoneShort')}</Text>
-              ) : todaySchedule.length + intelCount > 0 ? (
+              ) : todaySchedule.length + (intelFailed ? 0 : intelCount) > 0 ? (
                 <Text className={styles.overviewPill}>
-                  {t('briefing.todayCountLine', { n: todaySchedule.length + intelCount })}
+                  {t('briefing.todayCountLine', { n: todaySchedule.length + (intelFailed ? 0 : intelCount) })}
                 </Text>
               ) : null}
             </View>
@@ -1431,8 +1434,10 @@ function BriefingPage() {
                 <Text className={styles.overviewLabel}>{t('briefing.statDone')}</Text>
               </View>
               <View className={styles.overviewStat}>
-                <Text className={styles.overviewNum}>{intelCount}</Text>
-                <Text className={styles.overviewLabel}>{t('briefing.sectionIntel')}</Text>
+                <Text className={styles.overviewNum}>{intelFailed ? '—' : intelCount}</Text>
+                <Text className={styles.overviewLabel}>
+                  {intelFailed ? t('briefing.intelFailedShort') : t('briefing.sectionIntel')}
+                </Text>
               </View>
             </View>
             {/* 底行替代参考稿的睡眠行：连续阅读天数是 readStreak 的真实数据，没有就不渲染 */}
@@ -1445,7 +1450,7 @@ function BriefingPage() {
           ) : (
             <View className={styles.overviewLean}>
               <Text className={styles.overviewLeanText}>
-                {t('briefing.leanOverview', { n: intelCount })}
+                {intelFailed ? t('briefing.intelFailedShort') : t('briefing.leanOverview', { n: intelCount })}
               </Text>
             </View>
           )}
@@ -1574,9 +1579,23 @@ function BriefingPage() {
             </View>
           ) : null}
 
+          {/* U-05：情报源全挂时给明确的失败态 + 重试，不再用「情报 0 条」冒充空数据 */}
+          {intelFailed ? (
+            <View className={styles.section}>
+              <EmptyState
+                icon='📡'
+                title={t('briefing.intelFailedTitle')}
+                hint={t('briefing.intelFailedHint')}
+                action={t('briefing.retry')}
+                onAction={() => loadBriefing(true)}
+              />
+            </View>
+          ) : null}
+
           {/* 门禁含 weather：只有天气没有新闻时（源全挂/免费档无条目），
               定位按钮和天气跟着一起消失，用户会以为功能坏了（2026-10-24）。 */}
-          {briefing?.intel &&
+          {!intelFailed &&
+          briefing?.intel &&
           ((briefing.intel.intelItems && briefing.intel.intelItems.length > 0) || briefing.intel.weather) ? (
             <View className={styles.section}>
               <View className={styles.sectionHeader}>

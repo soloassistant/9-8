@@ -43,7 +43,7 @@ import styles from './index.module.scss';
  *     · undefined（没传）⇒ 显示全部（既有行为）
  *     · []（传了空的）⇒ 本页不显示任何降级提示
  *   区分「没传」与「传了但为空」是必要的：页面级横幅的意义就是**不串台**。 */
-function DemoDataHint({ actions: scope }: { actions?: string[] }) {
+function DemoDataHint({ actions: scope, onRetry }: { actions?: string[]; onRetry?: () => void }) {
   const t = useT();
   const [degraded, setDegraded] = useState<string[]>(() => getDegradedActions());
 
@@ -57,6 +57,12 @@ function DemoDataHint({ actions: scope }: { actions?: string[] }) {
   return (
     <View className={styles.hint}>
       <Text className={styles.text}>{t('cloud.degradedHint')}</Text>
+      {/* U-05：降级提示不能是死胡同——给用户一个能重试的出口 */}
+      {onRetry ? (
+        <Text className={styles.retry} onClick={onRetry}>
+          {t('common.retry')}
+        </Text>
+      ) : null}
     </View>
   );
 }

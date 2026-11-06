@@ -464,6 +464,10 @@ const zh = {
   // 「暂不可用」对未建 PG 函数与瞬时故障都为真，且不断言整个云服务挂了。
   'cloud.degradedHint': '云端功能暂不可用，当前为本地演示数据',
   'briefing.loadFailed': '晨报没加载出来，下拉可以重试',
+  // U-05：情报源全挂时不能显示「情报 0 条」——那是把失败伪装成空数据
+  'briefing.intelFailedTitle': '情报没加载出来',
+  'briefing.intelFailedHint': '资讯这次没取到，日程和待办不受影响。点下面重试。',
+  'briefing.intelFailedShort': '情报未加载',
   // 加载失败**不能**落进「今天还没有安排」空态：那是句确定性的谎话，用户照做也救不回来（2026-10-24）
   'briefing.loadFailedTitle': '晨报没加载出来',
   'briefing.loadFailedHint': '网络断了或服务在重启，不是你存的东西丢了。点下面重试。',
@@ -1945,6 +1949,9 @@ const en: Record<keyof typeof zh, string> = {
   'briefing.degraded': "Weather and news did not come through this time — the source may be down. Pull down to try again later",
   'cloud.degradedHint': 'Cloud feature unavailable — showing local demo data',
   'briefing.loadFailed': 'Your briefing did not load — pull down to retry',
+  'briefing.intelFailedTitle': 'Intel did not load',
+  'briefing.intelFailedHint': 'News did not come through this time; your schedule and to-dos are unaffected. Tap retry below.',
+  'briefing.intelFailedShort': 'Intel not loaded',
   'briefing.loadFailedTitle': 'Could not load your briefing',
   'briefing.loadFailedHint': 'The network dropped or the service is restarting — nothing you saved is lost. Tap retry below.',
   'briefing.retry': 'Retry →',
