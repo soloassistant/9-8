@@ -208,6 +208,43 @@
     box-shadow: 0 0 5PX var(--t-gold);
   }
 
+  // 行情失败提示：必须看得见（文字 + 重试），不能只把徽标换回「模拟行情」
+  .feedAlert {
+    flex: 0 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8PX;
+    padding: 3PX 8PX;
+    border: 1PX solid var(--t-gold);
+    border-radius: 3PX;
+    background: var(--t-panel-deep);
+    color: var(--t-gold);
+    font-size: 11PX;
+    overflow: hidden;
+  }
+
+  .feedAlertText {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .feedRetry {
+    flex: 0 0 auto;
+    padding: 1PX 6PX;
+    border: 1PX solid var(--t-gold);
+    border-radius: 3PX;
+    cursor: pointer;
+    color: var(--t-gold);
+    font-size: 11PX;
+
+    &:hover {
+      color: var(--t-text);
+    }
+  }
+
   .clock {
     flex: 0 0 auto;
     margin-left: auto;

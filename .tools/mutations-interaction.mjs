@@ -24,6 +24,22 @@ export default [
     cmd: 'node .tools/verify-interaction-fixes.mjs'
   },
   {
+    // U 组：隐藏态不再被识别 = 切后台照样按次计费（「隐藏即停」被改掉的缺陷形态）
+    label: '交易页不再识别隐藏态（切后台继续轮询计费）',
+    file: 'src/pages/trade/index.tsx',
+    from: "    const sync = (): void => setDocHidden(document.visibilityState === 'hidden');",
+    to: '    const sync = (): void => setDocHidden(false);',
+    cmd: 'node .tools/verify-interaction-fixes.mjs'
+  },
+  {
+    // U 组：失败退回静默（用户只看到徽标变回模拟行情，不知道为什么）
+    label: '行情失败不再给可见提示（退回静默回退）',
+    file: 'src/pages/trade/index.tsx',
+    from: '        setFeedDown(true);',
+    to: '        setFeedDown(false);',
+    cmd: 'node .tools/verify-interaction-fixes.mjs'
+  },
+  {
     // A 组：点卡片不开文章视图（回退到「点了没反应」缺陷形态）
     label: '热点卡片点击不再打开站内文章视图',
     file: 'src/pages/library/index.tsx',

@@ -33,6 +33,19 @@ export const FEED_CODES = Object.values(FEED_SYMBOL_MAP);
 
 export const FEED_ENDPOINT = 'https://qt.gtimg.cn/q=';
 
+/** 正常轮询间隔（10s）。保持产品既有节奏，不改它 —— 只有连续失败时才往后退。 */
+export const FEED_INTERVAL_MS = 10000;
+
+/** 连续失败退避档位：10s → 30s → 60s 封顶；成功一次立刻回到首档。
+ *  failCount = 本次失败后的累计连续失败次数（首次失败 = 1）。
+ *  按次计费接口在失败时沿用 10s 节奏，3 分钟停留就会打 19 次；退避后只打 5 次。 */
+export const FEED_BACKOFF_MS = [FEED_INTERVAL_MS, 30000, 60000] as const;
+
+export function feedRetryDelay(failCount: number): number {
+  const idx = Math.min(Math.max(1, failCount), FEED_BACKOFF_MS.length) - 1;
+  return FEED_BACKOFF_MS[idx];
+}
+
 /**
  * 解析 qt.gtimg.cn 的响应体。纯函数，可单测。
  * 行格式：`v_hf_XAU="4058.73,-0.03,4058.73,4059.08,4070.74,4055.79,09:28:00,4060.13,4061.17,0,0,0,2026-10-28,...";`
