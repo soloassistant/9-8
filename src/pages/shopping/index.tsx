@@ -296,7 +296,7 @@ function ShoppingPage() {
 
       <View className={styles.summaryBar}>
         <Text className={styles.summaryText}>
-          共 {summary.total} 件 · 已买 {summary.bought} 件
+          {t('shopping.summaryCount', { total: summary.total, bought: summary.bought })}
         </Text>
         <Text className={styles.summaryHint}>{t('shopping.summaryHint')}</Text>
       </View>
@@ -306,9 +306,9 @@ function ShoppingPage() {
           loadFailed ? (
             // 加载失败 ≠ 空清单：文案必须说清是「没读到」而不是「没有」，否则用户
             // 会以为自己清单被清空了（2026-10-24 审计，铁律「不静默失败」）
-            <EmptyState icon='⚠️' title='清单没加载出来' hint='下拉刷新看看；一直不行的话，多半是服务在重启，过几分钟再来' />
+            <EmptyState icon='⚠️' title={t('shopping.loadFailTitle')} hint={t('shopping.loadFailHint')} />
           ) : (
-            <EmptyState icon='🛒' title='购物清单还是空的' hint='在上方输入想买的东西，我帮你记着并跟进比价' />
+            <EmptyState icon='🛒' title={t('shopping.emptyTitle')} hint={t('shopping.emptyHint')} />
           )
         ) : (
           list.map((item) => {

@@ -18,7 +18,7 @@ import {
   makeupMissed,
   LearnStore
 } from '@/utils/learn';
-import { useT } from '@/store/language';
+import { useT, useLanguageStore } from '@/store/language';
 import { brandVars, useThemeStore } from '@/store/theme';
 import LearnSources from '@/components/LearnSources';
 import styles from './index.module.scss';
@@ -26,6 +26,7 @@ import styles from './index.module.scss';
 /** 语言学习主页（MVP）：语种切换 + 分级课程 + 进度与打卡 */
 function LearnPage() {
   const t = useT();
+  const uiLang = useLanguageStore((s) => s.lang);
   const theme = useThemeStore((s) => s.theme);
   const [langId, setLangId] = useState<LearnLangId>(() => readLearnStore().activeLang || 'en');
   // 只需 setStore 触发重渲染（渲染数据走 getLangStats/getCourseProgress 直读工具层）；store 值本身不使用
@@ -150,7 +151,7 @@ function LearnPage() {
             onClick={() => handleLangChange(l.id)}
           >
             <Text className={styles.langDot} style={{ background: l.accent }} />
-            <Text>{l.name}</Text>
+            <Text>{uiLang === 'en' ? l.nameEn : l.name}</Text>
           </View>
         ))}
       </View>
