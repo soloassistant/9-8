@@ -724,6 +724,34 @@
   line-height: $button-height-md;
 }
 
+/* U-11：支付按钮上方的条款/续费说明（会员页与 mine 共享样式） */
+.payLegal {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: $spacing-xs;
+}
+
+.payLegalText {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.payLegalLink {
+  font-size: $font-size-xs;
+  color: var(--brand, $color-primary);
+  text-decoration: underline;
+}
+
+.renewNoAuto {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  text-align: center;
+  margin-bottom: $spacing-md;
+  line-height: $line-height-normal;
+}
+
 // ===== 意见反馈弹层（2026-10-24）=====
 // 遮罩与圆角复用 .docMask / .docPanel（同一种半屏语言，用户不必学两套）；
 // 这里只放开高度并补齐表单控件。新增颜色一律取自既有色板：
