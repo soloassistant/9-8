@@ -33,11 +33,13 @@ import { openExternalPage } from '@/utils/externalLink';
 import { isPageForeground } from '@/utils/pageRoute';
 import {
   ensurePermission,
+  getLastLocateFailure,
   isDeniedDegraded,
   openAppSetting,
   recordPermissionResult,
   shouldShowDialog
 } from '@/utils/permission';
+import type { LocateFailReason } from '@/utils/permission';
 import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore } from '@/store/theme';
 import { formatEventTime } from '@/utils/date';
@@ -171,6 +173,16 @@ const TRADE_ITEM: NavItem = {
   tab: false
 };
 const SIDE_NAV: NavItem[] = [...NAV_MAIN, TRADE_ITEM, ...NAV_MORE];
+
+/** PR-2：定位失败类别 → toast 文案 key（拒绝 / 永久拒绝 / 非安全上下文 / 超时 / 不可用 / 不支持） */
+const LOCATE_FAIL_KEY: Record<LocateFailReason, LangKey> = {
+  denied: 'briefing.locateDenied',
+  blocked: 'briefing.locateFailBlocked',
+  insecure: 'briefing.locateFailInsecure',
+  timeout: 'briefing.locateFailTimeout',
+  unavailable: 'briefing.locateFailUnavailable',
+  unsupported: 'briefing.locateFailUnsupported'
+};
 
 function BriefingPage() {
   const t = useT();
@@ -409,6 +421,17 @@ function BriefingPage() {
   const [showLocDialog, setShowLocDialog] = useState(false);
   const [locDeniedBar, setLocDeniedBar] = useState(false);
 
+  /** PR-2：按失败类别给文案；weapp 永久拒绝立即升级为「去设置」提示条，不等 3 次 */
+  const reportLocateFailure = useCallback(() => {
+    const reason = getLastLocateFailure() ?? 'denied';
+    setLocDeniedBar(isDeniedDegraded('location') || (isWeapp && reason === 'blocked'));
+    Taro.showToast({
+      title: t(LOCATE_FAIL_KEY[reason]),
+      icon: 'none',
+      duration: reason === 'insecure' ? 4000 : 2000
+    });
+  }, [t]);
+
   /** 真正发起定位：locateCity 内部有权限闸门，未授权返回 null，不抛错 */
   const runLocate = async () => {
     setLocating(true);
@@ -419,8 +442,7 @@ function BriefingPage() {
       Taro.showToast({ title: t('briefing.located') + city, icon: 'none' });
       loadBriefing(true);
     } else {
-      setLocDeniedBar(isDeniedDegraded('location'));
-      Taro.showToast({ title: t('briefing.locateDenied'), icon: 'none' });
+      reportLocateFailure();
     }
   };
 
@@ -438,8 +460,7 @@ function BriefingPage() {
     }
     const ok = await ensurePermission('location');
     if (!ok) {
-      setLocDeniedBar(isDeniedDegraded('location'));
-      Taro.showToast({ title: t('briefing.locateDenied'), icon: 'none' });
+      reportLocateFailure();
       return;
     }
     await runLocate();
@@ -450,8 +471,7 @@ function BriefingPage() {
     setShowLocDialog(false);
     const ok = await ensurePermission('location');
     if (!ok) {
-      setLocDeniedBar(isDeniedDegraded('location'));
-      Taro.showToast({ title: t('briefing.locateDenied'), icon: 'none' });
+      reportLocateFailure();
       return;
     }
     await runLocate();

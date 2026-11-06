@@ -72,10 +72,12 @@ export default [
     // 哪条变红：C1 顺序必须是 同意闸门 → Taro.getLocation。
     label: '定位链路把出境同意挪到 getLocation 之后（先采集后同意）',
     file: 'src/services/location.ts',
+    // 2026-11-06：锚点随 #84 同步 —— 同意块内多了 markLocateFailure('denied')。
+    // 变异意图不变：把同一次「同意闸门」整体挪到 getLocation 之后（先采集后同意）。
     from:
-      "    if (!(await ensureCrossBorderConsent())) {\n      console.warn('[Location] 未取得坐标出境单独同意，已跳过定位（不发起 getLocation）')\n      return null\n    }\n    const pos = await Taro.getLocation({ type: 'wgs84' })",
+      "    if (!(await ensureCrossBorderConsent())) {\n      markLocateFailure('denied')\n      console.warn('[Location] 未取得坐标出境单独同意，已跳过定位（不发起 getLocation）')\n      return null\n    }\n    const pos = await Taro.getLocation({ type: 'wgs84' })",
     to:
-      "    const pos = await Taro.getLocation({ type: 'wgs84' })\n    if (!(await ensureCrossBorderConsent())) {\n      console.warn('[Location] 未取得坐标出境单独同意，已跳过定位（不发起 getLocation）')\n      return null\n    }",
+      "    const pos = await Taro.getLocation({ type: 'wgs84' })\n    if (!(await ensureCrossBorderConsent())) {\n      markLocateFailure('denied')\n      console.warn('[Location] 未取得坐标出境单独同意，已跳过定位（不发起 getLocation）')\n      return null\n    }",
     cmd: 'node .tools/verify-legal.mjs'
   },
   {
