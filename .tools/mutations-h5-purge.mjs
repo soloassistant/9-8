@@ -18,7 +18,7 @@ export default [
     // 断言必须锚在**用户可见文案**上，工单改造落地后仍然成立。
     label: '注销完成文案宣称已删除全部数据（H5 云端残留仍在）',
     file: 'src/store/language.ts',
-    from: "  'mine.deleteDoneH5': '注销已完成；用量与反馈记录仍保留，详见「联系客服」',",
+    from: "  'mine.deleteDoneH5': '注销已完成：本地数据已立即清除；云端三类记录请到「提交注销工单」提交请求，客服将在 15 个工作日内删除。',",
     to: "  'mine.deleteDoneH5': '注销已完成，已删除全部数据。',",
     cmd: 'node .tools/verify-h5-purge.mjs'
   },

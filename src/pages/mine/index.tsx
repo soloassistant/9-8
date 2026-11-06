@@ -12,8 +12,8 @@ import { useUiScaleStore, UI_SCALE_PRESETS } from '@/store/uiScale';
 import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiDeleteAccount, apiApplyPlan, apiSubmitFeedback } from '@/services/api';
-import { signOut, resetPasswordForOld } from '@/services/cloudAuth';
-import { kvClear, purgeMyH5Data } from '@/services/cloudDb';
+import { signOut, resetPasswordForOld, getSession } from '@/services/cloudAuth';
+import { kvClear, purgeMyH5Data, supportTicketInsert } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { disabledAttr } from '@/utils/buttonDisabled';
@@ -117,10 +117,37 @@ const DELETE_CONFIRM_WORD = '注销';
 
 /** TODO：上线前在小程序后台绑定企业微信客服后替换 */
 const SERVICE_CORP_ID: string = 'TODO_CORP_ID';
-/** 客服联系方式（与 legal.ts 协议承诺的「15 个工作日答复」配套；改这里要同步协议文本） */
+/** 客服联系方式（与 legal.ts 协议承诺的「15 个工作日内答复」配套；改这里要同步协议文本） */
 const SERVICE_EMAIL = 'support@morningbrief.cn';
 const SERVICE_WECHAT = '私人晨报助理';
-
+const LAST_DELETE_KEY = 'mb-last-delete-at';
+const TICKET_HISTORY_KEY = 'mb-support-tickets';
+const TICKET_KINDS = ['llm_events', 'feedback', 'client_errors'] as const;
+type TicketKind = (typeof TICKET_KINDS)[number];
+interface TicketHistoryItem { no: string; at: number; kinds: TicketKind[]; }
+interface TicketForm {
+  no: string;
+  userRef: string;
+  deletedAt: string;
+  kinds: TicketKind[];
+  note: string;
+  contact: string;
+  sending: boolean;
+  error: string;
+  done: boolean;
+}
+const makeTicketNo = () =>
+  `T${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+const readTicketHistory = (): TicketHistoryItem[] => {
+  try {
+    const raw = Taro.getStorageSync(TICKET_HISTORY_KEY);
+    return Array.isArray(raw) ? raw.slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+};
+const ticketDeletedAtLabel = (at: string) =>
+  at && !Number.isNaN(new Date(at).getTime()) ? new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '';
 const PREF_TAGS = ['科技', '效率工具', '财经', '健康', '出行', '生活', 'AI', '科学', '文化'];
 const REPLY_STYLES = ['简洁', '均衡', '详细'];
 const CUSTOM_SETTINGS_KEY = 'user-settings';
@@ -208,6 +235,8 @@ function MinePage() {
   const [fbContent, setFbContent] = useState('');
   const [fbContact, setFbContact] = useState('');
   const [fbSending, setFbSending] = useState(false);
+  const [tk, setTk] = useState<TicketForm | null>(null);
+  const [tkHistory, setTkHistory] = useState<TicketHistoryItem[]>([]);
   // v1.2 新增：C-03 个性化推荐开关 / V-05 V-07 TTS 偏好 / M-01 M-02 记忆 / N-03 屏蔽清单 / B-01 B-02 订阅
   const [personalOn, setPersonalOn] = useState(true);
   const [memory, setMemory] = useState<MemoryStore>({ enabled: true, items: [] });
@@ -931,6 +960,7 @@ function MinePage() {
     const finishDelete = () => {
       try {
         Taro.clearStorageSync();
+        Taro.setStorageSync(LAST_DELETE_KEY, new Date().toISOString());
       } catch (err) {
         console.error('[MinePage] clear storage failed:', err);
       }
@@ -1016,7 +1046,7 @@ function MinePage() {
     const showServiceInfo = () => {
       Taro.showModal({
         title: '客服服务时间',
-        content: `每天 9:00–21:00\n邮箱：${SERVICE_EMAIL}\n微信公众号：${SERVICE_WECHAT}\n我们会在 15 个工作日内答复`,
+        content: `每天 9:00–21:00\n邮箱：${SERVICE_EMAIL}\n微信公众号：${SERVICE_WECHAT}\n注销后删除云端记录请走「提交注销工单」\n客服将在 15 个工作日内处理`,
         confirmText: '知道了',
         showCancel: false
       });
@@ -1054,6 +1084,49 @@ function MinePage() {
       }
     }
     showContactActions();
+  };
+
+  const patchTk = (p: Partial<TicketForm>) => setTk((prev) => (prev ? { ...prev, ...p } : prev));
+
+  const openTicket = () => {
+    let at = '';
+    try {
+      at = String(Taro.getStorageSync(LAST_DELETE_KEY) || '');
+    } catch {
+      at = '';
+    }
+    setTkHistory(readTicketHistory());
+    setTk({ no: makeTicketNo(), userRef: '', deletedAt: at, kinds: [...TICKET_KINDS], note: '', contact: '', sending: false, error: '', done: false });
+    getSession()
+      .then((s) => patchTk({ userRef: s?.user?.id || '' }))
+      .catch(() => undefined);
+  };
+
+  const submitTicket = async () => {
+    if (!tk) return;
+    if (!tk.userRef) return patchTk({ error: t('mine.ticketNoUser') });
+    if (!tk.kinds.length) return patchTk({ error: t('mine.ticketNoKind') });
+    patchTk({ sending: true, error: '' });
+    try {
+      const r = await supportTicketInsert({
+        ticketNo: tk.no,
+        userRef: tk.userRef,
+        localDeletedAt: tk.deletedAt || undefined,
+        recordKinds: tk.kinds,
+        note: tk.note.trim(),
+        contact: tk.contact.trim()
+      });
+      if (r !== 'ok' && r !== 'duplicate') return patchTk({ sending: false, error: t('mine.ticketFail') });
+      const next = [{ no: tk.no, at: Date.now(), kinds: tk.kinds }, ...tkHistory].slice(0, 5);
+      setTkHistory(next);
+      try {
+        Taro.setStorageSync(TICKET_HISTORY_KEY, next);
+      } catch { /* 本地留档失败不影响已提交结果 */ }
+      patchTk({ sending: false, done: true });
+    } catch (err) {
+      console.error('[MinePage] supportTicketInsert failed:', err);
+      patchTk({ sending: false, error: t('mine.ticketFail') });
+    }
   };
 
   const fbCopy = FEEDBACK_TEXT[lang];
@@ -1777,19 +1850,22 @@ function MinePage() {
           t('ai.metaHint'),
           <Text className={styles.valueText}>{t('ai.labelVersion', { version: AI_LABEL_VERSION })}</Text>
         )}
-        {/* 投诉/建议通道（2026-10-24 升级）：
-            原来这行只弹一个 showActionSheet（复制邮箱 / 复制公众号）—— 用户想「反映问题」得先
-            自己抄联系方式、离开 App、再写邮件，等于把投诉推给了用户的耐心。现在主路径是
-            页内表单直接提交；人工联系降为表单底部的次级入口（handleContactService）。
-            整行可点（不只是右侧小字），热区 ≥44px。 */}
+        {/* 注销后删除云端记录：页内工单（2026-11-05）。
+            不再走邮件/复制邮箱；表单提交进 support_tickets，客服按 15 个工作日处理。 */}
         {renderRow(
-          t('mine.service'),
+          t('mine.ticketEntry'),
           <>
-            <Text className={styles.linkText}>{t('mine.feedback')}</Text>
+            <Text className={styles.linkText}>{t('mine.ticketHint')}</Text>
             <Text className={styles.arrow}>›</Text>
           </>,
-          () => setFbOpen(true)
+          openTicket
         )}
+        {renderRow(
+          t('mine.service'),
+          <Text className={styles.linkText}>{SERVICE_WECHAT}</Text>,
+          handleContactService
+        )}
+        {renderRow(t('mine.feedback'), null, () => setFbOpen(true))}
         {/* C-04：注销不可逆提示 + 15 个工作日处理时限（页内明示） */}
         <Text className={styles.deleteWarn}>{t('mine.deleteWarn')}</Text>
         {renderRow(
@@ -1948,6 +2024,51 @@ function MinePage() {
             <Text className={styles.fbService} onClick={handleContactService}>
               {fbCopy.service}
             </Text>
+          </View>
+        </View>
+      ) : null}
+      {tk ? (
+        <View className={styles.docMask} onClick={() => !tk.sending && setTk(null)}>
+          <View className={classnames(styles.docPanel, styles.fbPanel)} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.docTitle}>{t('mine.ticketTitle')}</Text>
+            {isWeapp ? (
+              <Text className={styles.fbNote}>{t('mine.ticketWeapp')}</Text>
+            ) : tk.done ? (
+              <>
+                <Text className={styles.fbLabel}>{t('mine.ticketDoneTitle')}</Text>
+                <Text className={styles.valueText}>{tk.no}</Text>
+                <Text className={styles.fbNote}>{t('mine.ticketEta')}</Text>
+              </>
+            ) : (
+              <>
+                <Text className={styles.fbLabel}>{t('mine.ticketUser')}</Text>
+                <Text className={styles.fbNote}>
+                  {tk.userRef ? `${tk.userRef.slice(0, 4)}…${tk.userRef.slice(-4)}` : t('mine.ticketNoUser')}
+                </Text>
+                <Text className={styles.fbLabel}>{t('mine.ticketDeletedAt')}</Text>
+                <Text className={styles.fbNote}>{ticketDeletedAtLabel(tk.deletedAt) || t('mine.ticketNoTime')}</Text>
+                <Text className={styles.fbLabel}>{t('mine.ticketKinds')}</Text>
+                <View className={styles.fbTypes}>
+                  {TICKET_KINDS.map((kind) => (
+                    <View key={kind} className={classnames(styles.fbChip, tk.kinds.includes(kind) && styles.fbChipActive)} onClick={() => patchTk({ kinds: tk.kinds.includes(kind) ? tk.kinds.filter((k) => k !== kind) : [...tk.kinds, kind] })}>
+                      <Text className={classnames(styles.fbChipText, tk.kinds.includes(kind) && styles.fbChipTextActive)}>{kind}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Textarea className={styles.fbTextarea} value={tk.note} maxlength={500} placeholder={t('mine.ticketNote')} onInput={(e) => patchTk({ note: e.detail.value })} />
+                <Input className={styles.fbInput} value={tk.contact} maxlength={80} placeholder={t('mine.ticketContact')} onInput={(e) => patchTk({ contact: e.detail.value })} />
+                {tk.error ? <Text className={styles.fbError}>{tk.error}</Text> : null}
+                {tkHistory.length ? <Text className={styles.fbNote}>{t('mine.ticketHistory')}{tkHistory.map((i) => i.no).join(' / ')}</Text> : null}
+              </>
+            )}
+            <View className={styles.fbActions}>
+              {!isWeapp && !tk.done ? (
+                <Button className={styles.fbSubmit} disabled={disabledAttr(tk.sending)} onClick={() => void submitTicket()}>
+                  {tk.sending ? t('mine.ticketSending') : tk.error ? t('mine.ticketRetry') : t('mine.ticketSubmit')}
+                </Button>
+              ) : null}
+              <Button className={styles.fbCancel} onClick={() => !tk.sending && setTk(null)}>{t('cancel')}</Button>
+            </View>
           </View>
         </View>
       ) : null}
