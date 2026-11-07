@@ -660,6 +660,7 @@ const zh = {
   'library.feedbackSaved': '已记录，内容将更贴合你',
   'library.feedbackUp': '有用',
   'library.feedbackDown': '不感兴趣',
+  'library.share': '分享',
   'library.aiTitle': '为你精选',
   'library.aiHint': '按你的兴趣 · AI 筛选',
   'library.aiEmpty': '根据你的兴趣，从今日百余条资讯里挑出最值得看的',
@@ -1128,7 +1129,7 @@ const zh = {
   'hotkeys.entryDesc': '用键盘跳转与操作',
   'mine.quotaUnlimited': '语音不限量',
   // 「我的」页分组标题（2026-10-30）：原来 10 张白卡长得一模一样、没有主次，
-  // 用户扫不出「哪些是常用、哪���是设置」。
+  // 用户扫不出「哪些是常用、哪些是设置」。
   'mine.groupTools': '常用',
   'mine.groupSettings': '设置',
   'mine.membershipSubtitle': '订阅与用量',
@@ -1378,7 +1379,7 @@ const zh = {
   'health.withdrawBodyWeapp': '撤回后：不再记录新的运动记录；小程序端数据仅保存在本机，没有云端副本需要删除；本机已有记录会保留，你可以在记录列表里逐条删除。',
   'health.withdrawConfirm': '撤回',
   'health.withdrawn': '已撤回健康数据授权',
-  'health.withdrawnCloudDeleted': '已撤回：不再记录、不再上传；云端副本已删除，本机记录保留',
+  'health.withdrawnCloudDeleted': '已撤回：不再记录、不再上传；云端副本已删除��本机记录保留',
   'health.withdrawnPurgeFailed': '已撤回：不再记录、不再上传；云端副本删除失败，稍后会重试',
   'health.withdrawnLocalOnly': '已撤回：不再记录、不再上传；未登录，本机无云端副本',
   'health.withdrawnWeapp': '已撤回：不再记录；小程序端数据仅保存在本机，没有云端副本',
@@ -2145,6 +2146,7 @@ const en: Record<keyof typeof zh, string> = {
   'library.feedbackSaved': 'Feedback saved, content will adapt to you',
   'library.feedbackUp': 'Useful',
   'library.feedbackDown': 'Not for me',
+  'library.share': 'Share',
   'library.aiTitle': 'Picked for You',
   'library.aiHint': 'AI-curated by your interests',
   'library.aiEmpty': "Get today's most relevant stories, picked by AI from 100+ items",
