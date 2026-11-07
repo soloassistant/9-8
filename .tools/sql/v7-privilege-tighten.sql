@@ -1,4 +1,4 @@
--- v7-privilege-tighten.sql —— 收回 authenticated 在用户数据表上的三项非功能权限（2026-11-05）
+-- v7-privilege-tighten.sql —— 收回 PUBLIC 与 authenticated 在用户数据表上的三项非功能权限（2026-11-05）
 --
 -- 背景（外部审查指出；**本节是待核实线索，不是已实测结论**）：
 --   authenticated 对 public.user_kv / feedback / llm_events 可能持有
@@ -13,17 +13,22 @@
 -- ⚠️ 命名：v4/v5 未占用、v6 已被 v6-promo-server-codes.sql 占用，故本支取 v7。
 --
 -- 本文件分成两节，**性质不同，不要混读**：
---   §A 收回三项        —— 确定的动作（唯一的写操作，幂等）
+--   §A 收回三项        —— 脚本已写、**待平台执行**（唯一的写操作，幂等）
 --   §B 权项期望值       —— **待线上实测**；只给只读查询，不写「收回后应剩哪些权」的断言
 
 -- ======================================================================
--- §A 收回三项（本文件唯一的写操作）
+-- §A 收回三项（本文件唯一的写操作；脚本已写、待平台执行）
 -- ======================================================================
--- 只动 authenticated：anon / PUBLIC 已在 v2-db-anon-revoke.sql 里 REVOKE ALL（该脚本
--- 是否已在平台执行同样待核实）；service_role 不受影响（v2 第 8 步显式 GRANT ALL）。
-REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE public.user_kv    FROM authenticated;
-REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE public.feedback   FROM authenticated;
-REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE public.llm_events FROM authenticated;
+-- 两个主体都要收回，PUBLIC 写在前面：
+--   这三项可能来自 PUBLIC 的默认授权，authenticated 会经 PUBLIC 继承；
+--   只写 `FROM authenticated` 是**无效收紧** —— 执行后 authenticated 仍可 TRUNCATE
+--   绕过 RLS 清空整表，而门禁只看文本里有 REVOKE 会照样全绿。
+-- anon 的行级权限由 v2-db-anon-revoke.sql 处理（该脚本是否已执行同样待核实）；
+-- service_role 不受影响（v2 第 8 步显式 GRANT ALL）。
+-- 客户端只用行级 SELECT/INSERT/UPDATE/DELETE，上述三项**不** GRANT 回来。
+REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE public.user_kv    FROM PUBLIC, authenticated;
+REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE public.feedback   FROM PUBLIC, authenticated;
+REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE public.llm_events FROM PUBLIC, authenticated;
 
 -- ======================================================================
 -- §B 权项期望值 —— 待线上实测（以下全部为只读查询，不改任何权限）
@@ -41,9 +46,9 @@ REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE public.llm_events FROM authenticat
 --   仓库里客户端只 INSERT feedback、从不改删，v2 也只授 SELECT+INSERT；
 --   若实测 can_update / can_delete 为 true，说明平台默认 GRANT ALL 的残留还在，
 --   需要另起一笔（不在本文件里顺手扩大改动面）。
--- ⚠️ 待实测点 2：`REVOKE ... FROM authenticated` **不会**移除 PUBLIC 手里的同名权限，
---   authenticated 仍会从 PUBLIC 继承。若 §A 之后 can_truncate 仍为 true，
---   要查的是 PUBLIC 的授权来源（B2），而不是再加一条 REVOKE authenticated。
+-- ⚠️ 待实测点 2：§A 同时收回 PUBLIC 与 authenticated（脚本已写、待平台执行）。
+--   执行后若 can_truncate 仍为 true，说明还有别的授权来源（表 owner 隐式权限 /
+--   平台额外 GRANT），要用 B2 的 ACL 快照定位，而不是再加一条 REVOKE authenticated。
 --
 -- B1. 逐表逐权：观测 authenticated 当前**有效持有**的权限（含经 PUBLIC 继承）。
 --     t = 持有，f = 不持有。执行 §A 前后各跑一次，对比即可看出 §A 的实际效果。

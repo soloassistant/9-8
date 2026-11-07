@@ -66,16 +66,24 @@ ok('v3 GRANT EXECUTE 只授回 authenticated', Boolean(grant));
 ok('v3 REVOKE 在 GRANT 之前（先收回再授回）', Boolean(revoke && grant) && revoke.index < grant.index);
 ok('v3 不再宣称「REVOKE EXECUTE 不需要」（错误设计说明已删）', !/REVOKE EXECUTE 不需要/.test(v3));
 
-console.log('\n── 2b. v7 authenticated 的 TRUNCATE/REFERENCES/TRIGGER 收回资产 ──');
+console.log('\n── 2b. v7 PUBLIC + authenticated 的 TRUNCATE/REFERENCES/TRIGGER 收回资产 ──');
 const v7 = read('.tools/sql/v7-privilege-tighten.sql');
+// 判据在**剥离 `--` 注释后的正文**上做：说明文字里也写着 REVOKE / FROM，
+// 不剥注释会让「收的是哪个主体」这条断言假绿（变异用例专门验这一点）。
+const v7Code = v7.replace(/--[^\n]*/g, '');
 for (const table of ['user_kv', 'feedback', 'llm_events']) {
-  ok(`v7 收回 ${table} 的 TRUNCATE/REFERENCES/TRIGGER`, new RegExp(
-    `REVOKE\\s+TRUNCATE,\\s+REFERENCES,\\s+TRIGGER\\s+ON\\s+TABLE\\s+public\\.${table}\\s+FROM\\s+authenticated\\s*;`, 'i'
-  ).test(v7));
+  const m = v7Code.match(new RegExp(
+    `REVOKE\\s+TRUNCATE,\\s+REFERENCES,\\s+TRIGGER\\s+ON\\s+TABLE\\s+public\\.${table}\\s+FROM\\s+([^;]+);`, 'i'
+  ));
+  const who = m ? m[1].split(',').map((s) => s.trim().toLowerCase()) : [];
+  ok(`v7 收回 ${table} 的 TRUNCATE/REFERENCES/TRIGGER（PUBLIC + authenticated）`,
+    Boolean(m) && who.includes('public') && who.includes('authenticated'));
+  ok(`v7 ${table} 的 REVOKE 主体 PUBLIC 在 authenticated 之前（继承通道先断）`,
+    Boolean(m) && who.indexOf('public') >= 0 && who.indexOf('public') < who.indexOf('authenticated'));
   // 期望值必须留白：只给只读观测语句（has_table_privilege），不写「收回后应只剩哪些权」。
   ok(`v7 给出 ${table} 的逐项只读核查（has_table_privilege）`, new RegExp(
     `has_table_privilege\\('authenticated',\\s*'public\\.${table}',\\s*'(SELECT|UPDATE)'`, 'i'
-  ).test(v7));
+  ).test(v7Code));
 }
 ok('v7 把「权项期望值」标成待线上实测（不写成断言）', /待线上实测/.test(v7));
 ok('v7 明确列出 feedback 可能继承 UPDATE/DELETE 这个待实测点', /feedback 可能还持有 UPDATE \/ DELETE/.test(v7));
