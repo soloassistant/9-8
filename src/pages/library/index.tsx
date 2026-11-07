@@ -1270,13 +1270,13 @@ function LibraryPage() {
         <View className={styles.feedbackRow} onClick={(e) => e.stopPropagation()}>
           <Text
             className={classnames(styles.feedbackBtn, fb === 'up' && styles.feedbackSelected)}
-            onClick={() => handleNewsFeedback(item, 'up')}
+            aria-label={t('library.feedbackUp')} onClick={() => handleNewsFeedback(item, 'up')}
           >
             👍 {t('library.feedbackUp')}
           </Text>
           <Text
             className={classnames(styles.feedbackBtn, fb === 'down' && styles.feedbackSelected)}
-            onClick={() => handleNewsFeedback(item, 'down')}
+            aria-label={t('library.feedbackDown')} onClick={() => handleNewsFeedback(item, 'down')}
           >
             👎 {t('library.feedbackDown')}
           </Text>
@@ -1293,7 +1293,7 @@ function LibraryPage() {
                 分享
               </Button>
             ) : (
-              <Text className={styles.shareBtn} onClick={() => handleShareNewsH5(item, showAiBadge)}>
+              <Text className={styles.shareBtn} aria-label={t('library.share')} onClick={() => handleShareNewsH5(item, showAiBadge)}>
                 分享
               </Text>
             )
