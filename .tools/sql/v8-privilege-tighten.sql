@@ -1,4 +1,4 @@
--- v7-privilege-tighten.sql —— 收回 PUBLIC 与 authenticated 在用户数据表上的三项非功能权限（2026-11-05）
+-- v8-privilege-tighten.sql —— 收回 PUBLIC 与 authenticated 在用户数据表上的三项非功能权限（2026-11-05）
 --
 -- 背景（外部审查指出；**本节是待核实线索，不是已实测结论**）：
 --   authenticated 对 public.user_kv / feedback / llm_events 可能持有
@@ -10,7 +10,8 @@
 --
 -- ⚠️ 执行位置：主理人在 WorkBuddy 平台「应用数据库」控制台（service role）手动执行。
 -- ⚠️ 本会话没有数据库执行通道：本文件是**待执行**资产，执行后才有线上效果。
--- ⚠️ 命名：v4/v5 未占用、v6 已被 v6-promo-server-codes.sql 占用，故本支取 v7。
+-- ⚠️ 命名：v6 已被 v6-promo-server-codes.sql 占用、v7 已被 v7-support-tickets.sql 占用，
+--    故本支取 v8。这两份都要人工去平台执行，共用编号会导致拿错文件（建表 vs 收权限后果不对等）。
 --
 -- 本文件分成两节，**性质不同，不要混读**：
 --   §A 收回三项        —— 脚本已写、**待平台执行**（唯一的写操作，幂等）

@@ -48,33 +48,33 @@ export default [
     to: 'GRANT EXECUTE ON FUNCTION public.purge_my_h5_data() TO authenticated;\nREVOKE ALL ON FUNCTION public.purge_my_h5_data() FROM PUBLIC, anon, authenticated;',
     cmd: 'node .tools/verify-h5-purge.mjs'
   },
-  // v7 判别力：只查「文本里有 REVOKE」抓不住「收的是哪个主体」。
+  // v8 判别力：只查「文本里有 REVOKE」抓不住「收的是哪个主体」。
   // 这三条把 PUBLIC 从 revoke 列表里摘掉（改回 FROM authenticated），
   // 继承通道仍在 ⇒ 门禁必须变红。
   {
-    label: 'v7 user_kv 只收回 authenticated（漏掉 PUBLIC，继承权限仍在）',
-    file: '.tools/sql/v7-privilege-tighten.sql',
+    label: 'v8 user_kv 只收回 authenticated（漏掉 PUBLIC，继承权限仍在）',
+    file: '.tools/sql/v8-privilege-tighten.sql',
     from: 'public.user_kv    FROM PUBLIC, authenticated;',
     to: 'public.user_kv    FROM authenticated;',
     cmd: 'node .tools/verify-account-purge.js'
   },
   {
-    label: 'v7 feedback 只收回 authenticated（漏掉 PUBLIC，继承权限仍在）',
-    file: '.tools/sql/v7-privilege-tighten.sql',
+    label: 'v8 feedback 只收回 authenticated（漏掉 PUBLIC，继承权限仍在）',
+    file: '.tools/sql/v8-privilege-tighten.sql',
     from: 'public.feedback   FROM PUBLIC, authenticated;',
     to: 'public.feedback   FROM authenticated;',
     cmd: 'node .tools/verify-account-purge.js'
   },
   {
-    label: 'v7 llm_events 只收回 authenticated（漏掉 PUBLIC，继承权限仍在）',
-    file: '.tools/sql/v7-privilege-tighten.sql',
+    label: 'v8 llm_events 只收回 authenticated（漏掉 PUBLIC，继承权限仍在）',
+    file: '.tools/sql/v8-privilege-tighten.sql',
     from: 'public.llm_events FROM PUBLIC, authenticated;',
     to: 'public.llm_events FROM authenticated;',
     cmd: 'node .tools/verify-account-purge.js'
   },
   {
-    label: 'v7 主体顺序反了（authenticated 在 PUBLIC 之前）',
-    file: '.tools/sql/v7-privilege-tighten.sql',
+    label: 'v8 主体顺序反了（authenticated 在 PUBLIC 之前）',
+    file: '.tools/sql/v8-privilege-tighten.sql',
     from: 'public.user_kv    FROM PUBLIC, authenticated;',
     to: 'public.user_kv    FROM authenticated, PUBLIC;',
     cmd: 'node .tools/verify-account-purge.js'
