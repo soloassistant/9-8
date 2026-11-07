@@ -13,7 +13,7 @@
 - **前端**：Taro 4 + React 18 + TypeScript（H5 为主，微信小程序为次），产物在 `dist/`
 - **后端**：微信云开发，27 个云函数（`cloudfunctions/`，Node.js）
 - **同步**：44 个 SYNC_KEYS → 云数据库 `user_kv` 表（RLS 按 owner 隔离）
-- **页面**：20 个（`src/pages/`）
+- **页面**：23 个（`src/pages/`）
 
 ## 目录导览
 

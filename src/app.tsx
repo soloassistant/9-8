@@ -1,17 +1,16 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import Splash from '@/components/Splash';
-import Onboarding, { hasOnboarded, hasOnboardedFor, markOnboardedFor } from '@/components/Onboarding';
-import DesktopNav from '@/components/DesktopNav';
-import ConsentGate from '@/components/ConsentGate';
-import HotkeyHelp from '@/components/HotkeyHelp';
+// 引导标记读写（拆分后只取布尔/写入函数，不拉入整屏引导组件）
+import { hasOnboarded, hasOnboardedFor, markOnboardedFor } from '@/components/Onboarding/state';
 import { HELP_EVENT, focusSearchBox, useGlobalHotkeys } from '@/hooks/useHotkeys';
 import { hotkeyRoute } from '@/utils/hotkeys';
 import type { HotkeyId } from '@/utils/hotkeys';
 // 进入门禁：H5/发布版未登录不得进入（微信端身份由微信提供，直接放行）
 import { needsAuthGate, getSession, markGateRedirect, getCloudUserId, hasStoredSession } from '@/services/cloudAuth';
-import { hasAgreedConsent } from '@/data/legal';
+// 只依赖「同意读写」小模块：三份法务正文（~11 KB gzip）不该为这一个布尔值进首屏包
+import { hasAgreedConsent } from '@/data/legal-consent';
 import { useLanguageStore, dict, STORAGE_KEY as LANG_KEY } from '@/store/language';
 import { useThemeStore, STORAGE_KEY as THEME_KEY } from '@/store/theme';
 import { useUiScaleStore, STORAGE_KEY as UI_SCALE_KEY } from '@/store/uiScale';
@@ -27,6 +26,25 @@ import type { CrashPayload } from '@/services/crashReport';
 import { clientErrorInsert } from '@/services/cloudDb';
 // 全局样式
 import './app.scss';
+
+/**
+ * 首启合规同意层改为按需加载（U-01 首屏字节）：已同意用户永远走不到这条分支，
+ * 于是 `data/legal` 的三份正文（~11 KB gzip）不再进首屏包，只在首启/换版本时拉一个 chunk。
+ * 失败场景沿用站点既有的 chunk 失败兜底（启动期不整页重载）。
+ */
+const ConsentGate = lazy(() => import('@/components/ConsentGate'));
+
+/**
+ * 外壳里「首屏默认不出现」的三层改为按需加载（2026-11-05 首屏字节）：
+ *   · Onboarding —— 已看过引导的用户永不渲染（设备级/账号级标记为真）；
+ *   · DesktopNav —— 只在 ≥600px 的桌面端挂载；
+ *   · HotkeyHelp  —— 只在按 `?` 或从「我的 → 键盘快捷键」打开时渲染。
+ * 三者在首屏（已引导、手机视口）都不渲染，因此不新增首屏请求；
+ * chunk 失败沿用站点既有兜底（启动期不整页重载）。
+ */
+const Onboarding = lazy(() => import('@/components/Onboarding'));
+const DesktopNav = lazy(() => import('@/components/DesktopNav'));
+const HotkeyHelp = lazy(() => import('@/components/HotkeyHelp'));
 
 // ========== 崩溃上报（P2） ==========
 // 两条通道按端分派（细节与踩坑记录见 src/services/crashReport.ts 文件头）：
@@ -528,7 +546,11 @@ function App(props: PropsWithChildren) {
           但**Tab 顺序按 DOM 走** —— 放在 children 后面时，键盘用户得先穿过整个正文
           才摸得到导航（资料库页实测 2121 个停靠点、导航排在第 2121 位）。
           登录页不渲染侧栏，所以此处要自己带 isLoginPage 守卫（原来靠外层 Fragment 兜着）。 */}
-      {!isLoginPage && desktopNav ? <DesktopNav /> : null}
+      {!isLoginPage && desktopNav ? (
+        <Suspense fallback={null}>
+          <DesktopNav />
+        </Suspense>
+      ) : null}
       {props.children}
       {/* 应用外壳一律不进登录页：未登录时它既无用又泄漏"应用已就绪"的错觉 */}
       {isLoginPage ? null : (
@@ -536,20 +558,29 @@ function App(props: PropsWithChildren) {
           {/* 2026-10-27：全局 AI 悬浮球已移除。全站唯一的 AI 入口是「我的 → AI 助手」
               （pages/assistant）。理由：它和晨报页底部输入条是同一件事的两个入口，
               两套实现各自维护；收敛成一个页面后，页面上不再有悬浮物遮挡正文。 */}
-          {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页 */}
-          {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
+          {/* H5 首启合规同意层：未同意前整屏遮罩，覆盖所有 tab 页。
+              fallback=null 是有意的：同意层只在首启出现，此刻 Splash 正盖在上面，
+              不需要额外的加载占位（多渲染一个占位反而会闪）。 */}
+          <Suspense fallback={null}>
+            {!consentAgreed ? <ConsentGate onAgree={() => setConsentAgreed(true)} /> : null}
+          </Suspense>
           {/* 首启引导：必须等隐私同意之后再挂（两个全屏层叠在一起，用户会点不到下面那层），
               也必须等开屏退场（shellReady），否则引导藏在开屏下面等于没出现。 */}
           {consentAgreed && shellReady && !onboarded ? (
-            <Onboarding
-              onDone={() => {
-                markOnboardedFor(onboardUid);
-                setOnboarded(true);
-              }}
-            />
+            // fallback=null：引导只在首启/换账号时出现，此刻 Splash 正盖在上面，占位会闪
+            <Suspense fallback={null}>
+              <Onboarding
+                onDone={() => {
+                  markOnboardedFor(onboardUid);
+                  setOnboarded(true);
+                }}
+              />
+            </Suspense>
           ) : null}
           {/* 键盘快捷键面板：`?` 或「我的 → 键盘快捷键」打开（H5 桌面端） */}
-          <HotkeyHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+          <Suspense fallback={null}>
+            <HotkeyHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+          </Suspense>
           {/* 开屏动画：每次冷启动展示，点击可跳过 */}
           <Splash onGone={handleSplashGone} />
         </React.Fragment>

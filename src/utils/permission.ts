@@ -215,6 +215,56 @@ export function openSystemSettings(name?: PermissionName): Promise<boolean> {
 }
 
 /* ------------------------------------------------------------------ */
+/* 定位失败原因分类（PR-2）                                             */
+/* 原实现把 geolocation 的所有失败都吞成 false，页面只会说「未授权定位」，   */
+/* 用户看到的是假原因。这里按 code / 安全上下文 / 系统授权状态分类留痕。     */
+/* ------------------------------------------------------------------ */
+
+export type LocateFailReason =
+  /** 本次拒绝（geolocation code=1，或 weapp authorize 被拒） */
+  | 'denied'
+  /** 系统侧已永久拒绝（weapp authSetting=false，authorize 不再弹框），只能去设置 */
+  | 'blocked'
+  /** 非安全上下文（http 且非 localhost），浏览器直接拒绝定位 */
+  | 'insecure'
+  /** geolocation code=3 */
+  | 'timeout'
+  /** geolocation code=2 / 逆地理服务不可用 */
+  | 'unavailable'
+  /** 环境无 navigator.geolocation */
+  | 'unsupported';
+
+let lastLocateFailure: LocateFailReason | null = null;
+
+/** 最近一次定位失败类别；成功或未尝试时为 null。只读，不 throw */
+export function getLastLocateFailure(): LocateFailReason | null {
+  return lastLocateFailure;
+}
+
+/** 写入 / 清空最近一次定位失败类别（null = 清空） */
+export function markLocateFailure(reason: LocateFailReason | null): void {
+  lastLocateFailure = reason;
+}
+
+/** H5 geolocation 错误 → 类别：1=拒绝 2=不可用 3=超时；仅 code=1 且提示 secure 才归非安全上下文 */
+function classifyH5Error(err: { code?: number; message?: string } | null | undefined): LocateFailReason {
+  const msg = String((err && err.message) || '');
+  if (/secure/i.test(msg)) return 'insecure';
+  if (err && err.code === 1) return 'denied';
+  if (err && err.code === 3) return 'timeout';
+  return 'unavailable';
+}
+
+/** Taro.getLocation 失败（errMsg）→ 类别；兼容 H5 与 weapp 的 errMsg 措辞 */
+export function classifyLocationError(err: unknown): LocateFailReason {
+  const msg = String((err as { errMsg?: string } | null)?.errMsg || err || '');
+  if (/secure/i.test(msg)) return 'insecure';
+  if (/timeout|超时/i.test(msg)) return 'timeout';
+  if (/auth\s*deny|auth deny|authorize|denied|permission/i.test(msg)) return 'denied';
+  return 'unavailable';
+}
+
+/* ------------------------------------------------------------------ */
 /* 统一授权入口（双端双轨，绝不 throw）                                  */
 /* ------------------------------------------------------------------ */
 
@@ -234,6 +284,10 @@ async function authorizeWeapp(name: PermissionName): Promise<boolean> {
     if (setting && setting.authSetting && setting.authSetting[scope] === true) {
       return true;
     }
+    // 系统侧已记录为 false = 永久拒绝：authorize 不会再弹系统框，直接按「去设置」处理
+    if (setting && setting.authSetting && setting.authSetting[scope] === false && name === 'location') {
+      markLocateFailure('blocked');
+    }
   } catch (err) {
     console.error('[permission] getSetting before authorize failed:', name, err);
   }
@@ -242,6 +296,8 @@ async function authorizeWeapp(name: PermissionName): Promise<boolean> {
     return true;
   } catch (err) {
     console.error('[permission] authorize denied:', name, err);
+    // weapp 一旦拒绝，authorize 不会再弹框 —— 不等 3 次，直接引导 openSetting
+    if (name === 'location') markLocateFailure('blocked');
     return false;
   }
 }
@@ -263,17 +319,29 @@ async function requestH5Microphone(): Promise<boolean> {
   }
 }
 
-/** H5：位置走 navigator.geolocation，失败即视为拒绝（不阻断） */
+/** H5：位置走 navigator.geolocation；失败按 code / 安全上下文分类留痕（不阻断） */
 async function requestH5Location(): Promise<boolean> {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) return false;
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    markLocateFailure('unsupported');
+    return false;
+  }
+  // 非安全上下文先判：http 且非 localhost 时浏览器必定拒绝，别让页面再说「未授权」
+  if (typeof window !== 'undefined' && window.isSecureContext === false) {
+    markLocateFailure('insecure');
+    return false;
+  }
   return new Promise<boolean>((resolve) => {
     try {
       navigator.geolocation.getCurrentPosition(
         () => resolve(true),
-        () => resolve(false),
+        (error: GeolocationPositionError) => {
+          markLocateFailure(classifyH5Error(error));
+          resolve(false);
+        },
         { timeout: 10000, maximumAge: 60000 }
       );
     } catch {
+      markLocateFailure('unavailable');
       resolve(false);
     }
   });
@@ -295,7 +363,10 @@ export async function ensurePermission(name: PermissionName): Promise<boolean> {
       return true;
     }
     // 降级态：不再反复申请，由调用方展示提示条 + 去设置
-    if (record.deniedCount >= PERMISSION_DENY_LIMIT) return false;
+    if (record.deniedCount >= PERMISSION_DENY_LIMIT) {
+      if (name === 'location') markLocateFailure('blocked');
+      return false;
+    }
 
     const ok = isWeapp
       ? await authorizeWeapp(name)
@@ -306,6 +377,7 @@ export async function ensurePermission(name: PermissionName): Promise<boolean> {
     return ok;
   } catch (err) {
     console.error('[permission] ensurePermission failed:', name, err);
+    if (name === 'location') markLocateFailure('unavailable');
     recordPermissionResult(name, false);
     return false;
   }

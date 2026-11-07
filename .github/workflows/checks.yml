@@ -59,8 +59,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # 与 refresh-data.yml 保持一致
-          node-version: 20
+          # 必须与 package.json 的 engines.node（>=22）对齐：低于 22 时 yarn 在
+          # 「Validating package.json」就报 incompatible module，连门禁都没跑到。
+          node-version: 22
           cache: yarn
 
       - name: 安装依赖
@@ -418,6 +419,19 @@ jobs:
         # 根治只能让属性在条件为假时**不渲染**（utils/buttonDisabled.ts），所以这里守写法：
         # 任何 <Button> 带 disabled 就必须是 disabledAttr(...)。CSS 层无法区分真禁用/没禁用。
         run: npm run verify:buttons
+
+      - name: showModal 按钮文案上限门禁
+        # Taro H5 对 confirmText / cancelText 有硬校验（中文 ≤4 个汉字 / 非中文 ≤8 字符，
+        # 超限直接 showModal:fail，弹窗根本不建 DOM）。2026-11 实测：定位出境同意按钮
+        # 「同意并继续」（5 汉字）让定位在真机上永远失败，页面却提示「未授权定位」。
+        # 这里逐调用点解析字面量与 i18n 实际值，超限即红。
+        run: npm run verify:modal-text
+
+      - name: 定位失败文案分类门禁
+        # 拒绝 / 永久拒绝 / 非安全上下文 / 超时 必须给不同文案：原来 geolocation 的
+        # 所有失败都被吞成 false，页面只会说「未授权定位」，用户照着去改系统权限也永远修不好。
+        # 这里断言六类 key 齐全、文案两两不同，且非安全上下文文案不得出现「未授权」。
+        run: npm run verify:locate-copy
 
       - name: 对比度静态门禁（109 条）
         # 2026-10-24 审计指出「verify:contrast 写好了却没接 CI」—— 这里补上。

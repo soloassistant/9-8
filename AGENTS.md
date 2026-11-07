@@ -1,4 +1,4 @@
-# AGENTS.md — 私人晨报助理（Personal Morning Brief Assistant）
+﻿# AGENTS.md — 私人晨报助理（Personal Morning Brief Assistant）
 
 > 本文件给在本仓库工作的 AI 代理/开发者。只写**可验证的事实与硬约束**，不写愿景。
 > 最后更新：2026-10-24（新增 `verify:all` / `verify:parity` 与第 11 节上下文纪律；本轮修正了 7 处与仓库现状不符的表述，并加了 `npm run verify:docs` 防再腐烂）
@@ -437,6 +437,11 @@ node .tools/mutation-verify.mjs .tools/mutations-share.mjs   # 变异验证（�
    → 外来改动用 `git checkout -- <路径>` 或从备份字节级还原（含 CRLF/LF 行尾一致性）
    → 重做成干净提交 → 向主理人如实报告事故经过。备份先行：动 reset 前
    `cp` 一份受污染文件到 `.tmp-verify/`。
+4.5 **PR 规模与行数豁免**（2026-11-05）：`≤300 行` 只约束**代码 PR**（含测试与门禁脚本），
+   目的是逼"一 PR 一事"、让 diff 能被逐行读完。**纯文档 PR 允许超行**，但必须同时满足：
+   PR 描述里列出文件清单与**实际行数**，并写明"压缩到 300 行内会损失什么"。
+   带实测数据的文档（逐张统计、错误率、成本估算）**不得为凑行数删减** —— 删证据比超行数糟得多。
+   首次适用：题库三份调研报告 337 + 142 + 540 = 1019 行（PR #66）。
 5. **本机命令坑**：复合 bash 命令可能被沙箱中心拒（报 sandbox-center 相关错误）→
    拆成多条或改用 PowerShell；长命令（构建 / 多 harness 串联）必须
    `run_in_background` + 日志；node 一律用绝对路径
@@ -468,6 +473,12 @@ npm run verify:parity           # 只查「有没有门禁写了却没接 CI」�
   直调 `node .tools/analyze-intel.js` 的），并且**先剥掉 YAML 注释再匹配** ——
   `checks.yml` 顶部就写着"`npm run verify:boards` 要联网，故意不放"，把注释当事实的话，
   "故意不跑"会被读成"已经在跑"。
+- **豁免必须带到期条件**（2026-11-05，题库 PR-2 的教训）：`verify:h5-coverage` 的
+  `DEVICE_ONLY_KEYS` 是「不该上云」的清单，但为了让门禁转绿而登记的条目会**一直留着** ——
+  于是"暂时不做"变成"永远不做"，题库这类用户数据会永久跳过「换设备是否失忆」的检查。
+  因此每条豁免旁边必须写明**什么条件下必须删掉它**；没有到期条件的豁免按债务处理。
+  当前实例：`questionBank`（题库本地仓储）——**接入 `cloudSync` / `SYNC_KEYS` 的那一笔 PR
+  必须同时删除该条目并把它挪进 `CROSS_DEVICE_KEYS`**。
 - **`isBad()` 的附加约束**：门禁**打印了 `FAIL n`(n>0) 却退出 0** 也算失败。
   只信退出码会让这种门禁永久假绿 —— 它看起来在报错，CI 却一直过。
   这条规则由 `--self-test` 的 19 条真值表钉住（含 2 条真实误判串），3+3 条变异守着判别力。
@@ -502,6 +513,32 @@ SPA fallback 把 `index.html` 当 JS 返回，报 `Unexpected token '<'`）。
 **交互事实（写自动化前必读）**：✕ **只在点「管理」进入编辑态后才出现**；删掉一条后
 **自动退出编辑态**（`handleRemoveStock` 末尾 `setQuoteOpen(false)`）。所以脚本必须
 「进管理态 → 删一条 → 重新进管理态」，不能连续查询 ✕。
+
+### 6.4 CI 与分支工具的两个坑（2026-11-06 实测）
+
+**① `setup-node` 的版本必须与 `package.json` 的 `engines` 一致。**
+`engines.node` 是 `>=22`，工作流曾把 `actions/setup-node` 钉在 `20`。`yarn install --frozen-lockfile`
+在 “Validating package.json” 阶段直接失败：
+
+```
+error morning-brief@1.1.0: The engine "node" is incompatible with this module.
+Expected version ">=22.0.0". Got "20.20.2"
+```
+
+后果不是"这一步红"，而是**后面 60 多步全部 skipped**，看起来像"全仓门禁都挂了"。
+所有 PR 与 main 同时红，与当笔改动无关（2026-11-06 亲历，run 42030915391）。
+处置：`checks.yml` / `deploy.yml` 的 `node-version` 与 `engines` 同版本；`refresh-data.yml` 只跑裸 node、
+不装依赖，不受这条约束，可以不同步。
+
+**② GitHub 的 `update-branch` 会把 `checks.yml` 回退成旧版。**
+在 PR 上点 “Update branch”（或调 `PUT /pulls/{n}/update-branch`）把 main 合进来后，实测出现过
+`checks.yml` 被取成**旧版本**（`node-version: 22` → `20`），于是新一轮 CI 又死在安装依赖。
+父提交是对的（确实是新 main），错的是该文件的树内容。2026-11-06 在 #86 上复现。
+
+处置：
+- update-branch 之后**必须核对文件实际内容**：`git diff <新 main> <PR head> -- .github/workflows/`
+  应当只剩本笔应有的差异；一旦被回退，追加一笔**只恢复这一个文件**的提交（内容逐字等于 main）。
+- 不要去重跑整条分支、也不要顺手把别的文件带进这一笔 —— 那会让"纯搬移/单点修复"的 PR 变成混合改动。
 
 ## 7. 合规硬约束（微信小程序发布前必读）
 
