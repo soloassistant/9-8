@@ -115,14 +115,30 @@ const PGRST202 = { code: 'PGRST202', message: 'Could not find the function publi
   check('PG5', '切片含 PGRST202 灰度分支（防回归：删了它会让 SQL 未上线时注销报错）',
     /PGRST202/.test(slice));
 
-  // ── ⑥ 窄不变式：注销完成文案不得宣称云端记录已删除 ──
+  // ── ⑥ SQL 资产：函数执行权必须显式收紧（三主体收回 → 只授回 authenticated） ──
+  // 为什么放在这条门禁里：PG1 的「静默跳过」只说明客户端不因未部署而报错，**不**说明
+  // 函数上线后别人调不到它。执行权不收紧，SECURITY DEFINER 就成了任何持 anon key 的
+  // 访客都能按自己的 uid 删数据的通道。判据在**剥离 `--` 注释后的正文**上做：
+  // 说明文字里也写着 REVOKE/GRANT，不剥注释会让顺序断言假绿。
+  const sqlCode = fs.readFileSync(path.join(ROOT, '.tools', 'sql', 'v3-h5-purge.sql'), 'utf8')
+    .replace(/--[^\n]*/g, '');
+  const rvk = sqlCode.match(/REVOKE\s+ALL\s+ON\s+FUNCTION\s+public\.purge_my_h5_data\(\)\s+FROM\s+([^;]+);/i);
+  const rvkWho = rvk ? rvk[1].split(',').map((s) => s.trim().toLowerCase()) : [];
+  const grt = sqlCode.match(/GRANT\s+EXECUTE\s+ON\s+FUNCTION\s+public\.purge_my_h5_data\(\)\s+TO\s+authenticated\s*;/i);
+  check('PG6', 'v3 SQL：REVOKE 三个主体齐全（PUBLIC / anon / authenticated）',
+    Boolean(rvk) && ['public', 'anon', 'authenticated'].every((x) => rvkWho.includes(x)));
+  check('PG7', 'v3 SQL：GRANT EXECUTE 只授回 authenticated', Boolean(grt));
+  check('PG8', 'v3 SQL：REVOKE 在 GRANT 之前（先收回再授回）',
+    Boolean(rvk && grt) && rvk.index < grt.index);
+
+  // ── ⑦ 窄不变式：注销完成文案不得宣称云端记录已删除 ──
   // 为什么锚文案而不是流程：注销流程正在改成页内工单（「提交工单后 15 个工作日」），
   // 流程断言会被下一次改造打红；但「不能说谎」是跨改造的不变式。
   const langSrc = fs.readFileSync(path.join(ROOT, 'src', 'store', 'language.ts'), 'utf8');
   const doneCopies = [...langSrc.matchAll(/['"]mine\.deleteDoneH5['"]\s*:\s*'([^']*)'/g)].map((m) => m[1]);
   const FORBID_CLAIM = /已删除全部数据|数据已删除|云端.*(已删|已清除)|all data (has been )?deleted|data has been deleted/i;
   check(
-    'PG6',
+    'PG9',
     '注销完成文案 mine.deleteDoneH5 不宣称云端记录已删除（中英各一份，违规时指名键名）',
     doneCopies.length === 2 && doneCopies.every((s) => !FORBID_CLAIM.test(s))
   );

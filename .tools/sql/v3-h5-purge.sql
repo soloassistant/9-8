@@ -15,9 +15,9 @@
 -- 安全设计（四条，缺一不可）：
 --   1. SECURITY DEFINER + 显式 SET search_path = public, pg_temp —— 防搜索路径劫持；
 --   2. 函数体只删 **owner_id = auth.uid()** 的行，不接受任何 owner 参数（谁调用只删谁的）；
---   3. REVOKE EXECUTE 不需要：默认 PUBLIC 可执行是**刻意的**——这正是「用户注销自己的数据」
---      的合法通道，函数自身按 owner 收敛了边界；但也因此**绝不**在函数里加任何按
---      其他 owner 删除的能力；
+--   3. 执行权显式收紧：函数创建后先 REVOKE ALL FROM PUBLIC, anon, authenticated，
+--      再 GRANT EXECUTE TO authenticated。**默认「PUBLIC 可执行」是漏洞不是设计**：
+--      匿名访客（anon）与 PUBLIC 都不该摸到这条注销通道，只留已登录用户本人；
 --   4. 幂等：重复调用返回同样结果（删完再删 = 0 行），客户端可安全重试。
 
 CREATE OR REPLACE FUNCTION public.purge_my_h5_data()
@@ -49,8 +49,18 @@ BEGIN
 END;
 $$;
 
+-- 执行权收口（紧跟函数创建；顺序不能反 —— 先 REVOKE 再 GRANT）：
+--   · CREATE OR REPLACE FUNCTION 会保留原有 ACL；新建函数时 PostgreSQL **默认把 EXECUTE
+--     授给 PUBLIC**，anon 又从 PUBLIC 继承 —— 不显式收回，未登录访客就能调用本函数；
+--   · 三个主体一起收回：PUBLIC（默认授权来源）、anon（匿名角色，显式挡住即使将来 PUBLIC
+--     被重授）、authenticated（撤销旧 ACL 里可能已存在的更宽授权），再按最小权限只授回
+--     给 authenticated。
+REVOKE ALL ON FUNCTION public.purge_my_h5_data() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.purge_my_h5_data() TO authenticated;
+
 -- 执行后自检（在控制台手动跑，确认函数以 SECURITY DEFINER 存在且 owner 正确）：
---   SELECT proname, prosecdef FROM pg_proc WHERE proname = 'purge_my_h5_data';
---   -- 期望：prosecdef = t
+--   SELECT proname, prosecdef, proacl FROM pg_proc WHERE proname = 'purge_my_h5_data';
+--   -- 期望：prosecdef = t；proacl 里不再有「=X」条目（= PUBLIC 的默认 EXECUTE），
+--   --       且 X 只出现在 authenticated 与函数 owner 上。
 -- 客户端侧验证：H5 登录 → 「我的」→ 注销 → 返回 json 里三个计数 ≥ 0，且再次登录后
 --   这三张表按 owner 查无旧行（控制台 SELECT count(*) ... WHERE owner_id = '<旧uid>'）。

@@ -10,7 +10,7 @@
  *    llm_events / feedback / client_errors 原样保留。v3-h5-purge.sql 提供
  *    SECURITY DEFINER 的 purge_my_h5_data()，客户端在 signOut **之前** 发起清偿。
  *
- * ⚠️ 两份 SQL **未在平台执行**：本脚本只校验脚本内容与客户端接线，
+ * ⚠️ 三份 SQL（v2 / v3 / v8）**均未在平台执行**：本脚本只校验脚本内容与客户端接线，
  *    执行状态以「待平台执行」为准，绝不据此宣称线上已收紧。
  *
  * 用法: node .tools/verify-account-purge.js
@@ -50,6 +50,44 @@ for (const table of ['llm_events', 'feedback', 'client_errors']) {
 }
 ok('v3 函数不接受 owner 参数（谁调用只删谁）', /purge_my_h5_data\(\)/.test(v3) && !/purge_my_h5_data\(\s*p_?owner/.test(v3));
 ok('v3 幂等（重复调用可安全重试）', /CREATE OR REPLACE FUNCTION/i.test(v3));
+// 执行权收口：PostgreSQL 新建函数默认把 EXECUTE 授给 PUBLIC，anon 又从 PUBLIC 继承 ——
+// 不显式收回，未登录访客也能调用这条 SECURITY DEFINER 的注销通道。
+// ⚠️ 判据一律先剥离 `--` 行注释再匹配：本文件正文里有大段说明，注释里出现
+//    「REVOKE」「GRANT」字样会让顺序断言假绿（变异「GRANT 提前」专门验这一点）。
+const v3Code = v3.replace(/--[^\n]*/g, '');
+const revoke = v3Code.match(/REVOKE\s+ALL\s+ON\s+FUNCTION\s+public\.purge_my_h5_data\(\)\s+FROM\s+([^;]+);/i);
+const revokedFor = revoke ? revoke[1].split(',').map((s) => s.trim().toLowerCase()) : [];
+ok('v3 对函数执行权显式 REVOKE', Boolean(revoke));
+for (const who of ['public', 'anon', 'authenticated']) {
+  ok(`v3 REVOKE 主体含 ${who}（缺一不可）`, revokedFor.includes(who));
+}
+const grant = v3Code.match(/GRANT\s+EXECUTE\s+ON\s+FUNCTION\s+public\.purge_my_h5_data\(\)\s+TO\s+authenticated\s*;/i);
+ok('v3 GRANT EXECUTE 只授回 authenticated', Boolean(grant));
+ok('v3 REVOKE 在 GRANT 之前（先收回再授回）', Boolean(revoke && grant) && revoke.index < grant.index);
+ok('v3 不再宣称「REVOKE EXECUTE 不需要」（错误设计说明已删）', !/REVOKE EXECUTE 不需要/.test(v3));
+
+console.log('\n── 2b. v8 PUBLIC + authenticated 的 TRUNCATE/REFERENCES/TRIGGER 收回资产 ──');
+const v8 = read('.tools/sql/v8-privilege-tighten.sql');
+// 判据在**剥离 `--` 注释后的正文**上做：说明文字里也写着 REVOKE / FROM，
+// 不剥注释会让「收的是哪个主体」这条断言假绿（变异用例专门验这一点）。
+const v8Code = v8.replace(/--[^\n]*/g, '');
+for (const table of ['user_kv', 'feedback', 'llm_events']) {
+  const m = v8Code.match(new RegExp(
+    `REVOKE\\s+TRUNCATE,\\s+REFERENCES,\\s+TRIGGER\\s+ON\\s+TABLE\\s+public\\.${table}\\s+FROM\\s+([^;]+);`, 'i'
+  ));
+  const who = m ? m[1].split(',').map((s) => s.trim().toLowerCase()) : [];
+  ok(`v8 收回 ${table} 的 TRUNCATE/REFERENCES/TRIGGER（PUBLIC + authenticated）`,
+    Boolean(m) && who.includes('public') && who.includes('authenticated'));
+  ok(`v8 ${table} 的 REVOKE 主体 PUBLIC 在 authenticated 之前（继承通道先断）`,
+    Boolean(m) && who.indexOf('public') >= 0 && who.indexOf('public') < who.indexOf('authenticated'));
+  // 期望值必须留白：只给只读观测语句（has_table_privilege），不写「收回后应只剩哪些权」。
+  ok(`v8 给出 ${table} 的逐项只读核查（has_table_privilege）`, new RegExp(
+    `has_table_privilege\\('authenticated',\\s*'public\\.${table}',\\s*'(SELECT|UPDATE)'`, 'i'
+  ).test(v8Code));
+}
+ok('v8 把「权项期望值」标成待线上实测（不写成断言）', /待线上实测/.test(v8));
+ok('v8 明确列出 feedback 可能继承 UPDATE/DELETE 这个待实测点', /feedback 可能还持有 UPDATE \/ DELETE/.test(v8));
+ok('v8 文件头标注「待执行」（本会话无 DB 执行通道）', /待执行/.test(v8));
 
 console.log('\n── 3. 客户端接线 ──');
 const db = read('src/services/cloudDb.ts');
@@ -82,5 +120,5 @@ console.log('\n── 4. 平台执行状态（如实标注） ──');
 ok('v2/v3 文件头标注「需平台执行」', /控制台|平台/.test(v2) && /控制台/.test(v3));
 
 console.log(`\n=== account-purge: ${pass} PASS / ${fail} FAIL ===`);
-console.log('⚠️  v2/v3 SQL 未在平台执行，线上收紧状态仍为「待平台执行」。');
+console.log('⚠️  v2/v3/v8 SQL 未在平台执行，线上收紧状态仍为「待平台执行」。');
 process.exit(fail === 0 ? 0 : 1);
