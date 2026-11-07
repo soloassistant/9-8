@@ -322,5 +322,14 @@ export default [
     from: 'refundAvailable &&',
     to: 'true &&',
     cmd: 'node .tools/verify-contrast-strong.mjs'
+  },
+  {
+    // 行为后果：「今日」退回 UTC 日 —— 北京时间 00:00–08:00 读完的条目，过 08:00 徽章消失。
+    // 哪条变红：K1（页面表达式在 Asia/Shanghai + UTC 21:00 下算出 2026-11-05）。
+    label: '「今日已读完」退回 UTC 日（北京 00:00–08:00 读完的条目过 08:00 丢徽章）',
+    file: 'src/utils/date.ts',
+    from: '  return dayjs(now).format(\'YYYY-MM-DD\');',
+    to: '  return new Date(now).toISOString().slice(0, 10);',
+    cmd: 'node .tools/verify-util-logic.mjs'
   }
 ];

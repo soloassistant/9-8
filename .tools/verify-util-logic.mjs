@@ -22,7 +22,8 @@
  * 用法: node .tools/verify-util-logic.mjs
  * 退出码: 0 = 全绿；1 = 有断言失败；2 = harness 自身出错
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
@@ -89,6 +90,7 @@ async function loadModule(relPath, { weapp = false, plugins = [], taroExternal =
     process,
     setTimeout,
     clearTimeout,
+    AbortController,
     Date,
     Promise,
     JSON,
@@ -422,6 +424,97 @@ const h4 = await subMod2.recordPromoOrder('PRO-AAAA-BBBB');
 assert('H4 数据库不可用 → 返回 false（fail-closed）', h4 === false);
 
 /* ================================================================== */
+/* J. 订阅回放窗口：51 笔订单不能被「desc 前 50 条」截断（2026-11-05）   */
+/* ================================================================== */
+section('J. 订阅回放必须取全量订单（51 笔不掉到期）');
+
+const REPLAY_TODAY = '2026-01-01';
+const pad2 = (i) => String(i).padStart(2, '0');
+const paidRows = Array.from({ length: 51 }, (_, i) => ({
+  order_id: 'o' + i,
+  channel: 'promo',
+  plan_id: 'promo',
+  amount_cents: 0,
+  months: 1,
+  status: 'paid',
+  refund_status: 'none',
+  created_at: `2026-01-01T00:00:${pad2(i)}Z`,
+  paid_at: `2026-01-01T00:00:${pad2(i)}Z`
+}));
+
+/** 忠实查询桩：真的按 order/limit 排序截断 —— 只记录口径的桩测不出窗口 bug */
+function makeOrdersDb(rows) {
+  const q = {
+    _orderBy: null,
+    _ascending: true,
+    _limit: null,
+    select() {
+      return q;
+    },
+    order(col, opts) {
+      q._orderBy = col;
+      q._ascending = !!(opts && opts.ascending);
+      return q;
+    },
+    limit(n) {
+      q._limit = n;
+      return q;
+    },
+    abortSignal() {
+      let out = rows.slice().sort((a, b) => {
+        const av = a[q._orderBy];
+        const bv = b[q._orderBy];
+        if (av === bv) return 0;
+        return (av < bv ? -1 : 1) * (q._ascending ? 1 : -1);
+      });
+      if (q._limit !== null) out = out.slice(0, q._limit);
+      return Promise.resolve({ data: out, error: null });
+    }
+  };
+  return {
+    from() {
+      return q;
+    }
+  };
+}
+
+function add30(base) {
+  const d = new Date(base + 'T00:00:00');
+  d.setDate(d.getDate() + 30);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const ordersMod = (
+  await loadModule('src/services/cloudOrders.ts', { plugins: [stubOrderWritePlugin], taroExternal: true })
+).mod;
+const subModForReplay = (
+  await loadModule('src/services/subscription.ts', { plugins: [stubOrderWritePlugin], taroExternal: true })
+).mod;
+
+globalThis.__SESSION__ = { user: { id: 'u1' } };
+globalThis.__DB__ = makeOrdersDb(paidRows);
+const replay = await ordersMod.ordersListOwnForReplay();
+assert('J1 回放查询拿到全部 51 笔（升序、不设业务窗口）', replay.ok === true && replay.orders.length === 51);
+
+let expectedExpiry = REPLAY_TODAY;
+for (let i = 0; i < 51; i++) expectedExpiry = add30(expectedExpiry);
+let expectedExpiry50 = REPLAY_TODAY;
+for (let i = 0; i < 50; i++) expectedExpiry50 = add30(expectedExpiry50);
+
+const actualExpiry = subModForReplay.computeExpiryFromOrders(replay.ok ? replay.orders : [], REPLAY_TODAY);
+assert('J2 51 笔订单的到期日 = 全部订单按时间升序顺延的结果', actualExpiry === expectedExpiry);
+
+// 对照：旧口径（created_at desc 前 50 条）= 丢掉最老一笔 —— 必须真的少一个月，J2 才有判别力
+const brokenExpiry = subModForReplay.computeExpiryFromOrders(
+  paidRows.slice(1).map((r) => ordersMod.toCloudOrder(r)),
+  REPLAY_TODAY
+);
+assert(
+  'J3 对照：丢掉最老一笔会让到期日少 30 天（旧 desc+50 窗口的真实后果）',
+  brokenExpiry === expectedExpiry50 && brokenExpiry !== expectedExpiry
+);
+
+/* ================================================================== */
 /* I. 小程序端「数据只在本机」文案：不能残留云端口径                      */
 /* ================================================================== */
 section('I. 小程序端按端文案（记忆/数据保存/保险箱）');
@@ -465,6 +558,66 @@ assert(
     /process\.env\.TARO_ENV === 'weapp'[\s\S]{0,200}data\.localOnlyBody/.test(mineSrc) &&
     /process\.env\.TARO_ENV === 'weapp'[\s\S]{0,200}data\.vaultNote/.test(prefsSrc)
 );
+
+/* ================================================================== */
+/* K. 「今日已读完」必须按本地日算（UTC 日会让北京 00:00–08:00 丢徽章）   */
+/* ================================================================== */
+section('K. 「今日已读完」判据用本地日期，不是 UTC 日');
+
+const briefingSrc = readFileSync(path.join(ROOT, 'src/pages/briefing/index.tsx'), 'utf8');
+// 只取「今日已读完」那个 useMemo 块（页面里还有别的 const today，别抓错靶子）
+const viewedBlock = briefingSrc.slice(
+  briefingSrc.indexOf('const viewedToday'),
+  briefingSrc.indexOf('}, [briefing]')
+);
+const todayExprMatch = viewedBlock.match(/const today = ([^;]+);/);
+assert('K0 briefing 页真的有「const today = …」判据（否则本组断言失去靶子）', !!todayExprMatch);
+
+if (todayExprMatch) {
+  // 把 pages/briefing 里真实的日期表达式拿出来，在「系统时区 Asia/Shanghai + 模拟 UTC 21:00
+  // （= 北京次日 05:00）」下求值 —— 不复制一份实现来测，测的就是页面那一行。
+  const builtDate = await esbuild.build({
+    entryPoints: [path.join(ROOT, 'src/utils/date.ts')],
+    bundle: true,
+    write: false,
+    format: 'cjs',
+    platform: 'node',
+    target: 'node18',
+    logLevel: 'silent'
+  });
+  const tmpDate = path.join(ROOT, '.tools', `.tmp-daykey-${process.pid}.cjs`);
+  writeFileSync(tmpDate, builtDate.outputFiles[0].text);
+  const childCode = `
+    const m = require(${JSON.stringify(tmpDate)});
+    const FIXED = '2026-11-05T21:00:00Z';
+    const RealDate = Date;
+    class FakeDate extends RealDate {
+      constructor(...a) { if (a.length === 0) super(FIXED); else super(...a); }
+      static now() { return RealDate.parse(FIXED); }
+    }
+    // 页面里的 dayKey() 无参调用 → 用同一实现按固定时刻求值（仍是真实实现，变异会跟着变红）
+    const dayKey = () => m.dayKey(new RealDate(FIXED));
+    const get = new Function('dayKey', 'Date', 'return (' + ${JSON.stringify(todayExprMatch[1])} + ')');
+    process.exit(get(dayKey, FakeDate) === '2026-11-06' ? 0 : 1);
+  `;
+  const child = spawnSync(process.execPath, ['-e', childCode], {
+    env: { ...process.env, TZ: 'Asia/Shanghai' },
+    encoding: 'utf8'
+  });
+  try {
+    unlinkSync(tmpDate);
+  } catch {
+    // 临时文件清理失败不影响断言结果
+  }
+  assert(
+    'K1 Asia/Shanghai 下 UTC 21:00（北京次日 05:00）算作 2026-11-06（不修时页面给出 2026-11-05）',
+    child.status === 0
+  );
+  assert(
+    'K2 briefing 的「今日」不再用 toISOString 取日（该写法固定是 UTC 日）',
+    !/toISOString\(\)\.slice\(0, 10\)/.test(todayExprMatch[1])
+  );
+}
 
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail > 0 ? 1 : 0);

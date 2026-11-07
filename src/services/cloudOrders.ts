@@ -75,8 +75,15 @@ export function toCloudOrder(row: Record<string, unknown>): CloudOrder {
   };
 }
 
-/** 读当前用户的订单（RLS 保证只返回自己的行）。limit 收敛到 [1, 50]。 */
-export async function ordersListOwn(limit = 20): Promise<OrdersFetch> {
+interface OrdersListOptions {
+  orderBy: 'created_at' | 'paid_at';
+  ascending: boolean;
+  /** 省略 = 不设条数上限（订阅回放必须拿到全部订单） */
+  limit?: number;
+}
+
+/** 展示列表与订阅回放共用同一套超时/失败语义，只在排序与窗口上分叉 */
+async function listOwn(opts: OrdersListOptions): Promise<OrdersFetch> {
   const session = await getSession();
   if (!session) return { ok: false, reason: 'no-session' };
 
@@ -89,16 +96,16 @@ export async function ordersListOwn(limit = 20): Promise<OrdersFetch> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LIST_TIMEOUT_MS);
   try {
-    const res = await db
+    const ordered = db
       .from('orders')
       .select(ORDER_COLUMNS)
-      .order('created_at', { ascending: false })
-      .limit(Math.max(1, Math.min(limit, 50)))
-      .abortSignal(controller.signal);
+      .order(opts.orderBy, { ascending: opts.ascending });
+    const query = opts.limit === undefined ? ordered : ordered.limit(Math.max(1, Math.min(opts.limit, 50)));
+    const res = await query.abortSignal(controller.signal);
 
     if (res.error) {
       // console.error 而非 warn：后者会被生产构建剔除，线上零痕迹（本仓铁律）
-      console.error('[cloudOrders] ordersListOwn failed:', res.error.code || '', res.error.message || '');
+      console.error('[cloudOrders] listOwn failed:', res.error.code || '', res.error.message || '');
       return { ok: false, reason: 'db-error' };
     }
 
@@ -106,15 +113,31 @@ export async function ordersListOwn(limit = 20): Promise<OrdersFetch> {
     return { ok: true, orders: rows.map(toCloudOrder) };
   } catch (err) {
     // 中止（超时）或网络异常：一律算可重试的故障
-    console.error('[cloudOrders] ordersListOwn aborted/failed:', err instanceof Error ? err.message : String(err));
+    console.error('[cloudOrders] listOwn aborted/failed:', err instanceof Error ? err.message : String(err));
     return { ok: false, reason: 'db-error' };
   } finally {
     clearTimeout(timer);
   }
 }
 
+/** 读当前用户的订单（RLS 保证只返回自己的行）。limit 收敛到 [1, 50]。 */
+export function ordersListOwn(limit = 20): Promise<OrdersFetch> {
+  return listOwn({ orderBy: 'created_at', ascending: false, limit });
+}
+
+/**
+ * 订阅回放专用：**按 paid_at 升序、不设条数上限**。
+ *
+ * 为什么不能复用 ordersListOwn(50)：它取 created_at 降序的前 50 条，第 51 笔订单进来时
+ * **最老的一笔掉出窗口** → 回放少顺延一个月，到期日凭空倒退。回放要的是「全部已支付
+ * 订单按时间升序」，窗口本身必须是全量（条数上限由服务端默认上限兜底，而非业务窗口）。
+ */
+export function ordersListOwnForReplay(): Promise<OrdersFetch> {
+  return listOwn({ orderBy: 'paid_at', ascending: true });
+}
+
 /**
  * ⚠️ 这里**故意没有** orderInsert：客户端写入订单的路径已移除（A-1）。
- * 需要写订单时走服务端函数（`subscription.recordPromoOrder` → `record_promo_order()`），
+ * 需要写订单时走服务端函数（`subscription.recordPromoOrder` → `redeem_promo_order(p_code)`），
  * 不要在这个模块里重新加回 `from('orders').insert(...)`。
  */

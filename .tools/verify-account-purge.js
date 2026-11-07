@@ -98,9 +98,15 @@ ok('注销前发起 purgeMyH5Data', /purgeMyH5Data\(\)/.test(mine));
 ok('注销前清云端 user_kv（kvClear）', /kvClear\(\)/.test(mine));
 const purgeAt = mine.indexOf('purgeMyH5Data()');
 const kvAt = mine.indexOf('kvClear()');
-const signOutAt = mine.indexOf('.then(() => signOut())');
-ok('purge 调用位置在 signOut 之前', purgeAt > 0 && signOutAt > purgeAt);
-ok('kvClear 调用位置在 signOut 之前', kvAt > 0 && signOutAt > kvAt);
+// 2026-11-06（#72）：流程改成「清同步键 → 自动提单 → signOut → 完成页」，
+// signOut 不再是 `.then(() => signOut())` 的旧形状。锚点定位改成「提单之后的那次 signOut」，
+// 但不变式不变：purge / kvClear / 自动提单都必须在它之前。
+// ⚠️ 比较时 indexOf 的返回值放左边：-1 在左才能让「找不到」判假；反过来写会把缺失当成通过。
+const ticketAt = mine.indexOf('const ticket = await autoClosureTicket();');
+const signOutAt = mine.indexOf('await signOut()', ticketAt);
+ok('purge 调用位置在 signOut 之前', purgeAt > 0 && signOutAt > 0 && signOutAt > purgeAt);
+ok('kvClear 调用位置在 signOut 之前', kvAt > 0 && signOutAt > 0 && signOutAt > kvAt);
+ok('自动提单在 signOut 之前', ticketAt > 0 && signOutAt > 0 && signOutAt > ticketAt);
 ok('H5 注销不调用只认 OPENID 的 deleteAccount', /process\.env\.TARO_ENV === 'h5'/.test(mine));
 
 console.log('\n── 3.5 注销完成文案（窄不变式） ──');

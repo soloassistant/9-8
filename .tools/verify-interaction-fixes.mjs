@@ -702,5 +702,85 @@ ok('T9 上传用的是压缩后的负载（不是压完仍传原图）',
   /storage\.upload\(path, payload,/.test(storageSrc) &&
   /storage\.upload\(path, file,/.test(storageSrc) === false);
 
+/* ---------------- U. 交易页行情轮询：隐藏即停 / 失败可见 / 失败退避（2026-11-06） ----------------
+   腾讯行情按次计费，所以三件事都是「钱 / 诚实」问题：
+   ① 切后台必须停轮询（H5 visibilitychange + 小程序 useDidHide）；
+   ② 失败不能只把徽标悄悄换回「模拟行情」—— 必须有可见文案 + 重试；
+   ③ 连续失败按 10s→30s→60s 退避（恢复回 10s），否则失败时仍在按正常节奏烧钱。 */
+const tradeSrc = stripComments(read('src/pages/trade/index.tsx'));
+// U1 隐藏即停：可见性监听三件套（读态 / 订阅 / 解绑）都在，且小程序侧仍由 useDidHide 停
+ok(
+  'U1 页面监听浏览器可见性（visibilitychange 读态 + 订阅 + 卸载解绑）',
+  /setDocHidden\(document\.visibilityState === 'hidden'\)/.test(tradeSrc) &&
+    /document\.addEventListener\('visibilitychange', sync\)/.test(tradeSrc) &&
+    /document\.removeEventListener\('visibilitychange', sync\)/.test(tradeSrc) &&
+    /useDidHide\(\(\) => setRunning\(false\)\)/.test(tradeSrc)
+);
+// U2 两个定时器都受隐藏态控制（漏掉任一 = 后台还有定时器在跑）
+ok(
+  'U2 引擎与行情两个 effect 都以 docHidden 为闸（各 1 处，共 2 处）',
+  (tradeSrc.match(/if \(!isH5 \|\| !running \|\| docHidden \|\| !eng\) return;/g) || []).length === 2
+);
+// U3 失败分支：不许静默 —— 必须置可见失败态；旧的 `!quotes` 静默返回已删除
+const failBlock = /if \(!applied\) \{[\s\S]{0,400}?\n\s*\}/.exec(tradeSrc);
+ok('U3 失败分支置可见失败态（setFeedDown(true) + setRealFeed(false)）',
+  Boolean(failBlock) && /setFeedDown\(true\)/.test(failBlock[0]) && /setRealFeed\(false\)/.test(failBlock[0]));
+ok('U3b 旧的「失败静默 return」不再存在', !/if \(!alive \|\| !quotes\) return;/.test(tradeSrc));
+// U4 用户可见文案 + 重试入口（文案键走既有 i18n，不在页面写死中文）
+ok('U4 顶栏渲染失败文案与重试入口（t(trade.feedDown) + onClick={retryFeed}）',
+  /t\('trade\.feedDown'\)/.test(tradeSrc) &&
+    /t\('trade\.feedRetry'\)/.test(tradeSrc) &&
+    /onClick=\{retryFeed\}/.test(tradeSrc));
+// U5 中英同步：两个键各出现 2 次（zh + en），中文文案与需求逐字一致
+const langU = stripComments(read('src/store/language.ts'));
+ok('U5 失败文案与重试键中英各一处', (langU.match(/'trade\.feedDown':/g) || []).length === 2 &&
+  (langU.match(/'trade\.feedRetry':/g) || []).length === 2);
+ok('U5b 中文失败文案逐字包含「实时行情暂不可用，已回到参考行情」',
+  langU.includes("'实时行情暂不可用，已回到参考行情'"));
+// U6 轮询改用可退避的 setTimeout（正常 10s 也由同一函数给出），不再用固定 setInterval
+ok('U6 行情轮询按 feedRetryDelay(fails) 调度（成功回 10s，失败逐档拉长）',
+  /setTimeout\(\(\) => void pull\(\), feedRetryDelay\(fails\)\)/.test(tradeSrc) &&
+    !/setInterval\(\(\) => void pull\(\), REAL_FEED_MS\)/.test(tradeSrc));
+
+/* U7 退避序列运行时验证（静态断言只能证明「调了函数」，证明不了档位对不对） */
+async function loadMarketFeed() {
+  const built = await esbuild.build({
+    entryPoints: [path.join(ROOT, 'src/utils/marketFeed.ts')],
+    bundle: true,
+    write: false,
+    format: 'cjs',
+    platform: 'node',
+    target: 'node18',
+    logLevel: 'silent'
+  });
+  const sandbox = { module: { exports: {} }, exports: {}, console: { log: () => {}, warn: () => {}, error: () => {} } };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(built.outputFiles[0].text, sandbox, { filename: 'src/utils/marketFeed.ts' });
+  return sandbox.module.exports;
+}
+const feedMod = await loadMarketFeed();
+ok('U7 退避函数可运行时调用（feedRetryDelay 导出）', typeof feedMod.feedRetryDelay === 'function');
+if (typeof feedMod.feedRetryDelay === 'function') {
+  const d = feedMod.feedRetryDelay;
+  ok('U7a 正常/首次失败都保持 10s（0 次与 1 次连续失败）', d(0) === 10000 && d(1) === 10000);
+  ok('U7b 第二次失败退到 30s', d(2) === 30000);
+  ok('U7c 第三次失败封顶 60s（继续失败不无限增长）', d(3) === 60000 && d(4) === 60000 && d(100) === 60000);
+  ok('U7d 基础间隔常量仍是产品既定的 10s（未擅自改间隔）',
+    feedMod.FEED_INTERVAL_MS === 10000 && feedMod.FEED_BACKOFF_MS[0] === feedMod.FEED_INTERVAL_MS &&
+    feedMod.FEED_BACKOFF_MS.length === 3);
+  // 3 分钟（180s）内连续失败的调用时间点：0/10/40/100/160 = 5 次（改前固定 10s 是 19 次）
+  const times = [];
+  let t = 0;
+  let fails = 0;
+  while (t < 180) {
+    times.push(t);
+    fails += 1;
+    t += d(fails) / 1000; // 换成秒再和 180s 窗口比较
+  }
+  ok('U7e 3 分钟连续失败调用次数 = 5（可复算：0/10/40/100/160）',
+    times.length === 5 && times.join(',') === '0,10,40,100,160');
+}
+
 console.log(`\nPASS ${pass} / FAIL ${fail}（共 ${pass + fail} 条断言）`);
 process.exit(fail === 0 ? 0 : 1);

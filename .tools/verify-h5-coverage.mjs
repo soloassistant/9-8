@@ -85,7 +85,7 @@ const DEVICE_ONLY_KEYS = {
   'mb_shopping_notified': '已提醒标记（设备级节流）',
   'briefingDailyCache': '当日晨报缓存（可重新拉取）',
   'library-open-history': '打开历史（次要，已有 browseHistory 覆盖）',
-  'h5-subscription': '派生缓存（真值在 orders 表，由订阅回放修复）',
+  'h5-subscription': '兑换续期本地账本（设备级缓存；不参与权益判定，真值在 orders 表）',
   // 2026-11-04：界面搜索历史与健康数据单独同意（合规数据，绝不上云）
   'library-search-history': '检索历史（设备级缓存，换设备无意义）',
   'health-data-consent': '健康数据单独同意（合规，设备级，不可上云）',
@@ -97,7 +97,24 @@ const DEVICE_ONLY_KEYS = {
   // 2026-11-05：题库答题记录 / 错题本（接入批次 5/6）。与本机题库同源，答题记录先只落本机。
   // ⏳ **到期条件**：题库进度接入 cloudSync / SYNC_KEYS 的那一笔 PR 必须同时删除本条目并挪进
   //    CROSS_DEVICE_KEYS —— 否则错题本会永久跳过「换设备是否失忆」的检查。
-  questionBankProgress: '题库答题记录 / 错题本（设备级，未接入 cloudSync；到期条件见上方注释）'
+  questionBankProgress: '题库答题记录 / 错题本（设备级，未接入 cloudSync；到期条件见上方注释）',
+  // 2026-11-06：注销链在本机留痕的两个键（PR #71/#72 引入；A3 要求逐个登记）
+  // ⏳ **到期条件（不是永久豁免）**：复核日期 2026-12-31 **或** `LEGAL_CONSENT_VERSION` 自
+  //    `v1.10-20261104` 起第一次递增（即签字定稿）—— **二者先到**即到期，由下面 A3b 判红。
+  //    到期处置必须显式做，二选一：① 删掉这两条并挪进 CROSS_DEVICE_KEYS；
+  //    ② 复核后确认仍属本机语义，则在 EXPIRING_DEVICE_ONLY 里显式续期并写明理由。
+  'mb-last-delete-at': '本机专用键，云端同步反而错（注销完成时间只对本机有意义，同步会把「已注销」带到别的设备）',
+  'mb-support-tickets': '本机专用键，云端同步反而错（注销工单留档供本机补提/查询，跨设备同步会泄露注销意图）'
+};
+
+/**
+ * 带**到期条件**的豁免登记（与 DEVICE_ONLY_KEYS 同名条目配套）。
+ * 到期表达式 = `今天 ≥ reviewBy` **或** `LEGAL_CONSENT_VERSION ≠ consentBaseline`，二者先到为准。
+ * A3b 负责判：到期仍在豁免表里 ⇒ FAIL（不允许「豁免一旦登记就永久静默」）。
+ */
+const EXPIRING_DEVICE_ONLY = {
+  'mb-last-delete-at': { reviewBy: '2026-12-31', consentBaseline: 'v1.10-20261104' },
+  'mb-support-tickets': { reviewBy: '2026-12-31', consentBaseline: 'v1.10-20261104' }
 };
 
 const syncSrc = read('src/services/cloudSync.ts');
@@ -171,6 +188,55 @@ const syncSet = new Set(syncKeys);
     'A4 豁免表里没有已不存在的键（豁免表本身要跟着代码走）',
     stale.length === 0,
     stale.join(', ')
+  );
+}
+
+// A3b 带到期条件的豁免不得「登记即永久静默」：复核日期到 **或** 同意版本变值（先到为准）⇒ 这里红
+{
+  const consentSrc = read('src/data/legal-consent.ts');
+  const currentConsent = (/export const LEGAL_CONSENT_VERSION = '([^']+)'/.exec(consentSrc) || [])[1] || '';
+  // 按 Asia/Shanghai 判日期：否则 UTC 在到期当天 00:00–08:00 仍算前一天 ⇒ 当天早上会静默 PASS
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  const unregistered = Object.keys(EXPIRING_DEVICE_ONLY).filter((k) => !(k in DEVICE_ONLY_KEYS));
+  const expired = [];
+  const reviews = [...new Set(Object.values(EXPIRING_DEVICE_ONLY).map((r) => r.reviewBy))].join(' / ');
+  const baselines = [...new Set(Object.values(EXPIRING_DEVICE_ONLY).map((r) => r.consentBaseline))].join(' / ');
+  for (const [key, rule] of Object.entries(EXPIRING_DEVICE_ONLY)) {
+    const dateHit = today >= rule.reviewBy;
+    const consentHit = currentConsent !== '' && currentConsent !== rule.consentBaseline;
+    if (dateHit || consentHit) {
+      expired.push(
+        `${key}（${[
+          dateHit ? `今天 ${today} ≥ 复核日期 ${rule.reviewBy}` : '',
+          consentHit ? `LEGAL_CONSENT_VERSION ${rule.consentBaseline} → ${currentConsent}` : ''
+        ].filter(Boolean).join('；')}）`
+      );
+    }
+  }
+  const detail = [
+    currentConsent ? '' : 'LEGAL_CONSENT_VERSION 解析失败 ⇒ 到期条件无法判定（不许放行）',
+    unregistered.length ? `未在 DEVICE_ONLY_KEYS 登记：${unregistered.join(', ')}` : '',
+    expired.length
+      ? `已到期，必须删豁免并挪进 CROSS_DEVICE_KEYS（或显式续期并写明理由）：${expired.join('；')}`
+      : ''
+  ].filter(Boolean).join(' | ');
+  assert(
+    `A3b ${Object.keys(EXPIRING_DEVICE_ONLY).length} 条到期型豁免均未到期且已登记（复核 ${reviews} / 同意版本 ${baselines} 变值，二者先到；当前 ${currentConsent || '解析失败'}）`,
+    currentConsent !== '' && unregistered.length === 0 && expired.length === 0,
+    detail
+  );
+}
+
+// A3b2 同意版本基线必须钉在拆分引入时的初值：改这个值 = 悄悄把到期条件往后挪 ⇒ 这里红
+{
+  const PINNED_CONSENT_BASELINE = 'v1.10-20261104';
+  const drifted = Object.entries(EXPIRING_DEVICE_ONLY).filter(
+    ([, rule]) => rule.consentBaseline !== PINNED_CONSENT_BASELINE
+  );
+  assert(
+    `A3b2 ${Object.keys(EXPIRING_DEVICE_ONLY).length} 条到期型豁免的 consentBaseline 均钉在 ${PINNED_CONSENT_BASELINE}（改基线 = 悄悄延期）`,
+    drifted.length === 0,
+    drifted.map(([k, r]) => `${k}=${r.consentBaseline ?? '(缺字段)'}`).join(', ')
   );
 }
 

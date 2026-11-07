@@ -146,6 +146,47 @@ const PGRST202 = { code: 'PGRST202', message: 'Could not find the function publi
     out('  ↳ 违规键: mine.deleteDoneH5（文案谎报「已删除」，而 purge 可能 not-deployed/failed）');
   }
 
+  // ── ⑦ 注销工单（support_tickets）：表/RLS/客户端/文案一处都不许松 ──
+  {
+    const sql = fs.readFileSync(path.join(ROOT, '.tools/sql/v7-support-tickets.sql'), 'utf8').replace(/--.*$/gm, '');
+    const page = fs.readFileSync(path.join(ROOT, 'src/pages/mine/index.tsx'), 'utf8');
+    const legal = fs.readFileSync(path.join(ROOT, 'src/data/legal.ts'), 'utf8');
+    const doc = fs.readFileSync(path.join(ROOT, 'docs/legal/07-账号注销与数据删除指引.md'), 'utf8');
+    check('ST1', '建表 + RLS + authenticated 只能插/读自己的行', /CREATE TABLE IF NOT EXISTS public\.support_tickets/.test(sql) && /ENABLE ROW LEVEL SECURITY/.test(sql) && /WITH CHECK \(owner_id = auth\.uid\(\)\)/.test(sql) && /USING \(owner_id = auth\.uid\(\)\)/.test(sql));
+    check('ST2', 'authenticated 无 TRUNCATE/REFERENCES/TRIGGER 授权', !/GRANT[^;]*?(TRUNCATE|REFERENCES|TRIGGER)/.test(sql) && /GRANT INSERT, SELECT ON TABLE public\.support_tickets TO authenticated/.test(sql));
+    check('ST3', '客户端插入 + 页面调用 + 失败可重试（不静默成功）', /supportTicketInsert/.test(src) && /supportTicketInsert\(/.test(page) && /ticketRetry/.test(page));
+    check('ST4', '无邮件残留 + 三处同一口径 + 待签字占位 + 中英同步', !/mailto:|SUPPORT_EMAIL/.test(page + legal) && /mine\.ticketEta[^\n]*15 个工作日/.test(langSrc) && /mine\.ticketEta[^\n]*15 business days/.test(langSrc) && /提交注销工单/.test(legal) && /15 个工作日/.test(legal) && /提交注销工单/.test(doc) && /PENDING-SIGNATURE/.test(doc));
+
+    // ── ⑧ 注销即自动提单（2026-11-05 栈叠 PR）──
+    // 判据全部收窄到 **confirmDeleteAccount 函数体**（import / 类型 / 别处调用都不算），
+    // 并先剥注释：说明性注释里写着「必须在 signOut 之前」不算实现。
+    const clean = (s) => s.replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const pageC = clean(page);
+    const confirmFn = (/const confirmDeleteAccount = async[\s\S]*?\n  \};/.exec(pageC) || [''])[0];
+    const autoFn = (/const autoClosureTicket = async[\s\S]*?\n\};/.exec(pageC) || [''])[0];
+
+    // ST5：自动提单存在，且在 signOut 之前（会话销毁后插入必失败）
+    check('ST5', '注销流程内自动提单，且提单调用在 signOut 之前',
+      /await autoClosureTicket\(\)/.test(confirmFn) &&
+        /await signOut\(\)/.test(confirmFn) &&
+        confirmFn.indexOf('await autoClosureTicket()') < confirmFn.indexOf('await signOut()'));
+
+    // ST6：插入失败不静默 —— 失败分支如实返回 ok:false，完成页按结果分流
+    check('ST6', '提单失败分支返回 ok:false 且完成页渲染失败态（不静默成功）',
+      (autoFn.match(/ok: false/g) || []).length >= 2 &&
+        (autoFn.match(/ok: true/g) || []).length === 1 &&
+        /closeDone\.ok \?/.test(pageC) &&
+        /mine\.closureTicketFail/.test(pageC));
+
+    // ST7：完成页文案 —— 成功给工单号 + 15 个工作日，失败如实说未提交（中英同步）
+    check('ST7', '完成页中英文案：成功含工单号/15 个工作日，失败如实写未提交',
+      /'mine\.closureTicketNo'/.test(langSrc) &&
+        /'mine\.closureEta': '客服将在 15 个工作日内删除/.test(langSrc) &&
+        /'mine\.closureEta': 'Support will delete .*within 15 business days/.test(langSrc) &&
+        /'mine\.closureTicketFail': '工单未提交成功/.test(langSrc) &&
+        /'mine\.closureTicketFail': 'Request NOT submitted/.test(langSrc));
+  }
+
   console.log(`\nPASS ${passes} / FAIL ${failures}`);
   process.exit(failures === 0 ? 0 : 1);
 })();

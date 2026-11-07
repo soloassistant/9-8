@@ -353,13 +353,13 @@ function rawSet(key: string, value: string) {
   // 有意静默：与 rawGet 对称的写兜底。localStorage 不可用（被禁用 / 配额满）时，
   // 同步能力本身已失效；而「应用远端数据」这条关键路径另有 console.warn 兜底（见 applyRemoteData）。
   internalStorageWrite = true;
-  try { window.localStorage.setItem(key, value); } catch {}
+  try { window.localStorage.setItem(key, value); } catch { /* localStorage 被禁用（隐私模式）/ 配额满：静默兜底，关键路径另有 console.warn（见 applyRemoteData） */ }
   finally { internalStorageWrite = false; }
 }
 /** 内部删除：隔离/还原动作不是「用户删除」，不能触发删除占位值与推送。 */
 function rawRemove(key: string) {
   internalStorageWrite = true;
-  try { window.localStorage.removeItem(key); } catch {}
+  try { window.localStorage.removeItem(key); } catch { /* localStorage 被禁用（隐私模式）/ 配额满：隔离是尽力而为，失败也继续 */ }
   finally { internalStorageWrite = false; }
 }
 /** 按 Taro 语义读值：信封 { data } 解包返回，裸值原样返回 */
@@ -653,14 +653,14 @@ function restoreQuarantineFor(owner: string): number {
     // 有意静默：归档数据损坏时保留空表即可，不能因此阻断登录
     try {
       Object.assign(meta, JSON.parse(archivedMeta) as Record<string, number>);
-    } catch {}
+    } catch { /* 归档 __meta 损坏（非法 JSON）：保留空表即可，不能阻断登录 */ }
     delete snapshot['__meta'];
   }
   const archivedConfirm = snapshot['__confirm'];
   if (archivedConfirm) {
     try {
       Object.assign(confirm, JSON.parse(archivedConfirm) as Record<string, string>);
-    } catch {}
+    } catch { /* 归档 __confirm 损坏（非法 JSON）：保留空表即可，不能阻断登录 */ }
     delete snapshot['__confirm'];
   }
   rawSet(metaPath, JSON.stringify(meta));
@@ -707,7 +707,7 @@ export function setSyncOwner(uid: string | null | undefined): void {
     // 明确提示，不能静默：隔离发生在登录瞬间，toast 之外「我的」页还会常驻一条可关闭的提示
     try {
       Taro.showToast({ title: '已切换账号，本机旧数据已归档', icon: 'none', duration: 3000 });
-    } catch {}
+    } catch { /* toast 在个别端不可用：提示失败不影响已经完成的账号隔离 */ }
     console.warn('[cloudSync] 账号切换，已隔离本机旧数据:', q.keys, 'keys ->', q.quarantineKey);
   } else if (!prevOwner) {
     // 首次启用归属标记：迁移旧全局 meta/confirm 进首个 owner（只做一次）

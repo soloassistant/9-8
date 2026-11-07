@@ -42,7 +42,7 @@ import {
 import type { LocateFailReason } from '@/utils/permission';
 import { useUserStore } from '@/store/user';
 import { brandVars, useThemeStore } from '@/store/theme';
-import { formatEventTime } from '@/utils/date';
+import { dayKey, formatEventTime } from '@/utils/date';
 import { logActivity } from '@/utils/activityLog';
 import { computeAdaptive } from '@/utils/adaptive';
 import { sceneByHour, splitTtsChunks, startSpeak, stopSpeak } from '@/utils/tts';
@@ -216,8 +216,11 @@ function BriefingPage() {
     try {
       const list = Taro.getStorageSync('browseHistory') as Array<{ viewedAt?: string }> | '';
       if (!Array.isArray(list)) return false;
-      const today = new Date().toISOString().slice(0, 10);
-      return list.some((h) => typeof h.viewedAt === 'string' && h.viewedAt.slice(0, 10) === today);
+      // 本地日（dayKey），不是 UTC 日：toISOString().slice(0,10) 在北京 00:00–08:00
+      // 会算成「昨天」，读完的条目过 08:00 徽章就消失。
+      // viewedAt 存的是 UTC ISO，先还原成时刻再取**本地**日期，跨时区读写口径才一致。
+      const today = dayKey();
+      return list.some((h) => typeof h.viewedAt === 'string' && dayKey(new Date(h.viewedAt)) === today);
     } catch {
       return false;
     }

@@ -64,6 +64,10 @@ _tmp_morning/
 #   （自查：`git ls-files .tools/<子目录>/` 为空即是漏了。）
 !.tools/lib/
 !.tools/lib/**
+# ★ 2026-11-05：启动性能实测脚本（口径 catalog + CDP 实测 + 变异自检）。
+#   新建子目录必须补白名单，否则文件在磁盘、本地能跑、CI 一拉就没有。
+!.tools/startup-perf/
+!.tools/startup-perf/**
 # 但下面这些**继续忽略**（规则顺序：后者覆盖前者），否则「放行脚本」会把一堆本地垃圾一并放出来：
 # · .tools 下点开头的全部是本地临时产物/探针缓存（实测 .acc-* / .shot-* / .hotspot-* / .cache /
 #   .audit / .pushtmp / .tmp-oldbehav-dist / .layout-shots* / .httpd*.log 全在此列）

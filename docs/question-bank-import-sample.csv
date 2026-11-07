@@ -1,0 +1,13 @@
+id,stem,options,type,answerKey,explanation,examSystem,board,subject,level,syllabusCode,year,paper,knowledgeTags,difficulty,source,langCode
+,已知集合 A={1、2}，B={2、3}，则 A∩B 中的元素个数为？,A|1;B|2;C|3;D|4,multi,B|C,示例，非正式题目。gaokao,gaokao,china_moe,数学,na,,,,集合与常用逻辑,1,import,zh
+,计算 $2^{3}+1$ 的值。,,fill,9,示例，非正式题目。gaokao,gaokao,china_moe,数学,na,,,,函数与导数,2,import,zh
+,下列各数中属于无理数的是？,A|0.5;B|$\sqrt{2}$;C|3;D|$\frac{1}{3}$,single,B,示例，非正式题目。zhongkao,zhongkao,china_moe,数学,na,,,,实数与代数式,2,import,zh
+,解方程 $x+2=5$，则 $x=$____。,,fill,3,示例，非正式题目。zhongkao,zhongkao,china_moe,数学,na,,,,方程与不等式,1,import,zh
+,Which of the following is a prime number?,A|9;B|15;C|17;D|21,single,C,示例，非正式题目。igcse,igcse,cie,mathematics,foundation,,,,number,1,import,en
+,Work out $7 \times 8$. ,,fill,56,示例，非正式题目。igcse,igcse,cie,mathematics,foundation,,,,number,1,import,en
+,The derivative of $x^{2}$ with respect to $x$ is,A|$2x$;B|$x$;C|$x^{3}$;D|$2$,single,A,示例，非正式题目。alevel,alevel,edexcel,mathematics,as,,,,differentiation,2,import,en
+,Given $x^{2}=9$ and $x>0$ find $x$. ,,fill,3,示例，非正式题目。alevel,alevel,edexcel,mathematics,as,,,,algebra and functions,1,import,en
+,The value of $\lim_{x\to 0}\frac{\sin x}{x}$ is,A|0;B|1;C|$\infty$;D|does not exist,single,B,示例，非正式题目。ap,ap,collegeboard,calculus,na,,,,limits and continuity,2,import,en
+,If $f(x)=x^{3}$ find $f'(2)$. ,,fill,12,示例，非正式题目。ap,ap,collegeboard,calculus,na,,,,differentiation,2,import,en
+,For $z=3+4i$ the modulus $|z|$ equals,A|3;B|4;C|5;D|7,single,C,示例，非正式题目。ib,ib,ibo,mathematics-aa,sl,,,,complex numbers,2,import,en
+,Find the sum of the first 3 terms of the arithmetic sequence 2、5、8、... ,,fill,15,示例，非正式题目。ib,ib,ibo,mathematics-aa,sl,,,,sequences and series,1,import,en

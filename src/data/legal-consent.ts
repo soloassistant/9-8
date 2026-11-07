@@ -11,12 +11,24 @@
 import Taro from '@tarojs/taro';
 
 /**
- * ★ 版本历史见 `legal.ts` 顶部（改文案必须同步递增本常量，否则旧同意记录不会失效 ——
- * 等于对老用户静默改条款）。
+ * ★ 版本历史见 `legal.ts` 顶部。
+ * 文案版本（LEGAL_VERSION）与同意版本（LEGAL_CONSENT_VERSION）分开：
+ * 前者一改就递增供审计；后者只在**签字定稿**时推进，才让旧同意失效。
  */
-export const LEGAL_VERSION = 'v1.10-20261104';
+/**
+ * 文案版本：条文一改就递增（审计可追、门禁 E2/D3 盯它）。
+ * ⚠️ 它不是「用户需要重新同意的版本」：未签字定稿前带 PENDING-SIGNATURE，
+ *    绝不能拿它驱动复同意 —— 否则用户会为一份草稿同意两次。
+ */
+export const LEGAL_VERSION = 'v1.12-20261105-PENDING-SIGNATURE';
 
-/** H5 首启同意记录的 storage key（记录同意时的文本版本，便于版本升级后重新征求同意） */
+/**
+ * 同意版本：**只有签字定稿**后才推进；首启 / 复同意只比对这一个值。
+ * 当前值 = 线上用户实际同意过的版本，本次不改（签字清单见 docs/legal/07）。
+ */
+export const LEGAL_CONSENT_VERSION = 'v1.10-20261104';
+
+/** H5 首启同意记录的 storage key（记录同意时的**同意版本**，便于签字定稿后才重新征求同意） */
 export const CONSENT_KEY = 'privacy-consent';
 
 export interface ConsentRecord {
@@ -30,7 +42,7 @@ export interface ConsentRecord {
 export function hasAgreedConsent(): boolean {
   try {
     const rec = Taro.getStorageSync(CONSENT_KEY) as ConsentRecord | '';
-    return !!(rec && rec.agreed && rec.version === LEGAL_VERSION);
+    return !!(rec && rec.agreed && rec.version === LEGAL_CONSENT_VERSION);
   } catch {
     return false;
   }
@@ -40,7 +52,7 @@ export function saveConsent(): void {
   try {
     Taro.setStorageSync(CONSENT_KEY, {
       agreed: true,
-      version: LEGAL_VERSION,
+      version: LEGAL_CONSENT_VERSION,
       time: Date.now(),
       device: process.env.TARO_ENV || 'unknown'
     } as ConsentRecord);

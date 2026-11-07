@@ -516,4 +516,22 @@ jobs:
       # 它守的不是产品行为，而是「上面这些断言本身有没有判别力」——把已知缺陷改回去，
       # 断言必须变红；变不红说明断言是假绿的。case 里只收录基线为绿的 harness。
       - name: 断言判别力元验证（变异测试）
-        run: npm run verify:mutation
+        # 2026-11-06：runner 上 Chrome 偶发起不来。实测同一 sha、同一命令，
+        #   attempt 1 红在「基线就是红的 … CDP endpoint 未就绪（chrome 没能起来？）」，
+        #   attempt 2 直接绿（caught=348 not_caught=0 error=0 total=348）。
+        # 这一步里的 A16b/A16d 是**真浏览器行为断言**，改成 --no-browser 等于让它们
+        # 永远抓不到东西——那是假装环境稳了。这里给固定 2 次重试：承认环境不稳。
+        # 只有第 2 次仍红才判真失败，且失败原因原样留在日志里（不吞日志）。
+        run: |
+          set +e
+          for attempt in 1 2; do
+            echo "::group::verify:mutation attempt ${attempt}/2"
+            npm run verify:mutation
+            code=$?
+            echo "::endgroup::"
+            if [ "$code" -eq 0 ]; then
+              exit 0
+            fi
+            echo "::warning::verify:mutation 第 ${attempt} 次未通过（exit=${code}），重试（固定 2 次上限）"
+          done
+          exit 1

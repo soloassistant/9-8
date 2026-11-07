@@ -12,8 +12,8 @@ import { useUiScaleStore, UI_SCALE_PRESETS } from '@/store/uiScale';
 import { useT, useLanguageStore, LANG_OPTIONS } from '@/store/language';
 import type { LangKey } from '@/store/language';
 import { apiDeleteAccount, apiApplyPlan, apiSubmitFeedback } from '@/services/api';
-import { signOut, resetPasswordForOld } from '@/services/cloudAuth';
-import { kvClear, purgeMyH5Data } from '@/services/cloudDb';
+import { signOut, resetPasswordForOld, getSession } from '@/services/cloudAuth';
+import { kvClear, purgeMyH5Data, supportTicketInsert } from '@/services/cloudDb';
 import { TERMS_TEXT, PRIVACY_TEXT, AI_SERVICES_TEXT } from '@/data/legal';
 import { AI_LABEL_VERSION } from '@/utils/aiLabel';
 import { disabledAttr } from '@/utils/buttonDisabled';
@@ -117,10 +117,76 @@ const DELETE_CONFIRM_WORD = '注销';
 
 /** TODO：上线前在小程序后台绑定企业微信客服后替换 */
 const SERVICE_CORP_ID: string = 'TODO_CORP_ID';
-/** 客服联系方式（与 legal.ts 协议承诺的「15 个工作日答复」配套；改这里要同步协议文本） */
+/** 客服联系方式（与 legal.ts 协议承诺的「15 个工作日内答复」配套；改这里要同步协议文本） */
 const SERVICE_EMAIL = 'support@morningbrief.cn';
 const SERVICE_WECHAT = '私人晨报助理';
+const LAST_DELETE_KEY = 'mb-last-delete-at';
+const TICKET_HISTORY_KEY = 'mb-support-tickets';
+const TICKET_KINDS = ['llm_events', 'feedback', 'client_errors'] as const;
+type TicketKind = (typeof TICKET_KINDS)[number];
+interface TicketHistoryItem { no: string; at: number; kinds: TicketKind[]; }
+interface TicketForm {
+  no: string;
+  userRef: string;
+  deletedAt: string;
+  kinds: TicketKind[];
+  note: string;
+  contact: string;
+  sending: boolean;
+  error: string;
+  done: boolean;
+}
+const makeTicketNo = () =>
+  `T${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+const readTicketHistory = (): TicketHistoryItem[] => {
+  try {
+    const raw = Taro.getStorageSync(TICKET_HISTORY_KEY);
+    return Array.isArray(raw) ? raw.slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+};
+const ticketDeletedAtLabel = (at: string) =>
+  at && !Number.isNaN(new Date(at).getTime()) ? new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '';
+interface CloseOutcome { no: string; ok: boolean; }
 
+/**
+ * 注销时自动提单（2026-11-05）。
+ * ⚠️ 顺序铁律：必须在 `signOut()` 之前调用 —— 工单写入依赖当前 `auth.uid()`，
+ *    会话销毁后插入必失败；也不能把「用户重新登录再补提」当成默认路径。
+ * 返回 ok=false 时**不许**吞掉：完成页据此显示「工单未提交成功」，
+ * 失败不阻断注销本身（数据该清的照清，登出照做）。
+ */
+const autoClosureTicket = async (): Promise<CloseOutcome> => {
+  const no = makeTicketNo();
+  let userRef = '';
+  try {
+    const s = await getSession();
+    userRef = s?.user?.id || '';
+  } catch {
+    userRef = '';
+  }
+  if (!userRef) {
+    console.error('[MinePage] close ticket skipped: no session user id');
+    return { no, ok: false };
+  }
+  try {
+    const r = await supportTicketInsert({
+      ticketNo: no,
+      userRef,
+      localDeletedAt: new Date().toISOString(),
+      recordKinds: [...TICKET_KINDS]
+    });
+    if (r !== 'ok' && r !== 'duplicate') {
+      console.error('[MinePage] close ticket insert =', r);
+      return { no, ok: false };
+    }
+    return { no, ok: true };
+  } catch (err) {
+    console.error('[MinePage] close ticket insert threw:', err);
+    return { no, ok: false };
+  }
+};
 const PREF_TAGS = ['科技', '效率工具', '财经', '健康', '出行', '生活', 'AI', '科学', '文化'];
 const REPLY_STYLES = ['简洁', '均衡', '详细'];
 const CUSTOM_SETTINGS_KEY = 'user-settings';
@@ -208,6 +274,10 @@ function MinePage() {
   const [fbContent, setFbContent] = useState('');
   const [fbContact, setFbContact] = useState('');
   const [fbSending, setFbSending] = useState(false);
+  const [tk, setTk] = useState<TicketForm | null>(null);
+  const [tkHistory, setTkHistory] = useState<TicketHistoryItem[]>([]);
+  /** H5 注销完成页（含自动提单结果）；null = 未注销 */
+  const [closeDone, setCloseDone] = useState<CloseOutcome | null>(null);
   // v1.2 新增：C-03 个性化推荐开关 / V-05 V-07 TTS 偏好 / M-01 M-02 记忆 / N-03 屏蔽清单 / B-01 B-02 订阅
   const [personalOn, setPersonalOn] = useState(true);
   const [memory, setMemory] = useState<MemoryStore>({ enabled: true, items: [] });
@@ -927,19 +997,32 @@ function MinePage() {
       return;
     }
     setDeleteOpen(false);
-    // 删除成功后的收尾（清本机数据 → 完成提示 → 回首页），两端共用
-    const finishDelete = () => {
+    // 删除后的收尾：H5 带自动提单结果 → 完成页；weapp 沿用 toast + 回首页
+    const finishDelete = (close?: CloseOutcome) => {
       try {
         Taro.clearStorageSync();
+        Taro.setStorageSync(LAST_DELETE_KEY, new Date().toISOString());
       } catch (err) {
         console.error('[MinePage] clear storage failed:', err);
+      }
+      if (close) {
+        // 本机留档：自动提的单也要能在「补提交注销工单」里翻到
+        const next = [
+          { no: close.no, at: Date.now(), kinds: [...TICKET_KINDS] as TicketKind[] },
+          ...readTicketHistory()
+        ].slice(0, 5);
+        try {
+          Taro.setStorageSync(TICKET_HISTORY_KEY, next);
+        } catch {
+          /* 留档失败不影响注销结果 */
+        }
+        setCloseDone(close);
+        return;
       }
       Taro.showToast({
         // ⚠️ 文案必须说真话（2026-10-29 审计）：weapp 的 deleteAccount 是**当场删**，
         //    H5 只清了 user_kv（llm_events / feedback / client_errors 仍在云端）。
-        //    之前两端共用「注销申请已提交，我们将在 15 个工作日内完成处理」——
-        //    而系统里**没有任何受理队列**（全仓没有 deletion_requests 之类的集合），
-        //    这句话两头都不准：weapp 是早就删完了，H5 是压根没提交过。
+        //    H5 的完成页由 finishDelete(close) 单独渲染，不走这条 toast。
         title: t(process.env.TARO_ENV === 'h5' ? 'mine.deleteDoneH5' : 'mine.deleteDone'),
         icon: 'none'
       });
@@ -990,14 +1073,24 @@ function MinePage() {
         .catch((err) => {
           console.error('[MinePage] kvClear failed:', err);
         })
-        // 无论云端结果如何都继续：signOut 自身吞掉登出失败；
-        // 即便登出异常也继续清本机数据并回到门禁
-        .then(() => signOut())
-        .then(finishDelete)
-        .catch(finishDelete);
+        // 2026-11-05（栈叠 PR）：注销即自动提单 —— 顺序 = 清同步键 → **提单** → 登出 → 完成页。
+        // 前两步都依赖当前 auth.uid()，必须在 signOut 之前；提单失败不阻断注销。
+        .then(async () => {
+          const ticket = await autoClosureTicket();
+          try {
+            await signOut();
+          } catch (err) {
+            console.error('[MinePage] signOut failed:', err);
+          }
+          finishDelete(ticket);
+        })
+        .catch(async (err) => {
+          console.error('[MinePage] delete flow failed:', err);
+          finishDelete({ no: '', ok: false });
+        });
     } else {
       apiDeleteAccount()
-        .then(finishDelete)
+        .then(() => finishDelete())
         .catch((err) => {
           console.error('[MinePage] deleteAccount failed:', err);
           Taro.showToast({ title: '账号没注销成功，数据还在。检查网络后再试一次', icon: 'none', duration: 3000 });
@@ -1016,7 +1109,7 @@ function MinePage() {
     const showServiceInfo = () => {
       Taro.showModal({
         title: '客服服务时间',
-        content: `每天 9:00–21:00\n邮箱：${SERVICE_EMAIL}\n微信公众号：${SERVICE_WECHAT}\n我们会在 15 个工作日内答复`,
+        content: `每天 9:00–21:00\n邮箱：${SERVICE_EMAIL}\n微信公众号：${SERVICE_WECHAT}\n注销后删除云端记录请走「提交注销工单」\n客服将在 15 个工作日内处理`,
         confirmText: '知道了',
         showCancel: false
       });
@@ -1054,6 +1147,54 @@ function MinePage() {
       }
     }
     showContactActions();
+  };
+
+  const patchTk = (p: Partial<TicketForm>) => setTk((prev) => (prev ? { ...prev, ...p } : prev));
+
+  const openTicket = () => {
+    let at = '';
+    try {
+      at = String(Taro.getStorageSync(LAST_DELETE_KEY) || '');
+    } catch {
+      at = '';
+    }
+    setTkHistory(readTicketHistory());
+    setTk({ no: makeTicketNo(), userRef: '', deletedAt: at, kinds: [...TICKET_KINDS], note: '', contact: '', sending: false, error: '', done: false });
+    getSession()
+      .then((s) => patchTk({ userRef: s?.user?.id || '' }))
+      .catch(() => undefined);
+  };
+
+  const submitTicket = async () => {
+    if (!tk) return;
+    if (!tk.userRef) return patchTk({ error: t('mine.ticketNoUser') });
+    if (!tk.kinds.length) return patchTk({ error: t('mine.ticketNoKind') });
+    patchTk({ sending: true, error: '' });
+    try {
+      const r = await supportTicketInsert({
+        ticketNo: tk.no,
+        userRef: tk.userRef,
+        localDeletedAt: tk.deletedAt || undefined,
+        recordKinds: tk.kinds,
+        note: tk.note.trim(),
+        contact: tk.contact.trim()
+      });
+      if (r !== 'ok' && r !== 'duplicate') return patchTk({ sending: false, error: t('mine.ticketFail') });
+      const next = [{ no: tk.no, at: Date.now(), kinds: tk.kinds }, ...tkHistory].slice(0, 5);
+      setTkHistory(next);
+      try {
+        Taro.setStorageSync(TICKET_HISTORY_KEY, next);
+      } catch { /* 本地留档失败不影响已提交结果 */ }
+      patchTk({ sending: false, done: true });
+    } catch (err) {
+      console.error('[MinePage] supportTicketInsert failed:', err);
+      patchTk({ sending: false, error: t('mine.ticketFail') });
+    }
+  };
+
+  const closeClosureDone = () => {
+    setCloseDone(null);
+    Taro.reLaunch({ url: '/pages/briefing/index' });
   };
 
   const fbCopy = FEEDBACK_TEXT[lang];
@@ -1777,19 +1918,22 @@ function MinePage() {
           t('ai.metaHint'),
           <Text className={styles.valueText}>{t('ai.labelVersion', { version: AI_LABEL_VERSION })}</Text>
         )}
-        {/* 投诉/建议通道（2026-10-24 升级）：
-            原来这行只弹一个 showActionSheet（复制邮箱 / 复制公众号）—— 用户想「反映问题」得先
-            自己抄联系方式、离开 App、再写邮件，等于把投诉推给了用户的耐心。现在主路径是
-            页内表单直接提交；人工联系降为表单底部的次级入口（handleContactService）。
-            整行可点（不只是右侧小字），热区 ≥44px。 */}
+        {/* 注销后删除云端记录：页内工单（2026-11-05）。
+            不再走邮件/复制邮箱；表单提交进 support_tickets，客服按 15 个工作日处理。 */}
         {renderRow(
-          t('mine.service'),
+          t('mine.ticketEntry'),
           <>
-            <Text className={styles.linkText}>{t('mine.feedback')}</Text>
+            <Text className={styles.linkText}>{t('mine.ticketHint')}</Text>
             <Text className={styles.arrow}>›</Text>
           </>,
-          () => setFbOpen(true)
+          openTicket
         )}
+        {renderRow(
+          t('mine.service'),
+          <Text className={styles.linkText}>{SERVICE_WECHAT}</Text>,
+          handleContactService
+        )}
+        {renderRow(t('mine.feedback'), null, () => setFbOpen(true))}
         {/* C-04：注销不可逆提示 + 15 个工作日处理时限（页内明示） */}
         <Text className={styles.deleteWarn}>{t('mine.deleteWarn')}</Text>
         {renderRow(
@@ -1948,6 +2092,76 @@ function MinePage() {
             <Text className={styles.fbService} onClick={handleContactService}>
               {fbCopy.service}
             </Text>
+          </View>
+        </View>
+      ) : null}
+      {tk ? (
+        <View className={styles.docMask} onClick={() => !tk.sending && setTk(null)}>
+          <View className={classnames(styles.docPanel, styles.fbPanel)} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.docTitle}>{t('mine.ticketTitle')}</Text>
+            {isWeapp ? (
+              <Text className={styles.fbNote}>{t('mine.ticketWeapp')}</Text>
+            ) : tk.done ? (
+              <>
+                <Text className={styles.fbLabel}>{t('mine.ticketDoneTitle')}</Text>
+                <Text className={styles.valueText}>{tk.no}</Text>
+                <Text className={styles.fbNote}>{t('mine.ticketEta')}</Text>
+              </>
+            ) : (
+              <>
+                <Text className={styles.fbLabel}>{t('mine.ticketUser')}</Text>
+                <Text className={styles.fbNote}>
+                  {tk.userRef ? `${tk.userRef.slice(0, 4)}…${tk.userRef.slice(-4)}` : t('mine.ticketNoUser')}
+                </Text>
+                <Text className={styles.fbLabel}>{t('mine.ticketDeletedAt')}</Text>
+                <Text className={styles.fbNote}>{ticketDeletedAtLabel(tk.deletedAt) || t('mine.ticketNoTime')}</Text>
+                <Text className={styles.fbLabel}>{t('mine.ticketKinds')}</Text>
+                <View className={styles.fbTypes}>
+                  {TICKET_KINDS.map((kind) => (
+                    <View key={kind} className={classnames(styles.fbChip, tk.kinds.includes(kind) && styles.fbChipActive)} onClick={() => patchTk({ kinds: tk.kinds.includes(kind) ? tk.kinds.filter((k) => k !== kind) : [...tk.kinds, kind] })}>
+                      <Text className={classnames(styles.fbChipText, tk.kinds.includes(kind) && styles.fbChipTextActive)}>{kind}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Textarea className={styles.fbTextarea} value={tk.note} maxlength={500} placeholder={t('mine.ticketNote')} onInput={(e) => patchTk({ note: e.detail.value })} />
+                <Input className={styles.fbInput} value={tk.contact} maxlength={80} placeholder={t('mine.ticketContact')} onInput={(e) => patchTk({ contact: e.detail.value })} />
+                {tk.error ? <Text className={styles.fbError}>{tk.error}</Text> : null}
+                {tkHistory.length ? <Text className={styles.fbNote}>{t('mine.ticketHistory')}{tkHistory.map((i) => i.no).join(' / ')}</Text> : null}
+              </>
+            )}
+            <View className={styles.fbActions}>
+              {!isWeapp && !tk.done ? (
+                <Button className={styles.fbSubmit} disabled={disabledAttr(tk.sending)} onClick={() => void submitTicket()}>
+                  {tk.sending ? t('mine.ticketSending') : tk.error ? t('mine.ticketRetry') : t('mine.ticketSubmit')}
+                </Button>
+              ) : null}
+              <Button className={styles.fbCancel} onClick={() => !tk.sending && setTk(null)}>{t('cancel')}</Button>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {closeDone ? (
+        <View className={styles.docMask} onClick={closeClosureDone}>
+          <View className={classnames(styles.docPanel, styles.fbPanel)} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.docTitle}>{t('mine.closureDoneTitle')}</Text>
+            {closeDone.ok ? (
+              <>
+                <Text className={styles.fbLabel}>{t('mine.closureTicketNo')}</Text>
+                <Text className={styles.valueText}>{closeDone.no}</Text>
+                <Text className={styles.fbNote}>{t('mine.closureEta')}</Text>
+              </>
+            ) : (
+              <>
+                <Text className={styles.fbError}>{t('mine.closureTicketFail')}</Text>
+                <Text className={styles.fbNote}>{t('mine.closureTicketFailHint')}</Text>
+              </>
+            )}
+            <View className={styles.fbActions}>
+              <Button className={styles.fbSubmit} onClick={closeClosureDone}>
+                {t('mine.closureDoneBtn')}
+              </Button>
+            </View>
           </View>
         </View>
       ) : null}

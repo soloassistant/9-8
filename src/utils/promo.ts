@@ -21,7 +21,14 @@
 
 import Taro from '@tarojs/taro';
 
-/** H5 订阅凭证存储键（本地展示缓存；**不参与权益判定**，见文件头 AC-03 说明） */
+/**
+ * H5 订阅凭证存储键 —— **已废弃（deprecated），禁止读取来做权益判定**。
+ *
+ * 2026-10-25 起权益唯一事实源是 `services/entitlement.ts`（服务端 orders 回放 / users 表），
+ * 本键不是「离线会员凭证」，只是 redeemPromo 兑换续期叠加用的本地账本。
+ * 任何页面/服务都不得用它的 expiredAt 显示或解锁会员（客户端可写 = 可伪造）。
+ * 若未来要做「离线显示会员」，必须先删掉本键全部写入再谈读取，否则等于重开 AC-03 之前的洞。
+ */
 const H5_SUB_KEY = 'h5-subscription';
 
 /** 促销码活动表：hash = SHA-256(码明文) 的十六进制小写。
@@ -121,7 +128,7 @@ function addDays(base: string, days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** 读当前 H5 订阅凭证；无/过期返回 null（过期即失效，不编造「还订阅着」） */
+/** 读本地兑换账本（无/过期返回 null；仅供 promo 内部续期叠加，禁止用于权益判定） */
 export function readH5Subscription(): { subscribed: true; expiredAt: string } | null {
   try {
     const v = Taro.getStorageSync(H5_SUB_KEY) as { expiredAt?: string } | '';
@@ -131,40 +138,6 @@ export function readH5Subscription(): { subscribed: true; expiredAt: string } | 
   } catch (err) {
     console.error('[promo] read subscription failed:', err);
     return null;
-  }
-}
-
-/**
- * 按天数顺延本地订阅凭证（叠加口径与 redeemPromo 一致：未过期从到期日起算）。
- * 供订阅恢复（orders 表回放）使用 —— 兑换与恢复走同一条叠加路，口径不分叉。
- */
-export function extendH5Subscription(days: number): string | null {
-  if (!Number.isFinite(days) || days <= 0) return null;
-  const current = readH5Subscription();
-  const base = current ? current.expiredAt : todayStr();
-  const expiredAt = addDays(base, Math.round(days));
-  try {
-    Taro.setStorageSync(H5_SUB_KEY, { expiredAt, redeemedAt: todayStr() });
-  } catch (err) {
-    console.error('[promo] extend subscription failed:', err);
-    return null;
-  }
-  return expiredAt;
-}
-
-/**
- * 直接把本地凭证写到指定到期日（订阅恢复用：云端订单回放出的到期日可能
- * 早于今天很久 —— extendH5Subscription 的「从今天起算」口径不适用于恢复场景）。
- * 只允许写到不早于今天的日期（过期日不落盘，readH5Subscription 会如实判 null）。
- */
-export function setH5SubscriptionExpiry(expiredAt: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiredAt) || expiredAt < todayStr()) return false;
-  try {
-    Taro.setStorageSync(H5_SUB_KEY, { expiredAt, redeemedAt: todayStr() });
-    return true;
-  } catch (err) {
-    console.error('[promo] set subscription expiry failed:', err);
-    return false;
   }
 }
 
@@ -187,6 +160,7 @@ export function redeemPromo(input: string, codes: PromoDef[] = PROMO_CODES): Pro
   const base = current ? current.expiredAt : todayStr();
   const expiredAt = addDays(base, hit.planDays);
   try {
+    // 已废弃账本：仅用于兑换续期叠加，禁止读取判定权益（权益事实源见 services/entitlement.ts）
     Taro.setStorageSync(H5_SUB_KEY, { expiredAt, redeemedAt: todayStr() });
   } catch (err) {
     console.error('[promo] persist subscription failed:', err);

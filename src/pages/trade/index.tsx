@@ -44,15 +44,15 @@ import {
   type Side,
   type Timeframe
 } from '@/utils/marketSim';
-import { fetchRealQuotes, FEED_SYMBOL_MAP } from '@/utils/marketFeed';
+import { fetchRealQuotes, feedRetryDelay, FEED_SYMBOL_MAP } from '@/utils/marketFeed';
 import styles from './index.module.scss';
 
 const isH5 = process.env.TARO_ENV === 'h5';
 
 const BAR_COUNTS = [60, 120, 240];
 const TICK_MS = 1000;
-/** 真实行情轮询间隔。腾讯免密接口按次计费，10s 对单品种足够顺滑也不至于打爆 */
-const REAL_FEED_MS = 10000;
+// 真实行情的基础间隔（10s）在 utils/marketFeed 的 FEED_INTERVAL_MS 里：
+// 腾讯免密接口按次计费，正常节奏保持 10s；连续失败才按退避档位拉长。
 const AX_W = 56; // 右侧价格轴宽（px）
 const TIME_H = 18; // 底部时间轴高（px）
 const SPARK_LEN = 40; // 自选迷你走势的收盘根数
@@ -279,53 +279,88 @@ function TradePage() {
   const [fxAmount, setFxAmount] = useState('1000');
   const [fxFrom, setFxFrom] = useState('USD');
 
-  /* ---------- 生命周期：定时器在页面建立、useDidHide/卸载清理 ---------- */
+  /* ---------- 生命周期：定时器在页面建立、useDidHide/卸载清理 ----------
+     H5 还有一层浏览器标签页可见性：切到后台时 useDidHide 不一定触发，
+     必须自己监听 visibilitychange。腾讯行情按次计费，隐藏期间继续轮询
+     等于用户看不见还在扣费。docHidden 变化会让下面两个 effect 清定时器 / 重新建立。 */
+  const [docHidden, setDocHidden] = useState(false);
+  useEffect(() => {
+    if (!isH5) return;
+    const sync = (): void => setDocHidden(document.visibilityState === 'hidden');
+    sync(); // 首屏就是后台态（后台打开/预览）时不白打一轮
+    document.addEventListener('visibilitychange', sync);
+    return () => document.removeEventListener('visibilitychange', sync);
+  }, []);
   useDidShow(() => setRunning(true));
   useDidHide(() => setRunning(false));
   useEffect(() => {
-    if (!isH5 || !running || !eng) return;
+    if (!isH5 || !running || docHidden || !eng) return;
     const timer = setInterval(() => {
       tickEngine(eng, Date.now());
       setTick((v) => v + 1);
     }, TICK_MS);
     return () => clearInterval(timer);
-  }, [running, eng]);
+  }, [running, docHidden, eng]);
 
   /* ---------- 真实行情喂价（黄金现价，腾讯免密源） ----------
      一处收口：真实价通过 applyRealSpot 注入引擎 spot，图表/报价/下单/浮盈全部自然跟随。
      首次成功先 reanchorSeries 把模拟历史锚到真实价（否则会出现断崖K线），
-     之后每轮只贴现价。失败静默回退模拟态 —— 报价失败绝不能编一个价格。 */
+     之后每轮只贴现价。报价失败绝不能编一个价格。
+     失败不再静默：置 feedDown 给出「实时行情暂不可用，已回到参考行情」+ 重试入口；
+     连续失败按 feedRetryDelay 退避（10s→30s→60s 封顶），成功后回到 10s ——
+     按次计费的接口不能在失败时还沿用正常节奏。 */
   const realAnchorDoneRef = useRef(false);
   const [realFeed, setRealFeed] = useState(false);
+  const [feedDown, setFeedDown] = useState(false);
+  const [feedRetryNonce, setFeedRetryNonce] = useState(0);
   useEffect(() => {
-    if (!isH5 || !running || !eng) return;
+    if (!isH5 || !running || docHidden || !eng) return;
     let alive = true;
-    const pull = async () => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let fails = 0;
+    const schedule = (): void => {
+      timer = setTimeout(() => void pull(), feedRetryDelay(fails));
+    };
+    const pull = async (): Promise<void> => {
       const quotes = await fetchRealQuotes(Object.values(FEED_SYMBOL_MAP));
-      if (!alive || !quotes) return;
+      if (!alive) return;
       let applied = false;
-      for (const [sym, code] of Object.entries(FEED_SYMBOL_MAP)) {
-        const q = quotes[code];
-        if (!q) continue;
-        const nowMs = Date.now();
-        if (!realAnchorDoneRef.current) {
-          reanchorSeries(eng, sym, q.price, nowMs);
-          realAnchorDoneRef.current = true;
+      if (quotes) {
+        for (const [sym, code] of Object.entries(FEED_SYMBOL_MAP)) {
+          const q = quotes[code];
+          if (!q) continue;
+          const nowMs = Date.now();
+          if (!realAnchorDoneRef.current) {
+            reanchorSeries(eng, sym, q.price, nowMs);
+            realAnchorDoneRef.current = true;
+          }
+          if (applyRealSpot(eng, sym, q.price, q.prevClose, nowMs)) applied = true;
         }
-        if (applyRealSpot(eng, sym, q.price, q.prevClose, nowMs)) applied = true;
       }
-      if (applied) {
-        setRealFeed(true);
-        setTick((v) => v + 1);
+      if (!applied) {
+        fails += 1;
+        // 失败必须让用户看见，不能只把「真实行情」徽标悄悄变回「模拟行情」
+        setFeedDown(true);
+        setRealFeed(false);
+        schedule();
+        return;
       }
+      fails = 0; // 恢复后立即回到 10s 正常节奏
+      setFeedDown(false);
+      setRealFeed(true);
+      setTick((v) => v + 1);
+      schedule();
     };
     void pull();
-    const timer = setInterval(() => void pull(), REAL_FEED_MS);
     return () => {
       alive = false;
-      clearInterval(timer);
+      if (timer !== null) clearTimeout(timer);
     };
-  }, [running, eng]);
+  }, [running, docHidden, eng, feedRetryNonce]);
+  const retryFeed = (): void => {
+    // 提示保留到真正拉到行情为止（点一下先「变正常」再变红会骗人）
+    setFeedRetryNonce((n) => n + 1);
+  };
 
   /* ---------- 派生数值（每 tick 重算；都从引擎读，不在 state 里存副本） ---------- */
   const selDef = SYMBOLS.find((d) => d.symbol === selected) ?? SYMBOLS[0];
@@ -901,6 +936,15 @@ function TradePage() {
           <View className={classnames(styles.feedDot, realFeed && styles.feedDotReal)} />
           <Text>{t(realFeed ? 'trade.feedLabelReal' : 'trade.feedLabel')}</Text>
         </View>
+        {/* 失败态必须可见：一句「已回到参考行情」+ 可点的重试，而不是只把徽标悄悄换掉 */}
+        {feedDown && (
+          <View className={styles.feedAlert}>
+            <Text className={styles.feedAlertText}>{t('trade.feedDown')}</Text>
+            <View className={styles.feedRetry} onClick={retryFeed}>
+              <Text>{t('trade.feedRetry')}</Text>
+            </View>
+          </View>
+        )}
         <View className={styles.clock}>
           <Text>{clock}</Text>
         </View>
