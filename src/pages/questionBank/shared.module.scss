@@ -14,6 +14,7 @@
 .backText { font-size: $font-size-sm; color: $color-text-tertiary; }
 .title { flex: 1; min-width: 0; font-size: $font-size-xxl; font-weight: $font-weight-semibold; }
 .headerAction { flex: 0 0 auto; font-size: $font-size-sm; color: $color-primary-strong; cursor: pointer; }
+.headerLinks { display: flex; align-items: center; gap: $spacing-md; flex: 0 0 auto; }
 .search {
   padding: 0 $spacing-md;
   height: $button-height-md;
@@ -54,6 +55,21 @@
   cursor: pointer;
 }
 .retryText { color: $color-primary-strong; }
+
+/* 导入页：文件 / 粘贴 / 确认 / 进度 / 结果明细（沿用上方 page/header/state/actions） */
+.fileRow { display: flex; align-items: center; gap: $spacing-sm; margin-bottom: $spacing-md; }
+.fileName { flex: 1; min-width: 0; font-size: $font-size-sm; color: $color-text-tertiary; }
+.importTextarea { width: 100%; min-height: 260rpx; margin: $spacing-sm 0 $spacing-md; padding: $spacing-sm $spacing-md; background: $color-bg-card; border: 1rpx solid $color-card-border; border-radius: $radius-md; font-size: $font-size-sm; box-sizing: border-box; }
+.importPrimary { flex: 1; margin: 0; padding: 0; height: $button-height-md; line-height: $button-height-md; border-radius: $radius-button; background: $color-primary-strong; color: #fff; font-size: $font-size-md; &::after { border: none; } &[disabled] { opacity: 0.4; } }
+.progressTrack { height: 12rpx; margin: $spacing-sm 0; background: $color-bg-hover; border-radius: $radius-xs; overflow: hidden; }
+.progressBar { height: 100%; background: $color-primary-strong; }
+.counts { display: flex; gap: $spacing-sm; margin-top: $spacing-sm; }
+.countItem { flex: 1; padding: $spacing-sm; background: $color-bg-card; border: 1rpx solid $color-card-border; border-radius: $radius-md; text-align: center; }
+.countValue { display: block; font-size: $font-size-xxl; font-weight: $font-weight-semibold; }
+.countLabel { font-size: $font-size-xs; color: $color-text-tertiary; }
+.detailToggle { margin-top: $spacing-sm; font-size: $font-size-sm; color: $color-primary-strong; cursor: pointer; }
+.detailList { margin-top: $spacing-sm; }
+.detailRow { display: block; margin-bottom: 8rpx; font-size: $font-size-xs; line-height: $line-height-normal; color: $color-text-secondary; word-break: break-all; }
 
 /* 答题页（批次 4/6）：选项 / 填空 / 判断 / 结果。 */
 .questionStem { display: block; margin-bottom: $spacing-md; font-size: $font-size-lg; line-height: 1.7; }

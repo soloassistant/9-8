@@ -124,6 +124,13 @@ export default function QuestionBankPage() {
     ));
   };
 
+  const headerLink = (url: string, label: string) => (
+    <Text className={styles.headerAction}
+      onClick={() => Taro.navigateTo({ url }).catch((err) => console.warn('[QuestionBank] navigate failed:', err))}>
+      {label}
+    </Text>
+  );
+
   return (
     <View className={styles.page} style={brandVars(theme)}>
       <View className={styles.header}>
@@ -132,16 +139,10 @@ export default function QuestionBankPage() {
           <Text className={styles.backText}>{t('common.back')}</Text>
         </View>
         <Text className={styles.title}>{t('qb.title')}</Text>
-        <Text
-          className={styles.headerAction}
-          onClick={() =>
-            Taro.navigateTo({ url: '/pages/questionBankMistakes/index' }).catch((err) =>
-              console.warn('[QuestionBank] navigate failed:', err)
-            )
-          }
-        >
-          {t('qb.openMistakes')}
-        </Text>
+        <View className={styles.headerLinks}>
+          {headerLink('/pages/questionBankImport/index', t('qb.openImport'))}
+          {headerLink('/pages/questionBankMistakes/index', t('qb.openMistakes'))}
+        </View>
       </View>
 
       <Input

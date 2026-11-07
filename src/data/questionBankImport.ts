@@ -66,12 +66,16 @@ export interface ImportResult extends ParseResult {
   duplicates: ImportDuplicate[];
   batches: number;
   failedBatches: number;
+  /** 失败批次序号（从 1 起），用于「哪几批失败」；成功批次已保留，不回滚。 */
+  failedBatchIndexes: number[];
 }
 
 export interface ImportOptions extends ParseOptions {
   /** 每批写入条数，默认 50；只影响落盘批次，不影响校验。 */
   batchSize?: number;
   onProgress?: (p: ImportProgress) => void;
+  /** 预演：只解析 + 判重，不写盘。用于导入前确认「将写入 N 条，其中 M 条已存在会被跳过」。 */
+  dryRun?: boolean;
 }
 
 interface Draft {
@@ -420,7 +424,7 @@ export function parseQuestionBank(text: string, options: ParseOptions = {}): Par
  */
 export function importQuestionBank(repo: QuestionBankRepo, text: string, options: ImportOptions = {}): ImportResult {
   const parsed = parseQuestionBank(text, options);
-  const result: ImportResult = { ...parsed, imported: 0, importedIds: [], duplicates: [], batches: 0, failedBatches: 0 };
+  const result: ImportResult = { ...parsed, imported: 0, importedIds: [], duplicates: [], batches: 0, failedBatches: 0, failedBatchIndexes: [] };
   if (parsed.candidates.length === 0) return result;
 
   const batchSize = Math.max(1, Math.floor(options.batchSize ?? 50));
@@ -450,6 +454,8 @@ export function importQuestionBank(repo: QuestionBankRepo, text: string, options
     }
   }
 
+  if (options.dryRun) return result;
+
   for (let i = 0; i < fresh.length; i += batchSize) {
     const batch = fresh.slice(i, i + batchSize);
     result.batches += 1;
@@ -473,6 +479,7 @@ export function importQuestionBank(repo: QuestionBankRepo, text: string, options
       }
     } catch (err) {
       result.failedBatches += 1;
+      result.failedBatchIndexes.push(result.batches);
       const message = err instanceof Error ? err.message : String(err);
       for (const p of batch) result.rejected.push({ row: p.row, field: 'batch', code: 'batch.writeFailed', layer: 'batch', message });
     }

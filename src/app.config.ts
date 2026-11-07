@@ -39,6 +39,8 @@ export default defineAppConfig({
     'pages/questionBankAnswer/index',
     // 题库错题本（接入批次 5/6）：本机答题记录 + 题库联查，读失败有独立失败态
     'pages/questionBankMistakes/index',
+    // 题库批量导入（入口在题库列表头部）：文件 / 粘贴 → 确认 → 分批写入 → 结果明细
+    'pages/questionBankImport/index',
     // 2026-10-28：专业交易终端（黄金/外汇，模拟行情）。仅 H5 渲染终端 UI，
     // weapp 渲染「仅网页版可用」占位；非 tabBar 页（navigateTo 进入）。
     'pages/trade/index',
