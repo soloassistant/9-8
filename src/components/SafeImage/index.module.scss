@@ -1,0 +1,32 @@
+@use '@/styles/variables.scss' as *;
+
+/* 图片加载失败 / 无图时的同尺寸占位。
+   宽高与圆角由调用方的 className 提供（两个节点共用同一个 class），
+   这里只负责颜色与文字排版；布局在组件内用行内 style 固定为竖向居中，
+   以免被 `.videoCover { display: block }` 这类业务样式覆盖。 */
+.fallback {
+  box-sizing: border-box;
+  overflow: hidden;
+  background: $color-divider;
+}
+
+.icon {
+  font-size: 30rpx;
+  line-height: 1;
+}
+
+.label {
+  max-width: 100%;
+  font-size: 20rpx;
+  line-height: 1.2;
+  color: $color-text-tertiary;
+  text-align: center;
+}
+
+.source {
+  max-width: 100%;
+  font-size: 18rpx;
+  line-height: 1.2;
+  color: $color-text-tertiary;
+  text-align: center;
+}

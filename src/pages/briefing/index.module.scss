@@ -808,21 +808,6 @@
   background: $color-divider;
 }
 
-/* 封面缺失时的占位（云端 image 被 safeMediaUrl 拒掉才会走到） */
-.videoCoverFallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 232rpx;
-  height: 130rpx;
-  border-radius: $radius-sm;
-  background: $color-divider;
-}
-
-.videoCoverFallbackIcon {
-  font-size: 44rpx;
-}
-
 /* 播放角标 + 时长：浮在封面左下（相对封面容器内绝对定位，仅此一处使用） */
 .videoCoverBadge {
   position: absolute;

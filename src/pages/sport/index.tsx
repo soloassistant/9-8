@@ -46,6 +46,9 @@ import {
 } from '@/services/healthConsent';
 import styles from './index.module.scss';
 
+/** H5 才透传 `decoding`（Taro 的 nativeProps 仅 h5 生效；weapp 走原生图片解码） */
+const isH5 = process.env.TARO_ENV === 'h5';
+
 type ViewName = 'home' | 'recording' | 'detail' | 'records';
 type GeoState = 'idle' | 'waiting' | 'ok' | 'denied' | 'unsupported';
 
@@ -391,12 +394,15 @@ export default function SportPage() {
       if (result === 'cancelled') return;
       setHealthOk(false);
       // 三种结果都要明确告知（尤其是删除失败，不能让用户以为云端副本已经没了）
+      // 小程序端没有 KV 同步层：purge 恒返回 'no-session'，不能沿用“未登录”的说法
       const msg =
-        result === 'deleted'
-          ? t('health.withdrawnCloudDeleted')
-          : result === 'failed'
-            ? t('health.withdrawnPurgeFailed')
-            : t('health.withdrawnLocalOnly');
+        process.env.TARO_ENV === 'weapp'
+          ? t('health.withdrawnWeapp')
+          : result === 'deleted'
+            ? t('health.withdrawnCloudDeleted')
+            : result === 'failed'
+              ? t('health.withdrawnPurgeFailed')
+              : t('health.withdrawnLocalOnly');
       Taro.showToast({ title: msg, icon: 'none' }).catch(() => undefined);
     });
   }, [healthOk, t]);
@@ -607,7 +613,12 @@ export default function SportPage() {
             </View>
             {routeSvgUrl(samples) ? (
               <View className={styles.mapBox}>
-                <Image className={styles.mapImg} src={routeSvgUrl(samples) as string} mode='aspectFit' />
+                <Image
+                  className={styles.mapImg}
+                  src={routeSvgUrl(samples) as string}
+                  mode='aspectFit'
+                  nativeProps={isH5 ? { decoding: 'async' } : undefined}
+                />
               </View>
             ) : (
               <Text className={styles.emptyHint}>{t('sport.routeEmpty')}</Text>
@@ -664,7 +675,12 @@ export default function SportPage() {
             </View>
             {routeSvgUrl(detail.samples) ? (
               <View className={styles.mapBox}>
-                <Image className={styles.mapImg} src={routeSvgUrl(detail.samples) as string} mode='aspectFit' />
+                <Image
+                  className={styles.mapImg}
+                  src={routeSvgUrl(detail.samples) as string}
+                  mode='aspectFit'
+                  nativeProps={isH5 ? { decoding: 'async' } : undefined}
+                />
               </View>
             ) : (
               <Text className={styles.emptyHint}>{t('sport.routeEmpty')}</Text>
@@ -675,7 +691,12 @@ export default function SportPage() {
             <Text className={styles.cardLabel}>{t('sport.paceCurve')}</Text>
             {paceCurveSvgUrl(detail.samples) ? (
               <View className={styles.curveBox}>
-                <Image className={styles.curveImg} src={paceCurveSvgUrl(detail.samples) as string} mode='aspectFit' />
+                <Image
+                  className={styles.curveImg}
+                  src={paceCurveSvgUrl(detail.samples) as string}
+                  mode='aspectFit'
+                  nativeProps={isH5 ? { decoding: 'async' } : undefined}
+                />
               </View>
             ) : (
               <Text className={styles.emptyHint}>{t('sport.curveEmpty')}</Text>

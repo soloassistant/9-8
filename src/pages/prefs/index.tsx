@@ -524,6 +524,10 @@ function PrefsPage() {
           </>,
           () => setVaultImportOpen(true)
         )}
+        {/* 小程序端没有 KV 同步层：导出只到剪贴板、导入只恢复本机，不能沿用“云端备份”口径 */}
+        {process.env.TARO_ENV === 'weapp' ? (
+          <Text className={styles.valueHint}>{t('data.vaultNote')}</Text>
+        ) : null}
       </View>
       <PromptModal
         visible={vaultImportOpen}

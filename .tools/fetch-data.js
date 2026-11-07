@@ -158,6 +158,26 @@ function safeMediaUrl(v) {
   return /^https?:\/\//i.test(s) ? s : undefined;
 }
 
+/** 是否入库即丢弃这张图（true = 丢弃）。口径与 `src/utils/imageUrl.ts` 的
+ *  `isDroppableImage` 一致：1×1 追踪像素 + 已知永久失效源。
+ *
+ *  为什么在入库侧就扔：这些 URL **必然失败**（npr.brightspotcdn.com 三种 Referer
+ *  全 403），留在 JSON 里等于每屏都重试一次必败请求，再走前端占位兜底。
+ */
+const DEAD_IMAGE_HOSTS = ['npr.brightspotcdn.com'];
+const TRACKING_PIXEL_RE =
+  /(?:^|[/_.-])(?:1x1|pixel|spacer|blank|transparent|beacon|impression)\.(?:gif|png|jpg|jpeg|webp|avif)(?:[?#]|$)/i;
+const ONE_PX_QUERY_RE = /[?&](?:w|width|h|height)=1(?:&|$)/i;
+
+function isDroppableImage(v) {
+  const s = safeMediaUrl(v);
+  if (!s) return true;
+  const m = /^https?:\/\/([^/?#]+)/i.exec(s);
+  const host = m ? m[1].toLowerCase().replace(/:\d+$/, '') : '';
+  if (DEAD_IMAGE_HOSTS.some((bad) => host === bad || host.endsWith(`.${bad}`))) return true;
+  return TRACKING_PIXEL_RE.test(s) || ONE_PX_QUERY_RE.test(s);
+}
+
 /** 抽取条目真实配图：media:content / media:thumbnail / enclosure(image) / 正文首个 <img>。
  *
  *  2026-10-30：**与 cloudfunctions/webSearch/index.js 的 pickImage 逐字同口径**。
@@ -177,7 +197,9 @@ function pickImage(block) {
   ];
   const url = candidates.find(Boolean);
   if (!url || !/^https?:\/\//i.test(url)) return undefined;
-  return safeMediaUrl(url.replace(/&amp;/g, '&'));
+  const safe = safeMediaUrl(url.replace(/&amp;/g, '&'));
+  // 追踪像素 / 已知死源 → 视为「本条没图」，下游走纯文本行（比给一个必败 URL 更诚实）
+  return safe && !isDroppableImage(safe) ? safe : undefined;
 }
 
 /** 极简 RSS 解析（无依赖）。tag / pubDate 口径与 static-server.js 的 parseRss 完全一致：

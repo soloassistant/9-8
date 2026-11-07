@@ -281,7 +281,10 @@ function pickImage(block) {
   ];
   const url = candidates.find(Boolean);
   if (!url || !/^https?:\/\//i.test(url)) return undefined;
-  return url.replace(/&amp;/g, '&');
+  const safe = url.replace(/&amp;/g, '&');
+  // 1×1 追踪像素 / 已知永久失效源 → 视为「本条没图」（口径同 src/utils/imageUrl.ts）。
+  // 留着它等于每屏重试一次必败请求，还要前端再兜一层占位。
+  return isDroppableImage(safe) ? undefined : safe;
 }
 
 /** 去 HTML 标签与实体，压成单行摘要。
@@ -899,7 +902,7 @@ async function getVideoNews(limit = VIDEO_NEWS_LIMIT) {
           content: clampSummary(stripHtml(String(it.description || it.desc || '')), 1000),
           source: '哔哩哔哩',
           url: bvid ? `https://www.bilibili.com/video/${bvid}` : undefined,
-          image: safeMediaUrl(pic),
+          image: imageOrUndefined(pic),
           tags: ['视频'],
           duration: typeof it.duration === 'string' ? it.duration.slice(0, 10) : undefined,
           author: author ? author.slice(0, 30) : undefined,
@@ -1400,7 +1403,7 @@ function fallbackIntel(newsItems, limit = 5) {
     return {
       text: clampSummary(body, INTEL_ITEM_TEXT_MAX),
       source: it.source != null && it.source !== '' ? String(it.source) : '综合',
-      image: safeMediaUrl(it.image),
+      image: imageOrUndefined(it.image),
       url: safeMediaUrl(it.url),
       ...(createTime ? { createTime } : {})
     };
@@ -1419,6 +1422,32 @@ function safeMediaUrl(v) {
   if (!s || s.length > 512) return undefined;
   if (/[\u0000-\u001f\u007f]/.test(s)) return undefined;
   return /^https?:\/\//i.test(s) ? s : undefined;
+}
+
+/** 已知永久不可用的图源（源站侧拒，换 Referer 也救不回来）。
+ *  npr.brightspotcdn.com 实测（2026-11-05）：无 Referer / 本应用 Referer / npr.org
+ *  Referer 三种情况全部 403 + 986 B HTML，属 WAF/已删/反爬之一，不是防盗链。 */
+const DEAD_IMAGE_HOSTS = ['npr.brightspotcdn.com'];
+/** 1×1 追踪像素的文件名（只认文件名本身是这些词，不误杀 pixel-art.jpg 之类） */
+const TRACKING_PIXEL_RE =
+  /(?:^|[/_.-])(?:1x1|pixel|spacer|blank|transparent|beacon|impression)\.(?:gif|png|jpg|jpeg|webp|avif)(?:[?#]|$)/i;
+/** 显式声明 1px 的查询参数（`?w=1` / `&height=1`）；`width=100` 不命中 */
+const ONE_PX_QUERY_RE = /[?&](?:w|width|h|height)=1(?:&|$)/i;
+
+/** 入库即丢弃这张图（true = 丢弃）。口径与 `src/utils/imageUrl.ts` 的 isDroppableImage 一致 */
+function isDroppableImage(v) {
+  const s = safeMediaUrl(v);
+  if (!s) return true;
+  const m = /^https?:\/\/([^/?#]+)/i.exec(s);
+  const host = m ? m[1].toLowerCase().replace(/:\d+$/, '') : '';
+  if (DEAD_IMAGE_HOSTS.some((bad) => host === bad || host.endsWith(`.${bad}`))) return true;
+  return TRACKING_PIXEL_RE.test(s) || ONE_PX_QUERY_RE.test(s);
+}
+
+/** 配图字段的统一出口：先过 safeMediaUrl，再过 isDroppableImage，任一不通过即 undefined */
+function imageOrUndefined(v) {
+  const s = safeMediaUrl(v);
+  return s && !isDroppableImage(s) ? s : undefined;
 }
 
 /** 5e：免费档/降级档兜底补源。先取主池 ranked 上限 limit 条；不足时从 soft 池
